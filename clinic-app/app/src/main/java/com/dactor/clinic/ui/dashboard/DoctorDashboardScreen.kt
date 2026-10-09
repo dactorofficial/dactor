@@ -1,0 +1,1170 @@
+package com.dactor.clinic.ui.dashboard
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
+import com.dactor.clinic.data.model.Appointment
+import com.dactor.clinic.data.model.Clinic
+import com.dactor.clinic.data.model.ClinicInvitation
+import com.dactor.clinic.data.model.Doctor
+import com.dactor.clinic.data.repository.AppointmentRepository
+import com.dactor.clinic.data.repository.ClinicRepository
+import com.dactor.clinic.data.repository.DoctorRepository
+import com.dactor.clinic.data.repository.InvitationRepository
+import com.dactor.clinic.data.repository.QueueRepository
+import com.dactor.clinic.ui.navigation.NavRoutes
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DoctorDashboardScreen(
+    navController: NavController,
+    doctorId: String? = null,
+    doctorRepository: DoctorRepository? = null,
+    queueRepository: QueueRepository? = null,
+    appointmentRepository: AppointmentRepository? = null,
+    invitationRepository: InvitationRepository? = null,
+    clinicRepository: ClinicRepository? = null
+) {
+    val context = LocalContext.current
+    var doctor by remember { mutableStateOf<Doctor?>(null) }
+    var clinic by remember { mutableStateOf<Clinic?>(null) }
+    var affiliatedClinics by remember { mutableStateOf<List<Clinic>>(emptyList()) }
+    var doctorIsInClinic by remember { mutableStateOf(true) }
+    var appointmentsQueue by remember { mutableStateOf<List<Appointment>>(emptyList()) }
+    var pendingInvitations by remember { mutableStateOf<List<ClinicInvitation>>(emptyList()) }
+    var invitingClinics by remember { mutableStateOf<Map<String, Clinic>>(emptyMap()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var activeConsultationSeconds by remember { mutableIntStateOf(0) }
+
+    // Settings & Profile Dialog state
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    var editName by remember { mutableStateOf("") }
+    var editGender by remember { mutableStateOf("Male") }
+    var editAge by remember { mutableStateOf("") }
+    var editStartingYear by remember { mutableStateOf("") }
+    var editPictureUri by remember { mutableStateOf<Uri?>(null) }
+    var editPictureName by remember { mutableStateOf<String?>(null) }
+    var editSpecialty by remember { mutableStateOf("") }
+    var editEducation by remember { mutableStateOf("") }
+    var editNmc by remember { mutableStateOf("") }
+    var editPersonalPhone by remember { mutableStateOf("") }
+    var editPublicPhone by remember { mutableStateOf("") }
+    var editDescription by remember { mutableStateOf("") }
+    var editFee by remember { mutableStateOf("") }
+    var isSavingProfile by remember { mutableStateOf(false) }
+    var profileMessage by remember { mutableStateOf<String?>(null) }
+
+    val editPictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            editPictureUri = uri
+            editPictureName = uri.lastPathSegment?.substringAfterLast('/') ?: "doctor_photo.jpg"
+        }
+    }
+
+    val coroutineScope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
+    val today = LocalDate.now().toString()
+
+    // Live ticking timer for ongoing doctor consultation
+    LaunchedEffect(appointmentsQueue.firstOrNull()?.id) {
+        activeConsultationSeconds = 0
+        while (isActive && appointmentsQueue.isNotEmpty()) {
+            delay(1000L)
+            activeConsultationSeconds++
+        }
+    }
+
+    suspend fun loadDoctorData() {
+        if (doctorRepository != null) {
+            val sessionDocId = com.dactor.clinic.data.local.UserSessionManager(context).getSavedDoctorId()
+            val sessionDocEmail = com.dactor.clinic.data.local.UserSessionManager(context).getSavedEmail()
+
+            val targetDoc = if (!doctorId.isNullOrBlank() && doctorId != "d1") {
+                doctorRepository.getDoctorById(doctorId)
+            } else if (!sessionDocId.isNullOrBlank()) {
+                doctorRepository.getDoctorById(sessionDocId)
+            } else if (!sessionDocEmail.isNullOrBlank()) {
+                doctorRepository.getDoctorByEmail(sessionDocEmail)
+            } else {
+                null
+            }
+
+            if (targetDoc != null) {
+                doctor = targetDoc
+                com.dactor.clinic.data.local.UserSessionManager(context).saveDoctorSession(
+                    targetDoc.id,
+                    targetDoc.email,
+                    targetDoc.fullName
+                )
+                doctorIsInClinic = targetDoc.isInClinic
+                editName = targetDoc.fullName
+                editGender = targetDoc.gender ?: "Male"
+                editAge = targetDoc.age?.toString() ?: ""
+                editStartingYear = targetDoc.startingPracticingYear?.toString() ?: ""
+                editPictureName = targetDoc.profilePictureUrl?.substringAfterLast('/')
+                editSpecialty = targetDoc.specialty ?: "General Physician"
+                editEducation = targetDoc.education ?: ""
+                editNmc = targetDoc.nmcLicenseNumber ?: ""
+                editPersonalPhone = targetDoc.personalMobileNumber ?: ""
+                editPublicPhone = targetDoc.publicMobileNumber ?: ""
+                editDescription = targetDoc.description ?: ""
+                editFee = (targetDoc.consultationFee ?: 500.0).toInt().toString()
+
+                // Load all affiliated clinics for this doctor
+                val affClinics = doctorRepository.getAffiliatedClinicsForDoctor(targetDoc.id, targetDoc.email)
+                affiliatedClinics = affClinics
+
+                // Active clinic is targetDoc.clinicId (or first affiliated clinic)
+                if (!targetDoc.clinicId.isNullOrBlank() && clinicRepository != null) {
+                    clinic = affClinics.find { it.id == targetDoc.clinicId } ?: clinicRepository.getClinicById(targetDoc.clinicId)
+                } else if (affClinics.isNotEmpty()) {
+                    clinic = affClinics.first()
+                } else {
+                    clinic = null
+                }
+
+                // Load clinic invitations & inviting clinic details
+                if (invitationRepository != null && targetDoc.email.isNotBlank()) {
+                    val invites = invitationRepository.getInvitationsForDoctor(targetDoc.email)
+                        .filter { it.status == "pending" }
+                    pendingInvitations = invites
+
+                    if (clinicRepository != null) {
+                        val clinicMap = mutableMapOf<String, Clinic>()
+                        for (inv in invites) {
+                            val c = clinicRepository.getClinicById(inv.clinicId)
+                            if (c != null) {
+                                clinicMap[inv.id] = c
+                            }
+                        }
+                        invitingClinics = clinicMap
+                    }
+                }
+
+                // Load today's active appointments
+                if (appointmentRepository != null) {
+                    val appts = appointmentRepository.getAppointmentsByDoctor(targetDoc.id)
+                    appointmentsQueue = appts.filter {
+                        (it.checkinStatus == "checked_in" || it.checkinStatus == "in_consultation" || it.checkinStatus == "inside_opd") &&
+                        it.checkinStatus != "completed" && it.checkinStatus != "cancelled"
+                    }
+                }
+            }
+        }
+        isLoading = false
+    }
+
+    LaunchedEffect(doctorId) {
+        while (isActive) {
+            loadDoctorData()
+            delay(4000L)
+        }
+    }
+
+    val displayName = doctor?.fullName ?: "Practicing Physician"
+    val displaySpecialty = doctor?.specialty ?: "Specialist OPD"
+    val displayNmc = doctor?.nmcLicenseNumber ?: "NMC Verified"
+    val kycStatus = doctor?.kycStatus ?: "approved"
+    val activeAppointment = appointmentsQueue.firstOrNull()
+    val isAffiliated = doctor?.clinicId != null && clinic != null
+
+    val commonSpecialties = listOf(
+        "General Physician",
+        "Cardiologist",
+        "Pediatrician",
+        "Orthopedic Surgeon",
+        "Dermatologist",
+        "Gynecologist & Obstetrician",
+        "ENT Specialist",
+        "Neurologist",
+        "Psychiatrist",
+        "Ophthalmologist",
+        "Radiologist",
+        "Dentist"
+    )
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(displayName, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(
+                            text = if (isAffiliated) "$displaySpecialty • Affiliated: ${clinic?.name}" else "$displaySpecialty • Independent (Not Affiliated)",
+                            fontSize = 12.sp,
+                            color = if (isAffiliated) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showSettingsDialog = true }) {
+                        Icon(Icons.Default.Settings, contentDescription = "Doctor Profile Settings", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(
+                        onClick = {
+                            com.dactor.clinic.data.local.UserSessionManager(context).clearSession()
+                            try {
+                                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
+                                    context,
+                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                                ).signOut()
+                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                            } catch (ignored: Exception) {}
+                            navController.navigate(NavRoutes.ClinicLogin) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    ) {
+                        Icon(Icons.Default.ExitToApp, contentDescription = "Sign Out", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(scrollState)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // KYC STATUS BANNER
+            if (kycStatus.equals("pending", ignoreCase = true)) {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.PendingActions, contentDescription = null, tint = Color(0xFFD97706))
+                        Column {
+                            Text("NMC License Verification Pending", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF92400E))
+                            Text("Your credentials have been submitted and are under review by the Super Admin.", fontSize = 11.sp, color = Color(0xFF78350F))
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFD1FAE5)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.Verified, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp))
+                        Text("NMC Verified Practitioner • License: $displayNmc", color = Color(0xFF065F46), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+
+            // AFFILIATED CLINICS & PRACTICE LOCATION SELECTION
+            if (affiliatedClinics.isNotEmpty()) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.LocalHospital, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(20.dp))
+                                Text("Affiliated Practice Facilities (${affiliatedClinics.size})", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
+                            }
+                            Text("1 Clinic at a Time", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                        }
+
+                        Text(
+                            text = "You are affiliated with multiple clinics. Select which facility is your active practice location today. Your presence and live queue are active at the selected facility.",
+                            fontSize = 11.sp,
+                            color = Color(0xFF475569)
+                        )
+
+                        affiliatedClinics.forEach { affClinic ->
+                            val isActiveClinic = affClinic.id == clinic?.id
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isActiveClinic) Color(0xFFECFDF5) else Color(0xFFFFFFFF)
+                                ),
+                                border = BorderStroke(
+                                    1.5.dp,
+                                    if (isActiveClinic) Color(0xFF10B981) else Color(0xFFE2E8F0)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .padding(12.dp)
+                                        .fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(affClinic.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (isActiveClinic) Color(0xFF064E3B) else Color(0xFF1E293B))
+                                            if (isActiveClinic) {
+                                                Surface(
+                                                    color = Color(0xFF10B981).copy(alpha = 0.2f),
+                                                    shape = RoundedCornerShape(4.dp)
+                                                ) {
+                                                    Text("Active OPD Location", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF047857), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                                }
+                                            }
+                                        }
+                                        Text(affClinic.addressText ?: "Nepal", fontSize = 11.sp, color = Color(0xFF64748B))
+                                    }
+
+                                    if (!isActiveClinic) {
+                                        Button(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    val targetId = doctor?.id
+                                                    if (targetId != null && doctorRepository != null) {
+                                                        doctorRepository.switchActiveClinic(targetId, affClinic.id, doctorIsInClinic)
+                                                        loadDoctorData()
+                                                    }
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("Set Active", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.DomainDisabled, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(24.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Independent Practice • No Clinic Affiliated", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                "You are not affiliated with any clinic yet. A clinic administrator can invite you using your email: ${doctor?.email ?: "your registered email"}. You can accept the invitation below to get affiliated.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // CLINIC INVITATIONS ACCEPTANCE BANNER (DISTINCT ACTION BUTTON)
+            if (pendingInvitations.isNotEmpty()) {
+                pendingInvitations.forEach { invite ->
+                    val invitingClinic = invitingClinics[invite.id]
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                        border = BorderStroke(1.5.dp, Color(0xFF60A5FA)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(Color(0xFF2563EB).copy(alpha = 0.15f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Mail, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(20.dp))
+                                }
+                                Column {
+                                    Text("Clinic Affiliation Invitation", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1E40AF))
+                                    Text("From: ${invitingClinic?.name ?: "Verified Clinic Partner"}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E3A8A))
+                                }
+                            }
+
+                            if (invitingClinic?.addressText != null) {
+                                Text(
+                                    text = "Location: ${invitingClinic.addressText}",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF1E3A8A)
+                                )
+                            }
+                            Text(
+                                text = "Accepting this invitation will affiliate your doctor profile to this clinic, allowing them to publish OPD time slots for your patients.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF3B82F6)
+                            )
+
+                            // DISTINCT DEDICATED ACCEPT BUTTON
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val targetDoc = doctor
+                                        if (targetDoc != null && invitationRepository != null) {
+                                            coroutineScope.launch {
+                                                invitationRepository.acceptDoctorInvitation(
+                                                    invitationId = invite.id,
+                                                    doctorId = targetDoc.id,
+                                                    clinicId = invite.clinicId
+                                                )
+                                                loadDoctorData()
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Accept Invitation", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        if (invitationRepository != null) {
+                                            coroutineScope.launch {
+                                                invitationRepository.respondToInvitation(invite.id, accept = false)
+                                                loadDoctorData()
+                                            }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
+                                    border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                                    modifier = Modifier.height(48.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Decline", fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // DOCTOR PHYSICAL PRESENCE IN CLINIC TOGGLE
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (doctorIsInClinic) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(14.dp)
+                                .background(
+                                    if (doctorIsInClinic) Color(0xFF10B981) else Color(0xFFEF4444),
+                                    CircleShape
+                                )
+                        )
+                        Column {
+                            Text(
+                                text = if (doctorIsInClinic) "Status: In Clinic at ${clinic?.name ?: "Facility"}" else "Status: Away / On Round",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = if (doctorIsInClinic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = if (doctorIsInClinic)
+                                    "Present at ${clinic?.name ?: "this facility"}. Patients at your other clinics see you as Away."
+                                else
+                                    "Patients see: Doctor has not arrived / on break",
+                                fontSize = 11.sp,
+                                color = if (doctorIsInClinic) Color(0xFF047857) else Color(0xFFB91C1C),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = doctorIsInClinic,
+                        onCheckedChange = { newState ->
+                            doctorIsInClinic = newState
+                            coroutineScope.launch {
+                                val targetId = doctor?.id ?: doctorId
+                                if (targetId != null) {
+                                    val currentClinicId = clinic?.id ?: doctor?.clinicId ?: ""
+                                    if (newState && currentClinicId.isNotBlank()) {
+                                        doctorRepository?.switchActiveClinic(targetId, currentClinicId, true)
+                                    } else {
+                                        doctorRepository?.toggleDoctorPresence(targetId, false)
+                                    }
+                                    loadDoctorData()
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+
+            // ACTIVE PATIENT CONSULTATION CARD
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Active Patient Consultation", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        if (activeAppointment != null) {
+                            Surface(
+                                color = Color(0xFFDBEAFE),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "Code: ${activeAppointment.trackingCode10Digit}",
+                                    color = Color(0xFF1E40AF),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    if (activeAppointment != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(activeAppointment.patientName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text("${activeAppointment.patientAge} yrs • ${activeAppointment.patientGender} • Ph: ${activeAppointment.patientMobile}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+
+                            Surface(
+                                color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = (activeAppointment.checkinStatus ?: "Checked In").uppercase(),
+                                    color = Color(0xFF047857),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+
+                        // Working Consultation Live Timer & Phase Banner
+                        val elapsedMins = activeConsultationSeconds / 60
+                        val elapsedSecs = activeConsultationSeconds % 60
+                        val formattedElapsed = String.format(java.util.Locale.US, "%02d:%02d", elapsedMins, elapsedSecs)
+                        Surface(
+                            color = Color(0xFFDCFCE7),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Box(modifier = Modifier.size(8.dp).background(Color(0xFF16A34A), CircleShape))
+                                    Text("Phase: Clinical Consultation in Progress", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                                }
+                                Text("⏱ $formattedElapsed min", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF166534))
+                            }
+                        }
+
+                        // Clinical Rx & Lab Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    navController.navigate("${NavRoutes.PatientDetail}/${activeAppointment.trackingCode10Digit}")
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Clinical Rx", fontSize = 12.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    navController.navigate(NavRoutes.LabWorkflow)
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Biotech, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Order Lab", fontSize = 12.sp)
+                            }
+                        }
+
+                        // Complete Consultation Button
+                        var isCompleting by remember { mutableStateOf(false) }
+                        Button(
+                            onClick = {
+                                if (isCompleting) return@Button
+                                isCompleting = true
+                                coroutineScope.launch {
+                                    try {
+                                        if (appointmentRepository != null) {
+                                            val ok = appointmentRepository.completeConsultation(activeAppointment.id)
+                                            if (ok) {
+                                                appointmentsQueue = appointmentsQueue.filter { it.id != activeAppointment.id }
+                                            }
+                                        }
+                                        loadDoctorData()
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    } finally {
+                                        isCompleting = false
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            enabled = !isCompleting
+                        ) {
+                            Icon(Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            val nextCount = (appointmentsQueue.size - 1).coerceAtLeast(0)
+                            Text(
+                                text = if (isCompleting) "Completing Consultation..." else if (nextCount > 0) "Complete & Call Next Patient ($nextCount waiting)" else "Complete Consultation",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Next Patients in Queue with Time Window
+                        val upcomingWaiting = appointmentsQueue.drop(1)
+                        if (upcomingWaiting.isNotEmpty()) {
+                            HorizontalDivider()
+                            Text("Next Patients in Queue (${upcomingWaiting.size} waiting):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF475569))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                upcomingWaiting.take(3).forEachIndexed { idx, waitAppt ->
+                                    Surface(
+                                        color = Color(0xFFF8FAFC),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Surface(shape = CircleShape, color = Color(0xFF3B82F6), modifier = Modifier.size(20.dp)) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Text("#${idx + 1}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                                Text(waitAppt.patientName, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Text(
+                                                text = if (waitAppt.appointmentTime.isNotBlank()) "Slot: ${waitAppt.appointmentTime}" else "Waiting in Lobby",
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF0284C7),
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Empty queue state - NO LOOPING
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Text("No Active Consultations", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(
+                                "All appointments for today are completed, or no patients have checked in yet.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    coroutineScope.launch { loadDoctorData() }
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Refresh OPD Queue")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // DOCTOR WORKSPACE MODULES
+            Text("Doctor Clinical Tools", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Card(
+                    modifier = Modifier.weight(1f).height(100.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    onClick = {
+                        val docId = doctor?.id ?: doctorId ?: com.dactor.clinic.data.local.UserSessionManager(context).getSavedDoctorId() ?: ""
+                        if (docId.isNotBlank()) {
+                            navController.navigate("${NavRoutes.PatientDirectory}/$docId")
+                        } else {
+                            navController.navigate(NavRoutes.PatientDirectory)
+                        }
+                    }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Icon(Icons.Default.People, contentDescription = null, tint = Color(0xFF3B82F6))
+                        Column {
+                            Text("Patient Directory", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Past history & clinical records", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier.weight(1f).height(100.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    onClick = { navController.navigate(NavRoutes.FutureAppointments) }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF8B5CF6))
+                        Column {
+                            Text("OPD Schedule", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Upcoming bookings by date", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Card(
+                    modifier = Modifier.weight(1f).height(100.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    onClick = { navController.navigate(NavRoutes.LabWorkflow) }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Icon(Icons.Default.Biotech, contentDescription = null, tint = Color(0xFFEC4899))
+                        Column {
+                            Text("Lab Reports", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Review diagnostic results", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier.weight(1f).height(100.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    onClick = { navController.navigate(NavRoutes.BillingScreen) }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Icon(Icons.Default.Receipt, contentDescription = null, tint = Color(0xFF10B981))
+                        Column {
+                            Text("Invoices & Rx Fee", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Settled and due billing", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // DOCTOR PROFILE & SETTINGS DIALOG
+    if (showSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Text("Doctor Profile & Settings", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 500.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (profileMessage != null) {
+                        Surface(
+                            color = Color(0xFFD1FAE5),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = profileMessage ?: "",
+                                color = Color(0xFF065F46),
+                                modifier = Modifier.padding(10.dp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // 1. Full Name
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("Full Name with Title *") },
+                        placeholder = { Text("e.g. Dr. Ram Bahadur Sharma") },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // 2. Gender
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Gender *", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Male", "Female", "Other").forEach { g ->
+                                FilterChip(
+                                    selected = editGender == g,
+                                    onClick = { editGender = g },
+                                    label = { Text(g, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+                    }
+
+                    // 3. Age & Starting Practicing Year
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = editAge,
+                            onValueChange = {
+                                if (it.length <= 3 && it.all { ch -> ch.isDigit() }) editAge = it
+                            },
+                            label = { Text("Age") },
+                            placeholder = { Text("e.g. 38") },
+                            leadingIcon = { Icon(Icons.Default.Cake, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+
+                        OutlinedTextField(
+                            value = editStartingYear,
+                            onValueChange = {
+                                if (it.length <= 4 && it.all { ch -> ch.isDigit() }) editStartingYear = it
+                            },
+                            label = { Text("Practicing Since") },
+                            placeholder = { Text("e.g. 2014") },
+                            leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                    }
+
+                    // 4. Picture Upload
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Doctor Picture / Avatar", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                Text(
+                                    text = editPictureName ?: "No picture uploaded",
+                                    fontSize = 11.sp,
+                                    color = if (editPictureName != null) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = { editPictureLauncher.launch("image/*") },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (editPictureName != null) "Change" else "Upload", fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    // 5. Specialization
+                    Text("Medical Specialization *", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        commonSpecialties.forEach { spec ->
+                            FilterChip(
+                                selected = editSpecialty == spec,
+                                onClick = { editSpecialty = spec },
+                                label = { Text(spec, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = editSpecialty,
+                        onValueChange = { editSpecialty = it },
+                        label = { Text("Specialty") },
+                        placeholder = { Text("e.g. Cardiologist") },
+                        leadingIcon = { Icon(Icons.Default.MedicalServices, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // 6. Education
+                    OutlinedTextField(
+                        value = editEducation,
+                        onValueChange = { editEducation = it },
+                        label = { Text("Education / Qualifications") },
+                        placeholder = { Text("e.g. MBBS, MD (Internal Medicine)") },
+                        leadingIcon = { Icon(Icons.Default.School, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // 7. NMC ID
+                    OutlinedTextField(
+                        value = editNmc,
+                        onValueChange = { editNmc = it },
+                        label = { Text("NMC License ID") },
+                        placeholder = { Text("e.g. NMC-14520") },
+                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // 8. Personal Mobile Number
+                    OutlinedTextField(
+                        value = editPersonalPhone,
+                        onValueChange = {
+                            if (it.length <= 10 && it.all { ch -> ch.isDigit() }) editPersonalPhone = it
+                        },
+                        label = { Text("Personal Mobile Number") },
+                        placeholder = { Text("98xxxxxxxx") },
+                        leadingIcon = { Icon(Icons.Default.PhoneIphone, contentDescription = null) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // 9. Public Mobile Number
+                    OutlinedTextField(
+                        value = editPublicPhone,
+                        onValueChange = {
+                            if (it.length <= 10 && it.all { ch -> ch.isDigit() }) editPublicPhone = it
+                        },
+                        label = { Text("Public Mobile Number (For Patients)") },
+                        placeholder = { Text("98xxxxxxxx") },
+                        leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // 10. Description
+                    OutlinedTextField(
+                        value = editDescription,
+                        onValueChange = { editDescription = it },
+                        label = { Text("Description / Bio") },
+                        placeholder = { Text("Special clinical interests, background...") },
+                        maxLines = 3,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // 11. Consultation Fee
+                    OutlinedTextField(
+                        value = editFee,
+                        onValueChange = { editFee = it },
+                        label = { Text("Consultation Fee (Rs.)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val targetDoc = doctor
+                        if (targetDoc != null && doctorRepository != null) {
+                            isSavingProfile = true
+                            coroutineScope.launch {
+                                val feeDouble = editFee.toDoubleOrNull() ?: targetDoc.consultationFee ?: 500.0
+                                val ageInt = editAge.toIntOrNull()
+                                val yearInt = editStartingYear.toIntOrNull()
+                                val picUrl = editPictureUri?.toString() ?: targetDoc.profilePictureUrl
+
+                                doctorRepository.updateDoctorFullProfile(
+                                    id = targetDoc.id,
+                                    fullName = editName.trim(),
+                                    gender = editGender,
+                                    age = ageInt,
+                                    startingYear = yearInt,
+                                    pictureUrl = picUrl,
+                                    specialty = editSpecialty.trim(),
+                                    education = editEducation.trim().ifBlank { null },
+                                    nmcLicenseNumber = editNmc.trim().ifBlank { null },
+                                    personalMobile = editPersonalPhone.trim().ifBlank { null },
+                                    publicMobile = editPublicPhone.trim().ifBlank { null },
+                                    description = editDescription.trim().ifBlank { null },
+                                    consultationFee = feeDouble
+                                )
+
+                                doctor = targetDoc.copy(
+                                    fullName = editName.trim(),
+                                    gender = editGender,
+                                    age = ageInt,
+                                    startingPracticingYear = yearInt,
+                                    profilePictureUrl = picUrl,
+                                    specialty = editSpecialty.trim(),
+                                    education = editEducation.trim().ifBlank { null },
+                                    nmcLicenseNumber = editNmc.trim().ifBlank { null },
+                                    personalMobileNumber = editPersonalPhone.trim().ifBlank { null },
+                                    publicMobileNumber = editPublicPhone.trim().ifBlank { null },
+                                    description = editDescription.trim().ifBlank { null },
+                                    consultationFee = feeDouble
+                                )
+                                isSavingProfile = false
+                                profileMessage = "Profile updated successfully!"
+                            }
+                        }
+                    },
+                    enabled = !isSavingProfile,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(if (isSavingProfile) "Saving..." else "Save Changes")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSettingsDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+}

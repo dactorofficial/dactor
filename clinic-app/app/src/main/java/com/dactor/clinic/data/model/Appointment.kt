@@ -1,0 +1,25 @@
+package com.dactor.clinic.data.model
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Appointment(
+    @SerialName("id") val id: String,
+    @SerialName("tracking_code_10_digit") val trackingCode10Digit: String,
+    @SerialName("slot_id") val slotId: String? = null,
+    @SerialName("clinic_id") val clinicId: String,
+    @SerialName("doctor_id") val doctorId: String? = null,
+    @SerialName("user_id") val userId: String? = null,
+    @SerialName("patient_name") val patientName: String,
+    @SerialName("patient_age") val patientAge: Int? = null,
+    @SerialName("patient_gender") val patientGender: String? = null,
+    @SerialName("patient_mobile") val patientMobile: String,
+    @SerialName("patient_email") val patientEmail: String? = null,
+    @SerialName("payment_status") val paymentStatus: String? = null,
+    @SerialName("checkin_status") val checkinStatus: String? = null,
+    @SerialName("appointment_date") val appointmentDate: String,
+    @SerialName("appointment_time") val appointmentTime: String,
+    @SerialName("fee_amount") val feeAmount: Double = 0.0,
+    @SerialName("is_walkin") val isWalkin: Boolean = false
+)

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "429529188002",
+    "project_id": "dactor-ea1e1",
+    "storage_bucket": "dactor-ea1e1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:429529188002:android:472c89bd2e01eb6bab79fb",
+        "android_client_info": {
+          "package_name": "com.dactor.patient"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBymdhtyr58U3Ms7csIZ5DUBDJ9CLzZreE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
