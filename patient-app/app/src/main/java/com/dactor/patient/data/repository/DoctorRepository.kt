@@ -29,7 +29,7 @@ private data class DoctorExtendedMeta(
 class DoctorRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
     @Volatile
     private var cachedAllDoctors: List<Doctor>? = null
@@ -173,9 +173,11 @@ class DoctorRepository @Inject constructor(
             .map { enrichDoctor(it) }
     }
 
-    suspend fun getDoctorById(id: String): Doctor? {
+    suspend fun getDoctorById(id: String, forceRefresh: Boolean = false): Doctor? {
         if (id.isBlank()) return null
-        cachedDoctorsById[id]?.let { return it }
+        if (!forceRefresh) {
+            cachedDoctorsById[id]?.let { return it }
+        }
         return try {
             val doc = supabaseClient.postgrest["doctors"]
                 .select { filter { eq("id", id) } }

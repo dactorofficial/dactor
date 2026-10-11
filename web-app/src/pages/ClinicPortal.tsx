@@ -89,6 +89,7 @@ import {
   saveWeeklySchedule,
   updateDoctor,
   sendManualNotification,
+  checkEmailPortalAssociation,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { supabase } from '../lib/supabase'
@@ -726,6 +727,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setVerifiedEmail(trimmedEmail)
 
     try {
+      // Enforce 1 Google Account = 1 Portal Role rule
+      const assoc = await checkEmailPortalAssociation(trimmedEmail)
+      if (roleTab === 'clinic' && assoc && assoc.portal !== 'clinic') {
+        await signOutFirebase().catch(() => {})
+        setVerifiedEmail('')
+        setCurrentView('auth_choice')
+        const entitySuffix = assoc.entityName ? ` (${assoc.entityName})` : ''
+        setFirebaseError(
+          `This Google account (${trimmedEmail}) is already associated with a ${assoc.portalLabel} account${entitySuffix}. You cannot log in to the Clinic Portal with this Google ID. Please change your Google account.`
+        )
+        return
+      }
+      if (roleTab === 'doctor' && assoc && assoc.portal !== 'doctor') {
+        await signOutFirebase().catch(() => {})
+        setVerifiedEmail('')
+        setCurrentView('auth_choice')
+        const entitySuffix = assoc.entityName ? ` (${assoc.entityName})` : ''
+        setFirebaseError(
+          `This Google account (${trimmedEmail}) is already associated with a ${assoc.portalLabel} account${entitySuffix}. You cannot log in to the Doctor / Specialist Portal with this Google ID. Please change your Google account.`
+        )
+        return
+      }
+
       if (roleTab === 'clinic') {
         const existingClinic = await getClinicByEmail(trimmedEmail)
         if (existingClinic) {
@@ -802,6 +826,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setFirebaseLoading(true)
     setFirebaseError(null)
     try {
+      await signOutFirebase().catch(() => {})
       const googleUser = await signInWithFirebaseGoogle()
       if (!googleUser || !googleUser.email) {
         throw new Error('Google sign-in did not return user credentials.')
@@ -1716,10 +1741,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
             <button
               type="button"
-              onClick={resetToAuthChoice}
-              className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition-all text-xs cursor-pointer"
+              onClick={() => {
+                resetToAuthChoice()
+                handleGoogleSignInWithRole(pendingEntity.role)
+              }}
+              className="w-full py-3 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold rounded-2xl transition-all text-xs cursor-pointer flex items-center justify-center space-x-2"
             >
-              Sign In with a Different Provider Account
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Change Account</span>
             </button>
           </div>
 
@@ -1822,13 +1851,22 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 Your registration and verification status will be bound to this Google email address.
               </p>
             </div>
-            <input
-              type="email"
-              value={verifiedEmail}
-              onChange={(e) => setVerifiedEmail(e.target.value)}
-              placeholder="doctor.or.clinic@gmail.com"
-              className="px-3.5 py-2 rounded-xl border border-brand-200 bg-white text-xs font-bold text-slate-800 sm:w-64 focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="email"
+                value={verifiedEmail}
+                onChange={(e) => setVerifiedEmail(e.target.value)}
+                placeholder="doctor.or.clinic@gmail.com"
+                className="px-3.5 py-2 rounded-xl border border-brand-200 bg-white text-xs font-bold text-slate-800 sm:w-56 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <button
+                type="button"
+                onClick={() => handleGoogleSignInWithRole(portalRoleTab)}
+                className="px-3 py-2 rounded-xl border border-brand-300 bg-white hover:bg-brand-50 text-brand-700 font-bold text-xs shrink-0 cursor-pointer transition"
+              >
+                Change Account
+              </button>
+            </div>
           </div>
 
           {portalRoleTab === 'clinic' ? (
@@ -2654,9 +2692,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           </div>
 
           {firebaseError && (
-            <div className="p-3.5 bg-rose-50 rounded-2xl border border-rose-200 text-xs text-rose-700 font-medium text-left flex items-start space-x-2">
-              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-              <span>{firebaseError}</span>
+            <div className="p-3.5 bg-rose-50 rounded-2xl border border-rose-200 text-xs text-rose-700 font-medium text-left space-y-2.5">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <span>{firebaseError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFirebaseError(null)
+                  setVerifiedEmail('')
+                  handleGoogleSignInWithRole(portalRoleTab)
+                }}
+                disabled={firebaseLoading}
+                className="w-full py-2 px-3 rounded-xl bg-white hover:bg-rose-100/60 border border-rose-300 text-rose-800 font-bold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Change Account</span>
+              </button>
             </div>
           )}
 

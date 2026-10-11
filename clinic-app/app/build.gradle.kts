@@ -8,7 +8,7 @@ plugins {
     id("com.google.gms.google-services")
 }
 
-layout.buildDirectory.set(file("build2"))
+layout.buildDirectory.set(file("build"))
 
 android {
     namespace = "com.dactor.clinic"
@@ -18,8 +18,8 @@ android {
         applicationId = "com.dactor.clinic"
         minSdk = 24
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 9
+        versionName = "1.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -30,6 +30,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

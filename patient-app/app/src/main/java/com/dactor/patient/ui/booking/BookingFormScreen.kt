@@ -254,21 +254,25 @@ fun BookingFormScreen(
         if (sessionManager != null) {
             val localCodes = sessionManager.getSavedTrackingCodes()
             savedCodes.clear()
+            savedCodes.addAll(localCodes)
             if (appointmentRepository != null) {
-                for (codePair in localCodes) {
-                    try {
-                        val valid = appointmentRepository.getAppointmentByTrackingCode(codePair.first)
-                        if (valid != null) {
-                            savedCodes.add(codePair)
-                        } else {
-                            sessionManager.removeTrackingCode(codePair.first)
+                try {
+                    val linkedAppts = appointmentRepository.getAllPatientAppointments(
+                        userId = savedPatientId,
+                        email = savedEmail,
+                        phone = savedPhone,
+                        trackingCodes = localCodes.map { it.first }
+                    )
+                    for (a in linkedAppts) {
+                        if (a.trackingCode10Digit.isNotBlank()) {
+                            val label = "${a.patientName} • ${a.appointmentDate}"
+                            sessionManager.saveTrackingCode(a.trackingCode10Digit, label)
+                            if (savedCodes.none { it.first == a.trackingCode10Digit }) {
+                                savedCodes.add(a.trackingCode10Digit to label)
+                            }
                         }
-                    } catch (e: Exception) {
-                        savedCodes.add(codePair)
                     }
-                }
-            } else {
-                savedCodes.addAll(localCodes)
+                } catch (ignored: Exception) {}
             }
         }
 
@@ -477,7 +481,7 @@ fun BookingFormScreen(
                                             resolvedDoctorId = s.doctorId
                                         }
                                         resolvedDate = s.slotDate
-                                        resolvedTime = "${s.startTime} - ${s.endTime}"
+                                        resolvedTime = com.dactor.patient.data.repository.AppointmentRepository.normalizeTimeForPostgres(s.startTime)
                                     }
 
                                     if (resolvedClinicId == null && clinicRepository != null) {

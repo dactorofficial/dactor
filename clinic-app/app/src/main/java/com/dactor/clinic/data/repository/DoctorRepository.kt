@@ -55,7 +55,6 @@ data class DoctorUpdateDto(
     @SerialName("full_name") val fullName: String,
     @SerialName("email") val email: String,
     @SerialName("specialty") val specialty: String? = null,
-    @SerialName("specialties") val specialties: List<String> = emptyList(),
     @SerialName("nmc_license_number") val nmcLicenseNumber: String? = null,
     @SerialName("license_doc_url") val licenseDocUrl: String? = null,
     @SerialName("certificates_doc_url") val certificatesDocUrl: String? = null,
@@ -78,7 +77,7 @@ data class DoctorUpdateDto(
 class DoctorRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true; coerceInputValues = true }
     private val cachedDoctorsByClinic = java.util.concurrent.ConcurrentHashMap<String, List<Doctor>>()
     @Volatile
     private var cachedAllDoctors: List<Doctor> = emptyList()
@@ -280,20 +279,18 @@ class DoctorRepository @Inject constructor(
         val cid = clinicId?.takeIf { it.isNotBlank() }
         try {
             // Update native is_in_clinic and active_clinic_id columns directly in PostgreSQL
-            val updateMap = mutableMapOf<String, Any?>(
-                "is_in_clinic" to isInClinic
-            )
-            if (isInClinic) {
-                if (cid != null) {
-                    updateMap["active_clinic_id"] = cid
-                    updateMap["clinic_id"] = cid
-                }
-            } else {
-                updateMap["active_clinic_id"] = null
-            }
-
             supabaseClient.postgrest["doctors"]
-                .update(updateMap) {
+                .update({
+                    set("is_in_clinic", isInClinic)
+                    if (isInClinic) {
+                        if (cid != null) {
+                            set("active_clinic_id", cid)
+                            set("clinic_id", cid)
+                        }
+                    } else {
+                        set<String?>("active_clinic_id", null)
+                    }
+                }) {
                     filter {
                         eq("id", doctorId)
                     }
@@ -315,12 +312,13 @@ class DoctorRepository @Inject constructor(
         } catch (e: Exception) {
             try {
                 // Fallback without active_clinic_id in case column is missing or schema difference
-                val fallbackMap = mutableMapOf<String, Any>("is_in_clinic" to isInClinic)
-                if (isInClinic && cid != null) {
-                    fallbackMap["clinic_id"] = cid
-                }
                 supabaseClient.postgrest["doctors"]
-                    .update(fallbackMap) {
+                    .update({
+                        set("is_in_clinic", isInClinic)
+                        if (isInClinic && cid != null) {
+                            set("clinic_id", cid)
+                        }
+                    }) {
                         filter {
                             eq("id", doctorId)
                         }
@@ -435,7 +433,6 @@ class DoctorRepository @Inject constructor(
             fullName = doctor.fullName.trim(),
             email = doctor.email.trim().lowercase(),
             specialty = doctor.specialty?.trim(),
-            specialties = doctor.specialties,
             nmcLicenseNumber = doctor.nmcLicenseNumber?.trim(),
             licenseDocUrl = doctor.licenseDocUrl,
             certificatesDocUrl = doctor.certificatesDocUrl ?: metaJson,
@@ -498,7 +495,9 @@ class DoctorRepository @Inject constructor(
                 updateDoctor(current.copy(consultationFee = consultationFee))
             } else {
                 supabaseClient.postgrest["doctors"]
-                    .update(mapOf("consultation_fee" to consultationFee)) {
+                    .update({
+                        set("consultation_fee", consultationFee)
+                    }) {
                         filter { eq("id", doctorId) }
                     }
                 true
@@ -524,10 +523,10 @@ class DoctorRepository @Inject constructor(
     suspend fun updateDoctorProfile(id: String, specialty: String, consultationFee: Double): Boolean = withContext(Dispatchers.IO) {
         try {
             supabaseClient.postgrest["doctors"]
-                .update(mapOf(
-                    "specialty" to specialty.trim(),
-                    "consultation_fee" to consultationFee
-                )) {
+                .update({
+                    set("specialty", specialty.trim())
+                    set("consultation_fee", consultationFee)
+                }) {
                     filter {
                         eq("id", id)
                     }
@@ -587,10 +586,10 @@ class DoctorRepository @Inject constructor(
     suspend fun linkClinicToDoctor(doctorId: String, clinicId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             supabaseClient.postgrest["doctors"]
-                .update(mapOf(
-                    "clinic_id" to clinicId,
-                    "primary_clinic_id" to clinicId
-                )) {
+                .update({
+                    set("clinic_id", clinicId)
+                    set("primary_clinic_id", clinicId)
+                }) {
                     filter {
                         eq("id", doctorId)
                     }
@@ -599,7 +598,9 @@ class DoctorRepository @Inject constructor(
         } catch (e: Exception) {
             try {
                 supabaseClient.postgrest["doctors"]
-                    .update(mapOf("clinic_id" to clinicId)) {
+                    .update({
+                        set("clinic_id", clinicId)
+                    }) {
                         filter {
                             eq("id", doctorId)
                         }
@@ -659,11 +660,11 @@ class DoctorRepository @Inject constructor(
             // First attempt updating clinic_id, is_in_clinic, and active_clinic_id
             try {
                 supabaseClient.postgrest["doctors"]
-                    .update(mapOf(
-                        "clinic_id" to clinicId,
-                        "is_in_clinic" to setInClinic,
-                        "active_clinic_id" to clinicId
-                    )) {
+                    .update({
+                        set("clinic_id", clinicId)
+                        set("is_in_clinic", setInClinic)
+                        set("active_clinic_id", clinicId)
+                    }) {
                         filter { eq("id", doctorId) }
                     }
                 return@withContext true
@@ -672,10 +673,10 @@ class DoctorRepository @Inject constructor(
             }
 
             supabaseClient.postgrest["doctors"]
-                .update(mapOf(
-                    "clinic_id" to clinicId,
-                    "is_in_clinic" to setInClinic
-                )) {
+                .update({
+                    set("clinic_id", clinicId)
+                    set("is_in_clinic", setInClinic)
+                }) {
                     filter { eq("id", doctorId) }
                 }
             true

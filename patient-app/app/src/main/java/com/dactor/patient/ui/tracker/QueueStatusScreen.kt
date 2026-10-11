@@ -464,8 +464,8 @@ fun QueueStatusScreen(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color(0xFF00695C),
-                                Color(0xFF004D40)
+                                Color(0xFF2563EB),
+                                Color(0xFF1D4ED8)
                             )
                         )
                     )
@@ -480,7 +480,7 @@ fun QueueStatusScreen(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFDC2626) // crimson red pill from mockup
+                            color = Color.White.copy(alpha = 0.2f)
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -488,13 +488,13 @@ fun QueueStatusScreen(
                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.ArrowDropDown,
+                                    Icons.Default.LocalHospital,
                                     contentDescription = null,
                                     tint = Color.White,
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Text(
-                                    text = "Contigo",
+                                    text = "Dactor Live Queue",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
@@ -606,7 +606,7 @@ fun QueueStatusScreen(
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "10-DIGIT CODE: ",
+                                    text = "APPOINTMENT ID: ",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF0369A1),
@@ -624,9 +624,9 @@ fun QueueStatusScreen(
                         IconButton(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("Tracking Code", displayTrackingCode)
+                                val clip = ClipData.newPlainText("Appointment ID", displayTrackingCode)
                                 clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Tracking Code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Appointment ID copied to clipboard!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.size(30.dp)
                         ) {
@@ -794,7 +794,7 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = when (queueStatus) {
-                                        "inside" -> Color(0xFF00796B)
+                                        "inside" -> Color(0xFF2563EB)
                                         "done" -> Color(0xFF059669)
                                         else -> Color(0xFF0284C7)
                                     },
@@ -841,7 +841,7 @@ fun QueueStatusScreen(
                                     color = when {
                                         isLabClinic && isReportReady -> Color(0xFF059669)
                                         isLabClinic && isSampleProcessing -> Color(0xFFD97706)
-                                        queueStatus == "inside" -> Color(0xFF00796B)
+                                        queueStatus == "inside" -> Color(0xFF2563EB)
                                         queueStatus == "done" -> Color(0xFF059669)
                                         patientsAhead == 0 -> Color(0xFF0F172A)
                                         else -> Color(0xFF0F172A)
@@ -1074,7 +1074,7 @@ fun QueueStatusScreen(
                                             color = when {
                                                 isLabClinic && isReportReady -> Color(0xFF059669)
                                                 isLabClinic && isSampleProcessing -> Color(0xFFD97706)
-                                                queueStatus == "inside" -> Color(0xFF00796B)
+                                                queueStatus == "inside" -> Color(0xFF2563EB)
                                                 queueStatus == "done" -> Color(0xFF059669)
                                                 isSoonReady -> Color(0xFF0284C7)
                                                 timing?.isClinicOnBreak == true -> Color(0xFFDC2626)
@@ -1132,7 +1132,7 @@ fun QueueStatusScreen(
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFF00ACC1), // bright teal clinic icon
+                                    color = Color(0xFF0284C7), // medical blue clinic icon
                                     modifier = Modifier.size(38.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -1176,35 +1176,35 @@ fun QueueStatusScreen(
                                 OutlinedButton(
                                     onClick = { callClinicPhone() },
                                     shape = RoundedCornerShape(16.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF00796B)),
+                                    border = BorderStroke(1.dp, Color(0xFF2563EB)),
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                     modifier = Modifier.height(30.dp)
                                 ) {
                                     Icon(
                                         Icons.Default.Phone,
                                         contentDescription = "Call",
-                                        tint = Color(0xFF00796B),
+                                        tint = Color(0xFF2563EB),
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Spacer(Modifier.width(3.dp))
-                                    Text("Call Clinic", fontSize = 10.sp, color = Color(0xFF00796B), fontWeight = FontWeight.Bold)
+                                    Text("Call Clinic", fontSize = 10.sp, color = Color(0xFF2563EB), fontWeight = FontWeight.Bold)
                                 }
 
                                 OutlinedButton(
                                     onClick = { openGoogleMaps() },
                                     shape = RoundedCornerShape(16.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF00796B)),
+                                    border = BorderStroke(1.dp, Color(0xFF2563EB)),
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                     modifier = Modifier.height(30.dp)
                                 ) {
                                     Icon(
                                         Icons.Default.Directions,
                                         contentDescription = "Directions",
-                                        tint = Color(0xFF00796B),
+                                        tint = Color(0xFF2563EB),
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Spacer(Modifier.width(3.dp))
-                                    Text("Get Directions", fontSize = 10.sp, color = Color(0xFF00796B), fontWeight = FontWeight.Bold)
+                                    Text("Get Directions", fontSize = 10.sp, color = Color(0xFF2563EB), fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1261,7 +1261,7 @@ fun QueueStatusScreen(
                                     text = doctorSpecialty,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF00796B)
+                                    color = Color(0xFF2563EB)
                                 )
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -1791,7 +1791,7 @@ fun QueueStatusScreen(
                     Button(
                         onClick = { handleRescheduleClick() },
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 13.dp),
                         modifier = Modifier
                             .weight(1f)
@@ -1828,7 +1828,7 @@ fun QueueStatusScreen(
                     OutlinedButton(
                         onClick = { openGoogleMaps() },
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.5.dp, Color(0xFF00796B)),
+                        border = BorderStroke(1.5.dp, Color(0xFF2563EB)),
                         colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 13.dp),
                         modifier = Modifier
@@ -1842,7 +1842,7 @@ fun QueueStatusScreen(
                             Icon(
                                 Icons.Default.LocationOn,
                                 contentDescription = "Maps",
-                                tint = Color(0xFF00796B),
+                                tint = Color(0xFF2563EB),
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.width(6.dp))
@@ -1850,7 +1850,7 @@ fun QueueStatusScreen(
                                 text = "View on\nGoogle Maps",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF00796B),
+                                color = Color(0xFF2563EB),
                                 lineHeight = 13.sp
                             )
                         }
@@ -1961,7 +1961,7 @@ fun QueueStatusScreen(
             },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF00796B))
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF2563EB))
                     Text(
                         text = if (isForReport) "Verify Name / Number for Report" else "Verify Patient Identity",
                         fontWeight = FontWeight.Bold,
@@ -2088,7 +2088,7 @@ fun QueueStatusScreen(
                             unlockError = "Details do not match. $remaining attempt(s) remaining."
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                     shape = RoundedCornerShape(10.dp),
                     enabled = verificationInput.isNotBlank() && cooldownSeconds == 0 && !isLockedOut
                 ) {
@@ -2117,7 +2117,7 @@ fun QueueStatusScreen(
             onDismissRequest = { showRescheduleDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.EditCalendar, contentDescription = null, tint = Color(0xFF00796B))
+                    Icon(Icons.Default.EditCalendar, contentDescription = null, tint = Color(0xFF2563EB))
                     Text("Reschedule Appointment", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             },
@@ -2158,7 +2158,7 @@ fun QueueStatusScreen(
                                     }
                                 }
                             ) {
-                                Icon(Icons.Default.CalendarMonth, contentDescription = "Pick Date", tint = Color(0xFF00796B))
+                                Icon(Icons.Default.CalendarMonth, contentDescription = "Pick Date", tint = Color(0xFF2563EB))
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -2178,7 +2178,7 @@ fun QueueStatusScreen(
                                     }
                                 }
                             ) {
-                                Icon(Icons.Default.Schedule, contentDescription = "Pick Time", tint = Color(0xFF00796B))
+                                Icon(Icons.Default.Schedule, contentDescription = "Pick Time", tint = Color(0xFF2563EB))
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -2209,7 +2209,7 @@ fun QueueStatusScreen(
                             isProcessing = false
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                     shape = RoundedCornerShape(10.dp),
                     enabled = !isProcessing
                 ) {
@@ -2403,7 +2403,7 @@ fun QueueStatusScreen(
             onDismissRequest = { showPrescriptionDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF00796B))
+                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF2563EB))
                     Text("Prescription & Remarks", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             },
@@ -2445,7 +2445,7 @@ fun QueueStatusScreen(
             confirmButton = {
                 Button(
                     onClick = { showPrescriptionDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Close", fontSize = 12.sp, fontWeight = FontWeight.Bold)

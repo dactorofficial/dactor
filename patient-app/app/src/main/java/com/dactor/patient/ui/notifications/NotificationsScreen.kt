@@ -155,103 +155,105 @@ fun DactorTemplateNotificationCard(
                 lineHeight = 20.sp
             )
 
-            // Bottom 2-Column Pill Container matching Notification Template
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color(0xFFF1F6F8),
-                border = BorderStroke(1.dp, Color(0xFFDCE8EC)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp)
-            ) {
-                Row(
+            // Bottom 2-Column Pill Container: ONLY for Queue Status Reminders
+            if (templateData.isQueueReminder) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(top = 4.dp)
                 ) {
-                    // Left Metric: Estimated Time Left
                     Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(NotifTeal, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.Groups,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = templateData.leftLabel,
-                                fontSize = 11.sp,
-                                color = NotifSlateMuted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = templateData.leftValue,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = NotifSlateDark,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    // Vertical Divider
-                    Box(
                         modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .width(1.dp)
-                            .height(34.dp)
-                            .background(Color(0xFFCBD5E1))
-                    )
-
-                    // Right Metric: Your Appointment Time
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Left Metric: Estimated Time Left
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(NotifTeal, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Groups,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = templateData.leftLabel,
+                                    fontSize = 11.sp,
+                                    color = NotifSlateMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = templateData.leftValue,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = NotifSlateDark,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        // Vertical Divider
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
-                                .background(NotifTeal, CircleShape),
-                            contentAlignment = Alignment.Center
+                                .padding(horizontal = 8.dp)
+                                .width(1.dp)
+                                .height(34.dp)
+                                .background(Color(0xFFCBD5E1))
+                        )
+
+                        // Right Metric: Your Appointment Time
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                Icons.Default.EventAvailable,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = templateData.rightLabel,
-                                fontSize = 11.sp,
-                                color = NotifSlateMuted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = templateData.rightValue,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = NotifSlateDark,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(NotifTeal, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.EventAvailable,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = templateData.rightLabel,
+                                    fontSize = 11.sp,
+                                    color = NotifSlateMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = templateData.rightValue,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = NotifSlateDark,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }

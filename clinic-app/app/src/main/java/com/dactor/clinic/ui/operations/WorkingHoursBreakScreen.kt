@@ -42,9 +42,11 @@ fun WorkingHoursBreakScreen(
 ) {
     val context = LocalContext.current
     val sessionManager = remember { UserSessionManager(context) }
-    val effectiveClinicId = remember(clinicId) {
-        if (clinicId.isNotBlank() && clinicId != "c1") clinicId
-        else sessionManager.getSavedClinicId() ?: ""
+    var effectiveClinicId by remember(clinicId) {
+        mutableStateOf(
+            if (clinicId.isNotBlank() && clinicId != "c1") clinicId
+            else sessionManager.getSavedClinicId() ?: ""
+        )
     }
 
     val coroutineScope = rememberCoroutineScope()
@@ -75,7 +77,24 @@ fun WorkingHoursBreakScreen(
     }
 
     suspend fun loadClinicData(isInitial: Boolean = false) {
-        if (effectiveClinicId.isBlank() || clinicRepository == null) return
+        if (clinicRepository == null) return
+        if (effectiveClinicId.isBlank()) {
+            val savedEmail = sessionManager.getSavedEmail()
+            val fallbackClinic = if (!savedEmail.isNullOrBlank()) {
+                clinicRepository.getClinicByEmail(savedEmail)
+            } else {
+                clinicRepository.getClinics().firstOrNull()
+            }
+            if (fallbackClinic != null) {
+                effectiveClinicId = fallbackClinic.id
+                sessionManager.saveClinicSession(
+                    fallbackClinic.id,
+                    fallbackClinic.contactEmail ?: savedEmail ?: "",
+                    fallbackClinic.name
+                )
+            }
+        }
+        if (effectiveClinicId.isBlank()) return
         val fetched = clinicRepository.getClinicById(effectiveClinicId) ?: return
         clinic = fetched
         if (System.currentTimeMillis() - lastBreakToggleMs > 12_000L) {
@@ -117,14 +136,20 @@ fun WorkingHoursBreakScreen(
                 actions = {
                     Button(
                         onClick = {
-                            if (effectiveClinicId.isBlank() || clinicRepository == null || isSavingSchedule) return@Button
+                            if (clinicRepository == null || isSavingSchedule) return@Button
                             isSavingSchedule = true
                             coroutineScope.launch {
-                                val ok = clinicRepository.saveWeeklySchedule(
-                                    clinicId = effectiveClinicId,
-                                    days = weeklyDays,
-                                    isOnBreak = isClinicOnBreak
-                                )
+                                if (effectiveClinicId.isBlank()) {
+                                    loadClinicData(isInitial = true)
+                                }
+                                val targetId = effectiveClinicId
+                                val ok = if (targetId.isNotBlank()) {
+                                    clinicRepository.saveWeeklySchedule(
+                                        clinicId = targetId,
+                                        days = weeklyDays,
+                                        isOnBreak = isClinicOnBreak
+                                    )
+                                } else null
                                 isSavingSchedule = false
                                 statusBannerMessage = if (ok != null) {
                                     "✓ Default weekly working hours & break times saved!"
@@ -135,7 +160,7 @@ fun WorkingHoursBreakScreen(
                         },
                         enabled = !isSavingSchedule,
                         shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
@@ -219,14 +244,14 @@ fun WorkingHoursBreakScreen(
                             ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = if (isClinicOnBreak) Color(0xFFFEF3C7) else Color(0xFFE0F2F1),
+                                    color = if (isClinicOnBreak) Color(0xFFFEF3C7) else Color(0xFFEFF6FF),
                                     modifier = Modifier.size(44.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             Icons.Default.FreeBreakfast,
                                             contentDescription = null,
-                                            tint = if (isClinicOnBreak) Color(0xFFD97706) else Color(0xFF00796B),
+                                            tint = if (isClinicOnBreak) Color(0xFFD97706) else Color(0xFF2563EB),
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
@@ -256,6 +281,9 @@ fun WorkingHoursBreakScreen(
                                     isClinicOnBreak = checked
                                     lastBreakToggleMs = System.currentTimeMillis()
                                     coroutineScope.launch {
+                                        if (effectiveClinicId.isBlank()) {
+                                            loadClinicData(isInitial = true)
+                                        }
                                         val updatedClinic = clinicRepository?.toggleClinicBreak(effectiveClinicId, checked)
                                         if (updatedClinic != null) {
                                             clinic = updatedClinic
@@ -379,7 +407,7 @@ fun WorkingHoursBreakScreen(
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = if (dayInfo.isOpen) Color(0xFFE0F2F1) else Color(0xFFE2E8F0),
+                                    color = if (dayInfo.isOpen) Color(0xFFEFF6FF) else Color(0xFFE2E8F0),
                                     modifier = Modifier.size(38.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -387,7 +415,7 @@ fun WorkingHoursBreakScreen(
                                             text = dayInfo.dayName.take(3).uppercase(Locale.US),
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 11.sp,
-                                            color = if (dayInfo.isOpen) Color(0xFF00796B) else Color(0xFF64748B)
+                                            color = if (dayInfo.isOpen) Color(0xFF2563EB) else Color(0xFF64748B)
                                         )
                                     }
                                 }
@@ -406,7 +434,7 @@ fun WorkingHoursBreakScreen(
                                             "Closed (Weekly Off)"
                                         },
                                         fontSize = 11.5.sp,
-                                        color = if (dayInfo.isOpen) Color(0xFF059669) else Color(0xFF64748B),
+                                        color = if (dayInfo.isOpen) Color(0xFF2563EB) else Color(0xFF64748B),
                                         fontWeight = FontWeight.Medium
                                     )
                                 }
@@ -420,7 +448,7 @@ fun WorkingHoursBreakScreen(
                                     text = if (dayInfo.isOpen) "Open" else "Closed",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (dayInfo.isOpen) Color(0xFF059669) else Color(0xFF64748B)
+                                    color = if (dayInfo.isOpen) Color(0xFF2563EB) else Color(0xFF64748B)
                                 )
                                 Switch(
                                     checked = dayInfo.isOpen,
@@ -450,8 +478,8 @@ fun WorkingHoursBreakScreen(
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFFF0FDF4),
-                                    border = BorderStroke(1.dp, Color(0xFF86EFAC)),
+                                    color = Color(0xFFEFF6FF),
+                                    border = BorderStroke(1.dp, Color(0xFF93C5FD)),
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable { activeTimePickerTarget = index to "open" }
@@ -464,7 +492,7 @@ fun WorkingHoursBreakScreen(
                                             text = "OPENING TIME",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF15803D)
+                                            color = Color(0xFF1D4ED8)
                                         )
                                         Spacer(Modifier.height(2.dp))
                                         Text(
@@ -619,13 +647,13 @@ fun WorkingHoursBreakScreen(
                                     },
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
-                                    Icon(Icons.Default.CopyAll, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color(0xFF00796B))
+                                    Icon(Icons.Default.CopyAll, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color(0xFF2563EB))
                                     Spacer(Modifier.width(4.dp))
                                     Text(
                                         text = "Apply ${dayInfo.dayName}'s hours to all open days",
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF00796B)
+                                        color = Color(0xFF2563EB)
                                     )
                                 }
                             }
@@ -638,14 +666,20 @@ fun WorkingHoursBreakScreen(
             item {
                 Button(
                     onClick = {
-                        if (effectiveClinicId.isBlank() || clinicRepository == null || isSavingSchedule) return@Button
+                        if (clinicRepository == null || isSavingSchedule) return@Button
                         isSavingSchedule = true
                         coroutineScope.launch {
-                            val ok = clinicRepository.saveWeeklySchedule(
-                                clinicId = effectiveClinicId,
-                                days = weeklyDays,
-                                isOnBreak = isClinicOnBreak
-                            )
+                            if (effectiveClinicId.isBlank()) {
+                                loadClinicData(isInitial = true)
+                            }
+                            val targetId = effectiveClinicId
+                            val ok = if (targetId.isNotBlank()) {
+                                clinicRepository.saveWeeklySchedule(
+                                    clinicId = targetId,
+                                    days = weeklyDays,
+                                    isOnBreak = isClinicOnBreak
+                                )
+                            } else null
                             isSavingSchedule = false
                             statusBannerMessage = if (ok != null) {
                                 "✓ Weekly working hours & break times saved as default for every week!"
@@ -656,7 +690,7 @@ fun WorkingHoursBreakScreen(
                     },
                     enabled = !isSavingSchedule,
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)

@@ -64,13 +64,12 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
 
-        // 4. Start real-time background watcher for doctor alerts, automatic queue alerts & broadcasts
+        // 4. Dismiss any lingering watchdog notifications
         try {
-            val watchdogIntent = Intent(this, com.dactor.patient.service.NotificationWatchdogService::class.java)
+            val nm = getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            nm?.cancel(99101)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(watchdogIntent)
-            } else {
-                startService(watchdogIntent)
+                nm?.deleteNotificationChannel("dactor_background_sync")
             }
         } catch (ignored: Exception) {}
 
@@ -104,27 +103,13 @@ class MainActivity : ComponentActivity() {
                     )
 
                     if (isFirstPoll) {
+                        // Mark existing historical notifications as seen so they don't spam the user on app launch
                         for (notif in notifs) {
-                            val isTargeted = !notif.userId.isNullOrBlank() ||
-                                !notif.appointmentId.isNullOrBlank() ||
-                                notif.type in listOf("manual_alert", "queue_alert", "lab_report", "clinic_break")
-                            if (!sessionManager.isNotificationSeen(notif.id)) {
-                                sessionManager.markNotificationSeen(notif.id)
-                                if (isTargeted && !notif.isRead) {
-                                    val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
-                                    NotificationHelper.showSystemNotification(
-                                        context = this@MainActivity,
-                                        id = notifId,
-                                        title = notif.title.ifBlank { "Dactor Health Alert" },
-                                        message = notif.message,
-                                        appointmentId = notif.appointmentId,
-                                        type = notif.type
-                                    )
-                                }
-                            }
+                            sessionManager.markNotificationSeen(notif.id)
                         }
                         isFirstPoll = false
                     } else {
+                        // Only notify for truly new incoming notifications
                         for (notif in notifs) {
                             if (!sessionManager.isNotificationSeen(notif.id)) {
                                 sessionManager.markNotificationSeen(notif.id)

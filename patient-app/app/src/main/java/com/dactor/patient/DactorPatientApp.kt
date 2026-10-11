@@ -41,16 +41,13 @@ class DactorPatientApp : Application() {
             e.printStackTrace()
         }
 
-        // 3. Start background alert watchdog foreground service
+        // 3. Clean up any leftover foreground watchdog notifications
         try {
-            val watchdogIntent = Intent(this, NotificationWatchdogService::class.java)
+            val nm = getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            nm?.cancel(99101)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                startForegroundService(watchdogIntent)
-            } else {
-                startService(watchdogIntent)
+                nm?.deleteNotificationChannel("dactor_background_sync")
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (_: Exception) {}
     }
 }

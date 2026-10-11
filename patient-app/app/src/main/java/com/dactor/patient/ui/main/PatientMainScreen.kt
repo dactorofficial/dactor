@@ -5078,7 +5078,9 @@ fun ProfileTab(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    val isUserLoggedIn = sessionManager?.isLoggedIn() == true || (authRepository?.isLoggedIn() == true)
+    var isUserLoggedIn by remember {
+        mutableStateOf(sessionManager?.isLoggedIn() == true || (authRepository?.isLoggedIn() == true))
+    }
 
     if (!isUserLoggedIn) {
         Scaffold(
@@ -5101,7 +5103,13 @@ fun ProfileTab(
                 onSignInClicked = {
                     navController.navigate(NavRoutes.Login.route)
                 },
-                modifier = Modifier.padding(padding)
+                modifier = Modifier.padding(padding),
+                authRepository = authRepository,
+                sessionManager = sessionManager,
+                appointmentRepository = appointmentRepository,
+                onLoginSuccess = {
+                    isUserLoggedIn = true
+                }
             )
         }
         return

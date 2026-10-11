@@ -1497,6 +1497,81 @@ export async function getPatientProfileById(id: string): Promise<PatientProfile 
   }
 }
 
+export interface EmailPortalAssociation {
+  portal: 'clinic' | 'doctor' | 'patient'
+  portalLabel: 'Clinic Portal' | 'Doctor / Specialist Portal' | 'Patient Portal'
+  entityName: string
+  email: string
+}
+
+export async function checkEmailPortalAssociation(
+  email: string
+): Promise<EmailPortalAssociation | null> {
+  const cleanEmail = email.trim().toLowerCase()
+  if (!cleanEmail) return null
+
+  try {
+    // 1. Check clinics table (contact_email)
+    const existingClinic = await getClinicByEmail(cleanEmail)
+    if (existingClinic) {
+      return {
+        portal: 'clinic',
+        portalLabel: 'Clinic Portal',
+        entityName: existingClinic.name || '',
+        email: cleanEmail,
+      }
+    }
+
+    // 2. Check doctors table (email)
+    const existingDoctor = await getDoctorByEmail(cleanEmail)
+    if (existingDoctor) {
+      return {
+        portal: 'doctor',
+        portalLabel: 'Doctor / Specialist Portal',
+        entityName: existingDoctor.fullName || '',
+        email: cleanEmail,
+      }
+    }
+
+    // 3. Check profiles table (email)
+    const existingProfile = await getPatientProfileByEmail(cleanEmail)
+    if (existingProfile) {
+      const role = (existingProfile.role || '').trim().toLowerCase()
+      if (role === 'clinic_admin' || role === 'clinic') {
+        return {
+          portal: 'clinic',
+          portalLabel: 'Clinic Portal',
+          entityName: existingProfile.fullName || '',
+          email: cleanEmail,
+        }
+      }
+      if (role === 'doctor' || role === 'lab_technician') {
+        return {
+          portal: 'doctor',
+          portalLabel: 'Doctor / Specialist Portal',
+          entityName: existingProfile.fullName || '',
+          email: cleanEmail,
+        }
+      }
+      if (
+        role === 'patient' &&
+        (Boolean(existingProfile.fullName?.trim()) || Boolean(existingProfile.phone?.trim()))
+      ) {
+        return {
+          portal: 'patient',
+          portalLabel: 'Patient Portal',
+          entityName: existingProfile.fullName || '',
+          email: cleanEmail,
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('checkEmailPortalAssociation error:', err)
+  }
+
+  return null
+}
+
 export async function savePatientProfile(profile: Partial<PatientProfile>): Promise<PatientProfile | null> {
   try {
     const email = profile.email?.trim().toLowerCase()

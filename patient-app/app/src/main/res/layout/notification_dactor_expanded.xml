@@ -52,8 +52,9 @@
         android:textColor="#334155"
         android:textSize="14sp" />
 
-    <!-- Bottom 2-Column Pill Container -->
+    <!-- Bottom 2-Column Pill Container (Only for queue status reminders) -->
     <LinearLayout
+        android:id="@+id/notif_metrics_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"

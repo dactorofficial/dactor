@@ -39,16 +39,30 @@ fun AppointmentConfirmedScreen(
 ) {
     val context = LocalContext.current
     var appt by remember { mutableStateOf<com.dactor.patient.data.model.Appointment?>(null) }
-    val displayCode = appt?.trackingCode10Digit ?: generatedTrackingCode.ifBlank { appointmentId }
+    val savedLatestCode = remember {
+        sessionManager?.getSavedTrackingCodes()?.firstOrNull()?.first
+    }
+    val displayCode = appt?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+        ?: generatedTrackingCode.takeIf { it.length == 10 && it.all { c -> c.isDigit() } }
+        ?: appointmentId.takeIf { it.length == 10 && it.all { c -> c.isDigit() } }
+        ?: savedLatestCode?.takeIf { it.isNotBlank() }
+        ?: "Pending..."
     val scrollState = rememberScrollState()
 
     LaunchedEffect(appointmentId) {
         if (appointmentId.isNotBlank() && appointmentRepository != null) {
-            val remote = appointmentRepository.getAppointmentById(appointmentId)
-                ?: appointmentRepository.getAppointmentByTrackingCode(appointmentId)
+            val remote = if (appointmentId.length == 10 && appointmentId.all { it.isDigit() }) {
+                appointmentRepository.getAppointmentByTrackingCode(appointmentId)
+                    ?: appointmentRepository.getAppointmentById(appointmentId)
+            } else {
+                appointmentRepository.getAppointmentById(appointmentId)
+                    ?: appointmentRepository.getAppointmentByTrackingCode(appointmentId)
+            }
             if (remote != null) {
                 appt = remote
-                sessionManager?.saveTrackingCode(remote.trackingCode10Digit, "${remote.patientName} • ${remote.appointmentDate}")
+                if (remote.trackingCode10Digit.isNotBlank()) {
+                    sessionManager?.saveTrackingCode(remote.trackingCode10Digit, "${remote.patientName} • ${remote.appointmentDate}")
+                }
             }
         }
     }
@@ -58,7 +72,11 @@ fun AppointmentConfirmedScreen(
     fun navigateToTracking() {
         if (isNavigating) return
         isNavigating = true
-        navController.navigate(NavRoutes.QueueStatus.createRoute(displayCode)) {
+        val trackTarget = appt?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+            ?: displayCode.takeIf { it.length == 10 && it.all { c -> c.isDigit() } }
+            ?: savedLatestCode
+            ?: appointmentId
+        navController.navigate(NavRoutes.QueueStatus.createRoute(trackTarget)) {
             popUpTo(navController.graph.startDestinationId) { inclusive = false }
             launchSingleTop = true
         }

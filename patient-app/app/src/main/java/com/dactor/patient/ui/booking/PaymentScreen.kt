@@ -190,6 +190,9 @@ fun PaymentScreen(
 
                 if (ok) {
                     val appt = appointment ?: appointmentRepository?.getAppointmentById(appointmentId)
+                    val targetCode = appt?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+                        ?: activeSession?.trackingCode?.takeIf { it.isNotBlank() }
+                        ?: appointmentId
                     if (appt != null) {
                         sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}")
                         sessionManager?.saveLocalTransactionRecord(
@@ -209,10 +212,15 @@ fun PaymentScreen(
                                 createdAt = Instant.now().toString()
                             )
                         )
+                    } else if (!activeSession?.trackingCode.isNullOrBlank()) {
+                        sessionManager?.saveTrackingCode(
+                            activeSession!!.trackingCode,
+                            "${activeSession!!.patientName.ifBlank { "Patient" }} • ${activeSession!!.appointmentDate}"
+                        )
                     }
                     sessionManager?.clearActivePaymentSession()
                     Toast.makeText(context, "Payment Bypassed (Testing)! Appointment Confirmed.", Toast.LENGTH_LONG).show()
-                    navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(appointmentId)) {
+                    navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(targetCode)) {
                         popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
                     }
                 } else {
@@ -247,6 +255,9 @@ fun PaymentScreen(
 
                 if (ok) {
                     val appt = appointment ?: appointmentRepository?.getAppointmentById(appointmentId)
+                    val targetCode = appt?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+                        ?: activeSession?.trackingCode?.takeIf { it.isNotBlank() }
+                        ?: appointmentId
                     if (appt != null) {
                         sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}")
                         sessionManager?.saveLocalTransactionRecord(
@@ -266,10 +277,15 @@ fun PaymentScreen(
                                 createdAt = Instant.now().toString()
                             )
                         )
+                    } else if (!activeSession?.trackingCode.isNullOrBlank()) {
+                        sessionManager?.saveTrackingCode(
+                            activeSession!!.trackingCode,
+                            "${activeSession!!.patientName.ifBlank { "Patient" }} • ${activeSession!!.appointmentDate}"
+                        )
                     }
                     sessionManager?.clearActivePaymentSession()
                     Toast.makeText(context, "Payment Confirmed! Your appointment is reserved.", Toast.LENGTH_LONG).show()
-                    navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(appointmentId)) {
+                    navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(targetCode)) {
                         popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
                     }
                 } else {

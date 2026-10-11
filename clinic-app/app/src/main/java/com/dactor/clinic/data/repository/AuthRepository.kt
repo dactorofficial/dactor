@@ -420,6 +420,31 @@ class AuthRepository @Inject constructor(
         }
     }
 
+    suspend fun getProfileByEmail(email: String): Profile? = withContext(Dispatchers.IO) {
+        val cleanEmail = email.trim().lowercase()
+        if (cleanEmail.isBlank()) return@withContext null
+        try {
+            supabaseClient.postgrest["profiles"]
+                .select {
+                    filter {
+                        ilike("email", cleanEmail)
+                    }
+                }.decodeList<Profile>().firstOrNull()
+        } catch (e: Exception) {
+            try {
+                supabaseClient.postgrest["profiles"]
+                    .select {
+                        filter {
+                            eq("email", cleanEmail)
+                        }
+                    }.decodeList<Profile>().firstOrNull()
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+                null
+            }
+        }
+    }
+
     suspend fun getAllPatientProfiles(): List<Profile> = withContext(Dispatchers.IO) {
         try {
             supabaseClient.postgrest["profiles"]

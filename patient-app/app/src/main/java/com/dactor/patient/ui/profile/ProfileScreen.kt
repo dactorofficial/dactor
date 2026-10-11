@@ -483,7 +483,22 @@ fun ProfileScreen(
                 onSignInClicked = {
                     navController.navigate(NavRoutes.Login.route)
                 },
-                modifier = Modifier.padding(padding)
+                modifier = Modifier.padding(padding),
+                authRepository = authRepository,
+                sessionManager = sessionManager,
+                appointmentRepository = appointmentRepository,
+                onLoginSuccess = {
+                    isLoggedIn = true
+                    patientId = sessionManager?.getSavedPatientId()
+                    userEmail = sessionManager?.getSavedEmail()
+                    userName = sessionManager?.getSavedName()
+                    userPhone = sessionManager?.getSavedPhone()
+                    userGender = sessionManager?.getSavedGender()
+                    userAge = sessionManager?.getSavedAge()
+                    coroutineScope.launch {
+                        loadAppointmentsForUser(patientId, userEmail, userPhone)
+                    }
+                }
             )
         } else if (isArchived) {
             // =========================================================================

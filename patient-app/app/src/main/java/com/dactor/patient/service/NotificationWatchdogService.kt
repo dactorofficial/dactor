@@ -38,70 +38,34 @@ class NotificationWatchdogService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        promoteToForegroundSafely()
+        dismissAndStop()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        promoteToForegroundSafely()
-        if (!isPollingStarted) {
-            isPollingStarted = true
-            startPolling()
-        }
-        return START_STICKY
+        dismissAndStop()
+        return START_NOT_STICKY
     }
 
-    private fun promoteToForegroundSafely() {
+    private fun dismissAndStop() {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                val channel = NotificationChannel(
-                    WATCHDOG_CHANNEL_ID,
-                    "Dactor Live Queue & Appointment Monitor",
-                    NotificationManager.IMPORTANCE_MIN
-                ).apply {
-                    description = "Keeps live OPD queue and appointment alerts active when the app is closed."
-                    setShowBadge(false)
-                }
-                nm.createNotificationChannel(channel)
-            }
-            val notification = NotificationCompat.Builder(this, WATCHDOG_CHANNEL_ID)
-                .setSmallIcon(R.drawable.app_logo)
-                .setContentTitle("Dactor Live Queue Monitor")
-                .setContentText("Monitoring your appointment & clinic alerts in real time")
-                .setPriority(NotificationCompat.PRIORITY_MIN)
-                .setOngoing(true)
-                .setSilent(true)
-                .build()
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(
-                    WATCHDOG_NOTIF_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
             } else {
-                startForeground(WATCHDOG_NOTIF_ID, notification)
+                @Suppress("DEPRECATION")
+                stopForeground(true)
             }
-        } catch (ignored: Exception) {}
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(WATCHDOG_NOTIF_ID)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm?.deleteNotificationChannel(WATCHDOG_CHANNEL_ID)
+            }
+        } catch (_: Exception) {}
+        stopSelf()
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        try {
-            val restartIntent = Intent(applicationContext, NotificationWatchdogService::class.java)
-            val pendingIntent = PendingIntent.getService(
-                applicationContext,
-                1,
-                restartIntent,
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            alarmManager.set(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 2000L,
-                pendingIntent
-            )
-        } catch (ignored: Exception) {}
+        dismissAndStop()
     }
 
     private fun startPolling() {

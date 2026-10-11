@@ -1,7 +1,7 @@
 package com.dactor.patient.ui.onboarding
 
+import android.accounts.AccountManager
 import android.app.Activity
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -27,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -45,8 +44,10 @@ import com.dactor.patient.data.repository.AuthRepository
 import com.dactor.patient.ui.navigation.NavRoutes
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.AccountPicker
 import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 data class OnboardingSlideData(
     val badgeText: String,
@@ -82,11 +83,11 @@ fun OnboardingScreen(
         // 0. APPOINTMENTS
         OnboardingSlideData(
             badgeText = "SMART CLINIC VISITS",
-            badgeColor = Color(0xFFCCFBF1),
-            badgeTextColor = Color(0xFF0F766E),
+            badgeColor = Color(0xFFE3F2FD),
+            badgeTextColor = Color(0xFF1565C0),
             icon = Icons.Default.CalendarMonth,
-            iconColor = Color(0xFF00796B),
-            iconBgColor = Color(0xFFE0F2F1),
+            iconColor = Color(0xFF1E88E5),
+            iconBgColor = Color(0xFFBBDEFB),
             title = "Instant Clinic Appointments",
             description = "Skip the long waiting lines. Browse verified specialist doctors and clinics across Nepal, compare fees, and reserve your guaranteed OPD slot in seconds.",
             pill1Text = "Guaranteed OPD Slot Confirmation",
@@ -142,11 +143,11 @@ fun OnboardingScreen(
         // 4. GET STARTED (handled separately for Sign-In / Guest)
         OnboardingSlideData(
             badgeText = "WELCOME TO DACTOR",
-            badgeColor = Color(0xFFE0F2F1),
-            badgeTextColor = Color(0xFF00796B),
+            badgeColor = Color(0xFFE3F2FD),
+            badgeTextColor = Color(0xFF1565C0),
             icon = Icons.Default.HealthAndSafety,
-            iconColor = Color(0xFF00796B),
-            iconBgColor = Color(0xFFCCFBF1),
+            iconColor = Color(0xFF1E88E5),
+            iconBgColor = Color(0xFFBBDEFB),
             title = "Healthcare at Your Fingertips",
             description = "Search clinics, explore doctors, track live queues with code, and receive real-time notifications. Sign in with Google anytime to book slots.",
             pill1Text = "Search Clinics & Doctors Freely",
@@ -156,7 +157,6 @@ fun OnboardingScreen(
         )
     )
 
-    // Google Sign-In setup for direct login on the final slide
     val googleSignInClient = remember {
         val defaultWebClientId = try {
             val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
@@ -182,65 +182,172 @@ fun OnboardingScreen(
         }
     }
 
+    fun proceedWithSelectedGoogleEmail(rawEmail: String) {
+        val email = rawEmail.trim().lowercase()
+        if (email.isBlank()) {
+            isGoogleLoading = false
+            return
+        }
+        isGoogleLoading = true
+        errorMessage = null
+
+        coroutineScope.launch {
+            try {
+                val portalAssoc = try {
+                    authRepository?.checkPortalAssociation(email)
+                } catch (_: Exception) { null }
+
+                if (portalAssoc != null && portalAssoc.portal != "patient") {
+                    isGoogleLoading = false
+                    val entitySuffix = if (portalAssoc.entityName.isNotBlank()) " (${portalAssoc.entityName})" else ""
+                    errorMessage = "This Google account ($email) is already associated with a ${portalAssoc.portalLabel} account$entitySuffix. Please select a different Google account."
+                    return@launch
+                }
+
+                sessionManager?.setHasSeenOnboarding(true)
+                val existingProfile = try {
+                    authRepository?.getProfileByEmail(email)
+                } catch (_: Exception) { null }
+
+                val linkedAppts = try {
+                    appointmentRepository?.getAllPatientAppointments(
+                        userId = existingProfile?.id,
+                        email = email,
+                        phone = existingProfile?.phone
+                    ).orEmpty()
+                } catch (_: Exception) { emptyList() }
+
+                for (appt in linkedAppts) {
+                    if (appt.trackingCode10Digit.isNotBlank()) {
+                        sessionManager?.saveTrackingCode(
+                            appt.trackingCode10Digit,
+                            "${appt.patientName} | ${appt.appointmentDate}"
+                        )
+                    }
+                }
+
+                val latestAppt = linkedAppts.firstOrNull()
+                val effectiveName = existingProfile?.fullName?.takeIf { it.isNotBlank() }
+                    ?: latestAppt?.patientName?.takeIf { it.isNotBlank() }.orEmpty()
+                val effectivePhone = existingProfile?.phone?.takeIf { it.isNotBlank() }
+                    ?: latestAppt?.patientMobile?.takeIf { it.isNotBlank() }.orEmpty()
+
+                if (effectiveName.isNotBlank() && effectivePhone.isNotBlank()) {
+                    val profileId = existingProfile?.id ?: UUID.randomUUID().toString()
+                    try {
+                        authRepository?.syncPatientProfile(
+                            userId = profileId,
+                            email = email,
+                            fullName = effectiveName,
+                            phone = effectivePhone,
+                            gender = existingProfile?.gender ?: latestAppt?.patientGender,
+                            age = existingProfile?.age ?: latestAppt?.patientAge
+                        )
+                    } catch (_: Exception) {}
+
+                    sessionManager?.savePatientSession(
+                        patientId = profileId,
+                        email = email,
+                        name = effectiveName,
+                        phone = effectivePhone,
+                        gender = existingProfile?.gender ?: latestAppt?.patientGender,
+                        age = existingProfile?.age ?: latestAppt?.patientAge,
+                        isArchived = existingProfile?.isArchived == true,
+                        deletionScheduledAt = existingProfile?.deletionScheduledAt
+                    )
+                    sessionManager?.setGuestMode(false)
+                    isGoogleLoading = false
+                    navController.navigate(NavRoutes.PatientMain.route) {
+                        popUpTo(0) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                } else {
+                    // First-time patient: pass verified email directly to LoginScreen registration form
+                    sessionManager?.setPendingVerifiedEmail(email)
+                    isGoogleLoading = false
+                    navController.navigate(NavRoutes.Login.route) {
+                        popUpTo(NavRoutes.Onboarding.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            } catch (e: Exception) {
+                sessionManager?.setPendingVerifiedEmail(email)
+                isGoogleLoading = false
+                navController.navigate(NavRoutes.Login.route) {
+                    popUpTo(NavRoutes.Onboarding.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
+
+    val accountPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val email = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (!email.isNullOrBlank()) {
+                proceedWithSelectedGoogleEmail(email)
+            } else {
+                isGoogleLoading = false
+            }
+        } else {
+            isGoogleLoading = false
+        }
+    }
+
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        val emailFromExtra = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+        if (!emailFromExtra.isNullOrBlank()) {
+            proceedWithSelectedGoogleEmail(emailFromExtra)
+            return@rememberLauncherForActivityResult
+        }
+
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
                 val account = task.getResult(ApiException::class.java)
-                val email = account.email?.trim()?.lowercase()
-                if (!email.isNullOrBlank()) {
-                    isGoogleLoading = true
-                    errorMessage = null
-                    coroutineScope.launch {
-                        try {
-                            sessionManager?.setHasSeenOnboarding(true)
-                            val existingProfile = try {
-                                authRepository?.getProfileByEmail(email)
-                            } catch (_: Exception) { null }
-
-                            if (existingProfile != null && !existingProfile.fullName.isNullOrBlank()) {
-                                sessionManager?.savePatientSession(
-                                    patientId = existingProfile.id,
-                                    email = email,
-                                    name = existingProfile.fullName.orEmpty(),
-                                    phone = existingProfile.phone.orEmpty(),
-                                    gender = existingProfile.gender,
-                                    age = existingProfile.age,
-                                    isArchived = existingProfile.isArchived == true,
-                                    deletionScheduledAt = existingProfile.deletionScheduledAt
-                                )
-                                sessionManager?.setGuestMode(false)
-                                isGoogleLoading = false
-                                navController.navigate(NavRoutes.PatientMain.route) {
-                                    popUpTo(0) { inclusive = true }
-                                    launchSingleTop = true
-                                }
-                            } else {
-                                isGoogleLoading = false
-                                // Profile registration needed: forward to LoginScreen with verified email
-                                navController.navigate(NavRoutes.Login.route) {
-                                    popUpTo(NavRoutes.Onboarding.route) { inclusive = true }
-                                    launchSingleTop = true
-                                }
-                            }
-                        } catch (e: Exception) {
-                            isGoogleLoading = false
-                            errorMessage = "Sign-in error: ${e.message}"
-                        }
-                    }
-                } else {
-                    errorMessage = "Unable to retrieve Google email."
+                if (account != null && !account.email.isNullOrBlank()) {
+                    proceedWithSelectedGoogleEmail(account.email!!)
+                    return@rememberLauncherForActivityResult
                 }
-            } catch (e: ApiException) {
-                errorMessage = "Google Sign-In was cancelled or failed (${e.statusCode})."
+            } catch (_: Exception) {}
+        }
+
+        val lastAccount = GoogleSignIn.getLastSignedInAccount(context)
+        if (lastAccount != null && !lastAccount.email.isNullOrBlank()) {
+            proceedWithSelectedGoogleEmail(lastAccount.email!!)
+        } else {
+            isGoogleLoading = false
+        }
+    }
+
+    fun launchGoogleSignInFlow() {
+        if (isGoogleLoading) return
+        isGoogleLoading = true
+        errorMessage = null
+
+        try {
+            val pickerIntent = AccountPicker.newChooseAccountIntent(
+                AccountPicker.AccountChooserOptions.Builder()
+                    .setAllowableAccountsTypes(listOf("com.google"))
+                    .build()
+            )
+            accountPickerLauncher.launch(pickerIntent)
+        } catch (e: Exception) {
+            try {
+                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+            } catch (e2: Exception) {
+                isGoogleLoading = false
+                errorMessage = "Could not open Google Sign-In: ${e2.message}"
             }
         }
     }
 
     Scaffold(
-        containerColor = Color(0xFFF8FAFC)
+        containerColor = Color(0xFFF0F7FF)
     ) { padding ->
         Column(
             modifier = Modifier
@@ -258,14 +365,14 @@ fun OnboardingScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF00796B),
+                        color = Color(0xFF1E88E5),
                         modifier = Modifier.size(30.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.LocalHospital, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                         }
                     }
-                    Text("Dactor Nepal", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color(0xFF0F172A))
+                    Text("Dactor Nepal", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color(0xFF0D3B66))
                 }
 
                 if (pagerState.currentPage < 4) {
@@ -279,7 +386,7 @@ fun OnboardingScreen(
                     ) {
                         Text(
                             text = "Skip",
-                            color = Color(0xFF00796B),
+                            color = Color(0xFF1E88E5),
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
@@ -377,7 +484,7 @@ fun OnboardingScreen(
                             text = slide.title,
                             fontSize = 24.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF0F172A),
+                            color = Color(0xFF0D3B66),
                             textAlign = TextAlign.Center,
                             lineHeight = 30.sp
                         )
@@ -388,7 +495,7 @@ fun OnboardingScreen(
                         Text(
                             text = slide.description,
                             fontSize = 14.sp,
-                            color = Color(0xFF64748B),
+                            color = Color(0xFF475569),
                             textAlign = TextAlign.Center,
                             lineHeight = 21.sp,
                             modifier = Modifier.padding(horizontal = 8.dp)
@@ -420,11 +527,11 @@ fun OnboardingScreen(
 
                         Surface(
                             shape = RoundedCornerShape(20.dp),
-                            color = Color(0xFFCCFBF1)
+                            color = Color(0xFFE3F2FD)
                         ) {
                             Text(
                                 text = "GET STARTED",
-                                color = Color(0xFF0F766E),
+                                color = Color(0xFF1565C0),
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
@@ -438,7 +545,7 @@ fun OnboardingScreen(
                             text = "Welcome to Dactor Nepal",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF0F172A),
+                            color = Color(0xFF0D3B66),
                             textAlign = TextAlign.Center
                         )
 
@@ -447,7 +554,7 @@ fun OnboardingScreen(
                         Text(
                             text = "Connect with top verified medical clinics and specialist doctors. Track live queues and receive instant health alerts.",
                             fontSize = 13.5.sp,
-                            color = Color(0xFF64748B),
+                            color = Color(0xFF475569),
                             textAlign = TextAlign.Center,
                             lineHeight = 20.sp,
                             modifier = Modifier.padding(horizontal = 6.dp)
@@ -459,7 +566,7 @@ fun OnboardingScreen(
                         Card(
                             shape = RoundedCornerShape(20.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White),
-                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            border = BorderStroke(1.dp, Color(0xFFD0E3F5)),
                             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -471,19 +578,13 @@ fun OnboardingScreen(
                                 // 1. Direct Sign In with Google
                                 Button(
                                     onClick = {
-                                        if (!isGoogleLoading) {
-                                            try {
-                                                googleSignInClient.signOut()
-                                            } catch (_: Exception) {}
-                                            val signInIntent = googleSignInClient.signInIntent
-                                            googleSignInLauncher.launch(signInIntent)
-                                        }
+                                        launchGoogleSignInFlow()
                                     },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(52.dp),
                                     shape = RoundedCornerShape(14.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
                                     enabled = !isGoogleLoading
                                 ) {
                                     if (isGoogleLoading) {
@@ -504,28 +605,28 @@ fun OnboardingScreen(
                                         .fillMaxWidth()
                                         .height(50.dp),
                                     shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(1.5.dp, Color(0xFF00796B))
+                                    border = BorderStroke(1.5.dp, Color(0xFF1E88E5))
                                 ) {
                                     Text(
                                         "Continue as Guest",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp,
-                                        color = Color(0xFF00796B)
+                                        color = Color(0xFF1E88E5)
                                     )
                                     Spacer(Modifier.width(8.dp))
-                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(16.dp))
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color(0xFF1E88E5), modifier = Modifier.size(16.dp))
                                 }
 
                                 // Informative Guest Explanation
                                 Surface(
-                                    color = Color(0xFFF1F5F9),
+                                    color = Color(0xFFF0F7FF),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
                                         text = "In Guest Mode, you can search clinics, explore doctors, track live queues with code, and receive real-time notifications. Sign-in is only required to book an appointment.",
                                         fontSize = 11.sp,
-                                        color = Color(0xFF475569),
+                                        color = Color(0xFF0D3B66),
                                         textAlign = TextAlign.Center,
                                         lineHeight = 16.sp,
                                         modifier = Modifier.padding(10.dp)
@@ -569,7 +670,7 @@ fun OnboardingScreen(
                                         .width(width)
                                         .clip(CircleShape)
                                         .background(
-                                            if (isSelected) Color(0xFF00796B) else Color(0xFFCBD5E1)
+                                            if (isSelected) Color(0xFF1E88E5) else Color(0xFFCBD5E1)
                                         )
                                         .clickable {
                                             coroutineScope.launch {
@@ -591,7 +692,7 @@ fun OnboardingScreen(
                                 }
                             },
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
                         ) {
                             Text("Next", fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -610,7 +711,7 @@ private fun FeaturePill(text: String, icon: ImageVector, iconTint: Color) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = Color.White,
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        border = BorderStroke(1.dp, Color(0xFFD0E3F5)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -631,7 +732,7 @@ private fun FeaturePill(text: String, icon: ImageVector, iconTint: Color) {
                 text = text,
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF1E293B)
+                color = Color(0xFF0D3B66)
             )
         }
     }

@@ -131,11 +131,32 @@ fun LoginScreen(
         verifiedDisplayName = ""
 
         isLoading = true
-        statusInfo = "Checking patient account..."
+        statusInfo = "Checking account portal association..."
         errorMessage = null
 
         coroutineScope.launch {
             try {
+                // 0. Enforce 1 Google Account = 1 Portal Role rule (cannot use Doctor or Clinic email in Patient Portal)
+                val portalAssoc = try {
+                    authRepository?.checkPortalAssociation(trimmedEmail)
+                } catch (e: Exception) {
+                    null
+                }
+
+                if (portalAssoc != null && portalAssoc.portal != "patient") {
+                    runCatching { googleSignInClient.signOut() }
+                    runCatching { FirebaseAuth.getInstance().signOut() }
+                    verifiedEmail = ""
+                    verifiedDisplayName = ""
+                    googleAccount = null
+                    isLoading = false
+                    statusInfo = null
+                    currentView = "auth_choice"
+                    val entitySuffix = if (portalAssoc.entityName.isNotBlank()) " (${portalAssoc.entityName})" else ""
+                    errorMessage = "This Google account ($trimmedEmail) is already associated with a ${portalAssoc.portalLabel} account$entitySuffix. You cannot log in to the Patient Portal with this Google ID. Please change your Google account."
+                    return@launch
+                }
+
                 // 1. Check existing patient profile in Supabase
                 val existingProfile = try {
                     authRepository?.getProfileByEmail(trimmedEmail)
@@ -143,38 +164,58 @@ fun LoginScreen(
                     null
                 }
 
+                val linkedAppts = try {
+                    appointmentRepository?.getAllPatientAppointments(
+                        userId = existingProfile?.id,
+                        email = trimmedEmail,
+                        phone = existingProfile?.phone
+                    ).orEmpty()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+
+                val latestAppt = linkedAppts.firstOrNull()
                 val hasCompletedProfile = existingProfile != null &&
                         !existingProfile.fullName.isNullOrBlank() &&
                         !existingProfile.phone.isNullOrBlank()
+                val hasKnownIdentity = hasCompletedProfile ||
+                        (latestAppt != null && latestAppt.patientName.isNotBlank() && latestAppt.patientMobile.isNotBlank())
 
-                if (hasCompletedProfile && existingProfile != null) {
-                    val profileId = existingProfile.id
+                if (hasKnownIdentity) {
+                    val profileId = existingProfile?.id ?: UUID.randomUUID().toString()
+                    val resolvedName = existingProfile?.fullName?.takeIf { it.isNotBlank() }
+                        ?: latestAppt?.patientName.orEmpty()
+                    val resolvedPhone = existingProfile?.phone?.takeIf { it.isNotBlank() }
+                        ?: latestAppt?.patientMobile.orEmpty()
+                    val resolvedGender = existingProfile?.gender?.takeIf { it.isNotBlank() }
+                        ?: latestAppt?.patientGender
+                    val resolvedAge = existingProfile?.age ?: latestAppt?.patientAge
 
                     // Retroactively link any appointments booked with this email/phone
                     try {
                         authRepository?.syncPatientProfile(
                             userId = profileId,
                             email = trimmedEmail,
-                            fullName = existingProfile.fullName.orEmpty(),
-                            phone = existingProfile.phone.orEmpty(),
-                            gender = existingProfile.gender,
-                            age = existingProfile.age
+                            fullName = resolvedName,
+                            phone = resolvedPhone,
+                            gender = resolvedGender,
+                            age = resolvedAge
                         )
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
 
-                    val linkedAppts = try {
+                    val allLinkedAppts = try {
                         appointmentRepository?.getAllPatientAppointments(
                             userId = profileId,
                             email = trimmedEmail,
-                            phone = existingProfile.phone
+                            phone = resolvedPhone
                         ).orEmpty()
                     } catch (e: Exception) {
-                        emptyList()
+                        linkedAppts
                     }
 
-                    for (appt in linkedAppts) {
+                    for (appt in allLinkedAppts) {
                         if (appt.trackingCode10Digit.isNotBlank()) {
                             sessionManager?.saveTrackingCode(
                                 appt.trackingCode10Digit,
@@ -183,21 +224,17 @@ fun LoginScreen(
                         }
                     }
 
-                    val latestAppt = linkedAppts.firstOrNull()
-                    val isArchived = existingProfile.isArchived == true
+                    val isArchived = existingProfile?.isArchived == true
 
                     sessionManager?.savePatientSession(
                         patientId = profileId,
                         email = trimmedEmail,
-                        name = existingProfile.fullName?.takeIf { it.isNotBlank() }
-                            ?: latestAppt?.patientName.orEmpty(),
-                        phone = existingProfile.phone?.takeIf { it.isNotBlank() }
-                            ?: latestAppt?.patientMobile.orEmpty(),
-                        gender = existingProfile.gender?.takeIf { it.isNotBlank() }
-                            ?: latestAppt?.patientGender,
-                        age = existingProfile.age ?: latestAppt?.patientAge,
+                        name = resolvedName,
+                        phone = resolvedPhone,
+                        gender = resolvedGender,
+                        age = resolvedAge,
                         isArchived = isArchived,
-                        deletionScheduledAt = existingProfile.deletionScheduledAt
+                        deletionScheduledAt = existingProfile?.deletionScheduledAt
                     )
 
                     isLoading = false
@@ -209,6 +246,7 @@ fun LoginScreen(
                             popUpTo(0) { inclusive = true }
                         }
                     } else if (pendingRedirect != null && pendingRedirect.route.isNotBlank()) {
+                        sessionManager?.clearPendingBookingRedirect()
                         navController.navigate(pendingRedirect.route) {
                             popUpTo(NavRoutes.Login.route) { inclusive = true }
                             launchSingleTop = true
@@ -240,6 +278,13 @@ fun LoginScreen(
                 statusInfo = null
                 currentView = "register_form"
             }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val pendingEmail = sessionManager?.consumePendingVerifiedEmail()
+        if (!pendingEmail.isNullOrBlank()) {
+            proceedWithGoogleAccount(pendingEmail)
         }
     }
 
@@ -315,6 +360,55 @@ fun LoginScreen(
         }
     }
 
+    fun switchGoogleAccount() {
+        isLoading = true
+        errorMessage = null
+        statusInfo = "Opening Google account chooser..."
+        verifiedEmail = ""
+        verifiedDisplayName = ""
+        googleAccount = null
+        currentView = "auth_choice"
+
+        runCatching { FirebaseAuth.getInstance().signOut() }
+        try {
+            googleSignInClient.signOut().addOnCompleteListener {
+                try {
+                    val pickerIntent = AccountPicker.newChooseAccountIntent(
+                        AccountPicker.AccountChooserOptions.Builder()
+                            .setAllowableAccountsTypes(listOf("com.google"))
+                            .build()
+                    )
+                    accountPickerLauncher.launch(pickerIntent)
+                } catch (e: Exception) {
+                    try {
+                        googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                    } catch (e2: Exception) {
+                        isLoading = false
+                        statusInfo = null
+                        errorMessage = "Could not open Google account chooser: ${e2.message}"
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            try {
+                val pickerIntent = AccountPicker.newChooseAccountIntent(
+                    AccountPicker.AccountChooserOptions.Builder()
+                        .setAllowableAccountsTypes(listOf("com.google"))
+                        .build()
+                )
+                accountPickerLauncher.launch(pickerIntent)
+            } catch (e2: Exception) {
+                try {
+                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                } catch (e3: Exception) {
+                    isLoading = false
+                    statusInfo = null
+                    errorMessage = "Could not open Google account chooser: ${e3.message}"
+                }
+            }
+        }
+    }
+
     fun submitPatientRegistration() {
         validationTriggered = true
         val digits = patientPhone.filter { it.isDigit() }
@@ -367,6 +461,23 @@ fun LoginScreen(
                 val newProfileId = UUID.randomUUID().toString()
                 val email = verifiedEmail.trim().lowercase()
 
+                val portalAssoc = try {
+                    authRepository?.checkPortalAssociation(email)
+                } catch (e: Exception) {
+                    null
+                }
+                if (portalAssoc != null && portalAssoc.portal != "patient") {
+                    runCatching { googleSignInClient.signOut() }
+                    runCatching { FirebaseAuth.getInstance().signOut() }
+                    verifiedEmail = ""
+                    isLoading = false
+                    statusInfo = null
+                    currentView = "auth_choice"
+                    val entitySuffix = if (portalAssoc.entityName.isNotBlank()) " (${portalAssoc.entityName})" else ""
+                    errorMessage = "This Google account ($email) is already associated with a ${portalAssoc.portalLabel} account$entitySuffix. You cannot register in the Patient Portal with this Google ID. Please change your Google account."
+                    return@launch
+                }
+
                 authRepository?.syncPatientProfile(
                     userId = newProfileId,
                     email = email,
@@ -416,6 +527,7 @@ fun LoginScreen(
                 statusInfo = null
                 val pendingRedirect = sessionManager?.getPendingBookingRedirect()
                 if (pendingRedirect != null && pendingRedirect.route.isNotBlank()) {
+                    sessionManager?.clearPendingBookingRedirect()
                     navController.navigate(pendingRedirect.route) {
                         popUpTo(NavRoutes.Login.route) { inclusive = true }
                         launchSingleTop = true
@@ -476,9 +588,9 @@ fun LoginScreen(
         ) {
             if (hasPendingBooking) {
                 Surface(
-                    color = Color(0xFFE6F4F1),
+                    color = Color(0xFFE3F2FD),
                     shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color(0xFF00796B).copy(alpha = 0.35f)),
+                    border = BorderStroke(1.dp, Color(0xFF1E88E5).copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -489,7 +601,7 @@ fun LoginScreen(
                         Icon(
                             Icons.Default.EventAvailable,
                             contentDescription = null,
-                            tint = Color(0xFF00796B),
+                            tint = Color(0xFF1E88E5),
                             modifier = Modifier.size(22.dp)
                         )
                         Column(modifier = Modifier.weight(1f)) {
@@ -501,7 +613,7 @@ fun LoginScreen(
                             )
                             Text(
                                 text = "Your selected clinic, doctor, date, and slot position are saved. You'll return right where you left off after signing in.",
-                                color = Color(0xFF00796B),
+                                color = Color(0xFF1565C0),
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
                             )
@@ -517,18 +629,37 @@ fun LoginScreen(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        Text(
-                            text = errorMessage ?: "",
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Text(
+                                text = errorMessage ?: "",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { switchGoogleAccount() },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(40.dp),
+                            enabled = !isLoading
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Change Account", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -667,15 +798,32 @@ fun LoginScreen(
                     Row(
                         modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = "Verified", tint = Color(0xFF2E7D32), modifier = Modifier.size(28.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Google Account Verified", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF2E7D32))
-                            Text(verifiedEmail, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                            if (verifiedDisplayName.isNotBlank()) {
-                                Text(verifiedDisplayName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = "Verified", tint = Color(0xFF2E7D32), modifier = Modifier.size(28.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Google Account Verified", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF2E7D32))
+                                Text(verifiedEmail, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                if (verifiedDisplayName.isNotBlank()) {
+                                    Text(verifiedDisplayName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
+                        }
+                        OutlinedButton(
+                            onClick = { switchGoogleAccount() },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 36.dp),
+                            enabled = !isLoading
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Change Account", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

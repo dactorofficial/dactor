@@ -50,7 +50,7 @@ data class ClinicExtendedMeta(
 class ClinicRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true; coerceInputValues = true }
 
     @Volatile
     private var cachedClinics: List<Clinic>? = null

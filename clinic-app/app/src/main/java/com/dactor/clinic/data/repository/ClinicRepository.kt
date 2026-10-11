@@ -83,7 +83,6 @@ data class ClinicUpdateDto(
     @SerialName("pan_number") val panNumber: String? = null,
     @SerialName("manager_phone") val managerPhone: String? = null,
     @SerialName("pictures") val pictures: List<String> = emptyList(),
-    @SerialName("specialties") val specialties: List<String> = emptyList(),
     @SerialName("is_archived") val isArchived: Boolean? = false,
     @SerialName("archived_at") val archivedAt: String? = null,
     @SerialName("deletion_scheduled_at") val deletionScheduledAt: String? = null,
@@ -118,7 +117,7 @@ data class ClinicBaseUpdateDto(
 class ClinicRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true; coerceInputValues = true }
     private val cachedClinicsById = java.util.concurrent.ConcurrentHashMap<String, Clinic>()
 
     fun getCachedClinicById(id: String): Clinic? = cachedClinicsById[id]
@@ -318,7 +317,6 @@ class ClinicRepository @Inject constructor(
             panNumber = clinic.panNumber,
             managerPhone = clinic.managerPhone,
             pictures = clinic.pictures,
-            specialties = clinic.specialties,
             isArchived = clinic.isArchived ?: false,
             archivedAt = clinic.archivedAt,
             deletionScheduledAt = clinic.deletionScheduledAt,
@@ -412,7 +410,9 @@ class ClinicRepository @Inject constructor(
     suspend fun updateClinicType(id: String, newType: String): Boolean = withContext(Dispatchers.IO) {
         try {
             supabaseClient.postgrest["clinics"]
-                .update(mapOf("type" to newType)) {
+                .update({
+                    set("type", newType)
+                }) {
                     filter {
                         eq("id", id)
                     }
@@ -481,13 +481,12 @@ class ClinicRepository @Inject constructor(
                 )
                 updateClinic(clinicId, updated)
             } else {
-                val updateMap = mapOf(
-                    "is_archived" to true,
-                    "archived_at" to archivedAt,
-                    "deletion_scheduled_at" to deletionScheduledAt,
-                    "updated_at" to archivedAt
-                )
-                supabaseClient.postgrest["clinics"].update(updateMap) {
+                supabaseClient.postgrest["clinics"].update({
+                    set("is_archived", true)
+                    set("archived_at", archivedAt)
+                    set("deletion_scheduled_at", deletionScheduledAt)
+                    set("updated_at", archivedAt)
+                }) {
                     filter { eq("id", clinicId) }
                 }
             }
@@ -587,16 +586,14 @@ class ClinicRepository @Inject constructor(
                 )
                 updateClinic(clinicId, updated)
             } else {
-                val updateMap = mutableMapOf<String, Any>(
-                    "payment_gateway_provider" to gatewayProvider,
-                    "payment_api_key" to apiKey.trim(),
-                    "is_direct_payment_enabled" to isDirectPaymentEnabled,
-                    "updated_at" to Instant.now().toString()
-                )
-                if (!secretKey.isNullOrBlank()) updateMap["payment_secret_key"] = secretKey.trim()
-                if (!merchantId.isNullOrBlank()) updateMap["merchant_id"] = merchantId.trim()
-
-                supabaseClient.postgrest["clinics"].update(updateMap) {
+                supabaseClient.postgrest["clinics"].update({
+                    set("payment_gateway_provider", gatewayProvider)
+                    set("payment_api_key", apiKey.trim())
+                    set("is_direct_payment_enabled", isDirectPaymentEnabled)
+                    set("updated_at", Instant.now().toString())
+                    if (!secretKey.isNullOrBlank()) set("payment_secret_key", secretKey.trim())
+                    if (!merchantId.isNullOrBlank()) set("merchant_id", merchantId.trim())
+                }) {
                     filter { eq("id", clinicId) }
                 }
             }
@@ -623,13 +620,12 @@ class ClinicRepository @Inject constructor(
                 )
                 updateClinic(clinicId, updated)
             } else {
-                val updateMap = mapOf(
-                    "activation_plan" to plan,
-                    "activation_paid_amount" to amount,
-                    "activation_notes" to notes.trim(),
-                    "updated_at" to Instant.now().toString()
-                )
-                supabaseClient.postgrest["clinics"].update(updateMap) {
+                supabaseClient.postgrest["clinics"].update({
+                    set("activation_plan", plan)
+                    set("activation_paid_amount", amount)
+                    set("activation_notes", notes.trim())
+                    set("updated_at", Instant.now().toString())
+                }) {
                     filter { eq("id", clinicId) }
                 }
             }

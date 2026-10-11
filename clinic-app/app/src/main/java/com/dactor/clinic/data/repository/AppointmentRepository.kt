@@ -7,9 +7,54 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+
+@Serializable
+data class AppointmentInsertDto(
+    @SerialName("id") val id: String,
+    @SerialName("tracking_code_10_digit") val trackingCode10Digit: String,
+    @SerialName("slot_id") val slotId: String? = null,
+    @SerialName("clinic_id") val clinicId: String,
+    @SerialName("doctor_id") val doctorId: String? = null,
+    @SerialName("user_id") val userId: String? = null,
+    @SerialName("patient_name") val patientName: String,
+    @SerialName("patient_age") val patientAge: Int? = null,
+    @SerialName("patient_gender") val patientGender: String? = null,
+    @SerialName("patient_mobile") val patientMobile: String,
+    @SerialName("patient_email") val patientEmail: String? = null,
+    @SerialName("payment_status") val paymentStatus: String = "paid",
+    @SerialName("checkin_status") val checkinStatus: String = "checked_in",
+    @SerialName("appointment_date") val appointmentDate: String,
+    @SerialName("appointment_time") val appointmentTime: String,
+    @SerialName("fee_amount") val feeAmount: Double = 0.0,
+    @SerialName("is_walkin") val isWalkin: Boolean = false
+)
+
+@Serializable
+data class QueueEntryInsertDto(
+    @SerialName("id") val id: String,
+    @SerialName("appointment_id") val appointmentId: String,
+    @SerialName("clinic_id") val clinicId: String,
+    @SerialName("doctor_id") val doctorId: String? = null,
+    @SerialName("queue_position") val queuePosition: Int,
+    @SerialName("status") val status: String = "waiting",
+    @SerialName("completed_at") val completedAt: String? = null
+)
+
+@Serializable
+data class ProfileInsertDto(
+    @SerialName("id") val id: String,
+    @SerialName("email") val email: String,
+    @SerialName("full_name") val fullName: String,
+    @SerialName("role") val role: String = "patient",
+    @SerialName("phone") val phone: String? = null,
+    @SerialName("gender") val gender: String? = null,
+    @SerialName("age") val age: Int? = null
+)
 
 @Singleton
 class AppointmentRepository @Inject constructor(
@@ -201,7 +246,7 @@ class AppointmentRepository @Inject constructor(
 
             val cleanEmail = appointment.patientEmail?.trim()?.lowercase()
                 ?.takeIf { it.isNotBlank() && !it.endsWith("@dactor.internal") }
-            var resolvedUserId = appointment.userId?.takeIf { it.isNotBlank() && !it.startsWith("appt_patient_") }
+            var resolvedUserId = appointment.userId?.takeIf { isValidUuid(it) }
 
             if (cleanEmail != null) {
                 try {
@@ -219,62 +264,110 @@ class AppointmentRepository @Inject constructor(
 
                     if (existingProfile != null) {
                         resolvedUserId = existingProfile.id
+                        try {
+                            if (existingProfile.phone.isNullOrBlank() && appointment.patientMobile.isNotBlank()) {
+                                supabaseClient.postgrest["profiles"].update({
+                                    set("phone", appointment.patientMobile.trim())
+                                    if (existingProfile.fullName.isNullOrBlank() && appointment.patientName.isNotBlank()) {
+                                        set("full_name", appointment.patientName.trim())
+                                    }
+                                    if (existingProfile.gender.isNullOrBlank() && !appointment.patientGender.isNullOrBlank()) {
+                                        set("gender", appointment.patientGender)
+                                    }
+                                    if (existingProfile.age == null && appointment.patientAge != null) {
+                                        set("age", appointment.patientAge)
+                                    }
+                                }) {
+                                    filter { eq("id", existingProfile.id) }
+                                }
+                            }
+                        } catch (ignored: Exception) {}
                     } else {
                         val newProfileId = resolvedUserId ?: UUID.randomUUID().toString()
-                        resolvedUserId = newProfileId
                         try {
-                            val insertMap = mutableMapOf<String, Any>(
-                                "id" to newProfileId,
-                                "email" to cleanEmail,
-                                "full_name" to appointment.patientName.trim(),
-                                "role" to "patient",
-                                "phone" to appointment.patientMobile.trim()
+                            val profileDto = ProfileInsertDto(
+                                id = newProfileId,
+                                email = cleanEmail,
+                                fullName = appointment.patientName.trim(),
+                                role = "patient",
+                                phone = appointment.patientMobile.trim(),
+                                gender = appointment.patientGender?.takeIf { it.isNotBlank() },
+                                age = appointment.patientAge?.takeIf { it > 0 }
                             )
-                            if (!appointment.patientGender.isNullOrBlank()) {
-                                insertMap["gender"] = appointment.patientGender
-                            }
-                            if (appointment.patientAge != null && appointment.patientAge > 0) {
-                                insertMap["age"] = appointment.patientAge
-                            }
-                            supabaseClient.postgrest["profiles"].insert(insertMap)
+                            supabaseClient.postgrest["profiles"].insert(profileDto)
+                            resolvedUserId = newProfileId
                         } catch (e: Exception) {
-                            try {
-                                supabaseClient.postgrest["profiles"].insert(
-                                    mapOf(
-                                        "id" to newProfileId,
-                                        "email" to cleanEmail,
-                                        "full_name" to appointment.patientName.trim(),
-                                        "role" to "patient",
-                                        "phone" to appointment.patientMobile.trim()
-                                    )
-                                )
-                            } catch (ignored: Exception) {}
+                            resolvedUserId = null
                         }
+                    }
+                } catch (ignored: Exception) {}
+            } else if (!appointment.patientMobile.isBlank()) {
+                // Also try matching existing profile by phone number if no email was given
+                try {
+                    val byPhone = supabaseClient.postgrest["profiles"]
+                        .select { filter { eq("phone", appointment.patientMobile.trim()) } }
+                        .decodeList<com.dactor.clinic.data.model.Profile>()
+                        .firstOrNull()
+                    if (byPhone != null) {
+                        resolvedUserId = byPhone.id
                     }
                 } catch (ignored: Exception) {}
             }
 
-            val readyAppointment = appointment.copy(
-                id = UUID.randomUUID().toString(),
+            val apptId = if (isValidUuid(appointment.id)) appointment.id else UUID.randomUUID().toString()
+            val validSlotId = appointment.slotId?.takeIf { isValidUuid(it) }
+            val validDoctorId = appointment.doctorId?.takeIf { isValidUuid(it) }
+            val normalizedTime = normalizeTimeForPostgres(appointment.appointmentTime)
+
+            val insertDto = AppointmentInsertDto(
+                id = apptId,
                 trackingCode10Digit = trackingCode,
+                slotId = validSlotId,
+                clinicId = appointment.clinicId,
+                doctorId = validDoctorId,
                 userId = resolvedUserId,
-                patientEmail = cleanEmail ?: appointment.patientEmail,
+                patientName = appointment.patientName.trim(),
+                patientAge = appointment.patientAge,
+                patientGender = appointment.patientGender,
+                patientMobile = appointment.patientMobile.trim(),
+                patientEmail = cleanEmail ?: appointment.patientEmail?.trim()?.ifBlank { null },
+                paymentStatus = appointment.paymentStatus ?: "paid",
+                checkinStatus = "checked_in",
+                appointmentDate = appointment.appointmentDate,
+                appointmentTime = normalizedTime,
+                feeAmount = appointment.feeAmount,
                 isWalkin = true
             )
 
-            // Insert appointment (with fallback if userId FK fails)
+            // Insert appointment (with fallback if userId or slotId FK fails)
             val created = try {
                 supabaseClient.postgrest["appointments"]
-                    .insert(readyAppointment) {
-                        select()
-                    }.decodeSingleOrNull<Appointment>() ?: readyAppointment
+                    .insert(insertDto) { select() }
+                    .decodeSingleOrNull<Appointment>()
             } catch (fkEx: Exception) {
-                val withoutUserId = readyAppointment.copy(userId = null)
-                supabaseClient.postgrest["appointments"]
-                    .insert(withoutUserId) {
-                        select()
-                    }.decodeSingleOrNull<Appointment>() ?: withoutUserId
-            }
+                try {
+                    val withoutUser = insertDto.copy(userId = null)
+                    supabaseClient.postgrest["appointments"]
+                        .insert(withoutUser) { select() }
+                        .decodeSingleOrNull<Appointment>()
+                } catch (fkEx2: Exception) {
+                    val minimalDto = insertDto.copy(userId = null, slotId = null)
+                    supabaseClient.postgrest["appointments"]
+                        .insert(minimalDto) { select() }
+                        .decodeSingleOrNull<Appointment>()
+                }
+            } ?: appointment.copy(
+                id = apptId,
+                trackingCode10Digit = trackingCode,
+                slotId = validSlotId,
+                doctorId = validDoctorId,
+                userId = resolvedUserId,
+                patientEmail = cleanEmail ?: appointment.patientEmail,
+                paymentStatus = "paid",
+                checkinStatus = "checked_in",
+                appointmentTime = normalizedTime,
+                isWalkin = true
+            )
 
             // Update slot booked count if slotId is assigned
             if (created.slotId != null) {
@@ -291,17 +384,29 @@ class AppointmentRepository @Inject constructor(
                 } catch (ignored: Exception) {}
             }
 
-            // Insert initial queue entry with temporary position
-            val queueEntry = QueueEntry(
-                id = UUID.randomUUID().toString(),
-                appointmentId = created.id,
-                clinicId = created.clinicId,
-                doctorId = created.doctorId,
-                queuePosition = 999999,
-                status = "waiting"
-            )
-
-            supabaseClient.postgrest["queue_entries"].insert(queueEntry)
+            // Compute next queue position for this clinic and insert into queue_entries
+            try {
+                val existingQueue = supabaseClient.postgrest["queue_entries"]
+                    .select { filter { eq("clinic_id", created.clinicId) } }
+                    .decodeList<QueueEntry>()
+                val alreadyInQueue = existingQueue.any { it.appointmentId == created.id }
+                if (!alreadyInQueue) {
+                    val nextPos = (existingQueue
+                        .filter { it.status == "waiting" || it.status == "inside" }
+                        .maxOfOrNull { it.queuePosition } ?: 0) + 1
+                    val queueEntryDto = QueueEntryInsertDto(
+                        id = UUID.randomUUID().toString(),
+                        appointmentId = created.id,
+                        clinicId = created.clinicId,
+                        doctorId = created.doctorId,
+                        queuePosition = nextPos,
+                        status = "waiting"
+                    )
+                    supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
+                }
+            } catch (qEx: Exception) {
+                qEx.printStackTrace()
+            }
 
             // Chronologically sort queue by time slot so earlier time slots precede later time slots
             reindexActiveQueueChronologically(created.clinicId)
@@ -315,11 +420,12 @@ class AppointmentRepository @Inject constructor(
 
     suspend fun rescheduleAppointment(id: String, newDate: String, newTime: String, newSlotId: String?): Boolean = withContext(Dispatchers.IO) {
         try {
+            val normalizedTime = normalizeTimeForPostgres(newTime)
             supabaseClient.postgrest["appointments"]
                 .update({
                     set("appointment_date", newDate)
-                    set("appointment_time", newTime)
-                    if (newSlotId != null) set("slot_id", newSlotId)
+                    set("appointment_time", normalizedTime)
+                    if (newSlotId != null && isValidUuid(newSlotId)) set("slot_id", newSlotId)
                 }) {
                     filter {
                         eq("id", id)
@@ -385,7 +491,7 @@ class AppointmentRepository @Inject constructor(
                         filter { eq("appointment_id", appointmentId) }
                     }
             } else if (!clinicId.isNullOrBlank()) {
-                val newEntry = QueueEntry(
+                val newEntryDto = QueueEntryInsertDto(
                     id = UUID.randomUUID().toString(),
                     appointmentId = appointmentId,
                     clinicId = clinicId,
@@ -394,7 +500,7 @@ class AppointmentRepository @Inject constructor(
                     status = "done",
                     completedAt = now
                 )
-                supabaseClient.postgrest["queue_entries"].insert(newEntry)
+                supabaseClient.postgrest["queue_entries"].insert(newEntryDto)
             }
 
             // 3. Attempt to update checkin_status on appointments (safely handled if DB enum doesn't include 'completed')
@@ -436,11 +542,17 @@ class AppointmentRepository @Inject constructor(
                         supabaseClient.postgrest["queue_entries"]
                             .update({
                                 set("status", "inside")
-                                set("inside_at", now)
+                                set("called_at", now)
                                 if (!doctorId.isNullOrBlank()) set("doctor_id", doctorId)
                             }) {
                                 filter { eq("id", nextWaiting.id) }
                             }
+                        try {
+                            supabaseClient.postgrest["queue_entries"]
+                                .update({ set("inside_at", now) }) {
+                                    filter { eq("id", nextWaiting.id) }
+                                }
+                        } catch (ignored: Exception) {}
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -535,7 +647,7 @@ class AppointmentRepository @Inject constructor(
                     }.decodeSingleOrNull<QueueEntry>()
 
                 if (existingQueue == null) {
-                    val queueEntry = QueueEntry(
+                    val queueEntryDto = QueueEntryInsertDto(
                         id = UUID.randomUUID().toString(),
                         appointmentId = appt.id,
                         clinicId = appt.clinicId,
@@ -543,7 +655,7 @@ class AppointmentRepository @Inject constructor(
                         queuePosition = 999999,
                         status = "waiting"
                     )
-                    supabaseClient.postgrest["queue_entries"].insert(queueEntry)
+                    supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
                 } else {
                     supabaseClient.postgrest["queue_entries"]
                         .update({
@@ -616,6 +728,40 @@ class AppointmentRepository @Inject constructor(
     }
 
     companion object {
+        fun isValidUuid(str: String?): Boolean {
+            if (str.isNullOrBlank()) return false
+            return try {
+                UUID.fromString(str.trim())
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        fun normalizeTimeForPostgres(timeStr: String?): String {
+            if (timeStr.isNullOrBlank()) return "09:30:00"
+            return try {
+                val clean = timeStr.trim()
+                val firstPart = clean.split("-").first().trim()
+                val isPm = firstPart.contains("PM", ignoreCase = true) || (!firstPart.contains("AM", ignoreCase = true) && clean.contains("PM", ignoreCase = true) && !clean.substringBefore("-").contains("AM", ignoreCase = true))
+                val isAm = firstPart.contains("AM", ignoreCase = true)
+                val match = Regex("(\\d{1,2})(?::(\\d{2}))?").find(firstPart)
+                if (match != null) {
+                    var h = match.groupValues[1].toIntOrNull() ?: 9
+                    val m = match.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0
+                    if (isPm && h < 12) h += 12
+                    if (isAm && h == 12) h = 0
+                    h = h.coerceIn(0, 23)
+                    val safeM = m.coerceIn(0, 59)
+                    String.format(java.util.Locale.US, "%02d:%02d:00", h, safeM)
+                } else {
+                    "09:30:00"
+                }
+            } catch (_: Exception) {
+                "09:30:00"
+            }
+        }
+
         fun parseTimeToMinutes(timeStr: String?): Int {
             if (timeStr.isNullOrBlank()) return 23 * 60 + 59
             return try {

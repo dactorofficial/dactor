@@ -43,6 +43,12 @@ object NotificationHelper {
             }
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
+
+            // Remove annoying foreground watchdog sync channel and dismiss ongoing watchdog notification
+            try {
+                notificationManager.deleteNotificationChannel("dactor_background_sync")
+                notificationManager.cancel(99101)
+            } catch (_: Exception) {}
         }
     }
 
@@ -93,10 +99,17 @@ object NotificationHelper {
             setTextViewText(R.id.notif_header_text, "Dactor • Now")
             setTextViewText(R.id.notif_title, displayTitle)
             setTextViewText(R.id.notif_body, displayBody)
-            setTextViewText(R.id.notif_left_label, leftLabel)
-            setTextViewText(R.id.notif_left_value, leftVal)
-            setTextViewText(R.id.notif_right_label, rightLabel)
-            setTextViewText(R.id.notif_right_value, rightVal)
+
+            // Only show 2-column queue metrics container for queue status reminder notifications!
+            if (parsed.isQueueReminder) {
+                setViewVisibility(R.id.notif_metrics_container, android.view.View.VISIBLE)
+                setTextViewText(R.id.notif_left_label, leftLabel)
+                setTextViewText(R.id.notif_left_value, leftVal)
+                setTextViewText(R.id.notif_right_label, rightLabel)
+                setTextViewText(R.id.notif_right_value, rightVal)
+            } else {
+                setViewVisibility(R.id.notif_metrics_container, android.view.View.GONE)
+            }
         }
 
         val logoBitmap = try {
@@ -108,6 +121,7 @@ object NotificationHelper {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.app_logo)
             .setLargeIcon(logoBitmap)
+            .setColor(android.graphics.Color.WHITE)
             .setContentTitle(displayTitle)
             .setContentText(displayBody)
             .setCustomContentView(collapsedView)

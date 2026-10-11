@@ -318,18 +318,64 @@ fun ClinicLoginScreen(
         }
         isLoading = true
         errorMessage = null
-        statusMessage = "Checking account status..."
+        statusMessage = "Checking account portal association..."
         verifiedEmail = trimmedEmail
         verifiedDisplayName = ""
 
         coroutineScope.launch {
             try {
+                val existingClinic = try {
+                    clinicRepository?.getClinicByEmail(trimmedEmail)
+                } catch (e: Exception) {
+                    null
+                }
+                val existingDoctor = try {
+                    doctorRepository?.getDoctorByEmail(trimmedEmail)
+                } catch (e: Exception) {
+                    null
+                }
+                val existingProfile = try {
+                    authRepository?.getProfileByEmail(trimmedEmail)
+                } catch (e: Exception) {
+                    null
+                }
+
                 if (selectedTab == 0) {
-                    // CLINIC STAFF
-                    val existingClinic = try {
-                        clinicRepository?.getClinicByEmail(trimmedEmail)
-                    } catch (e: Exception) {
-                        null
+                    // CLINIC STAFF PORTAL
+                    // 0a. Block if Google account is already associated with Doctor / Specialist Portal
+                    if (existingDoctor != null || (existingClinic == null && existingProfile?.role?.lowercase() in listOf("doctor", "lab_technician"))) {
+                        runCatching { googleSignInClient.signOut() }
+                        runCatching { FirebaseAuth.getInstance().signOut() }
+                        verifiedEmail = ""
+                        verifiedDisplayName = ""
+                        googleAccount = null
+                        isLoading = false
+                        statusMessage = null
+                        currentView = "auth_choice"
+                        val docName = existingDoctor?.fullName?.takeIf { it.isNotBlank() }
+                            ?: existingProfile?.fullName?.takeIf { it.isNotBlank() }
+                        val suffix = if (docName != null) " ($docName)" else ""
+                        errorMessage = "This Google account ($trimmedEmail) is already associated with a Doctor / Specialist Portal account$suffix. You cannot log in to the Clinic Portal with this Google ID. Please change your Google account."
+                        return@launch
+                    }
+
+                    // 0b. Block if Google account is already associated with Patient Portal
+                    if (existingClinic == null && existingProfile != null &&
+                        existingProfile.role.equals("patient", ignoreCase = true) &&
+                        (!existingProfile.fullName.isNullOrBlank() || !existingProfile.phone.isNullOrBlank())
+                    ) {
+                        runCatching { googleSignInClient.signOut() }
+                        runCatching { FirebaseAuth.getInstance().signOut() }
+                        verifiedEmail = ""
+                        verifiedDisplayName = ""
+                        googleAccount = null
+                        isLoading = false
+                        statusMessage = null
+                        currentView = "auth_choice"
+                        val patName = existingProfile.fullName?.takeIf { it.isNotBlank() }
+                        val suffix = if (patName != null) " ($patName)" else ""
+                        errorMessage = "This Google account ($trimmedEmail) is already associated with a Patient Portal account$suffix. You cannot log in to the Clinic Portal with this Google ID. Please change your Google account."
+                        return@launch
                     }
 
                     if (existingClinic != null) {
@@ -383,11 +429,41 @@ fun ClinicLoginScreen(
                         currentView = "register_form"
                     }
                 } else {
-                    // DOCTOR / SPECIALIST
-                    val existingDoctor = try {
-                        doctorRepository?.getDoctorByEmail(trimmedEmail)
-                    } catch (e: Exception) {
-                        null
+                    // DOCTOR / SPECIALIST PORTAL
+                    // 0a. Block if Google account is already associated with Clinic Portal
+                    if (existingClinic != null || (existingDoctor == null && existingProfile?.role?.lowercase() in listOf("clinic_admin", "clinic"))) {
+                        runCatching { googleSignInClient.signOut() }
+                        runCatching { FirebaseAuth.getInstance().signOut() }
+                        verifiedEmail = ""
+                        verifiedDisplayName = ""
+                        googleAccount = null
+                        isLoading = false
+                        statusMessage = null
+                        currentView = "auth_choice"
+                        val cName = existingClinic?.name?.takeIf { it.isNotBlank() }
+                            ?: existingProfile?.fullName?.takeIf { it.isNotBlank() }
+                        val suffix = if (cName != null) " ($cName)" else ""
+                        errorMessage = "This Google account ($trimmedEmail) is already associated with a Clinic Portal account$suffix. You cannot log in to the Doctor / Specialist Portal with this Google ID. Please change your Google account."
+                        return@launch
+                    }
+
+                    // 0b. Block if Google account is already associated with Patient Portal
+                    if (existingDoctor == null && existingProfile != null &&
+                        existingProfile.role.equals("patient", ignoreCase = true) &&
+                        (!existingProfile.fullName.isNullOrBlank() || !existingProfile.phone.isNullOrBlank())
+                    ) {
+                        runCatching { googleSignInClient.signOut() }
+                        runCatching { FirebaseAuth.getInstance().signOut() }
+                        verifiedEmail = ""
+                        verifiedDisplayName = ""
+                        googleAccount = null
+                        isLoading = false
+                        statusMessage = null
+                        currentView = "auth_choice"
+                        val patName = existingProfile.fullName?.takeIf { it.isNotBlank() }
+                        val suffix = if (patName != null) " ($patName)" else ""
+                        errorMessage = "This Google account ($trimmedEmail) is already associated with a Patient Portal account$suffix. You cannot log in to the Doctor / Specialist Portal with this Google ID. Please change your Google account."
+                        return@launch
                     }
 
                     if (existingDoctor != null) {
@@ -743,23 +819,44 @@ fun ClinicLoginScreen(
         verifiedEmail = ""
         verifiedDisplayName = ""
         googleAccount = null
+        currentView = "auth_choice"
+
+        runCatching { FirebaseAuth.getInstance().signOut() }
         try {
             googleSignInClient.signOut().addOnCompleteListener {
                 try {
-                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                    val pickerIntent = AccountPicker.newChooseAccountIntent(
+                        AccountPicker.AccountChooserOptions.Builder()
+                            .setAllowableAccountsTypes(listOf("com.google"))
+                            .build()
+                    )
+                    accountPickerLauncher.launch(pickerIntent)
                 } catch (e: Exception) {
-                    isLoading = false
-                    statusMessage = null
-                    errorMessage = "Failed to open account chooser: ${e.message}"
+                    try {
+                        googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                    } catch (e2: Exception) {
+                        isLoading = false
+                        statusMessage = null
+                        errorMessage = "Failed to open account chooser: ${e2.message}"
+                    }
                 }
             }
         } catch (e: Exception) {
             try {
-                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                val pickerIntent = AccountPicker.newChooseAccountIntent(
+                    AccountPicker.AccountChooserOptions.Builder()
+                        .setAllowableAccountsTypes(listOf("com.google"))
+                        .build()
+                )
+                accountPickerLauncher.launch(pickerIntent)
             } catch (e2: Exception) {
-                isLoading = false
-                statusMessage = null
-                errorMessage = "Failed to launch account picker: ${e2.message}"
+                try {
+                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                } catch (e3: Exception) {
+                    isLoading = false
+                    statusMessage = null
+                    errorMessage = "Failed to launch account picker: ${e3.message}"
+                }
             }
         }
     }
@@ -1268,18 +1365,37 @@ fun ClinicLoginScreen(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        Text(
-                            text = errorMessage ?: "",
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Text(
+                                text = errorMessage ?: "",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { switchGoogleAccount() },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(40.dp),
+                            enabled = !isLoading
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Change Account", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -1490,7 +1606,7 @@ fun ClinicLoginScreen(
                                 )
                             }
                             Text(
-                                text = "No ${if (selectedTab == 0) "Clinic" else "Doctor"} profile is registered under \"$verifiedEmail\". Complete your details below to register, or tap Switch Account to use another Gmail.",
+                                text = "No ${if (selectedTab == 0) "Clinic" else "Doctor"} profile is registered under \"$verifiedEmail\". Complete your details below to register, or tap Change Account to use another Gmail.",
                                 fontSize = 12.sp,
                                 color = Color(0xFF78350F),
                                 lineHeight = 16.sp
@@ -1499,7 +1615,7 @@ fun ClinicLoginScreen(
                     }
                 }
 
-                // Google Account Verification Card with quick "Switch" action
+                // Google Account Verification Card with quick "Change Account" action
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -1528,13 +1644,13 @@ fun ClinicLoginScreen(
                         OutlinedButton(
                             onClick = { switchGoogleAccount() },
                             shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             modifier = Modifier.defaultMinSize(minHeight = 36.dp),
                             enabled = !isLoading
                         ) {
                             Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Switch", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Change Account", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -2884,13 +3000,25 @@ fun ClinicLoginScreen(
                 }
 
                 OutlinedButton(
-                    onClick = { signOutFromPending() },
+                    onClick = {
+                        sessionManager?.clearPendingVerification()
+                        switchGoogleAccount()
+                    },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
+                    Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Change Account", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+
+                TextButton(
+                    onClick = { signOutFromPending() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Sign Out / Switch Account", fontSize = 14.sp)
+                    Text("Sign Out", fontSize = 13.sp)
                 }
             }
         }

@@ -23,14 +23,10 @@ class NotificationSyncWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
-            // Ensure real-time watchdog foreground service is running
+            // Clean up any lingering watchdog notification
             try {
-                val watchdogIntent = Intent(context, NotificationWatchdogService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(watchdogIntent)
-                } else {
-                    context.startService(watchdogIntent)
-                }
+                val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                nm?.cancel(99101)
             } catch (_: Exception) {}
 
             val sessionManager = UserSessionManager(context)

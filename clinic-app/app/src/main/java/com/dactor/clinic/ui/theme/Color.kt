@@ -2,23 +2,23 @@ package com.dactor.clinic.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary Medical Teal/Cyan (based on the Dactor shield logo)
-val PrimaryTeal = Color(0xFF0891B2)
+// Primary Medical Blue (Original Dactor Theme)
+val PrimaryTeal = Color(0xFF2563EB)
 val OnPrimaryTeal = Color(0xFFFFFFFF)
-val PrimaryContainerTeal = Color(0xFFCFFAFE)
-val OnPrimaryContainerTeal = Color(0xFF164E63)
+val PrimaryContainerTeal = Color(0xFFDBEAFE)
+val OnPrimaryContainerTeal = Color(0xFF1E3A8A)
 
-// Secondary Deep Medical Navy/Ocean
-val SecondaryNavy = Color(0xFF0C4A6E)
+// Secondary Deep Medical Blue/Navy
+val SecondaryNavy = Color(0xFF1D4ED8)
 val OnSecondaryNavy = Color(0xFFFFFFFF)
-val SecondaryContainerNavy = Color(0xFFE0F2FE)
-val OnSecondaryContainerNavy = Color(0xFF075985)
+val SecondaryContainerNavy = Color(0xFFEFF6FF)
+val OnSecondaryContainerNavy = Color(0xFF1E40AF)
 
-// Tertiary Vibrant Cyan Accent
-val TertiaryCyan = Color(0xFF06B6D4)
+// Tertiary Sky Blue Accent
+val TertiaryCyan = Color(0xFF0284C7)
 val OnTertiaryCyan = Color(0xFFFFFFFF)
-val TertiaryContainerCyan = Color(0xFFE0F7FA)
-val OnTertiaryContainerCyan = Color(0xFF006064)
+val TertiaryContainerCyan = Color(0xFFE0F2FE)
+val OnTertiaryContainerCyan = Color(0xFF0C4A6E)
 
 // Neutral / Background
 val BackgroundLight = Color(0xFFF8FAFC)

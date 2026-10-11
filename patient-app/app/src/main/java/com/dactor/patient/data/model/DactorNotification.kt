@@ -25,7 +25,8 @@ data class NotificationTemplateData(
     val leftValue: String,
     val rightLabel: String,
     val rightValue: String,
-    val trackingCode: String? = null
+    val trackingCode: String? = null,
+    val isQueueReminder: Boolean = false
 ) {
     companion object {
         private val META_REGEX = Regex("""\[\[META:(.*?)]]""", RegexOption.DOT_MATCHES_ALL)
@@ -50,6 +51,14 @@ data class NotificationTemplateData(
             val match = META_REGEX.find(rawMessage)
             val cleanMsg = rawMessage.replace(META_REGEX, "").trim()
 
+            // Strictly identify if this is a queue status reminder
+            val isQueueReminderType = type == "queue_alert" ||
+                title.contains("Queue", ignoreCase = true) ||
+                title.contains("Turn", ignoreCase = true) ||
+                cleanMsg.contains("queue", ignoreCase = true) ||
+                cleanMsg.contains("your turn", ignoreCase = true) ||
+                cleanMsg.contains("token #", ignoreCase = true)
+
             if (match != null) {
                 val content = match.groupValues[1]
                 val map = mutableMapOf<String, String>()
@@ -68,7 +77,8 @@ data class NotificationTemplateData(
                     leftValue = map["leftVal"]?.takeIf { it.isNotBlank() } ?: "Soon, be ready",
                     rightLabel = map["rightLabel"]?.takeIf { it.isNotBlank() } ?: "Your Appointment Time",
                     rightValue = map["rightVal"]?.takeIf { it.isNotBlank() } ?: "Active Queue",
-                    trackingCode = map["code"]
+                    trackingCode = map["code"],
+                    isQueueReminder = isQueueReminderType || type == "manual_alert"
                 )
             }
 
@@ -83,7 +93,8 @@ data class NotificationTemplateData(
                     leftLabel = "Report Status",
                     leftValue = "Prepared",
                     rightLabel = "Availability",
-                    rightValue = "Ready to View"
+                    rightValue = "Ready to View",
+                    isQueueReminder = false
                 )
                 type == "clinic_break" || title.contains("Break", ignoreCase = true) -> NotificationTemplateData(
                     title = title.ifBlank { "Clinic is on Break" },
@@ -91,7 +102,17 @@ data class NotificationTemplateData(
                     leftLabel = "Estimated Time Left",
                     leftValue = "Clinic on Break",
                     rightLabel = "Your Appointment Time",
-                    rightValue = timeMatch?.groupValues?.get(1) ?: "Paused Briefly"
+                    rightValue = timeMatch?.groupValues?.get(1) ?: "Paused Briefly",
+                    isQueueReminder = false
+                )
+                type == "broadcast" || type == "announcement" -> NotificationTemplateData(
+                    title = title.ifBlank { "Dactor Announcement" },
+                    cleanMessage = cleanMsg,
+                    leftLabel = "",
+                    leftValue = "",
+                    rightLabel = "",
+                    rightValue = "",
+                    isQueueReminder = false
                 )
                 else -> NotificationTemplateData(
                     title = title.ifBlank { "Your Turn is Coming Soon!" },
@@ -99,7 +120,8 @@ data class NotificationTemplateData(
                     leftLabel = "Estimated Time Left",
                     leftValue = waitMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready",
                     rightLabel = "Your Appointment Time",
-                    rightValue = timeMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready"
+                    rightValue = timeMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready",
+                    isQueueReminder = isQueueReminderType
                 )
             }
         }

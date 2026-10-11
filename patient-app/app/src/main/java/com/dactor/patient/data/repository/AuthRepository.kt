@@ -1,5 +1,7 @@
 package com.dactor.patient.data.repository
 
+import com.dactor.patient.data.model.Clinic
+import com.dactor.patient.data.model.Doctor
 import com.dactor.patient.data.model.Profile
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.gotrue.auth
@@ -16,6 +18,13 @@ import javax.inject.Singleton
 class AuthRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
+    data class PortalAssociation(
+        val portal: String, // "patient", "clinic", "doctor"
+        val portalLabel: String, // "Patient Portal", "Clinic Portal", "Doctor / Specialist Portal"
+        val entityName: String,
+        val email: String
+    )
+
     sealed class SignUpResult {
         data class NeedsEmailConfirmation(val email: String) : SignUpResult()
         data class AlreadyConfirmed(val userId: String) : SignUpResult()
@@ -164,58 +173,61 @@ class AuthRepository @Inject constructor(
                 ?: java.util.UUID.randomUUID().toString()
 
             if (existing != null) {
-                supabaseClient.postgrest["profiles"].update({
-                    set("role", "patient")
-                    set("email", trimmedEmail)
-                    if (effectiveName.isNotBlank()) set("full_name", effectiveName)
-                    if (effectivePhone.isNotBlank()) set("phone", effectivePhone)
-                    if (!effectiveGender.isNullOrBlank()) set("gender", effectiveGender)
-                    if (effectiveAge != null && effectiveAge > 0) set("age", effectiveAge)
-                }) {
+                val updateJson = kotlinx.serialization.json.buildJsonObject {
+                    if (existing.role.isBlank()) put("role", kotlinx.serialization.json.JsonPrimitive("patient"))
+                    put("email", kotlinx.serialization.json.JsonPrimitive(trimmedEmail))
+                    if (effectiveName.isNotBlank()) put("full_name", kotlinx.serialization.json.JsonPrimitive(effectiveName))
+                    if (effectivePhone.isNotBlank()) put("phone", kotlinx.serialization.json.JsonPrimitive(effectivePhone))
+                    if (!effectiveGender.isNullOrBlank()) put("gender", kotlinx.serialization.json.JsonPrimitive(effectiveGender))
+                    if (effectiveAge != null && effectiveAge > 0) put("age", kotlinx.serialization.json.JsonPrimitive(effectiveAge))
+                }
+                supabaseClient.postgrest["profiles"].update(updateJson) {
                     filter {
                         eq("id", existing.id)
                     }
                 }
             } else {
-                val insertMap = mutableMapOf<String, Any>(
-                    "id" to profileId,
-                    "email" to trimmedEmail,
-                    "full_name" to effectiveName,
-                    "role" to "patient",
-                    "phone" to effectivePhone
-                )
-                if (!effectiveGender.isNullOrBlank()) insertMap["gender"] = effectiveGender
-                if (effectiveAge != null && effectiveAge > 0) insertMap["age"] = effectiveAge
+                val insertJson = kotlinx.serialization.json.buildJsonObject {
+                    put("id", kotlinx.serialization.json.JsonPrimitive(profileId))
+                    put("email", kotlinx.serialization.json.JsonPrimitive(trimmedEmail))
+                    put("full_name", kotlinx.serialization.json.JsonPrimitive(effectiveName))
+                    put("role", kotlinx.serialization.json.JsonPrimitive("patient"))
+                    put("phone", kotlinx.serialization.json.JsonPrimitive(effectivePhone))
+                    if (!effectiveGender.isNullOrBlank()) put("gender", kotlinx.serialization.json.JsonPrimitive(effectiveGender))
+                    if (effectiveAge != null && effectiveAge > 0) put("age", kotlinx.serialization.json.JsonPrimitive(effectiveAge))
+                }
                 try {
-                    supabaseClient.postgrest["profiles"].insert(insertMap)
+                    supabaseClient.postgrest["profiles"].insert(insertJson)
                 } catch (e: Exception) {
-                    supabaseClient.postgrest["profiles"].insert(
-                        mapOf(
-                            "id" to profileId,
-                            "email" to trimmedEmail,
-                            "full_name" to effectiveName,
-                            "role" to "patient",
-                            "phone" to effectivePhone
-                        )
-                    )
+                    val fallbackJson = kotlinx.serialization.json.buildJsonObject {
+                        put("id", kotlinx.serialization.json.JsonPrimitive(profileId))
+                        put("email", kotlinx.serialization.json.JsonPrimitive(trimmedEmail))
+                        put("full_name", kotlinx.serialization.json.JsonPrimitive(effectiveName))
+                        put("role", kotlinx.serialization.json.JsonPrimitive("patient"))
+                        put("phone", kotlinx.serialization.json.JsonPrimitive(effectivePhone))
+                    }
+                    supabaseClient.postgrest["profiles"].insert(fallbackJson)
                 }
             }
 
             // Retroactively sync any past or live walk-in/guest appointments matching email or phone
             try {
                 if (effectivePhone.isNotBlank()) {
-                    supabaseClient.postgrest["appointments"].update(
-                        mapOf("user_id" to profileId)
-                    ) {
+                    val phoneLinkJson = kotlinx.serialization.json.buildJsonObject {
+                        put("user_id", kotlinx.serialization.json.JsonPrimitive(profileId))
+                    }
+                    supabaseClient.postgrest["appointments"].update(phoneLinkJson) {
                         filter {
                             eq("patient_mobile", effectivePhone)
                         }
                     }
                 }
                 if (trimmedEmail.isNotBlank()) {
-                    supabaseClient.postgrest["appointments"].update(
-                        mapOf("user_id" to profileId, "patient_email" to trimmedEmail)
-                    ) {
+                    val emailLinkJson = kotlinx.serialization.json.buildJsonObject {
+                        put("user_id", kotlinx.serialization.json.JsonPrimitive(profileId))
+                        put("patient_email", kotlinx.serialization.json.JsonPrimitive(trimmedEmail))
+                    }
+                    supabaseClient.postgrest["appointments"].update(emailLinkJson) {
                         filter {
                             ilike("patient_email", trimmedEmail)
                         }
@@ -313,6 +325,103 @@ class AuthRepository @Inject constructor(
         getProfileByEmail(email)
     }
 
+    suspend fun checkPortalAssociation(email: String): PortalAssociation? = withContext(Dispatchers.IO) {
+        val cleanEmail = email.trim().lowercase()
+        if (cleanEmail.isBlank()) return@withContext null
+
+        // 1. Check if associated with a Clinic (clinics.contact_email)
+        val existingClinic = try {
+            supabaseClient.postgrest["clinics"]
+                .select {
+                    filter {
+                        ilike("contact_email", cleanEmail)
+                    }
+                }.decodeList<Clinic>().firstOrNull()
+        } catch (e: Exception) {
+            try {
+                supabaseClient.postgrest["clinics"]
+                    .select {
+                        filter {
+                            eq("contact_email", cleanEmail)
+                        }
+                    }.decodeList<Clinic>().firstOrNull()
+            } catch (e2: Exception) {
+                null
+            }
+        }
+        if (existingClinic != null) {
+            return@withContext PortalAssociation(
+                portal = "clinic",
+                portalLabel = "Clinic Portal",
+                entityName = existingClinic.name,
+                email = cleanEmail
+            )
+        }
+
+        // 2. Check if associated with a Doctor / Specialist (doctors.email)
+        val existingDoctor = try {
+            supabaseClient.postgrest["doctors"]
+                .select {
+                    filter {
+                        ilike("email", cleanEmail)
+                    }
+                }.decodeList<Doctor>().firstOrNull()
+        } catch (e: Exception) {
+            try {
+                supabaseClient.postgrest["doctors"]
+                    .select {
+                        filter {
+                            eq("email", cleanEmail)
+                        }
+                    }.decodeList<Doctor>().firstOrNull()
+            } catch (e2: Exception) {
+                null
+            }
+        }
+        if (existingDoctor != null) {
+            return@withContext PortalAssociation(
+                portal = "doctor",
+                portalLabel = "Doctor / Specialist Portal",
+                entityName = existingDoctor.fullName,
+                email = cleanEmail
+            )
+        }
+
+        // 3. Check profiles table for role association
+        val existingProfile = getProfileByEmail(cleanEmail)
+        if (existingProfile != null) {
+            val role = existingProfile.role.trim().lowercase()
+            when {
+                role == "clinic_admin" || role == "clinic" -> {
+                    return@withContext PortalAssociation(
+                        portal = "clinic",
+                        portalLabel = "Clinic Portal",
+                        entityName = existingProfile.fullName.orEmpty(),
+                        email = cleanEmail
+                    )
+                }
+                role == "doctor" || role == "lab_technician" -> {
+                    return@withContext PortalAssociation(
+                        portal = "doctor",
+                        portalLabel = "Doctor / Specialist Portal",
+                        entityName = existingProfile.fullName.orEmpty(),
+                        email = cleanEmail
+                    )
+                }
+                role == "patient" && (!existingProfile.fullName.isNullOrBlank() || !existingProfile.phone.isNullOrBlank()) -> {
+                    return@withContext PortalAssociation(
+                        portal = "patient",
+                        portalLabel = "Patient Portal",
+                        entityName = existingProfile.fullName.orEmpty(),
+                        email = cleanEmail
+                    )
+                }
+            }
+        }
+
+        null
+    }
+
     suspend fun getProfileByEmail(email: String): Profile? = withContext(Dispatchers.IO) {
         val cleanEmail = email.trim().lowercase()
         if (cleanEmail.isBlank()) return@withContext null
@@ -363,15 +472,15 @@ class AuthRepository @Inject constructor(
         age: Int?
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val updateMap = mutableMapOf<String, Any>(
-                "full_name" to fullName.trim(),
-                "phone" to phone.trim(),
-                "updated_at" to Instant.now().toString()
-            )
-            if (!gender.isNullOrBlank()) updateMap["gender"] = gender
-            if (age != null && age > 0) updateMap["age"] = age
+            val updateJson = kotlinx.serialization.json.buildJsonObject {
+                put("full_name", kotlinx.serialization.json.JsonPrimitive(fullName.trim()))
+                put("phone", kotlinx.serialization.json.JsonPrimitive(phone.trim()))
+                put("updated_at", kotlinx.serialization.json.JsonPrimitive(Instant.now().toString()))
+                if (!gender.isNullOrBlank()) put("gender", kotlinx.serialization.json.JsonPrimitive(gender))
+                if (age != null && age > 0) put("age", kotlinx.serialization.json.JsonPrimitive(age))
+            }
 
-            supabaseClient.postgrest["profiles"].update(updateMap) {
+            supabaseClient.postgrest["profiles"].update(updateJson) {
                 filter {
                     or {
                         eq("id", userId)
@@ -395,16 +504,16 @@ class AuthRepository @Inject constructor(
             val deletionScheduledAt = scheduledInstant.toString()
             val archivedAt = nowInstant.toString()
 
-            val updateMap = mapOf(
-                "is_archived" to true,
-                "archived_at" to archivedAt,
-                "deletion_scheduled_at" to deletionScheduledAt,
-                "updated_at" to archivedAt
-            )
+            val updateJson = kotlinx.serialization.json.buildJsonObject {
+                put("is_archived", kotlinx.serialization.json.JsonPrimitive(true))
+                put("archived_at", kotlinx.serialization.json.JsonPrimitive(archivedAt))
+                put("deletion_scheduled_at", kotlinx.serialization.json.JsonPrimitive(deletionScheduledAt))
+                put("updated_at", kotlinx.serialization.json.JsonPrimitive(archivedAt))
+            }
 
             // CRITICAL: We DO NOT delete any appointments, clinic records, invoices, or lab reports in Supabase.
             // All historical appointments and clinic data remain securely preserved.
-            supabaseClient.postgrest["profiles"].update(updateMap) {
+            supabaseClient.postgrest["profiles"].update(updateJson) {
                 filter {
                     or {
                         eq("id", userId)

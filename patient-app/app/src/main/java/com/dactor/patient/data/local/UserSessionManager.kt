@@ -73,6 +73,23 @@ class UserSessionManager @Inject constructor(
         prefs.edit().putBoolean("is_guest_mode", isGuest).apply()
     }
 
+    fun setPendingVerifiedEmail(email: String?) {
+        if (email.isNullOrBlank()) {
+            prefs.edit().remove("pending_verified_google_email").apply()
+        } else {
+            prefs.edit().putString("pending_verified_google_email", email.trim().lowercase()).apply()
+        }
+    }
+
+    fun consumePendingVerifiedEmail(): String? {
+        val email = prefs.getString("pending_verified_google_email", null)
+        if (!email.isNullOrBlank()) {
+            prefs.edit().remove("pending_verified_google_email").apply()
+            return email
+        }
+        return null
+    }
+
     fun saveTrackingCode(code: String, label: String = "Patient Appointment") {
         val trimmedCode = code.trim()
         if (trimmedCode.length != 10) return

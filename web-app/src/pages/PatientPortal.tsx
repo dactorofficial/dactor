@@ -134,6 +134,7 @@ import {
   getPatientNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  checkEmailPortalAssociation,
 } from '../services/db'
 import {
   firebaseSignInWithEmail,
@@ -750,6 +751,19 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setAuthSubmitting(true)
 
     try {
+      // Enforce 1 Google Account = 1 Portal Role rule
+      if (authMode === 'login' || authMode === 'signup') {
+        const assoc = await checkEmailPortalAssociation(authEmail)
+        if (assoc && assoc.portal !== 'patient') {
+          await firebaseSignOut()
+          const entitySuffix = assoc.entityName ? ` (${assoc.entityName})` : ''
+          setAuthError(
+            `This Google account (${assoc.email}) is already associated with a ${assoc.portalLabel} account${entitySuffix}. You cannot log in to the Patient Portal with this Google ID. Please change your Google account.`
+          )
+          return
+        }
+      }
+
       if (authMode === 'login') {
         const res = await firebaseSignInWithEmail(authEmail, authPassword)
         if (!res.success || !res.user) {
@@ -826,8 +840,20 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setAuthSubmitting(true)
     setAuthError(null)
     try {
+      await firebaseSignOut()
       const gUser = await signInWithFirebaseGoogle()
       if (!gUser || !gUser.email) return
+
+      // Enforce 1 Google Account = 1 Portal Role rule
+      const assoc = await checkEmailPortalAssociation(gUser.email)
+      if (assoc && assoc.portal !== 'patient') {
+        await firebaseSignOut()
+        const entitySuffix = assoc.entityName ? ` (${assoc.entityName})` : ''
+        setAuthError(
+          `This Google account (${assoc.email}) is already associated with a ${assoc.portalLabel} account${entitySuffix}. You cannot log in to the Patient Portal with this Google ID. Please change your Google account.`
+        )
+        return
+      }
 
       const profile = await getPatientProfileByEmail(gUser.email)
       if (profile && profile.fullName && profile.phone && profile.age && profile.gender) {
@@ -2259,8 +2285,24 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             </div>
 
             {authError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
-                {authError}
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold space-y-2.5">
+                <div className="flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{authError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthError(null)
+                    setAuthEmail('')
+                    handleGoogleSignIn()
+                  }}
+                  disabled={authSubmitting}
+                  className="w-full py-2 px-3 rounded-lg bg-white hover:bg-rose-100/60 border border-rose-300 text-rose-800 font-bold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Change Account</span>
+                </button>
               </div>
             )}
             {authSuccess && (

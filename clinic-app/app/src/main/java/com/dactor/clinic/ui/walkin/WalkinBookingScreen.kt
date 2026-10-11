@@ -676,23 +676,21 @@ fun WalkinBookingScreen(
                         appointmentDate = todayStr
                     }
 
-                    if (isTimeInPast) {
-                        errorMessage = "Cannot select past time ($appointmentTime). Please select a slot or time whose end time has not passed."
-                        return@Button
-                    }
-
                     val currentHHmm = try {
                         java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
                     } catch (e: Exception) { "10:00" }
 
-                    val actualTime = when {
-                        selectedSlot != null -> "${selectedSlot!!.startTime} - ${selectedSlot!!.endTime}"
-                        appointmentTime.isNotBlank() -> appointmentTime
-                        else -> currentHHmm
+                    // Only block if a specific published slot was selected whose end time is over
+                    if (selectedSlot != null && isTimeInPast) {
+                        errorMessage = "Selected slot (${selectedSlot!!.startTime} - ${selectedSlot!!.endTime}) has ended. Please select an active slot."
+                        coroutineScope.launch { scrollState.animateScrollTo(0) }
+                        return@Button
                     }
 
-                    val cleanClinicId = effectiveClinicId.trim().ifBlank {
-                        session.getSavedClinicId() ?: session.getSavedActiveClinicIdForDoctor() ?: ""
+                    val actualTime = when {
+                        selectedSlot != null -> "${selectedSlot!!.startTime} - ${selectedSlot!!.endTime}"
+                        appointmentTime.isNotBlank() && !isTimeInPast -> appointmentTime
+                        else -> currentHHmm
                     }
 
                     isSubmitting = true
@@ -701,6 +699,18 @@ fun WalkinBookingScreen(
                     coroutineScope.launch {
                         val generatedCode = TrackingCodeGenerator.generate()
                         try {
+                            var cleanClinicId = effectiveClinicId.trim().ifBlank {
+                                session.getSavedClinicId() ?: session.getSavedActiveClinicIdForDoctor() ?: ""
+                            }
+                            if (cleanClinicId.isBlank() && clinicRepository != null) {
+                                val allClinics = clinicRepository.getClinics()
+                                val matched = allClinics.firstOrNull { it.contactEmail.equals(session.getSavedEmail(), ignoreCase = true) }
+                                    ?: allClinics.firstOrNull()
+                                if (matched != null) {
+                                    cleanClinicId = matched.id
+                                    effectiveClinicId = matched.id
+                                }
+                            }
                             val selectedTestsSummary = if (selectedLabTests.isNotEmpty()) {
                                 selectedLabTests.joinToString(", ") { "${it.serviceName} (Rs. ${it.price.toInt()})" }
                             } else null
@@ -714,9 +724,9 @@ fun WalkinBookingScreen(
                                 trackingCode10Digit = generatedCode,
                                 slotId = selectedSlot?.id,
                                 clinicId = cleanClinicId,
-                                doctorId = selectedDoctor?.id,
+                                doctorId = selectedDoctor?.id ?: affiliatedDoctors.firstOrNull()?.id,
                                 patientName = patientName.trim(),
-                                patientMobile = mobileNumber.trim(),
+                                patientMobile = cleanPhone,
                                 patientAge = (age.trim().toIntOrNull() ?: 30).coerceIn(1, 120),
                                 patientGender = selectedGender,
                                 patientEmail = email.trim().ifBlank { null },
@@ -730,10 +740,16 @@ fun WalkinBookingScreen(
                             )
 
                             val result = appointmentRepository?.createWalkinAppointment(walkin, allowOverbooking = true)
-                            confirmedCode = result?.trackingCode10Digit ?: generatedCode
+                            if (result != null) {
+                                confirmedCode = result.trackingCode10Digit.ifBlank { generatedCode }
+                            } else {
+                                errorMessage = "Failed to save walk-in appointment. Please check your internet connection and try again."
+                                scrollState.animateScrollTo(0)
+                            }
                         } catch (e: Exception) {
                             e.printStackTrace()
-                            confirmedCode = generatedCode
+                            errorMessage = "Error saving walk-in: ${e.message ?: "Please try again."}"
+                            scrollState.animateScrollTo(0)
                         } finally {
                             isSubmitting = false
                         }

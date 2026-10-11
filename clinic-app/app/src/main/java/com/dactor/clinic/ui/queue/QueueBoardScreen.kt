@@ -68,9 +68,12 @@ fun QueueBoardScreen(
     labReportRepository: LabReportRepository? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val effectiveClinicId = remember(clinicId) {
-        if (clinicId.isNotBlank() && clinicId != "c1") clinicId
-        else com.dactor.clinic.data.local.UserSessionManager(context).getSavedClinicId() ?: ""
+    val sessionManager = remember { com.dactor.clinic.data.local.UserSessionManager(context) }
+    var effectiveClinicId by remember(clinicId) {
+        mutableStateOf(
+            if (clinicId.isNotBlank() && clinicId != "c1") clinicId
+            else sessionManager.getSavedClinicId() ?: ""
+        )
     }
 
     var isLabClinic by remember { mutableStateOf(false) }
@@ -80,16 +83,30 @@ fun QueueBoardScreen(
     var rawQueueEntries by remember(effectiveClinicId) { mutableStateOf<List<QueueEntry>>(emptyList()) }
 
     LaunchedEffect(effectiveClinicId) {
-        if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
+        if (clinicRepository != null) {
             try {
-                val c = clinicRepository.getClinicById(effectiveClinicId)
-                currentClinic = c
-                if (System.currentTimeMillis() - lastBreakToggleMs > 12_000L) {
-                    isClinicOnBreak = c?.isOnBreak == true
+                if (effectiveClinicId.isBlank()) {
+                    val savedEmail = sessionManager.getSavedEmail()
+                    val fallback = if (!savedEmail.isNullOrBlank()) {
+                        clinicRepository.getClinicByEmail(savedEmail)
+                    } else {
+                        clinicRepository.getClinics().firstOrNull()
+                    }
+                    if (fallback != null) {
+                        effectiveClinicId = fallback.id
+                        sessionManager.saveClinicSession(fallback.id, fallback.contactEmail ?: savedEmail ?: "", fallback.name)
+                    }
                 }
-                val t = c?.type?.lowercase() ?: ""
-                val n = c?.name?.lowercase() ?: ""
-                isLabClinic = t == "diagnostic_lab" || t.contains("lab") || n.contains("lab") || (c?.specialties?.any { it.lowercase().contains("lab") || it.lowercase().contains("patholog") } == true)
+                if (effectiveClinicId.isNotBlank()) {
+                    val c = clinicRepository.getClinicById(effectiveClinicId)
+                    currentClinic = c
+                    if (System.currentTimeMillis() - lastBreakToggleMs > 12_000L) {
+                        isClinicOnBreak = c?.isOnBreak == true
+                    }
+                    val t = c?.type?.lowercase() ?: ""
+                    val n = c?.name?.lowercase() ?: ""
+                    isLabClinic = t == "diagnostic_lab" || t.contains("lab") || n.contains("lab") || (c?.specialties?.any { it.lowercase().contains("lab") || it.lowercase().contains("patholog") } == true)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -350,7 +367,7 @@ fun QueueBoardScreen(
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF006B7D),
+                                color = Color(0xFF0284C7),
                                 modifier = Modifier.size(34.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
@@ -405,7 +422,7 @@ fun QueueBoardScreen(
         ) {
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 3 Stat Cards (Shown only on Live Queue tab)
+            // 3 Stat Cards (Shown on Live Queue tab)
             if (selectedQueueTab == 0) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -529,101 +546,14 @@ fun QueueBoardScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Clinic Break Toggle Bar (Notifies all active appointments when toggled ON)
-                val todaySched = currentClinic?.getTodaySchedule()
-                val breakScheduleLabel = if (todaySched?.hasBreak == true) {
-                    "Scheduled Break: ${todaySched.breakStart} - ${todaySched.breakEnd}"
-                } else {
-                    "Pauses queue & notifies all active patients"
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (isClinicOnBreak) Color(0xFFFFF7ED) else Color.White,
-                    border = BorderStroke(1.dp, if (isClinicOnBreak) Color(0xFFFDBA74) else Color(0xFFE2E8F0)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isClinicOnBreak) Color(0xFFFFEDD5) else Color(0xFFF1F5F9),
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.FreeBreakfast,
-                                        contentDescription = null,
-                                        tint = if (isClinicOnBreak) Color(0xFFEA580C) else Color(0xFF00838F),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                            Column {
-                                Text(
-                                    text = if (isClinicOnBreak) "Clinic is Currently on Break" else "Clinic Break Mode",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.5.sp,
-                                    color = if (isClinicOnBreak) Color(0xFF9A3412) else Color(0xFF0F172A)
-                                )
-                                Text(
-                                    text = breakScheduleLabel,
-                                    fontSize = 11.sp,
-                                    color = if (isClinicOnBreak) Color(0xFFC2410C) else Color(0xFF64748B)
-                                )
-                            }
-                        }
-
-                        Switch(
-                            checked = isClinicOnBreak,
-                            onCheckedChange = { newValue ->
-                                lastBreakToggleMs = System.currentTimeMillis()
-                                isClinicOnBreak = newValue
-                                currentClinic = currentClinic?.copy(isOnBreak = newValue)
-                                coroutineScope.launch {
-                                    val updated = clinicRepository?.toggleClinicBreak(effectiveClinicId, newValue)
-                                    if (updated != null) {
-                                        currentClinic = updated
-                                    }
-                                    if (newValue) {
-                                        val windowStr = if (todaySched?.hasBreak == true) "${todaySched.breakStart} - ${todaySched.breakEnd}" else null
-                                        val count = queueRepository?.sendClinicBreakNotificationsToActiveAppointments(
-                                            clinicId = effectiveClinicId,
-                                            clinicName = currentClinic?.name ?: "Dactor Clinic",
-                                            breakWindowText = windowStr
-                                        ) ?: 0
-                                        notificationSentMessage = "☕ Clinic Break ON — notified $count active appointment(s)."
-                                    } else {
-                                        notificationSentMessage = "✓ Clinic Break OFF — live queue resumed."
-                                    }
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = Color(0xFFEA580C)
-                            )
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
             }
 
+            // Tab Bar: Live Queue / Past Queue (White Card with Blue Underline matching template)
             Surface(
-                color = Color(0xFFEBF3FE),
+                color = Color.White,
                 shape = RoundedCornerShape(14.dp),
+                shadowElevation = 1.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -635,7 +565,7 @@ fun QueueBoardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clickable { selectedQueueTab = 0 }
-                            .padding(vertical = 12.dp),
+                            .padding(top = 12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Row(
@@ -645,25 +575,26 @@ fun QueueBoardScreen(
                             Icon(
                                 Icons.Default.Groups,
                                 contentDescription = null,
-                                tint = if (selectedQueueTab == 0) Color(0xFF00838F) else Color(0xFF64748B),
+                                tint = if (selectedQueueTab == 0) Color(0xFF0284C7) else Color(0xFF64748B),
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
                                 "Live Queue (${liveQueue.size})",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.5.sp,
-                                color = if (selectedQueueTab == 0) Color(0xFF00838F) else Color(0xFF64748B)
+                                color = if (selectedQueueTab == 0) Color(0xFF0284C7) else Color(0xFF64748B)
                             )
                         }
-                        if (selectedQueueTab == 0) {
-                            Spacer(Modifier.height(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.85f)
-                                    .height(3.dp)
-                                    .background(Color(0xFF00838F), RoundedCornerShape(2.dp))
-                            )
-                        }
+                        Spacer(Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.92f)
+                                .height(3.dp)
+                                .background(
+                                    if (selectedQueueTab == 0) Color(0xFF0284C7) else Color.Transparent,
+                                    RoundedCornerShape(2.dp)
+                                )
+                        )
                     }
 
                     // Past Queue Tab
@@ -671,7 +602,7 @@ fun QueueBoardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clickable { selectedQueueTab = 1 }
-                            .padding(vertical = 12.dp),
+                            .padding(top = 12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Row(
@@ -681,29 +612,135 @@ fun QueueBoardScreen(
                             Icon(
                                 Icons.Default.AccessTime,
                                 contentDescription = null,
-                                tint = if (selectedQueueTab == 1) Color(0xFF00838F) else Color(0xFF64748B),
+                                tint = if (selectedQueueTab == 1) Color(0xFF0284C7) else Color(0xFF64748B),
                                 modifier = Modifier.size(19.dp)
                             )
                             Text(
                                 "Past Queue (${pastQueue.size})",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.5.sp,
-                                color = if (selectedQueueTab == 1) Color(0xFF00838F) else Color(0xFF64748B)
+                                color = if (selectedQueueTab == 1) Color(0xFF0284C7) else Color(0xFF64748B)
                             )
                         }
-                        if (selectedQueueTab == 1) {
-                            Spacer(Modifier.height(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.85f)
-                                    .height(3.dp)
-                                    .background(Color(0xFF00838F), RoundedCornerShape(2.dp))
+                        Spacer(Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.92f)
+                                .height(3.dp)
+                                .background(
+                                    if (selectedQueueTab == 1) Color(0xFF0284C7) else Color.Transparent,
+                                    RoundedCornerShape(2.dp)
+                                )
+                        )
+                    }
+                }
+            }
+
+            if (selectedQueueTab == 0) {
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Live OPD Queue Info Banner (Matching template in media_1791633639645_ca1532cb.png)
+                Surface(
+                    color = Color(0xFFEEF6FF),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF3B82F6),
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Live OPD Queue",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.5.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                                // Compact Break Mode Toggle chip
+                                val todaySched = currentClinic?.getTodaySchedule()
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (isClinicOnBreak) Color(0xFFFEF3C7) else Color(0xFFDBEAFE),
+                                    border = BorderStroke(1.dp, if (isClinicOnBreak) Color(0xFFF59E0B) else Color(0xFF93C5FD)),
+                                    modifier = Modifier.clickable {
+                                        val newValue = !isClinicOnBreak
+                                        lastBreakToggleMs = System.currentTimeMillis()
+                                        isClinicOnBreak = newValue
+                                        currentClinic = currentClinic?.copy(isOnBreak = newValue)
+                                        coroutineScope.launch {
+                                            val updated = clinicRepository?.toggleClinicBreak(effectiveClinicId, newValue)
+                                            if (updated != null) {
+                                                currentClinic = updated
+                                            }
+                                            if (newValue) {
+                                                val windowStr = if (todaySched?.hasBreak == true) "${todaySched.breakStart} - ${todaySched.breakEnd}" else null
+                                                val count = queueRepository?.sendClinicBreakNotificationsToActiveAppointments(
+                                                    clinicId = effectiveClinicId,
+                                                    clinicName = currentClinic?.name ?: "Dactor Clinic",
+                                                    breakWindowText = windowStr
+                                                ) ?: 0
+                                                notificationSentMessage = "☕ Clinic Break ON — notified $count active appointment(s)."
+                                            } else {
+                                                notificationSentMessage = "✓ Clinic Break OFF — live queue resumed."
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.FreeBreakfast,
+                                            contentDescription = null,
+                                            tint = if (isClinicOnBreak) Color(0xFFD97706) else Color(0xFF1D4ED8),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Text(
+                                            text = if (isClinicOnBreak) "Break: ON" else "Break: OFF",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isClinicOnBreak) Color(0xFFB45309) else Color(0xFF1D4ED8)
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = "Live OPD Queue operates on a strict FIFO system. When consultation completes, the patient moves to Past Queue and the next patient becomes #1.",
+                                fontSize = 12.sp,
+                                color = Color(0xFF475569),
+                                lineHeight = 17.sp
                             )
                         }
                     }
                 }
             }
-
 
             if (notificationSentMessage != null) {
                 Spacer(modifier = Modifier.height(10.dp))

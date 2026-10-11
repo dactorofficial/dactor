@@ -80,7 +80,7 @@ class QueueRepository @Inject constructor(
 
                 for (appt in todayAppts) {
                     if (!enrolledIds.contains(appt.id)) {
-                        val newEntry = QueueEntry(
+                        val newEntryDto = QueueEntryInsertDto(
                             id = java.util.UUID.randomUUID().toString(),
                             appointmentId = appt.id,
                             clinicId = clinicId,
@@ -89,7 +89,7 @@ class QueueRepository @Inject constructor(
                             status = "waiting"
                         )
                         try {
-                            supabaseClient.postgrest["queue_entries"].insert(newEntry)
+                            supabaseClient.postgrest["queue_entries"].insert(newEntryDto)
                             addedAny = true
                         } catch (ignored: Exception) {}
                     }
@@ -147,7 +147,7 @@ class QueueRepository @Inject constructor(
 
                 for (appt in todayAppts) {
                     if (!enrolledIds.contains(appt.id)) {
-                        val newEntry = QueueEntry(
+                        val newEntryDto = QueueEntryInsertDto(
                             id = java.util.UUID.randomUUID().toString(),
                             appointmentId = appt.id,
                             clinicId = appt.clinicId,
@@ -156,7 +156,7 @@ class QueueRepository @Inject constructor(
                             status = "waiting"
                         )
                         try {
-                            supabaseClient.postgrest["queue_entries"].insert(newEntry)
+                            supabaseClient.postgrest["queue_entries"].insert(newEntryDto)
                             addedAny = true
                         } catch (ignored: Exception) {}
                     }
@@ -196,9 +196,10 @@ class QueueRepository @Inject constructor(
                     .decodeSingleOrNull<QueueEntry>()
             } catch (e: Exception) { null }
 
-            val durationSeconds = if ((status == "done" || status == "processing") && existingEntry?.insideAt != null) {
+            val startTs = existingEntry?.insideAt ?: existingEntry?.calledAt
+            val durationSeconds = if ((status == "done" || status == "processing") && !startTs.isNullOrBlank()) {
                 try {
-                    val start = Instant.parse(existingEntry.insideAt).epochSecond
+                    val start = Instant.parse(startTs).epochSecond
                     val end = Instant.parse(now).epochSecond
                     (end - start).coerceAtLeast(0)
                 } catch (e: Exception) { null }
@@ -209,7 +210,7 @@ class QueueRepository @Inject constructor(
                 .update({
                     set("status", status)
                     when (status) {
-                        "inside" -> set("inside_at", now)
+                        "inside" -> set("called_at", now)
                         "done", "processing", "no_show", "sample_collected", "report_prepared" -> {
                             set("completed_at", now)
                         }
@@ -219,6 +220,15 @@ class QueueRepository @Inject constructor(
                         eq("id", id)
                     }
                 }
+
+            if (status == "inside") {
+                try {
+                    supabaseClient.postgrest["queue_entries"]
+                        .update({ set("inside_at", now) }) {
+                            filter { eq("id", id) }
+                        }
+                } catch (ignored: Exception) {}
+            }
 
             // Optional column update: persist consultation_duration_seconds if column exists in DB
             if (durationSeconds != null) {
