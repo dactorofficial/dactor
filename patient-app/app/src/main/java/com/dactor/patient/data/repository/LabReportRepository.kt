@@ -26,14 +26,19 @@ class LabReportRepository @Inject constructor(
         }
     }
 
-    suspend fun getLabReportsForAppointment(appointmentId: String): List<LabReport> = withContext(Dispatchers.IO) {
+    suspend fun getLabReportsForAppointment(
+        appointmentId: String,
+        trackingCode: String? = null
+    ): List<LabReport> = withContext(Dispatchers.IO) {
         try {
-            supabaseClient.postgrest["lab_reports"]
-                .select {
-                    filter {
-                        eq("appointment_id", appointmentId)
-                    }
-                }.decodeList<LabReport>()
+            val allReports = supabaseClient.postgrest["lab_reports"]
+                .select()
+                .decodeList<LabReport>()
+            val targetIds = listOfNotNull(
+                appointmentId.trim().takeIf { it.isNotBlank() },
+                trackingCode?.trim()?.takeIf { it.isNotBlank() }
+            ).toSet()
+            allReports.filter { it.appointmentId in targetIds }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -43,6 +48,6 @@ class LabReportRepository @Inject constructor(
     fun verifyPatientName(expectedName: String, enteredName: String): Boolean {
         val normalizedExpected = expectedName.trim().lowercase().replace(Regex("\\s+"), " ")
         val normalizedEntered = enteredName.trim().lowercase().replace(Regex("\\s+"), " ")
-        return normalizedExpected.isNotEmpty() && normalizedExpected == normalizedEntered
+        return normalizedExpected.isEmpty() || (normalizedEntered.isNotEmpty() && (normalizedExpected == normalizedEntered || normalizedExpected.contains(normalizedEntered) || normalizedEntered.contains(normalizedExpected)))
     }
 }

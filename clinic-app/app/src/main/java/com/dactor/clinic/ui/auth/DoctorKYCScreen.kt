@@ -58,36 +58,44 @@ fun DoctorKYCScreen(
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    // Real Native Android File Picker for NMC License Document (PDF / Images)
+    // Real Native Android File Picker for NMC License Document (PDF / Images) with <= 500 KB auto-compression
     val licensePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             licenseUri = uri
-            val meta = getDocumentMetadata(context, uri)
-            licenseFileName = meta.first
-            licenseFileSize = meta.second
-            licenseBytes = try {
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            } catch (e: Exception) {
-                null
+            coroutineScope.launch {
+                val compressed = com.dactor.clinic.domain.util.FileCompressor.compressUri(
+                    context = context,
+                    uri = uri,
+                    fallbackFileName = "nmc_license.jpg"
+                )
+                if (compressed != null) {
+                    licenseFileName = compressed.fileName
+                    licenseFileSize = compressed.formattedSummary
+                    licenseBytes = compressed.bytes
+                }
             }
         }
     }
 
-    // Real Native Android File Picker for Medical Degree Certificate
+    // Real Native Android File Picker for Medical Degree Certificate with <= 500 KB auto-compression
     val certificatePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             certificateUri = uri
-            val meta = getDocumentMetadata(context, uri)
-            certificateFileName = meta.first
-            certificateFileSize = meta.second
-            certificateBytes = try {
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            } catch (e: Exception) {
-                null
+            coroutineScope.launch {
+                val compressed = com.dactor.clinic.domain.util.FileCompressor.compressUri(
+                    context = context,
+                    uri = uri,
+                    fallbackFileName = "medical_degree.jpg"
+                )
+                if (compressed != null) {
+                    certificateFileName = compressed.fileName
+                    certificateFileSize = compressed.formattedSummary
+                    certificateBytes = compressed.bytes
+                }
             }
         }
     }
@@ -318,14 +326,16 @@ fun DoctorKYCScreen(
                         var certUrl: String? = null
 
                         if (licenseBytes != null && !licenseFileName.isNullOrBlank()) {
-                            val remoteName = "nmc_${effectiveDoctorId}_${System.currentTimeMillis()}_${licenseFileName}"
+                            val cleanName = licenseFileName!!.replace("\\s+".toRegex(), "_")
+                            val remoteName = "nmc_${effectiveDoctorId}_${System.currentTimeMillis()}_$cleanName"
                             licenseUrl = doctorRepository?.uploadKycFile(remoteName, licenseBytes!!) ?: licenseFileName
                         } else if (!licenseFileName.isNullOrBlank()) {
                             licenseUrl = licenseFileName
                         }
 
                         if (certificateBytes != null && !certificateFileName.isNullOrBlank()) {
-                            val remoteName = "degree_${effectiveDoctorId}_${System.currentTimeMillis()}_${certificateFileName}"
+                            val cleanName = certificateFileName!!.replace("\\s+".toRegex(), "_")
+                            val remoteName = "degree_${effectiveDoctorId}_${System.currentTimeMillis()}_$cleanName"
                             certUrl = doctorRepository?.uploadKycFile(remoteName, certificateBytes!!) ?: certificateFileName
                         } else if (!certificateFileName.isNullOrBlank()) {
                             certUrl = certificateFileName
@@ -344,16 +354,17 @@ fun DoctorKYCScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
+                    .defaultMinSize(minHeight = 52.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                 shape = RoundedCornerShape(14.dp),
                 enabled = !isSubmitting && nmcLicense.isNotBlank() && licenseFileName != null
             ) {
                 if (isSubmitting) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(10.dp))
-                    Text("Uploading & Verifying...", fontWeight = FontWeight.Bold)
+                    Text("Uploading & Verifying...", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 } else {
-                    Text("Submit NMC Documents for Super Admin Review", fontWeight = FontWeight.Bold)
+                    Text("Submit NMC Documents for Admin Review", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                 }
             }
         }

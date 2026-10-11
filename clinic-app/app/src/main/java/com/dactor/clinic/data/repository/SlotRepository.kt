@@ -12,6 +12,51 @@ import javax.inject.Singleton
 class SlotRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
+    companion object {
+        fun parseTimeToMinutes(raw: String): Int? {
+            val clean = raw.trim().uppercase(java.util.Locale.US)
+            if (clean.isBlank()) return null
+            return try {
+                val isPm = clean.contains("PM")
+                val isAm = clean.contains("AM")
+                val timePart = clean.replace("AM", "").replace("PM", "").trim()
+                val parts = timePart.split(":")
+                if (parts.size < 2) return null
+                var hour = parts[0].trim().toInt()
+                val minute = parts[1].trim().take(2).filter { it.isDigit() }.toInt()
+                if (isPm && hour < 12) hour += 12
+                if (isAm && hour == 12) hour = 0
+                hour * 60 + minute
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        /**
+         * Checks whether the ending time of a slot/window is already over for [dateStr].
+         * If the ending time has not passed yet, returns false (slot is still active & valid).
+         */
+        fun isSlotEndTimeOver(endTimeStr: String, dateStr: String, startTimeStr: String = ""): Boolean {
+            return try {
+                val today = java.time.LocalDate.now().toString()
+                if (dateStr < today) return true
+                if (dateStr > today) return false
+                var endMins = parseTimeToMinutes(endTimeStr) ?: return false
+                val startMins = parseTimeToMinutes(startTimeStr)
+                if (endMins == 0 && (startMins == null || startMins > 0)) {
+                    endMins = 24 * 60
+                } else if (startMins != null && endMins < startMins) {
+                    endMins += 24 * 60
+                }
+                val now = java.time.LocalTime.now()
+                val nowMins = now.hour * 60 + now.minute
+                endMins <= nowMins
+            } catch (e: Exception) {
+                false
+            }
+        }
+    }
+
     suspend fun getSlots(clinicId: String, date: String): List<Slot> = withContext(Dispatchers.IO) {
         try {
             val slots = supabaseClient.postgrest["slots"]
@@ -47,6 +92,20 @@ class SlotRepository @Inject constructor(
                 }
                 slot.copy(bookedCount = registeredCount)
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun getSlotsForClinic(clinicId: String): List<Slot> = withContext(Dispatchers.IO) {
+        try {
+            supabaseClient.postgrest["slots"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                    }
+                }.decodeList<Slot>()
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()

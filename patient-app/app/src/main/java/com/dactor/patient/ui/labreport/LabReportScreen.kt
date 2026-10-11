@@ -20,16 +20,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.model.LabReport
 import com.dactor.patient.data.repository.AppointmentRepository
@@ -52,10 +56,12 @@ fun LabReportScreen(
 
     var searchQuery by remember { mutableStateOf(if (reportId == "all") "" else reportId) }
     var currentReport by remember { mutableStateOf<LabReport?>(null) }
+    var expectedPatientPhone by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
-    var enteredName by remember { mutableStateOf("") }
+    var verifyMethod by remember { mutableStateOf("name") } // "name" or "phone"
+    var enteredVerification by remember { mutableStateOf("") }
     var isUnlocked by remember { mutableStateOf(false) }
     var verificationError by remember { mutableStateOf<String?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
@@ -72,47 +78,62 @@ fun LabReportScreen(
 
         try {
             var foundReport: LabReport? = null
+            var matchedAppt = appointmentRepository?.getAppointmentByTrackingCode(clean)
+                ?: appointmentRepository?.getAppointmentById(clean)
 
-            // 1. Try finding by direct lab report ID
+            // 1. Try finding by direct lab report ID or by appointmentId/trackingCode
             if (labReportRepository != null) {
                 foundReport = labReportRepository.getLabReportById(clean)
-            }
-
-            // 2. If clean is 10 digits, look up appointment tracking code, then its lab reports
-            if (foundReport == null && clean.length == 10 && appointmentRepository != null && labReportRepository != null) {
-                val appt = appointmentRepository.getAppointmentByTrackingCode(clean)
-                if (appt != null) {
-                    val reports = labReportRepository.getLabReportsForAppointment(appt.id)
-                    foundReport = reports.firstOrNull()
+                if (foundReport == null) {
+                    foundReport = labReportRepository.getLabReportsForAppointment(clean, clean).firstOrNull()
                 }
             }
 
-            // 3. Fallback: if not in database, provide a structured offline report object
+            // 2. If we found an appointment by tracking code / ID, look up its lab reports
+            if (matchedAppt != null) {
+                expectedPatientPhone = matchedAppt.patientMobile
+                if (foundReport == null && labReportRepository != null) {
+                    val reports = labReportRepository.getLabReportsForAppointment(matchedAppt.id, matchedAppt.trackingCode10Digit)
+                    foundReport = reports.firstOrNull()
+                }
+            } else if (foundReport != null && foundReport.appointmentId.isNotBlank()) {
+                matchedAppt = appointmentRepository?.getAppointmentById(foundReport.appointmentId)
+                    ?: appointmentRepository?.getAppointmentByTrackingCode(foundReport.appointmentId)
+                if (matchedAppt != null) {
+                    expectedPatientPhone = matchedAppt.patientMobile
+                }
+            }
+
+            // 3. Fallback: if appointment exists in processing/report_prepared stage or offline fallback
             if (foundReport == null) {
-                val savedName = sessionManager?.getSavedName() ?: "Registered Patient"
+                val apptStage = when (matchedAppt?.checkinStatus?.lowercase()) {
+                    "report_prepared", "done" -> "prepared"
+                    "processing", "sample_collected" -> "processing"
+                    else -> "prepared"
+                }
+                val savedName = matchedAppt?.patientName?.takeIf { it.isNotBlank() }
+                    ?: sessionManager?.getSavedName()
+                    ?: "Registered Patient"
                 foundReport = LabReport(
                     id = if (clean.isNotBlank()) clean else "REP-${System.currentTimeMillis().toString().takeLast(6)}",
-                    appointmentId = "",
-                    clinicId = "",
-                    testName = "Complete Blood Count & Metabolic Panel",
-                    stage = "prepared",
+                    appointmentId = matchedAppt?.id ?: clean,
+                    clinicId = matchedAppt?.clinicId ?: "",
+                    testName = matchedAppt?.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Complete Blood Count & Metabolic Panel",
+                    stage = apptStage,
                     fileUrl = null,
                     fileName = "Lab_Diagnostic_Report_${clean.ifBlank { "Summary" }}.pdf",
                     fileType = "application/pdf",
                     patientNameVerification = savedName,
-                    sampleCollectedAt = java.time.LocalDate.now().toString(),
+                    sampleCollectedAt = matchedAppt?.appointmentDate ?: java.time.LocalDate.now().toString(),
                     preparedAt = java.time.LocalDate.now().toString()
                 )
             }
 
             currentReport = foundReport
-            // Auto-unlock if user is logged in with matching name
-            val userFullName = sessionManager?.getSavedName() ?: ""
-            if (userFullName.isNotBlank() && foundReport.patientNameVerification.equals(userFullName, ignoreCase = true)) {
-                isUnlocked = true
-            } else {
-                isUnlocked = false
-            }
+            // Always require explicit Name or Mobile Number verification before unlocking
+            isUnlocked = false
+            enteredVerification = ""
+            verificationError = null
         } catch (e: Exception) {
             e.printStackTrace()
             searchError = "Could not fetch lab report. Please check your code."
@@ -135,17 +156,42 @@ fun LabReportScreen(
 
     fun verifyPatient() {
         val report = currentReport ?: return
-        val expected = report.patientNameVerification.trim().lowercase().replace(Regex("\\s+"), " ")
-        val entered = enteredName.trim().lowercase().replace(Regex("\\s+"), " ")
-        if (entered.isEmpty()) {
-            verificationError = "Please enter the patient's full registered name"
+        val rawInput = enteredVerification.trim()
+        if (rawInput.isEmpty()) {
+            verificationError = if (verifyMethod == "name") {
+                "Please enter the patient's registered name"
+            } else {
+                "Please enter the patient's registered mobile number"
+            }
             return
         }
-        if (expected.isEmpty() || expected == entered || expected.contains(entered) || entered.contains(expected)) {
-            isUnlocked = true
-            verificationError = null
+
+        if (verifyMethod == "name") {
+            val expected = report.patientNameVerification.trim().lowercase().replace(Regex("\\s+"), " ")
+            val entered = rawInput.lowercase().replace(Regex("\\s+"), " ")
+            if (expected.isEmpty() || expected == entered ||
+                (expected.length >= 3 && expected.contains(entered)) ||
+                (entered.length >= 3 && entered.contains(expected))
+            ) {
+                isUnlocked = true
+                verificationError = null
+            } else {
+                verificationError = "Name does not match records. Please check spelling."
+            }
         } else {
-            verificationError = "Name does not match records. Please check spelling."
+            val enteredDigits = rawInput.filter { it.isDigit() }
+            val expectedDigits = expectedPatientPhone.filter { it.isDigit() }
+            if (enteredDigits.length >= 7 && (
+                    expectedDigits.isEmpty() ||
+                    enteredDigits.takeLast(10) == expectedDigits.takeLast(10) ||
+                    enteredDigits == expectedDigits
+                )
+            ) {
+                isUnlocked = true
+                verificationError = null
+            } else {
+                verificationError = "Mobile number does not match the appointment record."
+            }
         }
     }
 
@@ -183,7 +229,7 @@ fun LabReportScreen(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
                         label = { Text("10-Digit Code or Test Report ID") },
-                        placeholder = { Text("e.g. 9841203841 or Report UUID") },
+                        placeholder = { Text("Enter 10-digit code or Report UUID") },
                         leadingIcon = {
                             Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         },
@@ -391,7 +437,7 @@ fun LabReportScreen(
                     }
                 }
 
-                // NAME VERIFICATION GATE
+                // NAME / MOBILE NUMBER VERIFICATION GATE
                 if (report.stage == "prepared" && !isUnlocked) {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -417,26 +463,54 @@ fun LabReportScreen(
                                     }
                                 }
                                 Column {
-                                    Text("Patient Name Verification Gate", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text("Confidential Medical Record Locked", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                    Text("Name / Number Verification Gate", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Confidential Lab Report Locked", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                                 }
                             }
 
                             Text(
-                                "Enter the patient's registered legal name to unlock and view this report:",
+                                "Verify using the patient's registered Name or Mobile Number to view the uploaded report in-app or download the file directly:",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = verifyMethod == "name",
+                                    onClick = {
+                                        verifyMethod = "name"
+                                        enteredVerification = ""
+                                        verificationError = null
+                                    },
+                                    label = { Text("Patient Name", fontSize = 11.5.sp) }
+                                )
+                                FilterChip(
+                                    selected = verifyMethod == "phone",
+                                    onClick = {
+                                        verifyMethod = "phone"
+                                        enteredVerification = ""
+                                        verificationError = null
+                                    },
+                                    label = { Text("Mobile Number", fontSize = 11.5.sp) }
+                                )
+                            }
+
                             OutlinedTextField(
-                                value = enteredName,
+                                value = enteredVerification,
                                 onValueChange = {
-                                    enteredName = it
+                                    enteredVerification = it
                                     if (verificationError != null) verificationError = null
                                 },
-                                label = { Text("Full Patient Legal Name") },
-                                placeholder = { Text("e.g. Registered Patient Name") },
+                                label = {
+                                    Text(if (verifyMethod == "name") "Full Patient Legal Name" else "Registered Mobile Number")
+                                },
+                                placeholder = {
+                                    Text(if (verifyMethod == "name") "e.g. Ramesh Shrestha" else "e.g. 9841234567")
+                                },
                                 singleLine = true,
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = if (verifyMethod == "name") KeyboardType.Text else KeyboardType.Phone
+                                ),
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
                             )
@@ -456,7 +530,7 @@ fun LabReportScreen(
                             ) {
                                 Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Verify Name & Unlock Report", fontWeight = FontWeight.Bold)
+                                Text("Verify & Unlock Report", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -464,6 +538,14 @@ fun LabReportScreen(
 
                 // UNLOCKED REPORT VIEWER & DOWNLOAD SECTION
                 if (report.stage == "prepared" && isUnlocked) {
+                    val hasRemoteFile = !report.fileUrl.isNullOrBlank() &&
+                        (report.fileUrl.startsWith("http://") || report.fileUrl.startsWith("https://"))
+                    val isImageFile = report.fileType?.contains("image", ignoreCase = true) == true ||
+                        report.fileUrl?.endsWith(".jpg", true) == true ||
+                        report.fileUrl?.endsWith(".jpeg", true) == true ||
+                        report.fileUrl?.endsWith(".png", true) == true ||
+                        report.fileUrl?.endsWith(".webp", true) == true
+
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -492,7 +574,7 @@ fun LabReportScreen(
                                 }
                             }
 
-                            Text("Report Document", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Report Document (In-App Viewer)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
                             // Document Card
                             Surface(
@@ -511,63 +593,75 @@ fun LabReportScreen(
                                     ) {
                                         Surface(
                                             shape = RoundedCornerShape(8.dp),
-                                            color = Color(0xFFEF4444).copy(alpha = 0.15f),
+                                            color = if (isImageFile) Color(0xFF0284C7).copy(alpha = 0.15f) else Color(0xFFEF4444).copy(alpha = 0.15f),
                                             modifier = Modifier.size(42.dp)
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
-                                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(24.dp))
+                                                Icon(
+                                                    imageVector = if (isImageFile) Icons.Default.Image else Icons.Default.PictureAsPdf,
+                                                    contentDescription = null,
+                                                    tint = if (isImageFile) Color(0xFF0284C7) else Color(0xFFDC2626),
+                                                    modifier = Modifier.size(24.dp)
+                                                )
                                             }
                                         }
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                report.fileName ?: "Diagnostic_Lab_Report.pdf",
+                                                report.fileName ?: if (isImageFile) "Diagnostic_Lab_Report.jpg" else "Diagnostic_Lab_Report.pdf",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 13.sp,
                                                 maxLines = 1
                                             )
                                             Text(
-                                                "PDF Document • Certified by Clinical Pathologist",
+                                                if (isImageFile) "Picture / Image Report • Verified by Laboratory" else "PDF Document • Certified by Clinical Pathologist",
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
 
+                                    // In-app preview if an image/picture was uploaded by the lab clinic
+                                    if (hasRemoteFile && isImageFile) {
+                                        AsyncImage(
+                                            model = report.fileUrl,
+                                            contentDescription = "Uploaded Lab Report Picture",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 180.dp, max = 380.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color(0xFFE2E8F0)),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+
                                     HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
-                                    Text("Key Test Results Highlights:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                    Text("Diagnostic Summary & Status:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Total Cholesterol:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("185 mg/dL (Normal <200)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF059669))
+                                        Text("Investigation:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(report.testName, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0F172A))
                                     }
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Triglycerides:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("142 mg/dL (Normal <150)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF059669))
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Fasting Blood Sugar:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("92 mg/dL (Normal 70-99)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF059669))
+                                        Text("Verification Status:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Prepared & Released", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF059669))
                                     }
                                 }
                             }
 
-                            // Download & Share Actions (100% crash-proof)
+                            // Download & Share Actions (saves directly to device Downloads)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Button(
                                     onClick = {
-                                        try {
-                                            val url = report.fileUrl
-                                            if (!url.isNullOrBlank() && (url.startsWith("http://") || url.startsWith("https://"))) {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                                context.startActivity(intent)
-                                            } else {
-                                                statusMessage = "PDF report downloaded to /Download/${report.fileName ?: "Report.pdf"}"
-                                            }
-                                        } catch (e: Exception) {
-                                            statusMessage = "Report downloaded to your device Downloads folder."
+                                        val savedUri = com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+                                            context = context,
+                                            report = report,
+                                            patientName = report.patientNameVerification.ifBlank { sessionManager?.getSavedName() ?: "Registered Patient" }
+                                        )
+                                        if (savedUri != null) {
+                                            statusMessage = "✓ Lab Report file downloaded directly to your device's Downloads folder!"
                                         }
                                     },
                                     modifier = Modifier.weight(1f).height(48.dp),
@@ -575,7 +669,7 @@ fun LabReportScreen(
                                 ) {
                                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Download PDF", fontWeight = FontWeight.Bold)
+                                    Text(if (isImageFile) "Download Picture" else "Download File", fontWeight = FontWeight.Bold)
                                 }
 
                                 OutlinedButton(

@@ -1,28 +1,44 @@
 package com.dactor.patient.ui.booking
 
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.dactor.patient.data.local.UserSessionManager
+import com.dactor.patient.data.model.Appointment
+import com.dactor.patient.data.model.Clinic
+import com.dactor.patient.data.model.GatewayCredentialItem
+import com.dactor.patient.data.model.PatientTransactionRecord
+import com.dactor.patient.data.model.PaymentGatewaysConfig
+import com.dactor.patient.data.repository.AppointmentRepository
+import com.dactor.patient.data.repository.ClinicRepository
 import com.dactor.patient.data.repository.SlotRepository
 import com.dactor.patient.domain.util.CurrencyFormatter
 import com.dactor.patient.ui.navigation.NavRoutes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.Instant
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,96 +47,276 @@ fun PaymentScreen(
     appointmentId: String = "",
     feeAmount: Double = 500.0,
     slotRepository: SlotRepository? = null,
-    appointmentRepository: com.dactor.patient.data.repository.AppointmentRepository? = null,
-    sessionManager: com.dactor.patient.data.local.UserSessionManager? = null
+    appointmentRepository: AppointmentRepository? = null,
+    clinicRepository: ClinicRepository? = null,
+    sessionManager: UserSessionManager? = null
 ) {
-    // 5-Minute Countdown Timer (300 seconds)
-    var timeLeftSeconds by remember { mutableIntStateOf(300) }
-    var isExpired by remember { mutableStateOf(false) }
-    var selectedPaymentMethod by remember { mutableStateOf("esewa") }
-    var isProcessing by remember { mutableStateOf(false) }
-
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    LaunchedEffect(Unit) {
-        while (timeLeftSeconds > 0) {
-            delay(1000L)
-            timeLeftSeconds--
-        }
-        isExpired = true
+    var appointment by remember { mutableStateOf<Appointment?>(null) }
+    var clinic by remember { mutableStateOf<Clinic?>(null) }
+    var clinicGatewaysConfig by remember { mutableStateOf(PaymentGatewaysConfig()) }
+    var effectiveFee by remember { mutableDoubleStateOf(feeAmount) }
+
+    // Persistent 5-Minute (300 seconds) Timer Setup
+    var activeSession by remember { mutableStateOf(sessionManager?.getActivePaymentSession()) }
+    val initialExpiresAt = remember {
+        activeSession?.expiresAtEpochMs ?: (System.currentTimeMillis() + 300_000L)
     }
 
-    fun confirmAndProceed() {
-        if (isProcessing) return
-        isProcessing = true
+    var timeLeftSeconds by remember {
+        val rem = ((initialExpiresAt - System.currentTimeMillis()) / 1000L).toInt()
+        mutableIntStateOf(if (rem > 0) rem else 0)
+    }
+    var isExpired by remember { mutableStateOf(false) }
+
+    var selectedPaymentMethod by remember { mutableStateOf("esewa") }
+    var transactionReferenceInput by remember { mutableStateOf("") }
+    var isProcessing by remember { mutableStateOf(false) }
+    var isCancelling by remember { mutableStateOf(false) }
+    var showCancelConfirmDialog by remember { mutableStateOf(false) }
+
+    // Load Appointment and Clinic Real Payment Credentials
+    LaunchedEffect(appointmentId) {
+        if (appointmentId.isNotBlank() && appointmentRepository != null) {
+            val appt = appointmentRepository.getAppointmentById(appointmentId)
+            if (appt != null) {
+                appointment = appt
+                if (appt.feeAmount > 0.0) {
+                    effectiveFee = appt.feeAmount
+                }
+                if (clinicRepository != null) {
+                    val c = clinicRepository.getClinicById(appt.clinicId)
+                    if (c != null) {
+                        clinic = c
+                        val gwConfig = c.getPaymentGatewaysConfig()
+                        clinicGatewaysConfig = gwConfig
+                        selectedPaymentMethod = gwConfig.primaryGateway.ifBlank { "esewa" }
+                    }
+                }
+            }
+        }
+    }
+
+    // 5-Minute Timer Loop - Retained across app backgrounding / restart
+    LaunchedEffect(initialExpiresAt) {
+        while (true) {
+            val rem = ((initialExpiresAt - System.currentTimeMillis()) / 1000L).toInt()
+            if (rem <= 0) {
+                timeLeftSeconds = 0
+                isExpired = true
+                break
+            } else {
+                timeLeftSeconds = rem
+            }
+            delay(1000L)
+        }
+    }
+
+    // Double-Click Guarded: Cancellation & Fail Logic
+    fun handleCancelOrExpireTransaction(reason: String) {
+        if (isCancelling || isProcessing) return
+        isCancelling = true
         coroutineScope.launch {
             try {
                 if (appointmentId.isNotBlank() && appointmentRepository != null) {
-                    appointmentRepository.confirmPaymentAndJoinQueue(appointmentId)
-                    val appt = appointmentRepository.getAppointmentById(appointmentId)
+                    val appt = appointment ?: appointmentRepository.getAppointmentById(appointmentId)
+                    appointmentRepository.failOrCancelPaymentTransaction(
+                        appointmentId = appointmentId,
+                        reason = reason,
+                        transactionId = transactionReferenceInput.ifBlank { "TXN-CANCELLED-${System.currentTimeMillis()}" },
+                        paymentGateway = selectedPaymentMethod
+                    )
+                    slotRepository?.releaseSlotLock(appointmentId)
                     if (appt != null) {
-                        sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}")
+                        sessionManager?.saveLocalTransactionRecord(
+                            PatientTransactionRecord(
+                                id = "TXN-FAIL-${System.currentTimeMillis()}",
+                                appointmentId = appointmentId,
+                                trackingCode = appt.trackingCode10Digit,
+                                clinicName = clinic?.name ?: "Medical Clinic",
+                                doctorName = "Consulting Specialist",
+                                patientName = appt.patientName,
+                                appointmentDate = appt.appointmentDate,
+                                appointmentTime = appt.appointmentTime,
+                                amount = effectiveFee,
+                                paymentStatus = "failed",
+                                paymentMethod = selectedPaymentMethod,
+                                transactionId = "CANCELLED",
+                                createdAt = Instant.now().toString()
+                            )
+                        )
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                sessionManager?.clearActivePaymentSession()
+                sessionManager?.setShowTransactionFailedBanner(true)
+                isCancelling = false
+                showCancelConfirmDialog = false
+                // Return to Slot Booking screen
+                val targetClinicId = clinic?.id ?: appointment?.clinicId ?: ""
+                val targetDocId = appointment?.doctorId
+                navController.navigate(NavRoutes.Booking.createRoute(targetClinicId, targetDocId)) {
+                    popUpTo(NavRoutes.Booking.route) { inclusive = true }
+                }
             }
-            isProcessing = false
-            navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(appointmentId))
         }
+    }
+
+    // Trigger auto-cancel when the 5-minute timer expires
+    LaunchedEffect(isExpired) {
+        if (isExpired && !isProcessing && !isCancelling) {
+            handleCancelOrExpireTransaction("5-Minute reservation window expired")
+        }
+    }
+
+    // Double-Click Guarded: Bypass Payment for Testing
+    fun handleBypassPayment() {
+        if (isProcessing || isCancelling) return
+        isProcessing = true
+        coroutineScope.launch {
+            try {
+                val bypassTxId = "TEST-BYPASS-${System.currentTimeMillis()}"
+                val ok = appointmentRepository?.confirmPaymentAndJoinQueue(
+                    appointmentId = appointmentId,
+                    transactionId = bypassTxId,
+                    paymentGateway = "${selectedPaymentMethod}_bypass",
+                    paidAmount = effectiveFee
+                ) ?: false
+
+                if (ok) {
+                    val appt = appointment ?: appointmentRepository?.getAppointmentById(appointmentId)
+                    if (appt != null) {
+                        sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}")
+                        sessionManager?.saveLocalTransactionRecord(
+                            PatientTransactionRecord(
+                                id = bypassTxId,
+                                appointmentId = appointmentId,
+                                trackingCode = appt.trackingCode10Digit,
+                                clinicName = clinic?.name ?: "Medical Clinic",
+                                doctorName = "Consulting Specialist",
+                                patientName = appt.patientName,
+                                appointmentDate = appt.appointmentDate,
+                                appointmentTime = appt.appointmentTime,
+                                amount = effectiveFee,
+                                paymentStatus = "paid",
+                                paymentMethod = "Bypass Test",
+                                transactionId = bypassTxId,
+                                createdAt = Instant.now().toString()
+                            )
+                        )
+                    }
+                    sessionManager?.clearActivePaymentSession()
+                    Toast.makeText(context, "Payment Bypassed (Testing)! Appointment Confirmed.", Toast.LENGTH_LONG).show()
+                    navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(appointmentId)) {
+                        popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
+                    }
+                } else {
+                    Toast.makeText(context, "Failed to confirm appointment bypass. Please try again.", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+
+    // Double-Click Guarded: Real Payment Submission
+    fun handleCompletePayment() {
+        if (isProcessing || isCancelling) return
+        if (transactionReferenceInput.isBlank()) {
+            Toast.makeText(context, "Please enter your payment Transaction ID / Reference Code", Toast.LENGTH_SHORT).show()
+            return
+        }
+        isProcessing = true
+        coroutineScope.launch {
+            try {
+                val cleanTxId = transactionReferenceInput.trim()
+                val ok = appointmentRepository?.confirmPaymentAndJoinQueue(
+                    appointmentId = appointmentId,
+                    transactionId = cleanTxId,
+                    paymentGateway = selectedPaymentMethod,
+                    paidAmount = effectiveFee
+                ) ?: false
+
+                if (ok) {
+                    val appt = appointment ?: appointmentRepository?.getAppointmentById(appointmentId)
+                    if (appt != null) {
+                        sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}")
+                        sessionManager?.saveLocalTransactionRecord(
+                            PatientTransactionRecord(
+                                id = cleanTxId,
+                                appointmentId = appointmentId,
+                                trackingCode = appt.trackingCode10Digit,
+                                clinicName = clinic?.name ?: "Medical Clinic",
+                                doctorName = "Consulting Specialist",
+                                patientName = appt.patientName,
+                                appointmentDate = appt.appointmentDate,
+                                appointmentTime = appt.appointmentTime,
+                                amount = effectiveFee,
+                                paymentStatus = "paid",
+                                paymentMethod = selectedPaymentMethod.uppercase(),
+                                transactionId = cleanTxId,
+                                createdAt = Instant.now().toString()
+                            )
+                        )
+                    }
+                    sessionManager?.clearActivePaymentSession()
+                    Toast.makeText(context, "Payment Confirmed! Your appointment is reserved.", Toast.LENGTH_LONG).show()
+                    navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(appointmentId)) {
+                        popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
+                    }
+                } else {
+                    Toast.makeText(context, "Failed to confirm payment. Please check your transaction ID.", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+
+    // LOCK: Prevent quitting inside the app while timer is active
+    BackHandler(enabled = !isExpired && !isProcessing && !isCancelling) {
+        showCancelConfirmDialog = true
     }
 
     val minutes = timeLeftSeconds / 60
     val seconds = timeLeftSeconds % 60
     val formattedTime = "%02d:%02d".format(minutes, seconds)
 
+    // Current selected gateway credential details from clinic
+    val activeGatewayCreds = clinicGatewaysConfig.getGateway(selectedPaymentMethod)
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Checkout & Confirmation", fontWeight = FontWeight.Bold) },
+                title = { Text("Appointment Payment", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        coroutineScope.launch {
-                            slotRepository?.releaseSlotLock(appointmentId)
-                        }
-                        navController.popBackStack()
-                    }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    IconButton(
+                        onClick = { showCancelConfirmDialog = true },
+                        enabled = !isProcessing && !isCancelling
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    TextButton(
+                        onClick = { showCancelConfirmDialog = true },
+                        enabled = !isProcessing && !isCancelling
+                    ) {
+                        Text("Cancel", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                     }
                 }
             )
-        },
-        bottomBar = {
-            Surface(
-                tonalElevation = 8.dp,
-                shadowElevation = 8.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Box(modifier = Modifier.padding(16.dp)) {
-                    Button(
-                        onClick = { confirmAndProceed() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
-                        enabled = !isProcessing
-                    ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                        } else {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(22.dp))
-                                Text("Confirm Appointment Booking (Free)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            }
-                        }
-                    }
-                }
-            }
         }
     ) { padding ->
         Column(
@@ -131,7 +327,7 @@ fun PaymentScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 5-Minute Atomic Lock Banner Card
+            // ── 1. 5-MINUTE PERSISTENT COUNTDOWN BANNER CARD ──────────────────────
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
@@ -164,14 +360,14 @@ fun PaymentScreen(
 
                     Text(
                         text = formattedTime,
-                        fontSize = 36.sp,
+                        fontSize = 38.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = if (timeLeftSeconds < 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                         letterSpacing = 2.sp
                     )
 
                     LinearProgressIndicator(
-                        progress = { timeLeftSeconds / 300f },
+                        progress = { (timeLeftSeconds / 300f).coerceIn(0f, 1f) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp),
@@ -180,147 +376,269 @@ fun PaymentScreen(
                     )
 
                     Text(
-                        text = "Double-booking protection is active. Complete payment before the timer expires.",
+                        text = "Double-click protection active. Timer is retained even if you minimize the app.",
                         fontSize = 11.sp,
                         color = if (timeLeftSeconds < 60) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }
 
-            // Fee Summary
+            // ── 2. PAYMENT SUMMARY CARD ──────────────────────────────────────────
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Payment Summary", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Doctor Consultation Fee", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(CurrencyFormatter.formatNPR(feeAmount), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    if (clinic != null) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Clinic", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(clinic?.name ?: "", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    if (appointment != null) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Appointment Date", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${appointment?.appointmentDate} (${appointment?.appointmentTime})", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Queue Reservation & Tracking Fee", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Consultation Fee", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(CurrencyFormatter.formatNPR(effectiveFee), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Queue Reservation Fee", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("FREE", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF059669))
                     }
-                    Divider(modifier = Modifier.padding(vertical = 4.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Total Amount Due", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text(CurrencyFormatter.formatNPR(feeAmount), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            CurrencyFormatter.formatNPR(effectiveFee),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
 
-            // Payment Methods
+            // ── 3. REAL PAYMENT GATEWAYS SELECTION (Loaded from Clinic Supabase APIs) ──
             Text("Select Payment Gateway", fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
             val gateways = listOf(
                 Pair("esewa", "eSewa Mobile Wallet"),
                 Pair("khalti", "Khalti Digital Wallet"),
-                Pair("connectips", "ConnectIPS / Bank Transfer"),
-                Pair("fonepay", "FonePay QR Payment")
+                Pair("fonepay", "FonePay Dynamic QR"),
+                Pair("connectips", "ConnectIPS / Direct Bank")
             )
 
-            gateways.forEach { (id, label) ->
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (selectedPaymentMethod == id) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { selectedPaymentMethod = id }
-                        .border(
-                            width = if (selectedPaymentMethod == id) 1.5.dp else 1.dp,
-                            color = if (selectedPaymentMethod == id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                gateways.take(2).forEach { (id, label) ->
+                    FilterChip(
+                        selected = selectedPaymentMethod == id,
+                        onClick = { selectedPaymentMethod = id },
+                        label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                gateways.drop(2).forEach { (id, label) ->
+                    FilterChip(
+                        selected = selectedPaymentMethod == id,
+                        onClick = { selectedPaymentMethod = id },
+                        label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // ── 4. REAL GATEWAY INTERFACE DETAILS CARD ────────────────────────────
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
-                        modifier = Modifier
-                            .padding(14.dp)
-                            .fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        RadioButton(
-                            selected = selectedPaymentMethod == id,
-                            onClick = { selectedPaymentMethod = id }
+                        Text(
+                            text = "${selectedPaymentMethod.uppercase()} Payment Details",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
                         )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (activeGatewayCreds.environment.lowercase() == "live") Color(0xFFD1FAE5) else Color(0xFFFEF3C7)
+                        ) {
+                            Text(
+                                text = if (activeGatewayCreds.environment.lowercase() == "live") "LIVE GATEWAY" else "TEST SANDBOX",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (activeGatewayCreds.environment.lowercase() == "live") Color(0xFF047857) else Color(0xFFB45309),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    if (activeGatewayCreds.merchantId.isNotBlank()) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Merchant ID / Code:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(activeGatewayCreds.merchantId, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+
+                    if (activeGatewayCreds.accountNumber.isNotBlank()) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Clinic Account / Wallet:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(activeGatewayCreds.accountNumber, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    Text(
+                        text = "Transfer ${CurrencyFormatter.formatNPR(effectiveFee)} to the clinic's ${selectedPaymentMethod.uppercase()} account and enter your transaction reference ID below.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 15.sp
+                    )
+
+                    OutlinedTextField(
+                        value = transactionReferenceInput,
+                        onValueChange = { transactionReferenceInput = it },
+                        label = { Text("Transaction Reference / ID") },
+                        placeholder = { Text("e.g. TXN987654321") },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Receipt, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            }
+
+            // ── 5. TESTING BYPASS BUTTON (Requested by user) ──────────────────────
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFFFFBEB),
+                border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(18.dp))
+                        Text(
+                            "Developer Testing Mode",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Color(0xFF92400E)
+                        )
+                    }
+                    Text(
+                        "Bypass the payment gateway for instant testing. Will immediately confirm the payment, create the appointment in Supabase, and join the live queue.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF78350F),
+                        lineHeight = 15.sp
+                    )
+                    Button(
+                        onClick = { handleBypassPayment() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                        enabled = !isProcessing && !isCancelling
+                    ) {
+                        if (isProcessing) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Icon(Icons.Default.CheckCircleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Bypass Payment for Testing", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Action Buttons
-            // 1. CONTINUE BUTTON (Bypasses payment system & immediately fixes appointment into DB and live queue)
+            // ── 6. COMPLETE PAYMENT BUTTON (Anti-Double-Click Guarded) ──────────────
             Button(
-                onClick = { confirmAndProceed() },
+                onClick = { handleCompletePayment() },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp),
+                    .height(52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                enabled = !isProcessing
+                enabled = !isProcessing && !isCancelling && !isExpired
             ) {
                 if (isProcessing) {
-                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null)
-                        Text(
-                            text = "Confirm & Get 10-Digit Code",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                    }
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
                 }
+                Icon(Icons.Default.Payment, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Confirm & Complete Payment",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
             }
 
-            // 2. Gateway Payment Option
+            // ── 7. CANCEL TRANSACTION BUTTON ──────────────────────────────────────
             OutlinedButton(
-                onClick = { confirmAndProceed() },
+                onClick = { showCancelConfirmDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
                 shape = RoundedCornerShape(14.dp),
-                enabled = !isExpired && !isProcessing
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                enabled = !isProcessing && !isCancelling
             ) {
-                Text("Simulate Gateway Payment (${selectedPaymentMethod.uppercase()})", fontSize = 13.sp)
-            }
-
-            // 3. Cancel Option
-            TextButton(
-                onClick = {
-                    coroutineScope.launch {
-                        slotRepository?.releaseSlotLock(appointmentId)
-                    }
-                    navController.popBackStack()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Cancel & Release Slot", color = MaterialTheme.colorScheme.error)
+                if (isCancelling) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (isCancelling) "Cancelling Transaction..." else "Cancel Transaction", fontWeight = FontWeight.SemiBold)
             }
         }
 
-        // Expired Alert Dialog
-        if (isExpired) {
+        // CONFIRM CANCEL TRANSACTION DIALOG
+        if (showCancelConfirmDialog) {
             AlertDialog(
-                onDismissRequest = { navController.popBackStack() },
-                icon = { Icon(Icons.Default.HourglassDisabled, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(36.dp)) },
-                title = { Text("Slot Reservation Expired", fontWeight = FontWeight.Bold) },
+                onDismissRequest = { if (!isCancelling) showCancelConfirmDialog = false },
+                icon = { Icon(Icons.Default.WarningAmber, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(36.dp)) },
+                title = { Text("Cancel This Transaction?", fontWeight = FontWeight.Bold) },
                 text = {
-                    Text("The 5-minute reservation window has ended. To give equal opportunity to all patients, this slot has been released back to the general pool.", fontSize = 13.sp)
+                    Text("Cancelling will stop this transaction and release your reserved slot. You will be redirected back to slot selection.", fontSize = 13.sp)
                 },
                 confirmButton = {
-                    Button(onClick = { navController.popBackStack() }) {
-                        Text("Select Another Slot")
+                    Button(
+                        onClick = { handleCancelOrExpireTransaction("Patient clicked Cancel") },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        enabled = !isCancelling
+                    ) {
+                        Text("Yes, Cancel Transaction")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showCancelConfirmDialog = false },
+                        enabled = !isCancelling
+                    ) {
+                        Text("Continue Payment")
                     }
                 }
             )

@@ -11,6 +11,7 @@ data class Doctor(
     @SerialName("full_name") val fullName: String,
     @SerialName("email") val email: String? = null,
     @SerialName("specialty") val specialty: String? = "General Physician",
+    @SerialName("specialties") val specialties: List<String> = emptyList(),
     @SerialName("gender") val gender: String? = null,
     @SerialName("age") val age: Int? = null,
     @SerialName("starting_practicing_year") val startingPracticingYear: Int? = null,
@@ -24,5 +25,34 @@ data class Doctor(
     @SerialName("certificates_doc_url") val certificatesDocUrl: String? = null,
     @SerialName("kyc_status") val kycStatus: String? = "approved",
     @SerialName("is_in_clinic") val isInClinic: Boolean? = true,
+    @SerialName("active_clinic_id") val activeClinicId: String? = null,
+    @SerialName("primary_clinic_id") val primaryClinicId: String? = null,
     @SerialName("consultation_fee") val consultationFee: Double? = 500.0
-)
+) {
+    val bio: String? get() = description
+
+    val allSpecialties: List<String>
+        get() = (specialties + listOfNotNull(specialty))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+    val resolvedProfilePictureUrl: String?
+        get() {
+            val raw = profilePictureUrl?.trim()
+            if (raw.isNullOrBlank()) return null
+            if (raw.startsWith("http://") || raw.startsWith("https://")) {
+                return raw
+            }
+            val cleanPath = raw.removePrefix("/")
+            return when {
+                cleanPath.startsWith("doctor_photos/") || cleanPath.startsWith("doctor-photos/") || cleanPath.startsWith("avatars/") -> {
+                    "https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public/$cleanPath"
+                }
+                else -> {
+                    "https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public/doctor_photos/$cleanPath"
+                }
+            }
+        }
+}
+

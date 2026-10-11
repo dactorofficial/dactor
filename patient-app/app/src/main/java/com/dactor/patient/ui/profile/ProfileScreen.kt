@@ -31,6 +31,7 @@ import androidx.navigation.NavController
 import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.repository.AppointmentRepository
 import com.dactor.patient.data.repository.AuthRepository
+import com.dactor.patient.ui.components.GuestAccountView
 import com.dactor.patient.ui.navigation.NavRoutes
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -130,17 +131,60 @@ fun ProfileScreen(
     // Dialog state for Terms and Conditions
     var showTermsDialog by remember { mutableStateOf(false) }
 
+    var showTransactionHistoryDialog by remember { mutableStateOf(false) }
+    var transactionHistoryList by remember { mutableStateOf<List<com.dactor.patient.data.model.PatientTransactionRecord>>(emptyList()) }
+    var isLoadingTransactions by remember { mutableStateOf(false) }
+
+    fun loadTransactionHistory() {
+        if (isLoadingTransactions) return
+        isLoadingTransactions = true
+        coroutineScope.launch {
+            try {
+                val cached = sessionManager?.getLocalTransactionRecords() ?: emptyList()
+                val pid = patientId ?: sessionManager?.getSavedPatientId() ?: ""
+                val trackingCodes = sessionManager?.getSavedTrackingCodes()?.map { it.first } ?: emptyList()
+                val remote = appointmentRepository?.getAllPatientTransactions(
+                    userId = pid,
+                    email = userEmail,
+                    phone = userPhone,
+                    trackingCodes = trackingCodes
+                ) ?: emptyList()
+                val merged = (remote + cached).distinctBy { it.id + it.appointmentId }.sortedByDescending { it.appointmentDate }
+                transactionHistoryList = merged
+            } catch (e: Exception) {
+                e.printStackTrace()
+                transactionHistoryList = sessionManager?.getLocalTransactionRecords() ?: emptyList()
+            } finally {
+                isLoadingTransactions = false
+            }
+        }
+    }
+
     var copiedCode by remember { mutableStateOf<String?>(null) }
 
     // Appointments list
     var savedAppointments by remember { mutableStateOf<List<Appointment>>(emptyList()) }
     var isLoadingAppointments by remember { mutableStateOf(false) }
 
-    suspend fun loadAppointmentsForUser(uid: String) {
+    suspend fun loadAppointmentsForUser(uid: String?, email: String?, phone: String?) {
         if (appointmentRepository == null || isArchived) return
         isLoadingAppointments = true
         try {
-            val appts = appointmentRepository.getUserAppointments(uid)
+            val localCodes = sessionManager?.getSavedTrackingCodes()?.map { it.first } ?: emptyList()
+            val appts = appointmentRepository.getAllPatientAppointments(
+                userId = uid,
+                email = email,
+                phone = phone,
+                trackingCodes = localCodes
+            )
+            for (appt in appts) {
+                if (appt.trackingCode10Digit.isNotBlank()) {
+                    sessionManager?.saveTrackingCode(
+                        appt.trackingCode10Digit,
+                        "${appt.patientName} • ${appt.appointmentDate}"
+                    )
+                }
+            }
             savedAppointments = appts
         } catch (e: Exception) {
             e.printStackTrace()
@@ -198,26 +242,11 @@ fun ProfileScreen(
                     deletionScheduledAt = profile.deletionScheduledAt
                 )
             }
-
-            // CRITICAL: If the account is archived, hide all profile appointments & records!
-            if (!isArchived && uid != null) {
-                loadAppointmentsForUser(uid)
-            }
         }
 
-        // 3. Merge locally saved tracking codes only if account is not archived
-        if (!isArchived && sessionManager != null && appointmentRepository != null) {
-            val localCodes = sessionManager.getSavedTrackingCodes()
-            for (entry in localCodes) {
-                try {
-                    val a = appointmentRepository.getAppointmentByTrackingCode(entry.first)
-                    if (a != null && savedAppointments.none { it.trackingCode10Digit == a.trackingCode10Digit }) {
-                        savedAppointments = savedAppointments + a
-                    } else if (a == null) {
-                        sessionManager.removeTrackingCode(entry.first)
-                    }
-                } catch (ignored: Exception) {}
-            }
+        // 3. Load all appointments matching userId, email, phone, and saved tracking codes
+        if (!isArchived) {
+            loadAppointmentsForUser(patientId, userEmail, userPhone)
         }
     }
 
@@ -240,7 +269,8 @@ fun ProfileScreen(
             userAge = null
             isArchived = false
             savedAppointments = emptyList()
-            navController.navigate(NavRoutes.Landing.route) {
+            sessionManager?.setGuestMode(true)
+            navController.navigate(NavRoutes.PatientMain.route) {
                 popUpTo(0) { inclusive = true }
             }
         }
@@ -262,7 +292,7 @@ fun ProfileScreen(
                     statusMessage = "Account deletion cancelled! Your profile, appointments, and services have been restored."
 
                     // Reload user appointments
-                    loadAppointmentsForUser(effId)
+                    loadAppointmentsForUser(effId, userEmail, userPhone)
                 } else {
                     statusMessage = "Unable to cancel deletion: ${res.exceptionOrNull()?.message}"
                 }
@@ -298,8 +328,9 @@ fun ProfileScreen(
                 authRepository?.signOut()
 
                 showDeleteAccountDialog = false
+                sessionManager?.setGuestMode(true)
                 Toast.makeText(context, "Account archived for 30 days. You have been logged out.", Toast.LENGTH_LONG).show()
-                navController.navigate(NavRoutes.Landing.route) {
+                navController.navigate(NavRoutes.PatientMain.route) {
                     popUpTo(0) { inclusive = true }
                 }
             } catch (e: Exception) {
@@ -314,7 +345,7 @@ fun ProfileScreen(
     fun openEditProfileDialog() {
         editNameInput = userName ?: ""
         editPhoneDigits = (userPhone ?: "").removePrefix("+977").trim()
-        editGenderChoice = userGender ?: "Male"
+        editGenderChoice = userGender ?: ""
         editAgeInput = userAge?.toString() ?: ""
         editProfileError = null
         showEditProfileDialog = true
@@ -323,14 +354,22 @@ fun ProfileScreen(
     fun saveProfileChanges() {
         val cleanName = editNameInput.trim()
         val cleanPhone = editPhoneDigits.filter { it.isDigit() }
-        val ageInt = editAgeInput.toIntOrNull()
+        val ageInt = editAgeInput.trim().toIntOrNull()
 
-        if (cleanName.isBlank()) {
-            editProfileError = "Please enter your full name."
+        if (cleanName.length < 2) {
+            editProfileError = "Please enter your full name (at least 2 characters)."
             return
         }
-        if (cleanPhone.length != 10) {
-            editProfileError = "Please enter a valid 10-digit mobile number."
+        if (cleanPhone.length != 10 || !cleanPhone.startsWith("9")) {
+            editProfileError = "Please enter a valid 10-digit mobile number starting with 9."
+            return
+        }
+        if (editGenderChoice.isBlank()) {
+            editProfileError = "Please select your gender."
+            return
+        }
+        if (ageInt == null || ageInt !in 1..120) {
+            editProfileError = "Please enter a valid age between 1 and 120."
             return
         }
 
@@ -414,7 +453,7 @@ fun ProfileScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (isArchived) "Account Status (Archive)" else "Patient Account & Profile",
+                        if (!isLoggedIn) "Account" else if (isArchived) "Account Status (Archive)" else "Patient Account & Profile",
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -429,7 +468,7 @@ fun ProfileScreen(
                             Icon(Icons.Default.Logout, contentDescription = "Sign Out", tint = MaterialTheme.colorScheme.error)
                         }
                     }
-                    if (!isArchived) {
+                    if (!isArchived && isLoggedIn) {
                         IconButton(onClick = { navController.navigate(NavRoutes.Notifications.route) }) {
                             Icon(Icons.Default.Notifications, contentDescription = "Notifications")
                         }
@@ -439,7 +478,14 @@ fun ProfileScreen(
         }
     ) { padding ->
 
-        if (isArchived) {
+        if (!isLoggedIn) {
+            GuestAccountView(
+                onSignInClicked = {
+                    navController.navigate(NavRoutes.Login.route)
+                },
+                modifier = Modifier.padding(padding)
+            )
+        } else if (isArchived) {
             // =========================================================================
             // 30-DAY ARCHIVE STATE: USER CANNOT VIEW ANYTHING IN PROFILE
             // SHOWS DAY COUNTDOWN, SCHEDULED DELETION DATE, AND CANCEL DELETION BUTTON
@@ -1037,6 +1083,34 @@ fun ProfileScreen(
 
                             HorizontalDivider()
 
+                            // TRANSACTION HISTORY OPTION
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showTransactionHistoryDialog = true
+                                        loadTransactionHistory()
+                                    }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Surface(shape = CircleShape, color = Color(0xFFE0F2F1), modifier = Modifier.size(36.dp)) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                    Column {
+                                        Text("Transaction History", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("All appointment payments, times, and transaction IDs", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
+                            }
+
+                            HorizontalDivider()
+
                             // TERMS AND CONDITIONS & PRIVACY POLICY
                             Row(
                                 modifier = Modifier
@@ -1116,6 +1190,13 @@ fun ProfileScreen(
     // DIALOG 1: EDIT PROFILE DETAILS
     // =========================================================================
     if (showEditProfileDialog) {
+        var editValidationTriggered by remember { mutableStateOf(false) }
+        val isNameError = (editValidationTriggered || editNameInput.isNotEmpty()) && editNameInput.trim().length < 2
+        val isPhoneError = (editValidationTriggered || editPhoneDigits.isNotEmpty()) && (editPhoneDigits.length != 10 || !editPhoneDigits.startsWith("9"))
+        val isGenderError = editValidationTriggered && editGenderChoice.isBlank()
+        val parsedAge = editAgeInput.trim().toIntOrNull()
+        val isAgeError = (editValidationTriggered || editAgeInput.isNotEmpty()) && (parsedAge == null || parsedAge !in 1..120)
+
         AlertDialog(
             onDismissRequest = {
                 if (!isSavingProfile) showEditProfileDialog = false
@@ -1150,10 +1231,17 @@ fun ProfileScreen(
                     // Full Name
                     OutlinedTextField(
                         value = editNameInput,
-                        onValueChange = { editNameInput = it },
+                        onValueChange = {
+                            editNameInput = it
+                            if (editProfileError != null) editProfileError = null
+                        },
                         label = { Text("Full Name *") },
-                        placeholder = { Text("e.g. Ramesh Shrestha") },
+                        placeholder = { Text("Enter full name") },
                         leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                        isError = isNameError,
+                        supportingText = if (isNameError) {
+                            { Text("Required: Enter at least 2 characters", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                        } else null,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
@@ -1163,20 +1251,32 @@ fun ProfileScreen(
                     OutlinedTextField(
                         value = editPhoneDigits,
                         onValueChange = {
-                            if (it.length <= 10 && it.all { ch -> ch.isDigit() }) editPhoneDigits = it
+                            if (it.length <= 10 && it.all { ch -> ch.isDigit() }) {
+                                editPhoneDigits = it
+                                if (editProfileError != null) editProfileError = null
+                            }
                         },
                         label = { Text("Mobile Number (Nepal) *") },
                         placeholder = { Text("98xxxxxxxx") },
                         prefix = { Text("+977 ", fontWeight = FontWeight.Bold) },
                         leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                        isError = isPhoneError,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         singleLine = true,
                         supportingText = {
-                            Text(
-                                text = "${editPhoneDigits.length}/10 digits",
-                                fontSize = 11.sp,
-                                color = if (editPhoneDigits.length == 10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            if (isPhoneError) {
+                                Text(
+                                    text = "Required: 10 digits starting with 9 (${editPhoneDigits.length}/10)",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            } else {
+                                Text(
+                                    text = "${editPhoneDigits.length}/10 digits",
+                                    fontSize = 11.sp,
+                                    color = if (editPhoneDigits.length == 10 && editPhoneDigits.startsWith("9")) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
@@ -1184,15 +1284,31 @@ fun ProfileScreen(
 
                     // Gender Chips
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Gender", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Gender *",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isGenderError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("Male", "Female", "Other").forEach { g ->
                                 FilterChip(
                                     selected = editGenderChoice == g,
-                                    onClick = { editGenderChoice = g },
-                                    label = { Text(g, fontSize = 11.sp) }
+                                    onClick = {
+                                        editGenderChoice = g
+                                        if (editProfileError != null) editProfileError = null
+                                    },
+                                    label = { Text(g, fontSize = 11.sp) },
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        enabled = true,
+                                        selected = editGenderChoice == g,
+                                        borderColor = if (isGenderError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                                    )
                                 )
                             }
+                        }
+                        if (isGenderError) {
+                            Text("Required: Select gender", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                         }
                     }
 
@@ -1200,11 +1316,18 @@ fun ProfileScreen(
                     OutlinedTextField(
                         value = editAgeInput,
                         onValueChange = {
-                            if (it.length <= 3 && it.all { ch -> ch.isDigit() }) editAgeInput = it
+                            if (it.length <= 3 && it.all { ch -> ch.isDigit() }) {
+                                editAgeInput = it
+                                if (editProfileError != null) editProfileError = null
+                            }
                         },
-                        label = { Text("Age (Years)") },
-                        placeholder = { Text("e.g. 28") },
+                        label = { Text("Age (Years) *") },
+                        placeholder = { Text("1 - 120") },
                         leadingIcon = { Icon(Icons.Default.Cake, contentDescription = null) },
+                        isError = isAgeError,
+                        supportingText = if (isAgeError) {
+                            { Text("Required: Valid age between 1 and 120", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                        } else null,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -1214,8 +1337,11 @@ fun ProfileScreen(
             },
             confirmButton = {
                 Button(
-                    onClick = { saveProfileChanges() },
-                    enabled = !isSavingProfile && editNameInput.isNotBlank() && editPhoneDigits.length == 10,
+                    onClick = {
+                        editValidationTriggered = true
+                        saveProfileChanges()
+                    },
+                    enabled = !isSavingProfile,
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     if (isSavingProfile) {
@@ -1437,6 +1563,16 @@ fun ProfileScreen(
     if (showTermsDialog) {
         com.dactor.patient.ui.legal.TermsAndConditionsDialog(
             onDismiss = { showTermsDialog = false }
+        )
+    }
+
+    // TRANSACTION HISTORY DIALOG
+    if (showTransactionHistoryDialog) {
+        PatientTransactionHistoryDialog(
+            transactions = transactionHistoryList,
+            isLoading = isLoadingTransactions,
+            onRefresh = { loadTransactionHistory() },
+            onDismiss = { showTransactionHistoryDialog = false }
         )
     }
 }

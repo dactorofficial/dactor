@@ -11,6 +11,7 @@ data class Doctor(
     @SerialName("full_name") val fullName: String,
     @SerialName("email") val email: String,
     @SerialName("specialty") val specialty: String? = null,
+    @SerialName("specialties") val specialties: List<String> = emptyList(),
     @SerialName("gender") val gender: String? = null,
     @SerialName("age") val age: Int? = null,
     @SerialName("starting_practicing_year") val startingPracticingYear: Int? = null,
@@ -24,5 +25,33 @@ data class Doctor(
     @SerialName("certificates_doc_url") val certificatesDocUrl: String? = null,
     @SerialName("kyc_status") val kycStatus: String? = null,
     @SerialName("is_in_clinic") val isInClinic: Boolean = false,
-    @SerialName("consultation_fee") val consultationFee: Double? = null
-)
+    @SerialName("active_clinic_id") val activeClinicId: String? = null,
+    @SerialName("primary_clinic_id") val primaryClinicId: String? = null,
+    @SerialName("consultation_fee") val consultationFee: Double? = null,
+    @SerialName("practitioner_role") val practitionerRole: String? = null
+) {
+    val isLabTechnician: Boolean
+        get() = practitionerRole.equals("lab_technician", ignoreCase = true) ||
+                specialty?.contains("Lab Technician", ignoreCase = true) == true ||
+                specialty?.contains("Pathology Technician", ignoreCase = true) == true ||
+                education?.contains("MLT", ignoreCase = true) == true
+
+    val resolvedProfilePictureUrl: String?
+        get() {
+            val raw = profilePictureUrl?.trim()
+            if (raw.isNullOrBlank()) return null
+            if (raw.startsWith("http://") || raw.startsWith("https://")) {
+                return raw
+            }
+            val cleanPath = raw.removePrefix("/")
+            return when {
+                cleanPath.startsWith("doctor_photos/") || cleanPath.startsWith("doctor-photos/") || cleanPath.startsWith("avatars/") -> {
+                    "https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public/$cleanPath"
+                }
+                else -> {
+                    "https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public/doctor_photos/$cleanPath"
+                }
+            }
+        }
+}
+

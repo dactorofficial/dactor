@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -18,8 +19,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import com.dactor.patient.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -36,6 +45,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import android.accounts.AccountManager
+import com.google.android.gms.common.AccountPicker
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
@@ -46,7 +57,8 @@ fun LoginScreen(
     navController: NavController,
     authRepository: AuthRepository? = null,
     draftManager: RegistrationDraftManager? = null,
-    sessionManager: UserSessionManager? = null
+    sessionManager: UserSessionManager? = null,
+    appointmentRepository: com.dactor.patient.data.repository.AppointmentRepository? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -64,12 +76,33 @@ fun LoginScreen(
     var verifiedEmail by remember { mutableStateOf("") }
     var verifiedDisplayName by remember { mutableStateOf("") }
 
-    // Patient Registration Form Inputs
+    // Patient Registration Form Inputs (never prefilled from Google account or demo defaults)
     var patientName by remember { mutableStateOf("") }
     var patientPhone by remember { mutableStateOf("") }
     var patientAge by remember { mutableStateOf("") }
-    var patientGender by remember { mutableStateOf("Male") }
+    var patientGender by remember { mutableStateOf("") }
     var patientCity by remember { mutableStateOf("") }
+    var showTermsDialog by remember { mutableStateOf(false) }
+    var patientTermsAccepted by remember { mutableStateOf(false) }
+    var validationTriggered by remember { mutableStateOf(false) }
+
+    val nameFocusRequester = remember { FocusRequester() }
+    val phoneFocusRequester = remember { FocusRequester() }
+    val ageFocusRequester = remember { FocusRequester() }
+
+    var nameFieldY by remember { mutableIntStateOf(0) }
+    var phoneFieldY by remember { mutableIntStateOf(0) }
+    var ageFieldY by remember { mutableIntStateOf(0) }
+    var genderFieldY by remember { mutableIntStateOf(0) }
+    var termsFieldY by remember { mutableIntStateOf(0) }
+
+    val cleanPhoneDigits = patientPhone.filter { it.isDigit() }
+    val parsedAge = patientAge.trim().toIntOrNull()
+    val isNameError = (validationTriggered || patientName.isNotEmpty()) && patientName.trim().length < 2
+    val isPhoneError = (validationTriggered || patientPhone.isNotEmpty()) && (cleanPhoneDigits.length != 10 || !cleanPhoneDigits.startsWith("9"))
+    val isAgeError = (validationTriggered || patientAge.isNotEmpty()) && (parsedAge == null || parsedAge !in 1..120)
+    val isGenderError = validationTriggered && patientGender.isBlank()
+    val isTermsError = validationTriggered && !patientTermsAccepted
 
     val googleSignInClient = remember {
         val defaultWebClientId = try {
@@ -87,107 +120,242 @@ fun LoginScreen(
         GoogleSignIn.getClient(context, gsoBuilder.build())
     }
 
-    fun handleGoogleAccountReceived(account: GoogleSignInAccount) {
+    fun proceedWithGoogleAccount(email: String) {
+        val trimmedEmail = email.trim().lowercase()
+        if (trimmedEmail.isBlank()) {
+            isLoading = false
+            statusInfo = null
+            return
+        }
+        verifiedEmail = trimmedEmail
+        verifiedDisplayName = ""
+
+        isLoading = true
+        statusInfo = "Checking patient account..."
+        errorMessage = null
+
         coroutineScope.launch {
             try {
-                googleAccount = account
-                verifiedEmail = account.email ?: ""
-                verifiedDisplayName = account.displayName ?: ""
+                // 1. Check existing patient profile in Supabase
+                val existingProfile = try {
+                    authRepository?.getProfileByEmail(trimmedEmail)
+                } catch (e: Exception) {
+                    null
+                }
 
-                // Firebase Auth credential link
-                val idToken = account.idToken
-                if (!idToken.isNullOrBlank()) {
+                val hasCompletedProfile = existingProfile != null &&
+                        !existingProfile.fullName.isNullOrBlank() &&
+                        !existingProfile.phone.isNullOrBlank()
+
+                if (hasCompletedProfile && existingProfile != null) {
+                    val profileId = existingProfile.id
+
+                    // Retroactively link any appointments booked with this email/phone
                     try {
-                        val credential = GoogleAuthProvider.getCredential(idToken, null)
-                        FirebaseAuth.getInstance().signInWithCredential(credential).await()
+                        authRepository?.syncPatientProfile(
+                            userId = profileId,
+                            email = trimmedEmail,
+                            fullName = existingProfile.fullName.orEmpty(),
+                            phone = existingProfile.phone.orEmpty(),
+                            gender = existingProfile.gender,
+                            age = existingProfile.age
+                        )
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
-                }
 
-                if (authActionIntent == "register") {
-                    // Open dedicated Registration Form directly
-                    isLoading = false
-                    statusInfo = null
-                    patientName = verifiedDisplayName.ifBlank { "Patient" }
-                    currentView = "register_form"
-                    return@launch
-                }
+                    val linkedAppts = try {
+                        appointmentRepository?.getAllPatientAppointments(
+                            userId = profileId,
+                            email = trimmedEmail,
+                            phone = existingProfile.phone
+                        ).orEmpty()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
 
-                // Default: SIGN IN FLOW -> Look up existing record
-                statusInfo = "Looking up patient record in Supabase..."
-                val trimmedEmail = verifiedEmail.trim().lowercase()
+                    for (appt in linkedAppts) {
+                        if (appt.trackingCode10Digit.isNotBlank()) {
+                            sessionManager?.saveTrackingCode(
+                                appt.trackingCode10Digit,
+                                "${appt.patientName} • ${appt.appointmentDate}"
+                            )
+                        }
+                    }
 
-                val existingProfile = authRepository?.getProfileByEmail(trimmedEmail)
-                if (existingProfile != null) {
+                    val latestAppt = linkedAppts.firstOrNull()
                     val isArchived = existingProfile.isArchived == true
+
                     sessionManager?.savePatientSession(
-                        patientId = existingProfile.id,
+                        patientId = profileId,
                         email = trimmedEmail,
-                        name = existingProfile.fullName ?: verifiedDisplayName,
-                        phone = existingProfile.phone ?: "",
-                        gender = existingProfile.gender,
-                        age = existingProfile.age,
+                        name = existingProfile.fullName?.takeIf { it.isNotBlank() }
+                            ?: latestAppt?.patientName.orEmpty(),
+                        phone = existingProfile.phone?.takeIf { it.isNotBlank() }
+                            ?: latestAppt?.patientMobile.orEmpty(),
+                        gender = existingProfile.gender?.takeIf { it.isNotBlank() }
+                            ?: latestAppt?.patientGender,
+                        age = existingProfile.age ?: latestAppt?.patientAge,
                         isArchived = isArchived,
                         deletionScheduledAt = existingProfile.deletionScheduledAt
                     )
+
                     isLoading = false
+                    statusInfo = null
+
+                    val pendingRedirect = sessionManager?.getPendingBookingRedirect()
                     if (isArchived) {
-                        // Account in 30-day archive -> Open locked Profile with countdown, deletion date, and cancel option
                         navController.navigate(NavRoutes.Profile.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    } else if (pendingRedirect != null && pendingRedirect.route.isNotBlank()) {
+                        navController.navigate(pendingRedirect.route) {
                             popUpTo(NavRoutes.Login.route) { inclusive = true }
+                            launchSingleTop = true
                         }
                     } else {
-                        statusInfo = "Opening Dactor Patient Portal..."
-                        navController.navigate(NavRoutes.Discovery.route) {
-                            popUpTo(NavRoutes.Login.route) { inclusive = true }
+                        navController.navigate(NavRoutes.PatientMain.route) {
+                            popUpTo(0) { inclusive = true }
                         }
                     }
                 } else {
-                    // No existing patient profile found
+                    // First-time patient sign-in: never prefill name, gender, or age from Google account
+                    patientName = ""
+                    patientPhone = ""
+                    patientAge = ""
+                    patientGender = ""
+                    validationTriggered = false
                     isLoading = false
                     statusInfo = null
-                    patientName = verifiedDisplayName.ifBlank { "Patient" }
-                    errorMessage = "No registered patient account found for $trimmedEmail. Please complete your registration below."
                     currentView = "register_form"
                 }
             } catch (e: Exception) {
+                // On lookup failure for first-time user, show registration form with blank fields
+                patientName = ""
+                patientPhone = ""
+                patientAge = ""
+                patientGender = ""
+                validationTriggered = false
                 isLoading = false
                 statusInfo = null
-                errorMessage = "Google login error: ${e.message ?: "Please try again."}"
+                currentView = "register_form"
             }
+        }
+    }
+
+    val accountPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val email = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (!email.isNullOrBlank()) {
+                proceedWithGoogleAccount(email)
+            } else {
+                isLoading = false
+                statusInfo = null
+            }
+        } else {
+            isLoading = false
+            statusInfo = null
         }
     }
 
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        val emailFromExtra = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+        if (!emailFromExtra.isNullOrBlank()) {
+            proceedWithGoogleAccount(emailFromExtra)
+            return@rememberLauncherForActivityResult
+        }
+
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
                 val account = task.getResult(ApiException::class.java)
-                if (account != null) {
-                    handleGoogleAccountReceived(account)
-                } else {
-                    isLoading = false
-                    errorMessage = "Unable to retrieve Google account details."
+                if (account != null && !account.email.isNullOrBlank()) {
+                    proceedWithGoogleAccount(account.email!!)
+                    return@rememberLauncherForActivityResult
                 }
-            } catch (e: ApiException) {
-                isLoading = false
-                errorMessage = when (e.statusCode) {
-                    7 -> "Network error. Please check your internet connection."
-                    12501 -> "Sign-in cancelled."
-                    else -> "Google sign-in error (${e.statusCode}): ${e.localizedMessage}"
-                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
+        }
+
+        val lastAccount = GoogleSignIn.getLastSignedInAccount(context)
+        if (lastAccount != null && !lastAccount.email.isNullOrBlank()) {
+            proceedWithGoogleAccount(lastAccount.email!!)
         } else {
             isLoading = false
+            statusInfo = null
+        }
+    }
+
+    fun launchGoogleSignInFlow() {
+        if (isLoading) return
+        isLoading = true
+        errorMessage = null
+        statusInfo = "Opening Google Sign-In..."
+
+        try {
+            val pickerIntent = AccountPicker.newChooseAccountIntent(
+                AccountPicker.AccountChooserOptions.Builder()
+                    .setAllowableAccountsTypes(listOf("com.google"))
+                    .build()
+            )
+            accountPickerLauncher.launch(pickerIntent)
+        } catch (e: Exception) {
+            try {
+                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+            } catch (e2: Exception) {
+                isLoading = false
+                statusInfo = null
+                errorMessage = "Could not open Google Sign-In: ${e2.message}"
+            }
         }
     }
 
     fun submitPatientRegistration() {
-        if (patientName.isBlank() || patientPhone.isBlank()) {
-            errorMessage = "Please enter your full name and mobile phone number."
+        validationTriggered = true
+        val digits = patientPhone.filter { it.isDigit() }
+        val cleanAge = patientAge.trim().toIntOrNull()
+
+        if (patientName.trim().length < 2) {
+            errorMessage = "Please enter your full name (at least 2 characters)."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((nameFieldY - 200).coerceAtLeast(0))
+                runCatching { nameFocusRequester.requestFocus() }
+            }
+            return
+        }
+        if (digits.length != 10 || !digits.startsWith("9")) {
+            errorMessage = "Please enter a valid 10-digit mobile number starting with 9."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((phoneFieldY - 200).coerceAtLeast(0))
+                runCatching { phoneFocusRequester.requestFocus() }
+            }
+            return
+        }
+        if (cleanAge == null || cleanAge !in 1..120) {
+            errorMessage = "Please enter a valid age between 1 and 120."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((ageFieldY - 200).coerceAtLeast(0))
+                runCatching { ageFocusRequester.requestFocus() }
+            }
+            return
+        }
+        if (patientGender.isBlank()) {
+            errorMessage = "Please select your gender."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((genderFieldY - 200).coerceAtLeast(0))
+            }
+            return
+        }
+        if (!patientTermsAccepted) {
+            errorMessage = "Please review and accept the Terms & Conditions and Privacy Policy to register."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((termsFieldY - 200).coerceAtLeast(0))
+            }
             return
         }
         isLoading = true
@@ -203,24 +371,59 @@ fun LoginScreen(
                     userId = newProfileId,
                     email = email,
                     fullName = patientName.trim(),
-                    phone = patientPhone.trim()
+                    phone = patientPhone.trim(),
+                    gender = patientGender,
+                    age = cleanAge
                 )
 
+                val syncedProfile = try {
+                    authRepository?.getProfileByEmail(email)
+                } catch (e: Exception) {
+                    null
+                }
+                val finalProfileId = syncedProfile?.id ?: newProfileId
+
+                val linkedAppts = try {
+                    appointmentRepository?.getAllPatientAppointments(
+                        userId = finalProfileId,
+                        email = email,
+                        phone = patientPhone.trim()
+                    ).orEmpty()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                for (appt in linkedAppts) {
+                    if (appt.trackingCode10Digit.isNotBlank()) {
+                        sessionManager?.saveTrackingCode(
+                            appt.trackingCode10Digit,
+                            "${appt.patientName} • ${appt.appointmentDate}"
+                        )
+                    }
+                }
+
                 sessionManager?.savePatientSession(
-                    patientId = newProfileId,
+                    patientId = finalProfileId,
                     email = email,
                     name = patientName.trim(),
                     phone = patientPhone.trim(),
                     gender = patientGender,
-                    age = patientAge.toIntOrNull(),
+                    age = cleanAge,
                     isArchived = false,
                     deletionScheduledAt = null
                 )
 
                 isLoading = false
                 statusInfo = null
-                navController.navigate(NavRoutes.Discovery.route) {
-                    popUpTo(NavRoutes.Login.route) { inclusive = true }
+                val pendingRedirect = sessionManager?.getPendingBookingRedirect()
+                if (pendingRedirect != null && pendingRedirect.route.isNotBlank()) {
+                    navController.navigate(pendingRedirect.route) {
+                        popUpTo(NavRoutes.Login.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                } else {
+                    navController.navigate(NavRoutes.PatientMain.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             } catch (e: Exception) {
                 isLoading = false
@@ -229,6 +432,8 @@ fun LoginScreen(
             }
         }
     }
+
+    val hasPendingBooking = remember { sessionManager?.getPendingBookingRedirect() != null }
 
     Scaffold(
         topBar = {
@@ -248,7 +453,10 @@ fun LoginScreen(
                             Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                         }
                     } else {
-                        IconButton(onClick = { navController.popBackStack() }) {
+                        IconButton(onClick = {
+                            sessionManager?.clearPendingBookingRedirect()
+                            navController.popBackStack()
+                        }) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                         }
                     }
@@ -266,6 +474,42 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            if (hasPendingBooking) {
+                Surface(
+                    color = Color(0xFFE6F4F1),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFF00796B).copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.EventAvailable,
+                            contentDescription = null,
+                            tint = Color(0xFF00796B),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Sign In Required to Book Appointment",
+                                color = Color(0xFF0F172A),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Your selected clinic, doctor, date, and slot position are saved. You'll return right where you left off after signing in.",
+                                color = Color(0xFF00796B),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+
             // Error Banner
             AnimatedVisibility(visible = errorMessage != null) {
                 Surface(
@@ -313,20 +557,14 @@ fun LoginScreen(
             }
 
             if (currentView == "auth_choice") {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(80.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.LocalHospital,
-                            contentDescription = "Dactor Patient",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(44.dp)
-                        )
-                    }
-                }
+                Image(
+                    painter = painterResource(id = R.drawable.app_logo),
+                    contentDescription = "Dactor Logo",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .size(88.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                )
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
@@ -360,13 +598,7 @@ fun LoginScreen(
                         // Unified Google Authentication Button
                         Button(
                             onClick = {
-                                if (!isLoading) {
-                                    isLoading = true
-                                    errorMessage = null
-                                    authActionIntent = "login"
-                                    statusInfo = "Opening Google Sign-In..."
-                                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                                }
+                                launchGoogleSignInFlow()
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -379,23 +611,51 @@ fun LoginScreen(
                             Spacer(Modifier.width(10.dp))
                             Text("Continue with Google", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
+
+                        // Terms & Conditions and Privacy Policy Disclosure Button
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "By continuing, you accept Dactor's ",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(
+                                onClick = { showTermsDialog = true },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(
+                                    "Terms & Privacy Policy",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
 
-                OutlinedButton(
-                    onClick = {
-                        navController.navigate(NavRoutes.Discovery.route) {
-                            popUpTo(NavRoutes.Login.route) { inclusive = true }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Continue as Guest (No Login Required)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                if (!hasPendingBooking) {
+                    OutlinedButton(
+                        onClick = {
+                            navController.navigate(NavRoutes.Discovery.route) {
+                                popUpTo(NavRoutes.Login.route) { inclusive = true }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Continue as Guest (Browse Only)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
                 }
             } else {
                 // REGISTRATION FORM VIEW
@@ -434,36 +694,81 @@ fun LoginScreen(
 
                         OutlinedTextField(
                             value = patientName,
-                            onValueChange = { patientName = it },
+                            onValueChange = {
+                                patientName = it
+                                if (errorMessage != null) errorMessage = null
+                            },
                             label = { Text("Full Name *") },
-                            placeholder = { Text("e.g. Ram Bahadur Thapa") },
+                            placeholder = { Text("Enter your full name") },
                             leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                            isError = isNameError,
+                            supportingText = if (isNameError) {
+                                { Text("Required: Enter full name (at least 2 characters)", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                            } else null,
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(nameFocusRequester)
+                                .onGloballyPositioned { nameFieldY = it.positionInRoot().y.toInt() },
                             shape = RoundedCornerShape(12.dp)
                         )
 
                         OutlinedTextField(
                             value = patientPhone,
-                            onValueChange = { patientPhone = it },
-                            label = { Text("Mobile Phone Number *") },
-                            placeholder = { Text("e.g. 9841234567") },
+                            onValueChange = { input ->
+                                val digitsOnly = input.filter { it.isDigit() }.take(10)
+                                patientPhone = digitsOnly
+                                if (errorMessage != null) errorMessage = null
+                            },
+                            label = { Text("Mobile Phone Number (10 digits) *") },
+                            placeholder = { Text("98XXXXXXXX") },
                             leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                            isError = isPhoneError,
+                            supportingText = {
+                                if (isPhoneError) {
+                                    Text(
+                                        "Required: Must be 10 digits starting with 9 (${cleanPhoneDigits.length}/10)",
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontSize = 11.sp
+                                    )
+                                } else {
+                                    Text(
+                                        "${cleanPhoneDigits.length}/10 digits",
+                                        color = if (cleanPhoneDigits.length == 10 && cleanPhoneDigits.startsWith("9")) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(phoneFocusRequester)
+                                .onGloballyPositioned { phoneFieldY = it.positionInRoot().y.toInt() },
                             shape = RoundedCornerShape(12.dp)
                         )
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedTextField(
                                 value = patientAge,
-                                onValueChange = { patientAge = it },
-                                label = { Text("Age") },
-                                placeholder = { Text("28") },
+                                onValueChange = {
+                                    if (it.length <= 3 && it.all { ch -> ch.isDigit() }) {
+                                        patientAge = it
+                                        if (errorMessage != null) errorMessage = null
+                                    }
+                                },
+                                label = { Text("Age *") },
+                                placeholder = { Text("1 - 120") },
+                                isError = isAgeError,
+                                supportingText = if (isAgeError) {
+                                    { Text("Enter valid age (1–120)", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                                } else null,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(ageFocusRequester)
+                                    .onGloballyPositioned { ageFieldY = it.positionInRoot().y.toInt() },
                                 shape = RoundedCornerShape(12.dp)
                             )
 
@@ -471,21 +776,102 @@ fun LoginScreen(
                                 value = patientCity,
                                 onValueChange = { patientCity = it },
                                 label = { Text("City / Town") },
-                                placeholder = { Text("Kathmandu") },
+                                placeholder = { Text("Optional") },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             )
                         }
 
-                        Text("Gender:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Male", "Female", "Other").forEach { g ->
-                                FilterChip(
-                                    selected = patientGender == g,
-                                    onClick = { patientGender = g },
-                                    label = { Text(g, fontSize = 11.sp) }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { genderFieldY = it.positionInRoot().y.toInt() },
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                "Gender *",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isGenderError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Male", "Female", "Other").forEach { g ->
+                                    FilterChip(
+                                        selected = patientGender == g,
+                                        onClick = {
+                                            patientGender = g
+                                            if (errorMessage != null) errorMessage = null
+                                        },
+                                        label = { Text(g, fontSize = 11.sp) },
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = patientGender == g,
+                                            borderColor = if (isGenderError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                                        )
+                                    )
+                                }
+                            }
+                            if (isGenderError) {
+                                Text(
+                                    "Required: Please select your gender",
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontSize = 11.sp
                                 )
+                            }
+                        }
+
+                        // Terms Acceptance Checkbox Card
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isTermsError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = BorderStroke(
+                                if (isTermsError) 1.5.dp else 1.dp,
+                                if (isTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { termsFieldY = it.positionInRoot().y.toInt() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Checkbox(
+                                    checked = patientTermsAccepted,
+                                    onCheckedChange = {
+                                        patientTermsAccepted = it
+                                        if (errorMessage != null) errorMessage = null
+                                    }
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "I accept the ",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        TextButton(
+                                            onClick = { showTermsDialog = true },
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text(
+                                                "Terms & Privacy Policy *",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        if (isTermsError) "Required: Please accept Terms & Privacy Policy to continue."
+                                        else "Compliant with Nepal Individual Privacy Act 2075 & Google Play Health Policies.",
+                                        fontSize = 10.sp,
+                                        color = if (isTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 14.sp
+                                    )
+                                }
                             }
                         }
 
@@ -511,5 +897,17 @@ fun LoginScreen(
                 }
             }
         }
+    }
+
+    if (showTermsDialog) {
+        com.dactor.patient.ui.legal.TermsAndConditionsDialog(
+            onAccept = {
+                patientTermsAccepted = true
+                showTermsDialog = false
+            },
+            onDismiss = {
+                showTermsDialog = false
+            }
+        )
     }
 }

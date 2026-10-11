@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Clinic, ClinicType, VerificationStatus } from '../lib/types'
-import { CheckCircle2, XCircle, MapPin, Phone, Mail, Building, RefreshCw, FileText, Image as ImageIcon, Shield, AlertCircle } from 'lucide-react'
+import { CheckCircle2, XCircle, MapPin, Phone, Mail, Building, RefreshCw, FileText, Image as ImageIcon, Shield, AlertCircle, Trash2 } from 'lucide-react'
 
 function parseClinicMeta(clinic: Clinic) {
   let pan = clinic.pan_number || ''
@@ -21,6 +21,40 @@ function parseClinicMeta(clinic: Clinic) {
     } catch (e) {
       console.warn('Error parsing clinic description JSON:', e)
     }
+  }
+
+  // Handle postgres string array or json string format
+  if (typeof pictures === 'string') {
+    try {
+      if ((pictures as string).startsWith('[')) {
+        pictures = JSON.parse(pictures)
+      } else if ((pictures as string).startsWith('{')) {
+        pictures = (pictures as string).slice(1, -1).split(',').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean)
+      } else {
+        pictures = [(pictures as string).trim()].filter(Boolean)
+      }
+    } catch (e) {
+      pictures = []
+    }
+  }
+
+  // Resolve pictures: if relative storage path, convert to public Supabase Storage URL
+  if (Array.isArray(pictures)) {
+    pictures = pictures.map((pic: string) => {
+      if (!pic) return ''
+      if (pic.startsWith('content://')) return pic
+      if (pic.startsWith('http')) return pic
+      const clean = pic.replace(/^clinic_photos\//, '').replace(/^\//, '')
+      const { data } = supabase.storage.from('clinic_photos').getPublicUrl(clean)
+      return data?.publicUrl || pic
+    }).filter(Boolean)
+  }
+
+  // Resolve registration document URL
+  if (regDoc && !regDoc.startsWith('http') && !regDoc.startsWith('content://')) {
+    const clean = regDoc.replace(/^clinic_photos\//, '').replace(/^\//, '')
+    const { data } = supabase.storage.from('clinic_photos').getPublicUrl(clean)
+    if (data?.publicUrl) regDoc = data.publicUrl
   }
 
   return {
@@ -79,13 +113,21 @@ export default function ClinicVerification() {
 
   const updateStatus = async (id: string, status: VerificationStatus) => {
     try {
-      const { error } = await supabase.from('clinics').update({ verification_status: status }).eq('id', id)
+      const updates: any = { verification_status: status }
+      if (status === 'approved') {
+        const existing = clinics.find(c => c.id === id)
+        if (!existing?.activation_expires_at) {
+          updates.is_activated = true
+          updates.activation_expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+        }
+      }
+      const { error } = await supabase.from('clinics').update(updates).eq('id', id)
       if (error) {
         console.error('Error updating status in Supabase:', error)
         alert(`Failed to update status in Supabase: ${error.message}`)
         return
       }
-      setClinics(prev => prev.map(c => c.id === id ? { ...c, verification_status: status } : c))
+      setClinics(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c))
     } catch (e: any) {
       console.warn('Update status error:', e)
       alert(`Error updating clinic status: ${e?.message || e}`)
@@ -104,7 +146,29 @@ export default function ClinicVerification() {
     }
   }
 
+  const archiveClinic = async (id: string, name: string) => {
+    if (!window.confirm(`Move "${name}" to the Recycle Bin? It will be archived for 30 days before permanent deletion.`)) return
+    try {
+      const scheduledDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      const updates = {
+        is_archived: true,
+        archived_at: new Date().toISOString(),
+        deletion_scheduled_at: scheduledDate,
+        updated_at: new Date().toISOString()
+      }
+      const { error } = await supabase.from('clinics').update(updates).eq('id', id)
+      if (error) {
+        alert(`Failed to archive clinic: ${error.message}`)
+      } else {
+        setClinics(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c))
+      }
+    } catch (e: any) {
+      alert(`Error archiving clinic: ${e?.message || e}`)
+    }
+  }
+
   const filteredClinics = clinics.filter(c => {
+    if (c.is_archived) return false
     if (filter === 'all') return true
     return c.verification_status === filter
   })
@@ -218,14 +282,23 @@ export default function ClinicVerification() {
                     </span>
                   )}
                   {clinic.registration_doc_url && (
-                    <a
-                      href={clinic.registration_doc_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1 bg-emerald-950/40 hover:bg-emerald-950/70 text-emerald-400 px-2.5 py-1 rounded-lg border border-emerald-700/50 transition font-semibold"
-                    >
-                      <FileText className="w-3.5 h-3.5" /> View Registration Paper
-                    </a>
+                    clinic.registration_doc_url.startsWith('content://') ? (
+                      <span
+                        title="Uploaded from older mobile build (local phone URI). Requires updated mobile build to upload to Supabase Storage."
+                        className="flex items-center gap-1 bg-amber-950/40 text-amber-400 px-2.5 py-1 rounded-lg border border-amber-700/50 font-semibold"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> Registration Paper (Old Mobile URI)
+                      </span>
+                    ) : (
+                      <a
+                        href={clinic.registration_doc_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1 bg-emerald-950/40 hover:bg-emerald-950/70 text-emerald-400 px-2.5 py-1 rounded-lg border border-emerald-700/50 transition font-semibold"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> View Registration Paper
+                      </a>
+                    )
                   )}
                 </div>
 
@@ -237,21 +310,32 @@ export default function ClinicVerification() {
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
                       {clinic.pictures.map((picUrl, idx) => (
-                        <div
-                          key={idx}
-                          onClick={() => setSelectedPreviewImage(picUrl)}
-                          className="w-16 h-16 rounded-xl border border-slate-700 overflow-hidden bg-slate-900 cursor-pointer hover:border-indigo-500 transition group relative"
-                        >
-                          <img
-                            src={picUrl}
-                            alt={`Clinic photo ${idx + 1}`}
-                            className="w-full h-full object-cover group-hover:scale-105 transition"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none'
-                            }}
-                          />
-                          <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent" />
-                        </div>
+                        picUrl.startsWith('content://') ? (
+                          <div
+                            key={idx}
+                            title="Uploaded from older mobile build (local phone URI). Requires updated mobile build to upload to Supabase Storage."
+                            className="w-16 h-16 rounded-xl border border-amber-500/30 bg-amber-500/10 flex flex-col items-center justify-center p-1 text-center"
+                          >
+                            <ImageIcon className="w-4 h-4 text-amber-400 mb-0.5" />
+                            <span className="text-[9px] text-amber-300 font-semibold leading-none">Old Mobile URI</span>
+                          </div>
+                        ) : (
+                          <div
+                            key={idx}
+                            onClick={() => setSelectedPreviewImage(picUrl)}
+                            className="w-16 h-16 rounded-xl border border-slate-700 overflow-hidden bg-slate-900 cursor-pointer hover:border-indigo-500 transition group relative"
+                          >
+                            <img
+                              src={picUrl}
+                              alt={`Clinic photo ${idx + 1}`}
+                              className="w-full h-full object-cover group-hover:scale-105 transition"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none'
+                              }}
+                            />
+                            <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent" />
+                          </div>
+                        )
                       ))}
                     </div>
                   </div>
@@ -332,6 +416,17 @@ export default function ClinicVerification() {
                       </button>
                     </div>
                   )}
+                </div>
+
+                <div className="flex items-center justify-end w-full pt-1">
+                  <button
+                    onClick={() => archiveClinic(clinic.id, clinic.name)}
+                    className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 px-2 py-1 rounded-lg transition"
+                    title="Archive clinic to Recycle Bin"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Move to Recycle Bin</span>
+                  </button>
                 </div>
               </div>
             </div>

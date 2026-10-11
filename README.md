@@ -137,21 +137,34 @@ npm run dev
 # Or run preview:
 npm run preview -- --port 3002
 ```
-Access the console at: `http://localhost:3002/`
+Access the console locally at `http://localhost:3000/` or view the live production deployment at:
+**[https://dactorofficial.github.io/admin-portal/](https://dactorofficial.github.io/admin-portal/)**
 
 ### 3. Patient Android App (`patient-app/`)
-- Open the [`patient-app/`](file:///c:/Users/notan/Downloads/dactorsecond/patient-app) directory in Android Studio (Koala / Ladybug or newer).
-- Let Gradle sync dependencies.
-- Run on an Android Emulator or physical device (Min SDK 24, Target SDK 35).
+- Open the `patient-app/` directory in Android Studio.
+- Build debug APK via `./gradlew.bat assembleDebug` or run on an Android device (Min SDK 24, Target SDK 34).
+- Production-ready APK available in: `APKs/Dactor-PatientApp-debug.apk`.
 
 ### 4. Clinic & Doctor Android App (`clinic-app/`)
-- Open the [`clinic-app/`](file:///c:/Users/notan/Downloads/dactorsecond/clinic-app) directory in Android Studio.
-- Let Gradle sync dependencies.
-- Run on an Android Emulator or physical device (Min SDK 24, Target SDK 35).
+- Open the `clinic-app/` directory in Android Studio.
+- Build debug APK via `./gradlew.bat assembleDebug` or run on an Android device (Min SDK 24, Target SDK 34).
+- Production-ready APK available in: `APKs/Dactor-ClinicApp-debug.apk`.
+
+---
+
+## 📚 System Documentation & Handoffs
+
+For complete technical specifications, recent fixes, database schema migrations, and component architectures, refer to the respective handoff files:
+
+- 📋 **[Master System Handoff](file:///G:/My%20Drive/New%20folder/HANDOFF.md)**: Overall platform architecture, storage setup, and cross-cutting fixes.
+- 💻 **[Admin Portal Handoff](file:///G:/My%20Drive/New%20folder/admin-panel/HANDOFF.md)**: Web console, GitHub Pages deployment, and verification workflows.
+- 🏥 **[Clinic & Doctor App Handoff](file:///G:/My%20Drive/New%20folder/clinic-app/HANDOFF.md)**: Queue management, direct binary uploads to Supabase Storage, and reception desk.
+- 👤 **[Patient App Handoff](file:///G:/My%20Drive/New%20folder/patient-app/HANDOFF.md)**: Discovery, atomic slot reservation, and live queue tracking.
+- 🗄️ **[Supabase Backend Handoff](file:///G:/My%20Drive/New%20folder/supabase/HANDOFF.md)**: Cloud database tables, storage buckets, RLS policies, and SQL scripts.
 
 ---
 
 ## 🇳🇵 Currency & Localization
-- All pricing and invoice amounts are formatted in Nepalese Rupees (`Rs. / NPR`) with thousands commas (e.g. `Rs. 1,500`) via [`CurrencyFormatter.kt`](file:///c:/Users/notan/Downloads/dactorsecond/patient-app/app/src/main/java/com/dactor/patient/domain/util/CurrencyFormatter.kt).
+- All pricing and invoice amounts are formatted in Nepalese Rupees (`Rs. / NPR`) with thousands commas (e.g. `Rs. 1,500`) via `CurrencyFormatter.kt`.
 - Coordinates centered around Kathmandu Valley (e.g. Bagbazar `27.7052° N, 85.3193° E`, Patan `27.6710° N, 85.3260° E`).
 - Doctor registration validates Nepal Medical Council (NMC) licensing.

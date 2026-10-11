@@ -1,5 +1,10 @@
 package com.dactor.patient.ui.booking
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -7,12 +12,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,13 +31,15 @@ import com.dactor.patient.ui.navigation.NavRoutes
 fun AppointmentConfirmedScreen(
     navController: NavController,
     appointmentId: String = "",
-    generatedTrackingCode: String = "9841203841",
-    clinicName: String = "Medical OPD Center",
-    doctorName: String = "Attending Physician",
+    generatedTrackingCode: String = "",
+    clinicName: String = "",
+    doctorName: String = "",
     appointmentRepository: com.dactor.patient.data.repository.AppointmentRepository? = null,
     sessionManager: com.dactor.patient.data.local.UserSessionManager? = null
 ) {
+    val context = LocalContext.current
     var appt by remember { mutableStateOf<com.dactor.patient.data.model.Appointment?>(null) }
+    val displayCode = appt?.trackingCode10Digit ?: generatedTrackingCode.ifBlank { appointmentId }
     val scrollState = rememberScrollState()
 
     LaunchedEffect(appointmentId) {
@@ -44,12 +53,31 @@ fun AppointmentConfirmedScreen(
         }
     }
 
-    val displayCode = appt?.trackingCode10Digit ?: if (appointmentId.length == 10) appointmentId else generatedTrackingCode
+    var isNavigating by remember { mutableStateOf(false) }
+
+    fun navigateToTracking() {
+        if (isNavigating) return
+        isNavigating = true
+        navController.navigate(NavRoutes.QueueStatus.createRoute(displayCode)) {
+            popUpTo(navController.graph.startDestinationId) { inclusive = false }
+            launchSingleTop = true
+        }
+    }
+
+    // System Back Button redirects directly to tracking screen
+    BackHandler {
+        navigateToTracking()
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Booking Successful", fontWeight = FontWeight.Bold) }
+                title = { Text("Booking Successful", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = { navigateToTracking() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go to Tracking")
+                    }
+                }
             )
         }
     ) { padding ->
@@ -112,13 +140,36 @@ fun AppointmentConfirmedScreen(
                         letterSpacing = 1.sp
                     )
 
-                    Text(
-                        text = displayCode,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        letterSpacing = 3.sp
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = displayCode,
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            letterSpacing = 2.sp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FilledTonalIconButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("Tracking Code", displayCode)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Tracking Code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(36.dp),
+                            shape = CircleShape
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copy Tracking Code",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
 
                     Text(
                         "Saved to your patient profile history automatically",
@@ -154,6 +205,15 @@ fun AppointmentConfirmedScreen(
                             fontWeight = FontWeight.Medium
                         )
                     }
+                    if (!appt?.selectedLabTests.isNullOrBlank()) {
+                        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Science, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
+                            Column {
+                                Text("Booked Lab Tests:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                                Text(appt!!.selectedLabTests!!, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0284C7))
+                            }
+                        }
+                    }
                 }
             }
 
@@ -162,8 +222,9 @@ fun AppointmentConfirmedScreen(
             // Action Buttons
             Button(
                 onClick = {
-                    navController.navigate(NavRoutes.QueueStatus.createRoute(displayCode))
+                    navigateToTracking()
                 },
+                enabled = !isNavigating,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -176,10 +237,13 @@ fun AppointmentConfirmedScreen(
 
             OutlinedButton(
                 onClick = {
-                    navController.navigate(NavRoutes.Landing.route) {
-                        popUpTo(NavRoutes.Landing.route) { inclusive = true }
+                    if (isNavigating) return@OutlinedButton
+                    isNavigating = true
+                    navController.navigate(NavRoutes.PatientMain.route) {
+                        popUpTo(0) { inclusive = true }
                     }
                 },
+                enabled = !isNavigating,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp)
             ) {

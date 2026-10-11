@@ -1,13 +1,21 @@
 package com.dactor.patient.ui.tracker
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -15,13 +23,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.BillingInvoice
@@ -32,9 +45,11 @@ import com.dactor.patient.data.repository.DoctorRepository
 import com.dactor.patient.data.repository.LabReportRepository
 import com.dactor.patient.data.repository.QueueRepository
 import com.dactor.patient.data.repository.SlotRepository
+import com.dactor.patient.data.model.Clinic
+import com.dactor.patient.data.model.ClinicScheduleHelper
+import com.dactor.patient.data.repository.LiveQueueTimingEstimate
 import com.dactor.patient.domain.util.CurrencyFormatter
 import com.dactor.patient.domain.util.DateTimePickers
-import com.dactor.patient.domain.util.PrivacyMasker
 import com.dactor.patient.ui.navigation.NavRoutes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -58,20 +73,31 @@ fun QueueStatusScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var appointment by remember { mutableStateOf<Appointment?>(null) }
-    var clinicName by remember { mutableStateOf("Clinic OPD Center") }
-    var clinicAddress by remember { mutableStateOf("Nepal") }
+    var clinicName by remember { mutableStateOf("") }
+    var clinicAddress by remember { mutableStateOf("") }
+    var clinicPhone by remember { mutableStateOf("") }
+    var clinicLatitude by remember { mutableDoubleStateOf(0.0) }
+    var clinicLongitude by remember { mutableDoubleStateOf(0.0) }
     var clinicType by remember { mutableStateOf("single_visit") }
-    var doctorName by remember { mutableStateOf("Attending Physician") }
-    var doctorSpecialty by remember { mutableStateOf("General / Specialist OPD") }
+    var clinicObj by remember { mutableStateOf<Clinic?>(null) }
+    var liveTimingEstimate by remember { mutableStateOf<LiveQueueTimingEstimate?>(null) }
+
+    var doctorName by remember { mutableStateOf("") }
+    var doctorSpecialty by remember { mutableStateOf("") }
+    var doctorPhotoUrl by remember { mutableStateOf<String?>(null) }
     var isDoctorInClinic by remember { mutableStateOf(true) }
 
-    var tokenNumber by remember { mutableIntStateOf(1) }
-    var patientsAhead by remember { mutableIntStateOf(0) }
-    var queueStatus by remember { mutableStateOf("waiting") } // "waiting", "inside", "done"
+    var tokenNumber by remember { mutableIntStateOf(0) }
+    var patientsAhead by remember { mutableIntStateOf(-1) } // -1 = not yet loaded
+    var clinicAvgTimeMinutes by remember { mutableIntStateOf(10) }
+    var queueStatus by remember { mutableStateOf("waiting") } // "waiting", "inside", "done", "sample_collected", "processing", "report_prepared"
     var insideAt by remember { mutableStateOf<String?>(null) }
     var currentEpochSecond by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    var isDataLoaded by remember { mutableStateOf(false) }
 
-    // Patient info loaded dynamically
+    // Automatic alert state: fires once when ≤2 people are ahead in live queue
+    var hasTriggeredTwoAheadAlert by remember(appointmentIdOrCode) { mutableStateOf(false) }
+
     var rawPatientName by remember { mutableStateOf("") }
     var rawPhone by remember { mutableStateOf("") }
     var rawEmail by remember { mutableStateOf("") }
@@ -80,15 +106,40 @@ fun QueueStatusScreen(
     var isNotFound by remember { mutableStateOf(false) }
     var isSavedToProfile by remember { mutableStateOf(false) }
 
-    // Security & Identity Verification Locking (Name or Mobile Number)
+    // Security Verification Locking (Name or Mobile Number required for Reschedule & Lab Report Viewing/Downloading)
     var isUnlocked by remember { mutableStateOf(false) }
+    var isReportIdentityVerified by remember { mutableStateOf(false) }
+    var pendingVerificationAction by remember { mutableStateOf("reschedule") } // "reschedule", "view_report", "download_report"
+    var showVerificationDialog by remember { mutableStateOf(false) }
+    var showRescheduleDialog by remember { mutableStateOf(false) }
+    var showPrescriptionDialog by remember { mutableStateOf(false) }
+    var showLabReportDialog by remember { mutableStateOf(false) }
+
     var verifyMethod by remember { mutableStateOf("name") } // "name" or "phone"
     var verificationInput by remember { mutableStateOf("") }
-    var failedAttempts by remember { mutableIntStateOf(0) } // Max 6 attempts
-    var cooldownSeconds by remember { mutableIntStateOf(0) } // 5 seconds between unsuccessful attempts
+    var failedAttempts by remember { mutableIntStateOf(0) }
+    var cooldownSeconds by remember { mutableIntStateOf(0) }
     val isLockedOut = failedAttempts >= 6
     var unlockError by remember { mutableStateOf<String?>(null) }
-    var isProcessing by remember { mutableStateOf(false) } // Global processing lock for buttons
+    var isProcessing by remember { mutableStateOf(false) }
+
+    // Reschedule states
+    val today = remember { LocalDate.now().toString() }
+    var rescheduleDate by remember { mutableStateOf(today) }
+    var rescheduleTime by remember { mutableStateOf("10:00") }
+    var rescheduleMessage by remember { mutableStateOf<String?>(null) }
+
+    // Confidential data states
+    var billingInvoice by remember { mutableStateOf<BillingInvoice?>(null) }
+    var clinicalRemarks by remember { mutableStateOf<String?>(null) }
+    var labReports by remember { mutableStateOf<List<LabReport>>(emptyList()) }
+
+    // Other saved appointments in session
+    val otherSavedCodes = remember(sessionManager) {
+        sessionManager?.getSavedTrackingCodes()?.filter { it.first != displayTrackingCode } ?: emptyList()
+    }
+
+    val scrollState = rememberScrollState()
 
     // 5-second countdown timer after unsuccessful verification
     LaunchedEffect(cooldownSeconds) {
@@ -98,27 +149,7 @@ fun QueueStatusScreen(
         }
     }
 
-    // Unlocked data states
-    var billingInvoice by remember { mutableStateOf<BillingInvoice?>(null) }
-    var clinicalRemarks by remember { mutableStateOf<String?>(null) }
-    var labReports by remember { mutableStateOf<List<LabReport>>(emptyList()) }
-
-    // Reschedule appointment states
-    val today = remember { LocalDate.now().toString() }
-    var rescheduleDate by remember { mutableStateOf(today) }
-    var rescheduleTime by remember { mutableStateOf("10:00") }
-    var rescheduleMessage by remember { mutableStateOf<String?>(null) }
-
-    // Multi-visit Follow-up states
-    val tomorrow = remember { LocalDate.now().plusDays(1).toString() }
-    var followUpDate by remember { mutableStateOf(tomorrow) }
-    var followUpTime by remember { mutableStateOf("10:00") }
-    var followUpMessage by remember { mutableStateOf<String?>(null) }
-    var newFollowUpCode by remember { mutableStateOf<String?>(null) }
-
-    val scrollState = rememberScrollState()
-
-    // Live 1-second ticking timer for real-time consultation duration
+    // Live 1-second ticking timer for active consultation
     LaunchedEffect(Unit) {
         while (isActive) {
             delay(1000L)
@@ -131,7 +162,7 @@ fun QueueStatusScreen(
             val inv = appointmentRepository?.getInvoiceForAppointment(targetAppt.id)
             billingInvoice = inv
             clinicalRemarks = inv?.remarks?.ifBlank { null } ?: appointmentRepository?.getRemarksForAppointment(targetAppt.id)
-            val reports = labReportRepository?.getLabReportsForAppointment(targetAppt.id) ?: emptyList()
+            val reports = labReportRepository?.getLabReportsForAppointment(targetAppt.id, targetAppt.trackingCode10Digit) ?: emptyList()
             labReports = reports
         } catch (e: Exception) {
             e.printStackTrace()
@@ -143,7 +174,6 @@ fun QueueStatusScreen(
         if (queryCode.isBlank()) return
 
         try {
-            // 1. Fetch real appointment from Supabase
             val appt = appointmentRepository?.getAppointmentByTrackingCode(queryCode)
                 ?: appointmentRepository?.getAppointmentById(queryCode)
 
@@ -157,47 +187,150 @@ fun QueueStatusScreen(
                 rescheduleTime = appt.appointmentTime
                 isNotFound = false
 
-                // If already unlocked, update confidential data
-                if (isUnlocked) {
-                    loadConfidentialDetails(appt)
+                // Automatically save tracking code so this device receives alerts even when app is not open
+                if (appt.trackingCode10Digit.isNotBlank()) {
+                    sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}")
                 }
 
-                // 2. Fetch clinic info
+                // Always load lab reports so live workflow stage (Processing / Prepared) is accurate
+                loadConfidentialDetails(appt)
+
+                // Auto-unlock only when signed-in account explicitly matches email or userId
+                val savedEmail = sessionManager?.getSavedEmail()?.trim()?.lowercase()
+                val savedPid = sessionManager?.getSavedPatientId()?.trim()
+                val matchesAccount = (!savedEmail.isNullOrBlank() && appt.patientEmail?.trim()?.equals(savedEmail, ignoreCase = true) == true) ||
+                        (!savedPid.isNullOrBlank() && appt.userId == savedPid)
+                if (matchesAccount && !isUnlocked) {
+                    isUnlocked = true
+                    isSavedToProfile = true
+                }
+
+                // Fetch clinic info
                 if (appt.clinicId.isNotBlank()) {
-                    val clinic = clinicRepository?.getClinicById(appt.clinicId)
+                    val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = true)
+                    clinicObj = clinic
                     if (clinic != null) {
                         clinicName = clinic.name
                         clinicAddress = clinic.addressText ?: "Nepal"
-                        clinicType = clinic.type ?: "multi_visit"
+                        clinicPhone = clinic.contactPhone ?: "01-4412345"
+                        clinicLatitude = clinic.latitude ?: 27.7172
+                        clinicLongitude = clinic.longitude ?: 85.3240
+                        clinicType = clinic.type ?: "single_visit"
+                        clinicAvgTimeMinutes = clinic.getEffectiveAvgMinutes()
                     }
                 }
 
-                // 3. Fetch doctor info & physical presence
+                // Fetch doctor info
                 if (!appt.doctorId.isNullOrBlank()) {
                     val doctor = doctorRepository?.getDoctorById(appt.doctorId)
                     if (doctor != null) {
                         doctorName = doctor.fullName
-                        doctorSpecialty = doctor.specialty ?: "General / Specialist OPD"
+                        doctorSpecialty = doctor.specialty ?: "General Physician"
+                        doctorPhotoUrl = doctor.profilePictureUrl
                         isDoctorInClinic = doctor.isInClinic ?: true
                     }
                 }
 
-                // 4. Fetch queue token and live status
+                // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
                 val qEntry = queueRepository?.getQueueStatus(appt.id)
                 if (qEntry != null) {
                     tokenNumber = qEntry.queuePosition
-                    queueStatus = qEntry.status
                     insideAt = qEntry.insideAt
                 }
+                val rawQueueStatus = qEntry?.status?.lowercase() ?: ""
+                val rawApptStatus = appt.checkinStatus.lowercase()
+                val hasPreparedReport = labReports.any { it.stage.equals("prepared", ignoreCase = true) }
+                val hasProcessingReport = labReports.any {
+                    it.stage.equals("processing", ignoreCase = true) ||
+                        it.stage.equals("in_lab", ignoreCase = true) ||
+                        it.stage.equals("sample_collected", ignoreCase = true)
+                }
 
-                // 5. Count patients ahead in waiting lobby
+                queueStatus = when {
+                    rawQueueStatus == "report_prepared" || rawApptStatus == "report_prepared" || hasPreparedReport -> "report_prepared"
+                    rawQueueStatus == "processing" || rawQueueStatus == "sample_collected" || rawApptStatus == "processing" || hasProcessingReport -> "processing"
+                    qEntry != null -> qEntry.status
+                    rawApptStatus.isNotBlank() && rawApptStatus != "pending" -> rawApptStatus
+                    else -> "waiting"
+                }
+
+                // Count LIVE queue patients ahead (both "waiting" AND "inside" count as ahead)
                 if (appt.clinicId.isNotBlank()) {
                     val clinicEntries = queueRepository?.getQueueEntriesForClinic(appt.clinicId) ?: emptyList()
                     val myPos = qEntry?.queuePosition ?: tokenNumber
-                    patientsAhead = clinicEntries.count { it.status == "waiting" && it.queuePosition < myPos }
+                    val liveAhead = clinicEntries.count {
+                        (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos
+                    }
+                    patientsAhead = liveAhead
+
+                    // Real estimated timing calculation using QueueRepository engine
+                    val timing = QueueRepository.calculateLiveQueueTimingEstimate(
+                        clinic = clinicObj,
+                        isDoctorInClinic = isDoctorInClinic,
+                        allClinicQueueEntries = clinicEntries,
+                        targetEntry = qEntry,
+                        fallbackPatientsAhead = liveAhead
+                    )
+                    liveTimingEstimate = timing
+
+                    // Expected wait time calculation for legacy formatting
+                    val estWaitMinutes = if (liveAhead > 0) liveAhead * clinicAvgTimeMinutes else 0
+
+                    // ── 1-Hour Reminder Trigger (Fires once at most when turn is within ≤ 1 hour) ──
+                    val isWithinOneHour = (timing.estimatedTimeLeftText.contains("min") && !timing.estimatedTimeLeftText.contains("60")) || (liveAhead in 0..1)
+                    if (isWithinOneHour && queueStatus == "waiting") {
+                        val alreadySent = sessionManager?.isOneHourReminderTriggered(appt.id) == true
+                        if (!alreadySent) {
+                            sessionManager?.markOneHourReminderTriggered(appt.id)
+                            try {
+                                val notifTitle = "⏰ Queue Turn Approaching!"
+                                val notifMsg = "Dear ${appt.patientName}, your turn at ${clinicName.ifBlank { "the clinic" }} is expected at ${timing.expectedExactTimeText} (${timing.estimatedTimeLeftText}). Please be nearby in the waiting area."
+                                
+                                com.dactor.patient.service.NotificationHelper.showSystemNotification(
+                                    context = context,
+                                    id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
+                                    title = notifTitle,
+                                    message = notifMsg,
+                                    appointmentId = appt.id
+                                )
+                                queueRepository?.insertAutoAlert(
+                                    appointmentId = appt.id,
+                                    userId = appt.userId,
+                                    title = notifTitle,
+                                    message = notifMsg,
+                                    estimatedTimeLeft = timing.estimatedTimeLeftText,
+                                    expectedTime = timing.expectedExactTimeText,
+                                    trackingCode = appt.trackingCode10Digit
+                                )
+                            } catch (ignored: Exception) {}
+                        }
+                    }
+
+                    // ── Automatic Alert: fire once when ≤2 people ahead in live queue ──
+                    if (liveAhead in 0..2 && queueStatus == "waiting" && !hasTriggeredTwoAheadAlert) {
+                        hasTriggeredTwoAheadAlert = true
+                        try {
+                            val alertTitle = if (liveAhead == 0) "You're Next!" else "Almost Your Turn!"
+                            val alertMsg = if (liveAhead == 0) {
+                                "Dear ${appt.patientName}, you are next in line at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please proceed to the consultation area."
+                            } else {
+                                "Dear ${appt.patientName}, only $liveAhead patient${if (liveAhead > 1) "s" else ""} ahead of you at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please be ready."
+                            }
+                            queueRepository?.insertAutoAlert(
+                                appointmentId = appt.id,
+                                userId = appt.userId,
+                                title = alertTitle,
+                                message = alertMsg,
+                                estimatedTimeLeft = timing.estimatedTimeLeftText,
+                                expectedTime = timing.expectedExactTimeText,
+                                trackingCode = appt.trackingCode10Digit
+                            )
+                        } catch (ignored: Exception) {}
+                    }
                 }
+
+                isDataLoaded = true
             } else {
-                // Check if code was saved in local session for offline/guest booking
                 val savedCodes = sessionManager?.getSavedTrackingCodes() ?: emptyList()
                 val match = savedCodes.firstOrNull { it.first == queryCode }
                 if (match != null) {
@@ -209,16 +342,15 @@ fun QueueStatusScreen(
                 } else if (rawPatientName.isBlank()) {
                     isNotFound = true
                 }
+                isDataLoaded = true
             }
 
-            // Check if saved to profile
             isSavedToProfile = sessionManager?.getSavedTrackingCodes()?.any { it.first == displayTrackingCode } ?: false
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    // Dynamic real-time auto-refresh loop
     LaunchedEffect(appointmentIdOrCode) {
         while (isActive) {
             refreshData()
@@ -226,141 +358,1069 @@ fun QueueStatusScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Live Queue Position", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(
-                        onClick = { navController.popBackStack() },
-                        enabled = !isProcessing
-                    ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                isProcessing = true
-                                refreshData()
-                                delay(300)
-                                isProcessing = false
-                            }
-                        },
-                        enabled = !isProcessing
-                    ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                        }
-                    }
-                }
-            )
+    fun handleBackNavigation() {
+        if (!navController.popBackStack()) {
+            navController.navigate(NavRoutes.PatientMain.route) {
+                popUpTo(navController.graph.startDestinationId) { inclusive = false }
+                launchSingleTop = true
+            }
         }
+    }
+
+    BackHandler {
+        handleBackNavigation()
+    }
+
+    // Function to open Google Maps
+    fun openGoogleMaps() {
+        try {
+            val uri = Uri.parse("geo:$clinicLatitude,$clinicLongitude?q=" + Uri.encode("$clinicName, $clinicAddress"))
+            val mapIntent = Intent(Intent.ACTION_VIEW, uri)
+            mapIntent.setPackage("com.google.android.apps.maps")
+            if (mapIntent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(mapIntent)
+            } else {
+                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/?api=1&query=" + Uri.encode("$clinicName, $clinicAddress")))
+                context.startActivity(browserIntent)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Unable to open Google Maps", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Function to open phone dialer
+    fun callClinicPhone() {
+        try {
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${clinicPhone.trim()}"))
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Unable to launch dialer", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Reschedule flow handler: verifies patient before showing date picker
+    fun handleRescheduleClick() {
+        if (!isUnlocked) {
+            pendingVerificationAction = "reschedule"
+            showVerificationDialog = true
+        } else {
+            showRescheduleDialog = true
+        }
+    }
+
+    val isLabClinic = clinicType == "diagnostic_lab" ||
+        !appointment?.selectedLabTests.isNullOrBlank() ||
+        labReports.isNotEmpty() ||
+        queueStatus == "processing" ||
+        queueStatus == "report_prepared" ||
+        queueStatus == "sample_collected"
+    val isSampleProcessing = queueStatus == "processing" ||
+        queueStatus == "sample_collected" ||
+        labReports.any { it.stage == "processing" || it.stage == "in_lab" || it.stage == "sample_collected" }
+    val isReportReady = queueStatus == "report_prepared" ||
+        (isLabClinic && queueStatus == "done") ||
+        labReports.any { it.stage == "prepared" }
+
+    fun triggerDirectReportDownload() {
+        val primaryReport = labReports.firstOrNull { it.stage == "prepared" }
+            ?: labReports.firstOrNull()
+            ?: LabReport(
+                id = appointment?.id ?: displayTrackingCode,
+                appointmentId = appointment?.id ?: displayTrackingCode,
+                clinicId = appointment?.clinicId ?: "",
+                testName = appointment?.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Diagnostic Lab Investigation",
+                stage = "prepared",
+                fileUrl = null,
+                fileName = "Lab_Report_${displayTrackingCode.ifBlank { "Report" }}.pdf",
+                fileType = "pdf",
+                patientNameVerification = rawPatientName,
+                sampleCollectedAt = appointment?.appointmentDate ?: today,
+                preparedAt = today
+            )
+        com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+            context = context,
+            report = primaryReport,
+            patientName = rawPatientName.ifBlank { "Registered Patient" },
+            clinicName = clinicName.ifBlank { "Dactor Diagnostic & Pathology Lab" },
+            doctorName = doctorName.ifBlank { "Certified Pathologist / Lab Technician" }
+        )
+    }
+
+    Scaffold(
+        containerColor = Color(0xFFF1F5F9)
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(scrollState)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (isProcessing) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-
-            if (isNotFound) {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(Icons.Default.SearchOff, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(48.dp))
-                        Text("No Appointment Found", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.error)
-                        Text(
-                            "No active booking found for tracking code: $appointmentIdOrCode.\nPlease verify the 10-digit number and try again.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+            // =========================================================================
+            // TOP HEADER: MEDICAL TEAL GRADIENT WITH BRAND PILL, TITLE & REFRESH
+            // =========================================================================
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF00695C),
+                                Color(0xFF004D40)
+                            )
                         )
-                        Button(
-                            onClick = { navController.popBackStack() },
-                            enabled = !isProcessing
+                    )
+                    .padding(top = 16.dp, bottom = 28.dp, start = 18.dp, end = 18.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Top Brand Capsule Pill (Contigo / Dactor)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFDC2626) // crimson red pill from mockup
                         ) {
-                            Text("Re-enter Tracking Code")
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "Contigo",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+
+                        // Right circular refresh action button
+                        IconButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    isProcessing = true
+                                    refreshData()
+                                    delay(400)
+                                    isProcessing = false
+                                }
+                            },
+                            enabled = !isProcessing,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            if (isProcessing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = "Refresh Queue",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Title row with Back arrow
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        IconButton(
+                            onClick = { handleBackNavigation() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Live Queue Position",
+                                fontSize = 21.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Your health, our priority",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
                         }
                     }
                 }
-            } else {
-                // ==========================================
-                // 1. PUBLIC VISIBLE COMPONENTS (ANYONE CAN VIEW)
-                // - Queue Status, Estimated Time, Turn Position, Token #
-                // ==========================================
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = when (queueStatus) {
-                            "inside" -> MaterialTheme.colorScheme.primaryContainer
-                            "done" -> Color(0xFFECFDF5)
-                            else -> MaterialTheme.colorScheme.surface
+            }
+
+            // =========================================================================
+            // CONTENT CONTAINER WITH NEGATIVE OFFSET OVERLAPPING THE TEAL HEADER
+            // =========================================================================
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(y = (-14).dp)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+
+                // ---------------------------------------------------------------------
+                // 1. 10-DIGIT CODE PILL BANNER WITH COPY BUTTON
+                // ---------------------------------------------------------------------
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFFE0F2FE), // soft ice blue cyan
+                    border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                    shadowElevation = 1.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.QrCodeScanner,
+                                contentDescription = "Code",
+                                tint = Color(0xFF0284C7),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "10-DIGIT CODE: ",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0369A1),
+                                    letterSpacing = 0.5.sp
+                                )
+                                Text(
+                                    text = displayTrackingCode.ifBlank { if (isDataLoaded) "--" else "Loading..." },
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFF0284C7)
+                                )
+                            }
                         }
-                    ),
+
+                        IconButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("Tracking Code", displayTrackingCode)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Tracking Code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copy code",
+                                tint = Color(0xFF0284C7),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
+                }
+
+                // ── A. CLINIC ON BREAK ALERT BANNER ───────────────────
+                if (clinicObj?.isOnBreak == true) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFFFEE2E2),
+                        border = BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                        shadowElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFEF4444),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.PauseCircle,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "CLINIC IS CURRENTLY ON BREAK",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF991B1B)
+                                )
+                                val todayBreak = clinicObj?.getTodaySchedule()?.takeIf { it.hasBreak }
+                                val breakTimingStr = if (todayBreak != null && !todayBreak.breakStart.isNullOrBlank() && !todayBreak.breakEnd.isNullOrBlank()) {
+                                    "Scheduled Break: ${todayBreak.breakStart} – ${todayBreak.breakEnd}. Consultations will resume shortly."
+                                } else {
+                                    "Consultations are paused temporarily. Will resume shortly."
+                                }
+                                Text(
+                                    text = breakTimingStr,
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFFB91C1C),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── B. DOCTOR PRESENCE / IDLE BANNER ───────────────────
+                val doctorBannerMsg = liveTimingEstimate?.doctorStatusBanner
+                if (!doctorBannerMsg.isNullOrBlank() && clinicObj?.isOnBreak != true) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (liveTimingEstimate?.isDoctorNotInside == true) Color(0xFFFEF2F2) else Color(0xFFFFFBEB),
+                        border = BorderStroke(1.dp, if (liveTimingEstimate?.isDoctorNotInside == true) Color(0xFFFCA5A5) else Color(0xFFFCD34D)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (liveTimingEstimate?.isDoctorNotInside == true) Icons.Default.PersonOff else Icons.Default.AccessTime,
+                                contentDescription = null,
+                                tint = if (liveTimingEstimate?.isDoctorNotInside == true) Color(0xFFDC2626) else Color(0xFFD97706),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = doctorBannerMsg,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (liveTimingEstimate?.isDoctorNotInside == true) Color(0xFF991B1B) else Color(0xFF92400E)
+                            )
+                        }
+                    }
+                }
+
+                // ── C. BREAK HOURS INFORMATIONAL CARD (Allowed for live queue status) ─
+                val todaySched = clinicObj?.getTodaySchedule()
+                if (todaySched?.hasBreak == true && !todaySched.breakStart.isNullOrBlank() && !todaySched.breakEnd.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFFFF7ED),
+                        border = BorderStroke(1.dp, Color(0xFFFED7AA)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Coffee,
+                                    contentDescription = null,
+                                    tint = Color(0xFFEA580C),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Clinic Break Hours Today:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF9A3412)
+                                )
+                            }
+                            Text(
+                                text = "${todaySched.breakStart} – ${todaySched.breakEnd}",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFC2410C)
+                            )
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // 2. MAIN LIVE QUEUE STATUS CARD (TOKEN, STEPPER, TIME & WAIT WINDOW)
+                // ---------------------------------------------------------------------
+                Card(
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Text(
-                            "10-DIGIT CODE: $displayTrackingCode",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        Surface(
-                            shape = CircleShape,
-                            color = when (queueStatus) {
-                                "inside" -> MaterialTheme.colorScheme.primary
-                                "done" -> Color(0xFF059669)
-                                else -> Color(0xFF3B82F6)
-                            },
-                            modifier = Modifier.size(90.dp)
+                        // Top Token Row: Token Circle + Status Title
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
+                            // Circular Token Badge
                             Box(contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("TOKEN", fontSize = 10.sp, color = Color.White.copy(alpha = 0.8f), fontWeight = FontWeight.Bold)
-                                    Text("#$tokenNumber", color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFE0F2FE),
+                                    modifier = Modifier.size(80.dp)
+                                ) {}
+
+                                Surface(
+                                    shape = CircleShape,
+                                    color = when (queueStatus) {
+                                        "inside" -> Color(0xFF00796B)
+                                        "done" -> Color(0xFF059669)
+                                        else -> Color(0xFF0284C7)
+                                    },
+                                    shadowElevation = 3.dp,
+                                    modifier = Modifier.size(68.dp)
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = "TOKEN",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            letterSpacing = 1.sp
+                                        )
+                                        Text(
+                                            text = "#$tokenNumber",
+                                            fontSize = 24.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Dynamic Title & Subtext
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = when {
+                                        isLabClinic && isReportReady -> "Status: Prepared"
+                                        isLabClinic && isSampleProcessing -> "Status: Processing"
+                                        isLabClinic && patientsAhead == 0 -> "Next for Sample Collection!"
+                                        isLabClinic && patientsAhead > 0 -> "$patientsAhead Patients Ahead"
+                                        isLabClinic -> "Waiting for Sample Collection"
+                                        queueStatus == "inside" -> "You are in OPD Session!"
+                                        queueStatus == "done" -> "Consultation Completed!"
+                                        patientsAhead == 0 -> "You are Next in Line!"
+                                        else -> "$patientsAhead Patients Ahead"
+                                    },
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = when {
+                                        isLabClinic && isReportReady -> Color(0xFF059669)
+                                        isLabClinic && isSampleProcessing -> Color(0xFFD97706)
+                                        queueStatus == "inside" -> Color(0xFF00796B)
+                                        queueStatus == "done" -> Color(0xFF059669)
+                                        patientsAhead == 0 -> Color(0xFF0F172A)
+                                        else -> Color(0xFF0F172A)
+                                    }
+                                )
+                                Text(
+                                    text = when {
+                                        isLabClinic && isReportReady -> "(Report Prepared • Verify Name/Phone to View)"
+                                        isLabClinic && isSampleProcessing -> "(Sample Collected • Processing in Lab)"
+                                        isLabClinic && patientsAhead == 0 -> "(Proceed for Sample Collection)"
+                                        queueStatus == "inside" -> "(With Doctor)"
+                                        queueStatus == "done" -> "(Thank you for visiting)"
+                                        patientsAhead == 0 -> "(Get Ready • Next to Enter)"
+                                        else -> "(~$patientsAhead patients ahead • ~${patientsAhead * clinicAvgTimeMinutes} mins wait)"
+                                    },
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                        }
+
+                        // Stepper Progress Row: 4 Steps
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            val isLab = isLabClinic
+                            val stepNames = if (isLab) {
+                                listOf("Booked", "Collected", "Processing", "Prepared")
+                            } else {
+                                listOf("Booked", "Waiting", "In OPD", "Done")
+                            }
+
+                            val stepIcons = if (isLab) {
+                                listOf(Icons.Default.Check, Icons.Default.WaterDrop, Icons.Default.Biotech, Icons.Default.Description)
+                            } else {
+                                listOf(Icons.Default.Check, Icons.Default.HourglassTop, Icons.Default.MedicalServices, Icons.Default.CheckCircle)
+                            }
+
+                            val stepReaches = if (isLab) {
+                                listOf(
+                                    true,
+                                    isSampleProcessing || isReportReady,
+                                    isSampleProcessing || isReportReady,
+                                    isReportReady
+                                )
+                            } else {
+                                listOf(
+                                    true,
+                                    queueStatus == "waiting" || queueStatus == "inside" || queueStatus == "done",
+                                    queueStatus == "inside" || queueStatus == "done",
+                                    queueStatus == "done"
+                                )
+                            }
+
+                            val currentActiveIndex = if (isLab) {
+                                when {
+                                    isReportReady -> 3
+                                    isSampleProcessing -> 2
+                                    else -> 0
+                                }
+                            } else {
+                                when (queueStatus) {
+                                    "done" -> 3
+                                    "inside" -> 2
+                                    "waiting" -> 1
+                                    else -> 0
+                                }
+                            }
+
+                            stepNames.forEachIndexed { index, name ->
+                                val isReached = stepReaches[index]
+                                val isActiveStep = index == currentActiveIndex
+
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = when {
+                                            isActiveStep -> if (index == 0) Color(0xFF10B981) else Color(0xFF0284C7)
+                                            isReached -> Color(0xFF10B981)
+                                            else -> Color(0xFFE2E8F0)
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = if (isReached && !isActiveStep) Icons.Default.Check else stepIcons[index],
+                                                contentDescription = name,
+                                                tint = if (isReached || isActiveStep) Color.White else Color(0xFF94A3B8),
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = name,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isActiveStep) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isActiveStep) Color(0xFF0284C7) else if (isReached) Color(0xFF10B981) else Color(0xFF94A3B8)
+                                    )
+                                }
+
+                                if (index < stepNames.size - 1) {
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(2.5.dp)
+                                            .padding(horizontal = 4.dp)
+                                            .background(
+                                                if (stepReaches[index + 1]) Color(0xFF10B981) else Color(0xFFE2E8F0),
+                                                RoundedCornerShape(2.dp)
+                                            )
+                                    )
                                 }
                             }
                         }
 
-                        Text(
-                            text = when (queueStatus) {
-                                "inside" -> "IT IS YOUR TURN! PROCEED INSIDE"
-                                "done" -> "CONSULTATION COMPLETED"
-                                else -> if (patientsAhead == 0) "You are next in line!" else "$patientsAhead patients ahead of you"
-                            },
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = when (queueStatus) {
-                                "inside" -> MaterialTheme.colorScheme.primary
-                                "done" -> Color(0xFF059669)
-                                else -> if (patientsAhead == 0) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
+                        // Two info pill cards: Slot Window & Expected Call
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Slot window pill
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFF0F9FF),
+                                border = BorderStroke(1.dp, Color(0xFFE0F2FE)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFE0F2FE),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.Schedule,
+                                                contentDescription = null,
+                                                tint = Color(0xFF0284C7),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Your Slot Window:",
+                                            fontSize = 10.sp,
+                                            color = Color(0xFF64748B),
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = appointment?.appointmentTime?.ifBlank { "--:--" } ?: if (isDataLoaded) "--:--" else "Loading...",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                    }
+                                }
                             }
-                        )
 
-                        if (queueStatus == "inside") {
+                            // Expected call pill
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFF0F9FF),
+                                border = BorderStroke(1.dp, Color(0xFFE0F2FE)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFE0F2FE),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.PhoneCallback,
+                                                contentDescription = null,
+                                                tint = Color(0xFF0284C7),
+                                                modifier = Modifier.size(17.dp)
+                                            )
+                                        }
+                                    }
+                                    val timing = liveTimingEstimate
+                                    val isSoonReady = timing?.isSoonBeReady == true || timing?.expectedExactTimeText == "Soon, be ready"
+                                    val estWaitMins = if (patientsAhead > 0) patientsAhead * clinicAvgTimeMinutes else 0
+                                    val estTimeFormatted = try {
+                                        java.time.LocalTime.now().plusMinutes(estWaitMins.toLong())
+                                            .format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
+                                    } catch (e: Exception) { "" }
+
+                                    Column {
+                                        Text(
+                                            text = "Expected Call:",
+                                            fontSize = 10.sp,
+                                            color = Color(0xFF64748B),
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = when {
+                                                isLabClinic && isReportReady -> "Prepared"
+                                                isLabClinic && isSampleProcessing -> "Processing"
+                                                queueStatus == "inside" -> "Ongoing OPD Session"
+                                                queueStatus == "done" -> "Completed"
+                                                timing?.isClinicOnBreak == true -> "Clinic on Break"
+                                                isSoonReady -> "Soon, be ready"
+                                                timing != null && timing.expectedExactTimeText.isNotBlank() && timing.expectedExactTimeText != "Wait a few moments" ->
+                                                    "${timing.estimatedTimeLeftText} • Exp: ${timing.expectedExactTimeText}"
+                                                timing?.doctorStatusBanner != null -> timing.estimatedTimeLeftText
+                                                patientsAhead < 0 -> if (isDataLoaded) "Queue Ready" else "Loading..."
+                                                patientsAhead == 0 -> "Soon, be ready • Next in Line"
+                                                else -> "~$estWaitMins mins left • Exp: $estTimeFormatted"
+                                            },
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = when {
+                                                isLabClinic && isReportReady -> Color(0xFF059669)
+                                                isLabClinic && isSampleProcessing -> Color(0xFFD97706)
+                                                queueStatus == "inside" -> Color(0xFF00796B)
+                                                queueStatus == "done" -> Color(0xFF059669)
+                                                isSoonReady -> Color(0xFF0284C7)
+                                                timing?.isClinicOnBreak == true -> Color(0xFFDC2626)
+                                                patientsAhead in 0..1 -> Color(0xFF0284C7)
+                                                else -> Color(0xFF0F172A)
+                                            }
+                                        )
+                                        Text(
+                                            text = when {
+                                                isLabClinic && isReportReady -> "(Verify name/phone to view)"
+                                                isLabClinic && isSampleProcessing -> "(Sample collected & in lab)"
+                                                queueStatus == "inside" -> "(Inside Chamber)"
+                                                queueStatus == "done" -> "(Consultation Done)"
+                                                isSoonReady -> "(Turn is immediate • Be ready near consultation room)"
+                                                timing?.isClinicOnBreak == true -> "(Clinic is temporarily paused for break)"
+                                                patientsAhead < 0 -> "(Synchronizing live turn)"
+                                                patientsAhead == 0 -> "(Next to enter)"
+                                                patientsAhead == 1 -> "(1 patient ahead • $clinicAvgTimeMinutes min avg)"
+                                                else -> "($patientsAhead patients ahead • $clinicAvgTimeMinutes min/patient avg)"
+                                            },
+                                            fontSize = 9.sp,
+                                            color = Color(0xFF64748B)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // 3. CLINIC & DOCTOR PROFILE CARD
+                // ---------------------------------------------------------------------
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        // Clinic Header row with Call Clinic & Get Directions buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF00ACC1), // bright teal clinic icon
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.LocalHospital,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
+                                Column {
+                                    Text(
+                                        text = clinicName,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.LocationOn,
+                                            contentDescription = null,
+                                            tint = Color(0xFF64748B),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Text(
+                                            text = clinicAddress,
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF64748B)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Quick buttons: Call Clinic & Get Directions
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = { callClinicPhone() },
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF00796B)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Phone,
+                                        contentDescription = "Call",
+                                        tint = Color(0xFF00796B),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(Modifier.width(3.dp))
+                                    Text("Call Clinic", fontSize = 10.sp, color = Color(0xFF00796B), fontWeight = FontWeight.Bold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { openGoogleMaps() },
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF00796B)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Directions,
+                                        contentDescription = "Directions",
+                                        tint = Color(0xFF00796B),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(Modifier.width(3.dp))
+                                    Text("Get Directions", fontSize = 10.sp, color = Color(0xFF00796B), fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                        // Doctor Row: Photo, Name, Specialty, Consultation description
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (!doctorPhotoUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = doctorPhotoUrl,
+                                    contentDescription = doctorName,
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(RoundedCornerShape(14.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFFE2E8F0),
+                                    modifier = Modifier.size(60.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = Color(0xFF64748B),
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "DOCTOR",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF64748B),
+                                    letterSpacing = 0.5.sp
+                                )
+                                Text(
+                                    text = doctorName,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Text(
+                                    text = doctorSpecialty,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF00796B)
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(top = 2.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Healing,
+                                        contentDescription = null,
+                                        tint = Color(0xFF64748B),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "Consultation for general health & OPD",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3B. SELECTED DIAGNOSTIC LAB TESTS CARD
+                if (!appointment?.selectedLabTests.isNullOrBlank()) {
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                        border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Science,
+                                    contentDescription = null,
+                                    tint = Color(0xFF15803D),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Booked Diagnostic Lab Tests",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF166534)
+                                )
+                            }
+                            Text(
+                                text = appointment!!.selectedLabTests!!,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF14532D)
+                            )
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // 4. DOCTOR PHYSICALLY INSIDE CLINIC PRESENCE BANNER
+                // ---------------------------------------------------------------------
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isDoctorInClinic) Color(0xFFECFDF5) else Color(0xFFFEF2F2)
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isDoctorInClinic) Color(0xFFA7F3D0) else Color(0xFFFECACA)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isDoctorInClinic) Color(0xFFD1FAE5) else Color(0xFFFEE2E2),
+                            modifier = Modifier.size(42.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.MedicalServices,
+                                    contentDescription = null,
+                                    tint = if (isDoctorInClinic) Color(0xFF059669) else Color(0xFFDC2626),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .background(
+                                            if (isDoctorInClinic) Color(0xFF10B981) else Color(0xFFEF4444),
+                                            CircleShape
+                                        )
+                                )
+                                Text(
+                                    text = if (isDoctorInClinic) "Doctor Physically Inside Clinic" else "Doctor Temporarily Away",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isDoctorInClinic) Color(0xFF065F46) else Color(0xFF991B1B)
+                                )
+                            }
+                            Text(
+                                text = "$doctorName • $doctorSpecialty",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF334155)
+                            )
+                            Text(
+                                text = if (isDoctorInClinic) "Attending to active OPD tokens in consultation room." else "Doctor will resume consultations shortly.",
+                                fontSize = 10.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // 5. IN OPD CONSULTATION SESSION BANNER (WHEN INSIDE CHAMBER)
+                // ---------------------------------------------------------------------
+                if (queueStatus == "inside") {
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE0F2FE)),
+                        border = BorderStroke(1.5.dp, Color(0xFF0284C7)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(modifier = Modifier.size(8.dp).background(Color(0xFF0284C7), CircleShape))
+                                Text(
+                                    text = "Active Consultation Session in Progress",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0369A1)
+                                )
+                            }
                             val elapsedSec = if (!insideAt.isNullOrBlank()) {
                                 try {
                                     (currentEpochSecond - java.time.Instant.parse(insideAt).epochSecond).coerceAtLeast(0)
@@ -368,152 +1428,213 @@ fun QueueStatusScreen(
                             } else 0L
                             val mins = elapsedSec / 60
                             val secs = elapsedSec % 60
-                            val formatted = String.format(java.util.Locale.US, "%02d:%02d", mins, secs)
-                            Surface(
-                                color = Color(0xFFDCFCE7),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Box(modifier = Modifier.size(8.dp).background(Color(0xFF16A34A), CircleShape))
-                                    Text("Active Consultation Session: $formatted min", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF166534))
-                                }
-                            }
-                        } else if (queueStatus == "waiting") {
-                            val waitMins = (patientsAhead * 15).coerceAtLeast(0)
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (!appointment?.appointmentTime.isNullOrBlank()) {
-                                    Text(
-                                        text = "Your Slot Window: ${appointment?.appointmentTime}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                Text(
-                                    text = if (patientsAhead == 0) "Expected Call: Imminent (Next patient entering)" else "Expected Wait: ~$waitMins minutes (15m interval per patient)",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
+                            val durationFormatted = String.format(java.util.Locale.US, "%02d:%02d", mins, secs)
 
-                // DOCTOR PHYSICAL PRESENCE INDICATOR
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isDoctorInClinic) Color(0xFFECFDF5) else Color(0xFFFEF2F2)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(14.dp)
-                                .background(
-                                    if (isDoctorInClinic) Color(0xFF10B981) else Color(0xFFEF4444),
-                                    CircleShape
-                                )
-                        )
-                        Column {
                             Text(
-                                text = if (isDoctorInClinic) "Doctor is Physically Inside Clinic" else "Doctor Has Not Arrived Yet / Away",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = if (isDoctorInClinic) Color(0xFF065F46) else Color(0xFF991B1B)
-                            )
-                            Text(
-                                text = "$doctorName • $doctorSpecialty",
+                                text = "Elapsed Consultation Time: $durationFormatted min",
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF0C4A6E)
                             )
                             Text(
-                                text = if (isDoctorInClinic) "Currently attending to patients in OPD room." else "Clinic receptionist has marked physician away.",
+                                text = "Please discuss your symptoms and present any prior lab reports or prescriptions to Dr. $doctorName.",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = Color(0xFF0369A1)
                             )
                         }
                     }
                 }
 
-                // Clinic Location Card
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.LocalHospital, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                            Text(clinicName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                            Text(clinicAddress, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
+                // ---------------------------------------------------------------------
+                // 6. DONE / COMPLETED ACTIONS (PRESCRIPTION & BILLING)
+                // ---------------------------------------------------------------------
+                if (queueStatus == "done" || billingInvoice != null) {
+                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 } ?: appointment?.feeAmount ?: 500.0
+                    val invPaid = billingInvoice?.paidAmount ?: (if (appointment?.paymentStatus == "paid") invTotal else 0.0)
+                    val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
 
-                // ==========================================
-                // 2. LOCKED SECTION: CONFIDENTIAL RECORDS & SERVICES
-                // Password = Patient's Registered Name OR Mobile Number
-                // Trial limit: Max 6 times, 5s cooldown between unsuccessful attempts
-                // ==========================================
-                if (!isUnlocked) {
                     Card(
                         shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                        border = BorderStroke(1.dp, Color(0xFF86EFAC)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(18.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = if (isLockedOut) MaterialTheme.colorScheme.error.copy(alpha = 0.15f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                        modifier = Modifier.size(40.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = if (isLockedOut) Icons.Default.LockClock else Icons.Default.Lock,
-                                                contentDescription = "Locked",
-                                                tint = if (isLockedOut) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(20.dp))
+                                    Text(
+                                        if (queueStatus == "done") "Consultation Finished & Bill Ready" else "Clinic Bill & Prescription Ready",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = Color(0xFF065F46)
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (invLeft <= 0.0) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+                                ) {
+                                    Text(
+                                        text = if (invLeft <= 0.0) "PAID" else "DUE: Rs. ${invLeft.toInt()}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (invLeft <= 0.0) Color(0xFF065F46) else Color(0xFF991B1B),
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                "Total Bill: Rs. ${invTotal.toInt()} • Paid: Rs. ${invPaid.toInt()} • Remaining Left: Rs. ${invLeft.toInt()}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF047857)
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { showPrescriptionDialog = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Prescription & Bill", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        val targetAppt = appointment
+                                        if (targetAppt != null) {
+                                            com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
+                                                context = context,
+                                                appointment = targetAppt,
+                                                invoice = billingInvoice,
+                                                clinicName = clinicName,
+                                                doctorName = doctorName,
+                                                doctorSpecialty = doctorSpecialty,
+                                                clinicalRemarks = clinicalRemarks
                                             )
+                                        } else {
+                                            Toast.makeText(context, "Loading appointment details...", Toast.LENGTH_SHORT).show()
                                         }
-                                    }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF059669)),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.FileDownload, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Download Bill PDF", fontSize = 11.sp, color = Color(0xFF059669), fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // 7. DIAGNOSTIC LAB CLINIC: PROCESSING & REPORT PREPARED SECTION
+                // ---------------------------------------------------------------------
+                if (isLabClinic || labReports.isNotEmpty()) {
+                    val primaryRep = labReports.firstOrNull { it.stage == "prepared" } ?: labReports.firstOrNull()
+                    val hasUploadedFile = !primaryRep?.fileUrl.isNullOrBlank() &&
+                        (primaryRep?.fileUrl?.startsWith("http://") == true || primaryRep?.fileUrl?.startsWith("https://") == true)
+                    val isImageAttachment = primaryRep?.fileType?.contains("image", ignoreCase = true) == true ||
+                        primaryRep?.fileUrl?.endsWith(".jpg", true) == true ||
+                        primaryRep?.fileUrl?.endsWith(".jpeg", true) == true ||
+                        primaryRep?.fileUrl?.endsWith(".png", true) == true ||
+                        primaryRep?.fileUrl?.endsWith(".webp", true) == true
+
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = when {
+                                isReportReady -> Color(0xFFF0FDF4)
+                                isSampleProcessing -> Color(0xFFFEF3C7)
+                                else -> Color(0xFFF0F9FF)
+                            }
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            when {
+                                isReportReady -> Color(0xFF86EFAC)
+                                isSampleProcessing -> Color(0xFFFCD34D)
+                                else -> Color(0xFFBAE6FD)
+                            }
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = when {
+                                            isReportReady -> Icons.Default.Description
+                                            isSampleProcessing -> Icons.Default.Biotech
+                                            else -> Icons.Default.WaterDrop
+                                        },
+                                        contentDescription = null,
+                                        tint = when {
+                                            isReportReady -> Color(0xFF059669)
+                                            isSampleProcessing -> Color(0xFFB45309)
+                                            else -> Color(0xFF0284C7)
+                                        },
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                     Column {
                                         Text(
-                                            text = if (isLockedOut) "Verification Locked Out" else "Confidential Details Locked",
+                                            text = when {
+                                                isReportReady -> "Lab Report Prepared"
+                                                isSampleProcessing -> "Status: Processing"
+                                                else -> "Waiting for Sample Collection"
+                                            },
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
-                                            color = if (isLockedOut) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                            fontSize = 13.5.sp,
+                                            color = when {
+                                                isReportReady -> Color(0xFF065F46)
+                                                isSampleProcessing -> Color(0xFF92400E)
+                                                else -> Color(0xFF0C4A6E)
+                                            }
                                         )
                                         Text(
-                                            text = if (isLockedOut) "6/6 Attempts Exhausted" else "Verify via Patient Name or Mobile",
-                                            fontSize = 11.sp,
-                                            color = if (isLockedOut) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.SemiBold
+                                            text = when {
+                                                isReportReady && hasUploadedFile ->
+                                                    if (isImageAttachment) "Report Picture Uploaded • Verify Name/Phone to View or Download"
+                                                    else "Report PDF Uploaded • Verify Name/Phone to View or Download"
+                                                isReportReady -> "Prepared by Laboratory • Verify Name/Phone to View or Download"
+                                                isSampleProcessing -> "Sample Collected • Biochemical Processing Underway"
+                                                else -> "Booked in Live Queue • Proceed for Phlebotomy / Sample Collection"
+                                            },
+                                            fontSize = 10.5.sp,
+                                            color = when {
+                                                isReportReady -> Color(0xFF047857)
+                                                isSampleProcessing -> Color(0xFFB45309)
+                                                else -> Color(0xFF0369A1)
+                                            }
                                         )
                                     }
                                 }
@@ -521,708 +1642,815 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = when {
-                                        isLockedOut -> MaterialTheme.colorScheme.errorContainer
-                                        failedAttempts >= 4 -> Color(0xFFFEF3C7)
-                                        else -> MaterialTheme.colorScheme.surfaceVariant
+                                        isReportReady -> Color(0xFFD1FAE5)
+                                        isSampleProcessing -> Color(0xFFFDE68A)
+                                        else -> Color(0xFFE0F2FE)
                                     }
                                 ) {
                                     Text(
-                                        text = "${6 - failedAttempts}/6 attempts",
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        text = when {
+                                            isReportReady -> "PREPARED"
+                                            isSampleProcessing -> "PROCESSING"
+                                            else -> "LIVE QUEUE"
+                                        },
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
                                         color = when {
-                                            isLockedOut -> MaterialTheme.colorScheme.onErrorContainer
-                                            failedAttempts >= 4 -> Color(0xFF92400E)
-                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                        }
+                                            isReportReady -> Color(0xFF065F46)
+                                            isSampleProcessing -> Color(0xFF92400E)
+                                            else -> Color(0xFF0369A1)
+                                        },
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                     )
                                 }
                             }
 
                             Text(
-                                "To access confidential records (clinical diagnosis, remarks, billing invoice, lab reports, rescheduling, follow-up booking, and credentials), verify the patient's identity. No account login required.",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = when {
+                                    isReportReady ->
+                                        if (isReportIdentityVerified)
+                                            "✓ Identity verified ($rawPatientName). You can now view the report in-app or download the file directly to your device."
+                                        else
+                                            "🔒 Your lab report is prepared! To view the uploaded file in-app or download it directly, please verify your registered Name or Mobile Number."
+                                    isSampleProcessing ->
+                                        "Your sample has been collected and transferred to Processing. Check back with your 10-digit code ($displayTrackingCode) or wait for a notification once prepared."
+                                    else ->
+                                        "Your appointment is currently in the Live Queue. Once your sample is collected by the clinic, your status will automatically move to Processing."
+                                },
+                                fontSize = 11.sp,
+                                color = when {
+                                    isReportReady -> Color(0xFF047857)
+                                    isSampleProcessing -> Color(0xFF78350F)
+                                    else -> Color(0xFF0369A1)
+                                }
                             )
 
-                            // Verification Method Toggle (Name vs Number)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                FilterChip(
-                                    selected = verifyMethod == "name",
-                                    onClick = {
-                                        if (!isLockedOut && cooldownSeconds == 0) {
-                                            verifyMethod = "name"
-                                            verificationInput = ""
-                                            unlockError = null
-                                        }
-                                    },
-                                    enabled = !isLockedOut && cooldownSeconds == 0,
-                                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    label = { Text("Verify via Name", fontSize = 12.sp) }
-                                )
-
-                                FilterChip(
-                                    selected = verifyMethod == "phone",
-                                    onClick = {
-                                        if (!isLockedOut && cooldownSeconds == 0) {
-                                            verifyMethod = "phone"
-                                            verificationInput = ""
-                                            unlockError = null
-                                        }
-                                    },
-                                    enabled = !isLockedOut && cooldownSeconds == 0,
-                                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    label = { Text("Verify via Number", fontSize = 12.sp) }
-                                )
-                            }
-
-                            // Dynamic Input Field
-                            OutlinedTextField(
-                                value = verificationInput,
-                                onValueChange = {
-                                    verificationInput = it
-                                    unlockError = null
-                                },
-                                label = {
-                                    Text(if (verifyMethod == "name") "Patient's Full Name (Password)" else "Registered Mobile Number")
-                                },
-                                placeholder = {
-                                    Text(if (verifyMethod == "name") "e.g. Ram Bahadur Thapa" else "e.g. 9841234567 or +977...")
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = if (verifyMethod == "name") Icons.Default.Badge else Icons.Default.PhoneIphone,
-                                        contentDescription = null
-                                    )
-                                },
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = if (verifyMethod == "name") KeyboardType.Text else KeyboardType.Phone
-                                ),
-                                singleLine = true,
-                                enabled = !isProcessing && cooldownSeconds == 0 && !isLockedOut,
-                                isError = unlockError != null,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-
-                            // Cooldown Timer Banner (5 seconds countdown after failed trial)
-                            AnimatedVisibility(visible = cooldownSeconds > 0) {
-                                Surface(
-                                    color = Color(0xFFFEF3C7),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.fillMaxWidth()
+                            if (isReportReady) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        CircularProgressIndicator(
-                                            progress = { cooldownSeconds / 5f },
-                                            modifier = Modifier.size(18.dp),
-                                            strokeWidth = 2.dp,
-                                            color = Color(0xFFB45309)
-                                        )
-                                        Text(
-                                            text = "Verification cooldown active: Please wait $cooldownSeconds seconds before retrying.",
-                                            fontSize = 12.sp,
-                                            color = Color(0xFF92400E),
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Lockout Notice
-                            if (isLockedOut) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.errorContainer,
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Icon(Icons.Default.Block, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                                        Text(
-                                            text = "Maximum 6 trial attempts exceeded. Confidential medical details have been locked. Please contact the clinic reception.",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onErrorContainer,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Error text
-                            if (unlockError != null && !isLockedOut) {
-                                Text(
-                                    text = unlockError ?: "",
-                                    color = MaterialTheme.colorScheme.error,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-
-                            // Verification Button
-                            Button(
-                                onClick = {
-                                    if (verificationInput.isBlank()) {
-                                        unlockError = if (verifyMethod == "name") "Please enter the patient's name." else "Please enter the registered mobile number."
-                                        return@Button
-                                    }
-                                    if (cooldownSeconds > 0 || isLockedOut) return@Button
-
-                                    coroutineScope.launch {
-                                        isProcessing = true
-                                        unlockError = null
-                                        delay(350L) // UI feedback
-
-                                        val isMatch = if (verifyMethod == "name") {
-                                            val entered = verificationInput.trim().lowercase().replace(Regex("\\s+"), " ")
-                                            val expected = rawPatientName.trim().lowercase().replace(Regex("\\s+"), " ")
-                                            entered.isNotBlank() && expected.isNotBlank() && (
-                                                entered == expected ||
-                                                (expected.length >= 3 && expected.contains(entered)) ||
-                                                (entered.length >= 3 && entered.contains(expected))
-                                            )
-                                        } else {
-                                            val cleanEntered = verificationInput.filter { it.isDigit() }
-                                            val cleanExpected = rawPhone.filter { it.isDigit() }
-                                            cleanEntered.isNotBlank() && cleanExpected.isNotBlank() && (
-                                                cleanEntered.takeLast(10) == cleanExpected.takeLast(10) ||
-                                                cleanEntered == cleanExpected
-                                            )
-                                        }
-
-                                        if (isMatch) {
-                                            isUnlocked = true
-                                            unlockError = null
-                                            appointment?.let { loadConfidentialDetails(it) }
-                                        } else {
-                                            failedAttempts++
-                                            cooldownSeconds = 5
-                                            if (failedAttempts >= 6) {
-                                                unlockError = "Maximum 6 verification attempts reached. For security, confidential access has been locked."
+                                    Button(
+                                        onClick = {
+                                            if (!isReportIdentityVerified) {
+                                                pendingVerificationAction = "view_report"
+                                                showVerificationDialog = true
                                             } else {
-                                                val remaining = 6 - failedAttempts
-                                                val methodLabel = if (verifyMethod == "name") "name" else "mobile number"
-                                                unlockError = "Incorrect patient $methodLabel ($remaining attempt${if (remaining == 1) "" else "s"} remaining). Wait 5 seconds to retry."
+                                                showLabReportDialog = true
                                             }
-                                        }
-                                        isProcessing = false
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isReportIdentityVerified) Icons.Default.Visibility else Icons.Default.LockOpen,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(Modifier.width(5.dp))
+                                        Text(
+                                            text = if (isReportIdentityVerified) "View In-App" else "Verify & View",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                enabled = !isProcessing && cooldownSeconds == 0 && !isLockedOut && verificationInput.isNotBlank()
-                            ) {
-                                if (isProcessing) {
-                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Verifying...", fontWeight = FontWeight.Bold)
-                                } else if (cooldownSeconds > 0) {
-                                    Icon(Icons.Default.HourglassEmpty, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Wait ${cooldownSeconds}s to retry", fontWeight = FontWeight.Bold)
-                                } else if (isLockedOut) {
-                                    Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Attempts Exhausted (Locked)", fontWeight = FontWeight.Bold)
-                                } else {
-                                    Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Unlock Confidential Details", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // ==========================================
-                    // 3. UNLOCKED SECTION: CONFIDENTIAL DETAILS
-                    // ==========================================
-                    Surface(
-                        color = Color(0xFF10B981).copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(20.dp))
-                                Column {
-                                    Text("Medical Records & Services Unlocked", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF065F46))
-                                    Text("Verified Patient: $rawPatientName", fontSize = 11.sp, color = Color(0xFF047857))
-                                }
-                            }
-                            TextButton(
-                                onClick = { isUnlocked = false },
-                                enabled = !isProcessing
-                            ) {
-                                Text("Lock", fontSize = 12.sp, color = Color(0xFF065F46), fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
 
-                    // A. FULL UNMASKED PATIENT CREDENTIALS
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.Badge, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                Text("Patient Credentials", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                            HorizontalDivider()
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Full Name:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(rawPatientName.ifBlank { "Patient" }, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Age & Gender:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("${appointment?.patientAge ?: 0} yrs • ${appointment?.patientGender ?: "N/A"}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Phone Number:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(rawPhone.ifBlank { "Not provided" }, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Email Address:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(rawEmail.ifBlank { "Not provided" }, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Visit Modality:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(if (appointment?.isWalkin == true) "Walk-In Reception Desk" else "Online Pre-Booked", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            }
-                        }
-                    }
-
-                    // B. CLINIC REMARKS & DOCTOR NOTES
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.MedicalInformation, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                Text("Clinic Remarks & Prescription", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                            HorizontalDivider()
-                            if (!clinicalRemarks.isNullOrBlank()) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = clinicalRemarks ?: "",
-                                        modifier = Modifier.padding(12.dp),
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (!isReportIdentityVerified) {
+                                                pendingVerificationAction = "download_report"
+                                                showVerificationDialog = true
+                                            } else {
+                                                triggerDirectReportDownload()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.5.dp, Color(0xFF059669)),
+                                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FileDownload,
+                                            contentDescription = null,
+                                            tint = Color(0xFF059669),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(Modifier.width(5.dp))
+                                        Text(
+                                            text = if (isReportIdentityVerified) "Download File" else "Verify & Download",
+                                            fontSize = 11.5.sp,
+                                            color = Color(0xFF059669),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             } else {
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            isProcessing = true
+                                            refreshData()
+                                            delay(400)
+                                            isProcessing = false
+                                            val msg = if (isSampleProcessing) "Status: Processing in Laboratory." else "Status: Waiting for Sample Collection."
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isSampleProcessing) Color(0xFFD97706) else Color(0xFF0284C7)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isSampleProcessing) "Refresh Processing Status" else "Refresh Queue Status",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // 8. PRIMARY ACTIONS ROW: RESCHEDULE + VIEW ON GOOGLE MAPS
+                // ---------------------------------------------------------------------
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Reschedule Button (Greenish Teal Solid)
+                    Button(
+                        onClick = { handleRescheduleClick() },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 13.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.Default.DateRange,
+                                contentDescription = "Reschedule",
+                                tint = Color.White,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Reschedule",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+
+                    // View on Google Maps Button (White with Teal Border)
+                    OutlinedButton(
+                        onClick = { openGoogleMaps() },
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.5.dp, Color(0xFF00796B)),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 13.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.Default.LocationOn,
+                                contentDescription = "Maps",
+                                tint = Color(0xFF00796B),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "View on\nGoogle Maps",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF00796B),
+                                lineHeight = 13.sp
+                            )
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // 9. SECONDARY CARD (OTHER ASSOCIATED CLINIC / SAVED APPOINTMENTS)
+                // ---------------------------------------------------------------------
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    shadowElevation = 1.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            if (otherSavedCodes.isNotEmpty()) {
+                                val next = otherSavedCodes.first().first
+                                navController.navigate(NavRoutes.QueueStatus.createRoute(next))
+                            } else {
+                                navController.navigate(NavRoutes.TrackingLookup.route)
+                            }
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFBAE6FD), // soft light blue from mockup
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        if (otherSavedCodes.isNotEmpty()) Icons.Default.LocalHospital else Icons.Default.Search,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0284C7),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            Column {
                                 Text(
-                                    "No clinical remarks or prescription recorded yet by attending doctor. Please check back during or after consultation.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = if (otherSavedCodes.isNotEmpty()) otherSavedCodes.first().second else "Track Another Appointment",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Icon(
+                                        if (otherSavedCodes.isNotEmpty()) Icons.Default.LocationOn else Icons.Default.QrCodeScanner,
+                                        contentDescription = null,
+                                        tint = Color(0xFF64748B),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = if (otherSavedCodes.isNotEmpty()) "Tap to switch active tracking" else "Enter 10-digit code to view live turn",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                }
+                            }
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFF1F5F9),
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0284C7),
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
                     }
+                }
 
-                    // C. BILLING & PAYMENT DETAILS
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                    Text("Bill & Payment Details", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (billingInvoice?.balanceDue == 0.0 || appointment?.paymentStatus == "paid") Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
-                                ) {
-                                    Text(
-                                        text = if (billingInvoice?.balanceDue == 0.0 || appointment?.paymentStatus == "paid") "PAID" else "DUE",
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (billingInvoice?.balanceDue == 0.0 || appointment?.paymentStatus == "paid") Color(0xFF065F46) else Color(0xFFB91C1C)
-                                    )
-                                }
-                            }
-                            HorizontalDivider()
+                Spacer(modifier = Modifier.height(30.dp))
+            }
+        }
+    }
 
-                            val total = billingInvoice?.totalAmount ?: appointment?.feeAmount ?: 500.0
-                            val paid = billingInvoice?.paidAmount ?: total
-                            val due = billingInvoice?.balanceDue ?: 0.0
+    // =========================================================================
+    // MODAL DIALOG 1: PATIENT IDENTITY VERIFICATION (NAME OR PHONE NUMBER)
+    // =========================================================================
+    if (showVerificationDialog) {
+        val isForReport = pendingVerificationAction == "view_report" || pendingVerificationAction == "download_report"
+        AlertDialog(
+            onDismissRequest = {
+                showVerificationDialog = false
+                verificationInput = ""
+                unlockError = null
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF00796B))
+                    Text(
+                        text = if (isForReport) "Verify Name / Number for Report" else "Verify Patient Identity",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = if (isForReport)
+                            "To view or download this prepared diagnostic lab report, please confirm the patient's registered Name or Mobile Number."
+                        else
+                            "To reschedule and manage this appointment, please verify using the registered patient's full name or mobile number.",
+                        fontSize = 12.sp,
+                        color = Color(0xFF475569)
+                    )
 
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Total Consultation / Service Bill:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(CurrencyFormatter.formatNPR(total), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Amount Paid:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(CurrencyFormatter.formatNPR(paid), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Balance Due:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(CurrencyFormatter.formatNPR(due), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (due > 0) Color(0xFFDC2626) else Color(0xFF059669))
-                            }
+                    // Method selector chips
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = verifyMethod == "name",
+                            onClick = {
+                                verifyMethod = "name"
+                                verificationInput = ""
+                                unlockError = null
+                            },
+                            label = { Text("Patient Name", fontSize = 11.sp) }
+                        )
+                        FilterChip(
+                            selected = verifyMethod == "phone",
+                            onClick = {
+                                verifyMethod = "phone"
+                                verificationInput = ""
+                                unlockError = null
+                            },
+                            label = { Text("Phone Number", fontSize = 11.sp) }
+                        )
+                    }
 
-                            if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
-                                Text("Itemized Breakdown:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                billingInvoice!!.items.forEach { item ->
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("• ${item.itemName} (${item.quantity}x)", fontSize = 11.sp)
-                                        Text(CurrencyFormatter.formatNPR(item.total), fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                    }
-                                }
+                    OutlinedTextField(
+                        value = verificationInput,
+                        onValueChange = {
+                            verificationInput = it
+                            unlockError = null
+                        },
+                        label = {
+                            Text(if (verifyMethod == "name") "Patient's Full Name" else "Registered Phone Number")
+                        },
+                        placeholder = {
+                            Text(if (verifyMethod == "name") "e.g. Ramesh Shrestha" else "e.g. 9841234567")
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = if (verifyMethod == "name") KeyboardType.Text else KeyboardType.Phone
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        isError = unlockError != null
+                    )
+
+                    if (unlockError != null) {
+                        Text(
+                            text = unlockError ?: "",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    if (cooldownSeconds > 0) {
+                        Text(
+                            text = "Please wait $cooldownSeconds seconds before retrying.",
+                            fontSize = 11.sp,
+                            color = Color(0xFFB45309)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (verificationInput.isBlank()) {
+                            unlockError = "Please enter verification details."
+                            return@Button
+                        }
+                        if (cooldownSeconds > 0 || isLockedOut) return@Button
+
+                        val isMatch = if (verifyMethod == "name") {
+                            val entered = verificationInput.trim().lowercase().replace(Regex("\\s+"), " ")
+                            val expected = rawPatientName.trim().lowercase().replace(Regex("\\s+"), " ")
+                            entered.isNotBlank() && (
+                                expected.isBlank() ||
+                                entered == expected ||
+                                (expected.length >= 3 && expected.contains(entered)) ||
+                                (entered.length >= 3 && entered.contains(expected))
+                            )
+                        } else {
+                            val cleanEntered = verificationInput.filter { it.isDigit() }
+                            val cleanExpected = rawPhone.filter { it.isDigit() }
+                            cleanEntered.isNotBlank() && (
+                                cleanExpected.isBlank() ||
+                                cleanEntered.takeLast(10) == cleanExpected.takeLast(10) ||
+                                cleanEntered == cleanExpected
+                            )
+                        }
+
+                        if (isMatch) {
+                            isUnlocked = true
+                            isReportIdentityVerified = true
+                            showVerificationDialog = false
+                            verificationInput = ""
+                            unlockError = null
+                            appointment?.let { coroutineScope.launch { loadConfidentialDetails(it) } }
+                            when (pendingVerificationAction) {
+                                "view_report" -> showLabReportDialog = true
+                                "download_report" -> triggerDirectReportDownload()
+                                else -> showRescheduleDialog = true
                             }
+                        } else {
+                            failedAttempts++
+                            cooldownSeconds = 5
+                            val remaining = (6 - failedAttempts).coerceAtLeast(0)
+                            unlockError = "Details do not match. $remaining attempt(s) remaining."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                    shape = RoundedCornerShape(10.dp),
+                    enabled = verificationInput.isNotBlank() && cooldownSeconds == 0 && !isLockedOut
+                ) {
+                    Text("Verify & Continue", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showVerificationDialog = false
+                        verificationInput = ""
+                        unlockError = null
+                    }
+                ) {
+                    Text("Cancel", fontSize = 12.sp)
+                }
+            }
+        )
+    }
+
+    // =========================================================================
+    // MODAL DIALOG 2: RESCHEDULE DATE & TIME PICKER ("HIDE FROM EVERYWHERE")
+    // =========================================================================
+    if (showRescheduleDialog) {
+        AlertDialog(
+            onDismissRequest = { showRescheduleDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.EditCalendar, contentDescription = null, tint = Color(0xFF00796B))
+                    Text("Reschedule Appointment", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Choose a new appointment date and time slot. Your current token will be released from today's live queue immediately.",
+                        fontSize = 12.sp,
+                        color = Color(0xFF475569)
+                    )
+
+                    if (rescheduleMessage != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFD1FAE5),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = rescheduleMessage ?: "",
+                                fontSize = 11.sp,
+                                color = Color(0xFF065F46),
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(8.dp)
+                            )
                         }
                     }
 
-                    // D. DIAGNOSTIC LAB REPORTS
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    // Date selector field
+                    OutlinedTextField(
+                        value = rescheduleDate,
+                        onValueChange = { rescheduleDate = it },
+                        label = { Text("New Date (YYYY-MM-DD)") },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = {
+                                    DateTimePickers.showDatePicker(context, rescheduleDate) { picked ->
+                                        rescheduleDate = picked
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.CalendarMonth, contentDescription = "Pick Date", tint = Color(0xFF00796B))
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // Time selector field
+                    OutlinedTextField(
+                        value = rescheduleTime,
+                        onValueChange = { rescheduleTime = it },
+                        label = { Text("Slot Time (HH:MM)") },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = {
+                                    DateTimePickers.showClockTimePicker(context, rescheduleTime) { picked ->
+                                        rescheduleTime = picked
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.Schedule, contentDescription = "Pick Time", tint = Color(0xFF00796B))
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val appt = appointment ?: return@Button
+                        coroutineScope.launch {
+                            isProcessing = true
+                            // 1. Update appointment in Supabase
+                            val ok = appointmentRepository?.rescheduleAppointment(appt.id, rescheduleDate.trim(), rescheduleTime.trim()) ?: false
+                            // 2. Hide / delete from today's live queue so token no longer appears in current line
+                            queueRepository?.removeOrCancelQueueEntry(appt.id)
+
+                            if (ok) {
+                                rescheduleMessage = "✓ Successfully rescheduled to $rescheduleDate at $rescheduleTime."
+                                refreshData()
+                                Toast.makeText(context, "Rescheduled to $rescheduleDate at $rescheduleTime. Removed from today's queue.", Toast.LENGTH_LONG).show()
+                                delay(1200)
+                                showRescheduleDialog = false
+                            } else {
+                                rescheduleMessage = "Error updating appointment. Please try again."
+                            }
+                            isProcessing = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                    shape = RoundedCornerShape(10.dp),
+                    enabled = !isProcessing
+                ) {
+                    if (isProcessing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text("Confirm Reschedule", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRescheduleDialog = false }) {
+                    Text("Cancel", fontSize = 12.sp)
+                }
+            }
+        )
+    }
+
+    // =========================================================================
+    // MODAL DIALOG 3: IN-APP DIGITAL LAB REPORT VIEWER (PDF & PICTURE SUPPORT)
+    // =========================================================================
+    if (showLabReportDialog) {
+        AlertDialog(
+            onDismissRequest = { showLabReportDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Description, contentDescription = null, tint = Color(0xFF059669))
+                    Text("Lab Report In-App Viewer", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFECFDF5),
+                        border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.Biotech, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                Text("Diagnostic Lab Reports", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Laboratory Center: ${clinicName.ifBlank { "Diagnostic Lab" }}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
+                            Text("Patient: $rawPatientName • Code: $displayTrackingCode", fontSize = 10.sp, color = Color(0xFF047857))
+                            if (!appointment?.selectedLabTests.isNullOrBlank()) {
+                                Text("Tests: ${appointment!!.selectedLabTests}", fontSize = 10.sp, color = Color(0xFF047857))
                             }
-                            HorizontalDivider()
+                            Text("Status: Prepared & Identity Verified", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF059669))
+                        }
+                    }
 
-                            if (labReports.isNotEmpty()) {
-                                labReports.forEach { report ->
+                    Text("Prepared Reports & Uploaded Files:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+
+                    if (labReports.isNotEmpty()) {
+                        labReports.forEach { rep ->
+                            val hasRemoteFile = !rep.fileUrl.isNullOrBlank() &&
+                                (rep.fileUrl.startsWith("http://") || rep.fileUrl.startsWith("https://"))
+                            val isImg = rep.fileType?.contains("image", ignoreCase = true) == true ||
+                                rep.fileUrl?.endsWith(".jpg", true) == true ||
+                                rep.fileUrl?.endsWith(".jpeg", true) == true ||
+                                rep.fileUrl?.endsWith(".png", true) == true ||
+                                rep.fileUrl?.endsWith(".webp", true) == true
+
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(report.testName, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                            Text("Stage: ${report.stage.replace('_', ' ').uppercase()}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                            Text(rep.testName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                            Text(
+                                                text = if (!rep.fileName.isNullOrBlank()) "File: ${rep.fileName}" else "Digital Pathology Summary",
+                                                fontSize = 10.sp,
+                                                color = Color(0xFF64748B)
+                                            )
                                         }
-                                        Button(
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (rep.stage == "prepared") Color(0xFFD1FAE5) else Color(0xFFFEF3C7)
+                                        ) {
+                                            Text(
+                                                text = if (rep.stage == "prepared") "PREPARED" else "PROCESSING",
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = if (rep.stage == "prepared") Color(0xFF065F46) else Color(0xFF92400E),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // In-app picture preview if the clinic uploaded an image/photo of the report
+                                    if (hasRemoteFile && isImg) {
+                                        AsyncImage(
+                                            model = rep.fileUrl,
+                                            contentDescription = "Uploaded Lab Report Image",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 160.dp, max = 320.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0xFFE2E8F0)),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+
+                                    if (hasRemoteFile) {
+                                        OutlinedButton(
                                             onClick = {
-                                                navController.navigate(NavRoutes.LabReport.createRoute(report.id))
+                                                com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+                                                    context = context,
+                                                    report = rep,
+                                                    patientName = rawPatientName.ifBlank { "Registered Patient" },
+                                                    clinicName = clinicName.ifBlank { "Diagnostic Lab" },
+                                                    doctorName = doctorName.ifBlank { "Pathologist" }
+                                                )
                                             },
                                             shape = RoundedCornerShape(8.dp),
-                                            enabled = !isProcessing
+                                            border = BorderStroke(1.dp, Color(0xFF059669)),
+                                            modifier = Modifier.fillMaxWidth().height(36.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                         ) {
-                                            Text("View Report", fontSize = 11.sp)
+                                            Icon(
+                                                imageVector = if (isImg) Icons.Default.Image else Icons.Default.PictureAsPdf,
+                                                contentDescription = null,
+                                                tint = Color(0xFF059669),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = if (isImg) "Download Report Picture" else "Open / Download Uploaded PDF",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF059669)
+                                            )
                                         }
                                     }
                                 }
-                            } else {
-                                Text("No diagnostic laboratory tests attached to this appointment.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                    }
-
-                    // E. RESCHEDULE / CHANGE DATE
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.EditCalendar, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                Text("Change Appointment Date & Time", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                            Text("Reschedule this visit to another date and time slot:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                            if (rescheduleMessage != null) {
-                                Text(rescheduleMessage ?: "", color = Color(0xFF059669), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = rescheduleDate,
-                                    onValueChange = { rescheduleDate = it },
-                                    label = { Text("New Date") },
-                                    trailingIcon = {
-                                        IconButton(
-                                            onClick = {
-                                                DateTimePickers.showDatePicker(context, rescheduleDate) { picked ->
-                                                    rescheduleDate = picked
-                                                }
-                                            },
-                                            enabled = !isProcessing
-                                        ) {
-                                            Icon(Icons.Default.CalendarMonth, contentDescription = "Pick Date")
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    enabled = !isProcessing
-                                )
-
-                                OutlinedTextField(
-                                    value = rescheduleTime,
-                                    onValueChange = { rescheduleTime = it },
-                                    label = { Text("Time") },
-                                    trailingIcon = {
-                                        IconButton(
-                                            onClick = {
-                                                DateTimePickers.showClockTimePicker(context, rescheduleTime) { picked ->
-                                                    rescheduleTime = picked
-                                                }
-                                            },
-                                            enabled = !isProcessing
-                                        ) {
-                                            Icon(Icons.Default.Schedule, contentDescription = "Pick Time")
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    enabled = !isProcessing
-                                )
-                            }
-
-                            Button(
-                                onClick = {
-                                    val appt = appointment ?: return@Button
-                                    coroutineScope.launch {
-                                        isProcessing = true
-                                        val ok = appointmentRepository?.rescheduleAppointment(appt.id, rescheduleDate.trim(), rescheduleTime.trim()) ?: false
-                                        if (ok) {
-                                            rescheduleMessage = "✓ Successfully changed appointment date to $rescheduleDate at $rescheduleTime."
-                                            refreshData()
-                                        } else {
-                                            rescheduleMessage = "Error rescheduling appointment. Please try again."
-                                        }
-                                        isProcessing = false
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                                enabled = !isProcessing
-                            ) {
-                                if (isProcessing) {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Updating Schedule...")
-                                } else {
-                                    Text("Confirm Date Change", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-
-                    // F. MULTI-APPOINTMENT CLINIC: ENABLE APPOINTMENT ON OTHER DATE (FOLLOW-UP)
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.EventRepeat, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                Text("Multi-Appointment: Schedule Follow-up Visit", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFF8FAFC),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Text(
-                                "Clinics supporting multiple appointments allow you to schedule your next visit or follow-up on another date directly using verified patient details.",
+                                text = "Your diagnostic test status is marked Prepared by the laboratory. Tap 'Download File' below to save the verified report PDF directly to your device.",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = Color(0xFF334155),
+                                modifier = Modifier.padding(10.dp)
                             )
-
-                            if (followUpMessage != null) {
-                                Surface(
-                                    color = Color(0xFFD1FAE5),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = followUpMessage ?: "",
-                                        modifier = Modifier.padding(10.dp),
-                                        color = Color(0xFF065F46),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = followUpDate,
-                                    onValueChange = { followUpDate = it },
-                                    label = { Text("Next Visit Date") },
-                                    trailingIcon = {
-                                        IconButton(
-                                            onClick = {
-                                                DateTimePickers.showDatePicker(context, followUpDate) { picked ->
-                                                    followUpDate = picked
-                                                }
-                                            },
-                                            enabled = !isProcessing
-                                        ) {
-                                            Icon(Icons.Default.CalendarMonth, contentDescription = "Pick Date")
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    enabled = !isProcessing
-                                )
-
-                                OutlinedTextField(
-                                    value = followUpTime,
-                                    onValueChange = { followUpTime = it },
-                                    label = { Text("Slot Time") },
-                                    trailingIcon = {
-                                        IconButton(
-                                            onClick = {
-                                                DateTimePickers.showClockTimePicker(context, followUpTime) { picked ->
-                                                    followUpTime = picked
-                                                }
-                                            },
-                                            enabled = !isProcessing
-                                        ) {
-                                            Icon(Icons.Default.Schedule, contentDescription = "Pick Time")
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    enabled = !isProcessing
-                                )
-                            }
-
-                            Button(
-                                onClick = {
-                                    val appt = appointment ?: return@Button
-                                    coroutineScope.launch {
-                                        isProcessing = true
-                                        val newCode = com.dactor.patient.domain.util.TrackingCodeGenerator.generate()
-                                        val followUp = Appointment(
-                                            id = java.util.UUID.randomUUID().toString(),
-                                            trackingCode10Digit = newCode,
-                                            slotId = null,
-                                            clinicId = appt.clinicId,
-                                            doctorId = appt.doctorId,
-                                            userId = appt.userId,
-                                            patientName = appt.patientName,
-                                            patientAge = appt.patientAge,
-                                            patientGender = appt.patientGender,
-                                            patientMobile = appt.patientMobile,
-                                            patientEmail = appt.patientEmail,
-                                            paymentStatus = "paid",
-                                            checkinStatus = "registered",
-                                            appointmentDate = followUpDate.trim(),
-                                            appointmentTime = followUpTime.trim(),
-                                            feeAmount = appt.feeAmount,
-                                            isWalkin = false
-                                        )
-                                        appointmentRepository?.createAppointment(followUp)
-                                        newFollowUpCode = newCode
-                                        sessionManager?.saveTrackingCode(newCode, "${appt.patientName} • $followUpDate (Follow-up)")
-                                        followUpMessage = "✓ Follow-up booked for $followUpDate at $followUpTime! New 10-Digit Code: $newCode"
-                                        isProcessing = false
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                                enabled = !isProcessing
-                            ) {
-                                if (isProcessing) {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Booking Follow-Up...")
-                                } else {
-                                    Text("Enable Appointment on Other Date", fontWeight = FontWeight.Bold)
-                                }
-                            }
                         }
                     }
                 }
-
-                // CROSS-ACCOUNT CLAIMING / PROFILE SAVED BANNER
-                if (!isSavedToProfile) {
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Save to Profile?", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text(
-                                    "Add this appointment to your phone's history to track it anytime with 1 tap.",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Button(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        isProcessing = true
-                                        val label = "${rawPatientName.ifBlank { "Appointment" }} • ${appointment?.appointmentDate ?: "Today"}"
-                                        sessionManager?.saveTrackingCode(displayTrackingCode, label)
-                                        isSavedToProfile = true
-                                        isProcessing = false
-                                    }
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                enabled = !isProcessing
-                            ) {
-                                Text("Save", fontSize = 12.sp)
-                            }
-                        }
-                    }
-                } else {
-                    Surface(
-                        color = Color(0xFF10B981).copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp))
-                            Text("Appointment saved to your account profile history.", fontSize = 12.sp, color = Color(0xFF065F46), fontWeight = FontWeight.Medium)
-                        }
-                    }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        triggerDirectReportDownload()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Download File", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLabReportDialog = false }) {
+                    Text("Close", fontSize = 12.sp)
                 }
             }
-        }
+        )
+    }
+
+    // =========================================================================
+    // MODAL DIALOG 4: PRESCRIPTION & DOCTOR'S CLINICAL REMARKS VIEWER
+    // =========================================================================
+    if (showPrescriptionDialog) {
+        AlertDialog(
+            onDismissRequest = { showPrescriptionDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF00796B))
+                    Text("Prescription & Remarks", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFF0FDF4),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Attending Doctor: ${doctorName.ifBlank { "Doctor" }}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
+                            Text("Specialty: ${doctorSpecialty.ifBlank { "OPD" }}", fontSize = 11.sp, color = Color(0xFF047857))
+                            Text("Clinic: ${clinicName.ifBlank { "Clinic" }}", fontSize = 11.sp, color = Color(0xFF047857))
+                        }
+                    }
+
+                    Text("Doctor's Diagnosis & Notes:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFF8FAFC),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = clinicalRemarks?.ifBlank { null }
+                                ?: "No doctor's clinical remarks or prescription entered for this consultation yet.",
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                            color = if (clinicalRemarks.isNullOrBlank()) Color(0xFF64748B) else Color(0xFF1E293B),
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showPrescriptionDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Close", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 }

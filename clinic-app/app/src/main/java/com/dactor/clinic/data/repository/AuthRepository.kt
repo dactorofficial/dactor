@@ -7,6 +7,8 @@ import io.github.jan.supabase.gotrue.providers.builtin.Email
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -328,4 +330,118 @@ class AuthRepository @Inject constructor(
             Result.success(true)
         }
     }
+
+    suspend fun registerPatient(
+        fullName: String,
+        phone: String,
+        gender: String,
+        age: Int?,
+        email: String? = null
+    ): Result<Profile> = withContext(Dispatchers.IO) {
+        val cleanPhone = phone.trim()
+        val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val effectiveEmail = cleanEmail
+            ?: "patient_${cleanPhone.takeLast(10)}_${System.currentTimeMillis() % 10000}@dactor.internal"
+
+        // Check if a patient profile already exists for this email (e.g. signed in before or saved from an earlier appointment)
+        val existingByEmail = if (cleanEmail != null) {
+            try {
+                supabaseClient.postgrest["profiles"]
+                    .select { filter { ilike("email", cleanEmail) } }
+                    .decodeList<Profile>()
+                    .firstOrNull()
+            } catch (e: Exception) {
+                try {
+                    supabaseClient.postgrest["profiles"]
+                        .select { filter { eq("email", cleanEmail) } }
+                        .decodeList<Profile>()
+                        .firstOrNull()
+                } catch (e2: Exception) {
+                    null
+                }
+            }
+        } else null
+
+        val patientId = existingByEmail?.id ?: java.util.UUID.randomUUID().toString()
+
+        val created = Profile(
+            id = patientId,
+            authUid = existingByEmail?.authUid,
+            email = effectiveEmail,
+            fullName = fullName.trim().ifBlank { existingByEmail?.fullName ?: "" },
+            role = "patient",
+            phone = cleanPhone.ifBlank { existingByEmail?.phone ?: "" },
+            gender = gender.trim().ifBlank { existingByEmail?.gender ?: "Male" },
+            age = age ?: existingByEmail?.age
+        )
+
+        if (existingByEmail != null) {
+            try {
+                supabaseClient.postgrest["profiles"].update({
+                    if (fullName.isNotBlank()) set("full_name", fullName.trim())
+                    if (cleanPhone.isNotBlank()) set("phone", cleanPhone)
+                    if (gender.isNotBlank()) set("gender", gender.trim())
+                    if (age != null) set("age", age)
+                }) {
+                    filter { eq("id", existingByEmail.id) }
+                }
+            } catch (ignored: Exception) {}
+            Result.success(created)
+        } else {
+            try {
+                val payload = buildJsonObject {
+                    put("id", patientId)
+                    put("email", effectiveEmail)
+                    put("full_name", fullName.trim())
+                    put("role", "patient")
+                    put("phone", cleanPhone)
+                    put("gender", gender.trim())
+                    if (age != null) {
+                        put("age", age)
+                    }
+                }
+                supabaseClient.postgrest["profiles"].insert(payload)
+                Result.success(created)
+            } catch (e: Exception) {
+                try {
+                    val minimalPayload = buildJsonObject {
+                        put("id", patientId)
+                        put("email", effectiveEmail)
+                        put("full_name", fullName.trim())
+                        put("role", "patient")
+                    }
+                    supabaseClient.postgrest["profiles"].insert(minimalPayload)
+                } catch (e2: Exception) {
+                    e2.printStackTrace()
+                }
+                // Still return created profile so the directory appointment record can be saved
+                Result.success(created)
+            }
+        }
+    }
+
+    suspend fun getAllPatientProfiles(): List<Profile> = withContext(Dispatchers.IO) {
+        try {
+            supabaseClient.postgrest["profiles"]
+                .select {
+                    filter {
+                        eq("role", "patient")
+                        eq("is_archived", false)
+                    }
+                }.decodeList<Profile>()
+        } catch (e: Exception) {
+            try {
+                supabaseClient.postgrest["profiles"]
+                    .select {
+                        filter {
+                            eq("role", "patient")
+                        }
+                    }.decodeList<Profile>()
+            } catch (err: Exception) {
+                err.printStackTrace()
+                emptyList()
+            }
+        }
+    }
 }
+

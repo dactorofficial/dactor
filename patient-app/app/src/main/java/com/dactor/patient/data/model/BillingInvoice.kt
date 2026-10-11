@@ -23,4 +23,13 @@ data class BillingInvoice(
     @SerialName("payment_status") val paymentStatus: String = "paid",
     @SerialName("paid_at") val paidAt: String? = null,
     @SerialName("remarks") val remarks: String? = null
-)
+) {
+    val effectivePaidAmount: Double
+        get() = if (paidAmount > 0.0) {
+            paidAmount
+        } else if (paymentStatus.equals("paid", ignoreCase = true) && balanceDue <= 0.0) {
+            totalAmount
+        } else {
+            0.0
+        }
+}

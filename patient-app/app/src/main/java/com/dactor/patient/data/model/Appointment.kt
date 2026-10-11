@@ -21,5 +21,6 @@ data class Appointment(
     @SerialName("appointment_date") val appointmentDate: String,
     @SerialName("appointment_time") val appointmentTime: String,
     @SerialName("fee_amount") val feeAmount: Double = 0.0,
-    @SerialName("is_walkin") val isWalkin: Boolean = false
+    @SerialName("is_walkin") val isWalkin: Boolean = false,
+    @SerialName("selected_lab_tests") val selectedLabTests: String? = null
 )

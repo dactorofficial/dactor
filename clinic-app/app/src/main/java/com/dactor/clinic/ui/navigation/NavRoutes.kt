@@ -20,4 +20,10 @@ object NavRoutes {
     const val InvitationManager = "invitation_manager"
     const val ClinicSettings = "clinic_settings"
     const val ServicesScreen = "services_screen"
+    const val ConsultationFeeManager = "consultation_fee_manager"
+    const val NoShowManager = "no_show_manager"
+    const val AverageTime = "average_time"
+    const val WorkingHoursBreak = "working_hours_break"
+    const val Notifications = "notifications"
 }
+

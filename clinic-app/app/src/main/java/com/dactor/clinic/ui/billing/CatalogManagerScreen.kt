@@ -39,7 +39,7 @@ fun CatalogManagerScreen(
         else com.dactor.clinic.data.local.UserSessionManager(context).getSavedClinicId() ?: ""
     }
 
-    var catalogItems by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
+    var catalogItems by remember(effectiveClinicId) { mutableStateOf<List<CatalogItem>>(emptyList()) }
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }

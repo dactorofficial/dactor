@@ -3,10 +3,14 @@ package com.dactor.clinic.data.repository
 import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.ClinicInvitation
 import com.dactor.clinic.data.model.Doctor
+import com.dactor.clinic.data.model.MedicalSpecialty
+import com.dactor.clinic.data.model.MedicalQualification
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -27,6 +31,8 @@ data class DoctorBaseDto(
     @SerialName("certificates_doc_url") val certificatesDocUrl: String? = null,
     @SerialName("kyc_status") val kycStatus: String? = null,
     @SerialName("is_in_clinic") val isInClinic: Boolean = false,
+    @SerialName("active_clinic_id") val activeClinicId: String? = null,
+    @SerialName("primary_clinic_id") val primaryClinicId: String? = null,
     @SerialName("consultation_fee") val consultationFee: Double? = null
 )
 
@@ -40,7 +46,32 @@ data class DoctorExtendedMeta(
     val personal_mobile_number: String? = null,
     val public_mobile_number: String? = null,
     val description: String? = null,
-    val original_certificates_doc_url: String? = null
+    val original_certificates_doc_url: String? = null,
+    val practitioner_role: String? = null
+)
+
+@Serializable
+data class DoctorUpdateDto(
+    @SerialName("full_name") val fullName: String,
+    @SerialName("email") val email: String,
+    @SerialName("specialty") val specialty: String? = null,
+    @SerialName("specialties") val specialties: List<String> = emptyList(),
+    @SerialName("nmc_license_number") val nmcLicenseNumber: String? = null,
+    @SerialName("license_doc_url") val licenseDocUrl: String? = null,
+    @SerialName("certificates_doc_url") val certificatesDocUrl: String? = null,
+    @SerialName("kyc_status") val kycStatus: String? = null,
+    @SerialName("is_in_clinic") val isInClinic: Boolean = true,
+    @SerialName("active_clinic_id") val activeClinicId: String? = null,
+    @SerialName("primary_clinic_id") val primaryClinicId: String? = null,
+    @SerialName("consultation_fee") val consultationFee: Double? = null,
+    @SerialName("gender") val gender: String? = null,
+    @SerialName("age") val age: Int? = null,
+    @SerialName("starting_practicing_year") val startingPracticingYear: Int? = null,
+    @SerialName("profile_picture_url") val profilePictureUrl: String? = null,
+    @SerialName("education") val education: String? = null,
+    @SerialName("personal_mobile_number") val personalMobileNumber: String? = null,
+    @SerialName("public_mobile_number") val publicMobileNumber: String? = null,
+    @SerialName("description") val description: String? = null
 )
 
 @Singleton
@@ -48,6 +79,26 @@ class DoctorRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+    private val cachedDoctorsByClinic = java.util.concurrent.ConcurrentHashMap<String, List<Doctor>>()
+    @Volatile
+    private var cachedAllDoctors: List<Doctor> = emptyList()
+
+    fun getCachedAllDoctors(): List<Doctor> = cachedAllDoctors
+
+    fun getCachedDoctorsByClinic(clinicId: String): List<Doctor> {
+        return cachedDoctorsByClinic[clinicId] ?: emptyList()
+    }
+
+    fun updateCachedDoctorsByClinic(clinicId: String, doctors: List<Doctor>) {
+        if (clinicId.isNotBlank()) {
+            cachedDoctorsByClinic[clinicId] = doctors
+        }
+    }
+
+    fun clearCache() {
+        cachedDoctorsByClinic.clear()
+        cachedAllDoctors = emptyList()
+    }
 
     private fun enrichDoctor(doctor: Doctor): Doctor {
         val certs = doctor.certificatesDocUrl
@@ -63,7 +114,8 @@ class DoctorRepository @Inject constructor(
                     personalMobileNumber = doctor.personalMobileNumber ?: meta.personal_mobile_number,
                     publicMobileNumber = doctor.publicMobileNumber ?: meta.public_mobile_number,
                     description = doctor.description ?: meta.description,
-                    certificatesDocUrl = meta.original_certificates_doc_url
+                    certificatesDocUrl = meta.original_certificates_doc_url,
+                    practitionerRole = doctor.practitionerRole ?: meta.practitioner_role
                 )
             } catch (ignored: Exception) {}
         }
@@ -80,57 +132,83 @@ class DoctorRepository @Inject constructor(
             personal_mobile_number = doctor.personalMobileNumber,
             public_mobile_number = doctor.publicMobileNumber,
             description = doctor.description,
-            original_certificates_doc_url = doctor.certificatesDocUrl
+            original_certificates_doc_url = doctor.certificatesDocUrl,
+            practitioner_role = doctor.practitionerRole
         )
         return json.encodeToString(DoctorExtendedMeta.serializer(), meta)
     }
 
     suspend fun getDoctorsByClinic(clinicId: String): List<Doctor> = withContext(Dispatchers.IO) {
         try {
-            // 1. Direct assigned doctors
-            val directDocs = try {
-                supabaseClient.postgrest["doctors"]
-                    .select {
-                        filter {
-                            eq("clinic_id", clinicId)
+            coroutineScope {
+                val directDeferred = async {
+                    try {
+                        supabaseClient.postgrest["doctors"]
+                            .select {
+                                filter {
+                                    or {
+                                        eq("clinic_id", clinicId)
+                                        eq("primary_clinic_id", clinicId)
+                                    }
+                                }
+                            }.decodeList<Doctor>().map { enrichDoctor(it) }
+                    } catch (e: Exception) {
+                        try {
+                            supabaseClient.postgrest["doctors"]
+                                .select {
+                                    filter {
+                                        eq("clinic_id", clinicId)
+                                    }
+                                }.decodeList<Doctor>().map { enrichDoctor(it) }
+                        } catch (e2: Exception) {
+                            emptyList()
                         }
-                    }.decodeList<Doctor>().map { enrichDoctor(it) }
-            } catch (e: Exception) {
-                emptyList()
-            }
-
-            // 2. Doctors affiliated via accepted clinic invitations
-            val acceptedInvites = try {
-                supabaseClient.postgrest["clinic_invitations"]
-                    .select {
-                        filter {
-                            eq("clinic_id", clinicId)
-                            eq("status", "accepted")
-                        }
-                    }.decodeList<ClinicInvitation>()
-            } catch (e: Exception) {
-                emptyList()
-            }
-
-            val invitedEmails = acceptedInvites.map { it.email.trim().lowercase() }.toSet()
-            val invitedDocs = if (invitedEmails.isNotEmpty()) {
-                try {
-                    val allDocs = supabaseClient.postgrest["doctors"].select().decodeList<Doctor>().map { enrichDoctor(it) }
-                    allDocs.filter { it.email.trim().lowercase() in invitedEmails }
-                } catch (e: Exception) {
-                    emptyList()
+                    }
                 }
-            } else emptyList()
 
-            val allRoster = (directDocs + invitedDocs).distinctBy { it.id }
+                val invitesDeferred = async {
+                    try {
+                        supabaseClient.postgrest["clinic_invitations"]
+                            .select {
+                                filter {
+                                    eq("clinic_id", clinicId)
+                                    eq("status", "accepted")
+                                }
+                            }.decodeList<ClinicInvitation>()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
 
-            allRoster.map { doc ->
-                val isPresentHere = doc.clinicId == clinicId && (doc.isInClinic == true)
-                doc.copy(isInClinic = isPresentHere)
+                val directDocs = directDeferred.await()
+                val acceptedInvites = invitesDeferred.await()
+
+                val invitedEmails = acceptedInvites.map { it.email.trim().lowercase() }.toSet()
+                val invitedDocs = if (invitedEmails.isNotEmpty()) {
+                    try {
+                        val allDocs = supabaseClient.postgrest["doctors"].select().decodeList<Doctor>().map { enrichDoctor(it) }
+                        cachedAllDoctors = allDocs
+                        allDocs.filter { it.email.trim().lowercase() in invitedEmails }
+                    } catch (e: Exception) {
+                        cachedAllDoctors.filter { it.email.trim().lowercase() in invitedEmails }
+                    }
+                } else emptyList()
+
+                val allRoster = (directDocs + invitedDocs).distinctBy { it.id }
+
+                val computed = allRoster.map { doc ->
+                    val effectiveActiveClinicId = doc.activeClinicId ?: doc.clinicId
+                    val isPresentHere = (doc.isInClinic == true) && (effectiveActiveClinicId == clinicId)
+                    doc.copy(isInClinic = isPresentHere)
+                }
+                if (clinicId.isNotBlank()) {
+                    cachedDoctorsByClinic[clinicId] = computed
+                }
+                computed
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
+            cachedDoctorsByClinic[clinicId] ?: emptyList()
         }
     }
 
@@ -176,6 +254,8 @@ class DoctorRepository @Inject constructor(
                 certificatesDocUrl = metaJson,
                 kycStatus = doctor.kycStatus ?: "pending",
                 isInClinic = doctor.isInClinic,
+                activeClinicId = if (doctor.isInClinic) (doctor.activeClinicId ?: doctor.clinicId) else null,
+                primaryClinicId = doctor.primaryClinicId ?: doctor.clinicId,
                 consultationFee = doctor.consultationFee ?: 500.0
             )
             val insertedBase = supabaseClient.postgrest["doctors"]
@@ -192,18 +272,76 @@ class DoctorRepository @Inject constructor(
         null
     }
 
-    suspend fun toggleDoctorPresence(doctorId: String, isInClinic: Boolean): Boolean = withContext(Dispatchers.IO) {
+    suspend fun toggleDoctorPresence(
+        doctorId: String,
+        isInClinic: Boolean,
+        clinicId: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val cid = clinicId?.takeIf { it.isNotBlank() }
         try {
+            // Update native is_in_clinic and active_clinic_id columns directly in PostgreSQL
+            val updateMap = mutableMapOf<String, Any?>(
+                "is_in_clinic" to isInClinic
+            )
+            if (isInClinic) {
+                if (cid != null) {
+                    updateMap["active_clinic_id"] = cid
+                    updateMap["clinic_id"] = cid
+                }
+            } else {
+                updateMap["active_clinic_id"] = null
+            }
+
             supabaseClient.postgrest["doctors"]
-                .update(mapOf("is_in_clinic" to isInClinic)) {
+                .update(updateMap) {
                     filter {
                         eq("id", doctorId)
                     }
                 }
+            
+            // Immediately update in-memory caches to prevent race conditions during background sync
+            cid?.let { currentCid ->
+                cachedDoctorsByClinic[currentCid]?.let { cachedList ->
+                    cachedDoctorsByClinic[currentCid] = cachedList.map { doc ->
+                        if (doc.id == doctorId) doc.copy(isInClinic = isInClinic, activeClinicId = if (isInClinic) currentCid else null) else doc
+                    }
+                }
+            }
+            cachedAllDoctors = cachedAllDoctors.map { doc ->
+                if (doc.id == doctorId) doc.copy(isInClinic = isInClinic, activeClinicId = if (isInClinic) cid else null) else doc
+            }
+
             true
         } catch (e: Exception) {
-            e.printStackTrace()
-            false
+            try {
+                // Fallback without active_clinic_id in case column is missing or schema difference
+                val fallbackMap = mutableMapOf<String, Any>("is_in_clinic" to isInClinic)
+                if (isInClinic && cid != null) {
+                    fallbackMap["clinic_id"] = cid
+                }
+                supabaseClient.postgrest["doctors"]
+                    .update(fallbackMap) {
+                        filter {
+                            eq("id", doctorId)
+                        }
+                    }
+
+                cid?.let { currentCid ->
+                    cachedDoctorsByClinic[currentCid]?.let { cachedList ->
+                        cachedDoctorsByClinic[currentCid] = cachedList.map { doc ->
+                            if (doc.id == doctorId) doc.copy(isInClinic = isInClinic) else doc
+                        }
+                    }
+                }
+                cachedAllDoctors = cachedAllDoctors.map { doc ->
+                    if (doc.id == doctorId) doc.copy(isInClinic = isInClinic) else doc
+                }
+
+                true
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+                false
+            }
         }
     }
 
@@ -234,9 +372,24 @@ class DoctorRepository @Inject constructor(
 
     suspend fun uploadKycFile(fileName: String, fileBytes: ByteArray): String? = withContext(Dispatchers.IO) {
         try {
+            val compressed = com.dactor.clinic.domain.util.FileCompressor.compressBytes(fileBytes, fileName)
+            val finalName = compressed.fileName
             val bucket = supabaseClient.storage["doctor-kyc"]
-            bucket.upload(fileName, fileBytes, upsert = true)
-            bucket.publicUrl(fileName)
+            bucket.upload(finalName, compressed.bytes, upsert = true)
+            bucket.publicUrl(finalName)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    suspend fun uploadProfilePicture(fileName: String, fileBytes: ByteArray): String? = withContext(Dispatchers.IO) {
+        try {
+            val compressed = com.dactor.clinic.domain.util.FileCompressor.compressBytes(fileBytes, fileName)
+            val finalName = compressed.fileName
+            val bucket = supabaseClient.storage["doctor_photos"]
+            bucket.upload(finalName, compressed.bytes, upsert = true)
+            bucket.publicUrl(finalName)
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -259,42 +412,71 @@ class DoctorRepository @Inject constructor(
         }
     }
 
-    suspend fun getAllDoctors(): List<Doctor> = withContext(Dispatchers.IO) {
+    suspend fun getAllDoctors(forceRefresh: Boolean = false): List<Doctor> = withContext(Dispatchers.IO) {
+        if (!forceRefresh && cachedAllDoctors.isNotEmpty()) {
+            return@withContext cachedAllDoctors
+        }
         try {
             val list = supabaseClient.postgrest["doctors"]
                 .select()
                 .decodeList<Doctor>()
-            list.map { enrichDoctor(it) }
+                .map { enrichDoctor(it) }
+            cachedAllDoctors = list
+            list
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
+            cachedAllDoctors
         }
     }
 
     suspend fun updateDoctor(doctor: Doctor): Boolean = withContext(Dispatchers.IO) {
+        val metaJson = packDoctorMetadata(doctor)
+        val dto = DoctorUpdateDto(
+            fullName = doctor.fullName.trim(),
+            email = doctor.email.trim().lowercase(),
+            specialty = doctor.specialty?.trim(),
+            specialties = doctor.specialties,
+            nmcLicenseNumber = doctor.nmcLicenseNumber?.trim(),
+            licenseDocUrl = doctor.licenseDocUrl,
+            certificatesDocUrl = doctor.certificatesDocUrl ?: metaJson,
+            kycStatus = doctor.kycStatus ?: "pending",
+            isInClinic = doctor.isInClinic,
+            activeClinicId = doctor.activeClinicId,
+            primaryClinicId = doctor.primaryClinicId,
+            consultationFee = doctor.consultationFee ?: 500.0,
+            gender = doctor.gender,
+            age = doctor.age,
+            startingPracticingYear = doctor.startingPracticingYear,
+            profilePictureUrl = doctor.profilePictureUrl,
+            education = doctor.education?.trim(),
+            personalMobileNumber = doctor.personalMobileNumber?.trim(),
+            publicMobileNumber = doctor.publicMobileNumber?.trim(),
+            description = doctor.description?.trim()
+        )
         try {
             supabaseClient.postgrest["doctors"]
-                .update(doctor) {
+                .update(dto) {
                     filter {
                         eq("id", doctor.id)
                     }
                 }
             true
         } catch (e: Exception) {
+            e.printStackTrace()
             try {
-                val metaJson = packDoctorMetadata(doctor)
-                val baseMap = mapOf(
-                    "full_name" to doctor.fullName,
-                    "email" to doctor.email.trim().lowercase(),
-                    "specialty" to (doctor.specialty ?: ""),
-                    "nmc_license_number" to (doctor.nmcLicenseNumber ?: ""),
-                    "license_doc_url" to (doctor.licenseDocUrl ?: ""),
-                    "certificates_doc_url" to metaJson,
-                    "kyc_status" to (doctor.kycStatus ?: "pending"),
-                    "is_in_clinic" to doctor.isInClinic,
-                    "consultation_fee" to (doctor.consultationFee ?: 500.0)
+                val baseDto = DoctorBaseDto(
+                    id = doctor.id,
+                    fullName = doctor.fullName.trim(),
+                    email = doctor.email.trim().lowercase(),
+                    specialty = doctor.specialty ?: "",
+                    nmcLicenseNumber = doctor.nmcLicenseNumber ?: "",
+                    licenseDocUrl = doctor.licenseDocUrl ?: "",
+                    certificatesDocUrl = metaJson,
+                    kycStatus = doctor.kycStatus ?: "pending",
+                    isInClinic = doctor.isInClinic,
+                    consultationFee = doctor.consultationFee ?: 500.0
                 )
-                supabaseClient.postgrest["doctors"].update(baseMap) {
+                supabaseClient.postgrest["doctors"].update(baseDto) {
                     filter { eq("id", doctor.id) }
                 }
                 true
@@ -302,6 +484,40 @@ class DoctorRepository @Inject constructor(
                 e2.printStackTrace()
                 false
             }
+        }
+    }
+
+    suspend fun updateDoctorConsultationFee(
+        doctorId: String,
+        consultationFee: Double,
+        clinicId: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val current = getDoctorById(doctorId)
+            val ok = if (current != null) {
+                updateDoctor(current.copy(consultationFee = consultationFee))
+            } else {
+                supabaseClient.postgrest["doctors"]
+                    .update(mapOf("consultation_fee" to consultationFee)) {
+                        filter { eq("id", doctorId) }
+                    }
+                true
+            }
+            if (ok && !clinicId.isNullOrBlank()) {
+                val cachedList = cachedDoctorsByClinic[clinicId]
+                if (cachedList != null) {
+                    cachedDoctorsByClinic[clinicId] = cachedList.map {
+                        if (it.id == doctorId) it.copy(consultationFee = consultationFee) else it
+                    }
+                }
+            }
+            cachedAllDoctors = cachedAllDoctors.map {
+                if (it.id == doctorId) it.copy(consultationFee = consultationFee) else it
+            }
+            ok
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 
@@ -336,7 +552,8 @@ class DoctorRepository @Inject constructor(
         personalMobile: String?,
         publicMobile: String?,
         description: String?,
-        consultationFee: Double
+        consultationFee: Double,
+        practitionerRole: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val current = getDoctorById(id)
@@ -353,7 +570,9 @@ class DoctorRepository @Inject constructor(
                     personalMobileNumber = personalMobile,
                     publicMobileNumber = publicMobile,
                     description = description,
-                    consultationFee = consultationFee
+                    specialties = listOf(specialty.trim()),
+                    consultationFee = consultationFee,
+                    practitionerRole = practitionerRole ?: current.practitionerRole
                 )
                 updateDoctor(updated)
             } else {
@@ -368,15 +587,28 @@ class DoctorRepository @Inject constructor(
     suspend fun linkClinicToDoctor(doctorId: String, clinicId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             supabaseClient.postgrest["doctors"]
-                .update(mapOf("clinic_id" to clinicId)) {
+                .update(mapOf(
+                    "clinic_id" to clinicId,
+                    "primary_clinic_id" to clinicId
+                )) {
                     filter {
                         eq("id", doctorId)
                     }
                 }
             true
         } catch (e: Exception) {
-            e.printStackTrace()
-            false
+            try {
+                supabaseClient.postgrest["doctors"]
+                    .update(mapOf("clinic_id" to clinicId)) {
+                        filter {
+                            eq("id", doctorId)
+                        }
+                    }
+                true
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+                false
+            }
         }
     }
 
@@ -387,6 +619,12 @@ class DoctorRepository @Inject constructor(
             val doc = getDoctorById(doctorId)
             if (!doc?.clinicId.isNullOrBlank()) {
                 clinicIds.add(doc!!.clinicId!!)
+            }
+            if (!doc?.primaryClinicId.isNullOrBlank()) {
+                clinicIds.add(doc!!.primaryClinicId!!)
+            }
+            if (!doc?.activeClinicId.isNullOrBlank()) {
+                clinicIds.add(doc!!.activeClinicId!!)
             }
 
             if (doctorEmail.isNotBlank()) {
@@ -418,19 +656,63 @@ class DoctorRepository @Inject constructor(
 
     suspend fun switchActiveClinic(doctorId: String, clinicId: String, setInClinic: Boolean): Boolean = withContext(Dispatchers.IO) {
         try {
+            // First attempt updating clinic_id, is_in_clinic, and active_clinic_id
+            try {
+                supabaseClient.postgrest["doctors"]
+                    .update(mapOf(
+                        "clinic_id" to clinicId,
+                        "is_in_clinic" to setInClinic,
+                        "active_clinic_id" to clinicId
+                    )) {
+                        filter { eq("id", doctorId) }
+                    }
+                return@withContext true
+            } catch (eActive: Exception) {
+                // Column active_clinic_id may not exist, fallback to clinic_id + is_in_clinic
+            }
+
             supabaseClient.postgrest["doctors"]
                 .update(mapOf(
                     "clinic_id" to clinicId,
                     "is_in_clinic" to setInClinic
                 )) {
-                    filter {
-                        eq("id", doctorId)
-                    }
+                    filter { eq("id", doctorId) }
                 }
             true
         } catch (e: Exception) {
             e.printStackTrace()
             false
+        }
+    }
+
+    suspend fun getSpecialties(): List<MedicalSpecialty> = withContext(Dispatchers.IO) {
+        try {
+            supabaseClient.postgrest["medical_specialties"]
+                .select {
+                    filter {
+                        eq("is_active", true)
+                    }
+                }
+                .decodeList<MedicalSpecialty>()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun getQualifications(): List<MedicalQualification> = withContext(Dispatchers.IO) {
+        try {
+            supabaseClient.postgrest["medical_qualifications"]
+                .select {
+                    filter {
+                        eq("is_active", true)
+                    }
+                }
+                .decodeList<MedicalQualification>()
+                .filter { it.level != "LOCATION_OPTION" }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
         }
     }
 }

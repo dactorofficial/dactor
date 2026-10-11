@@ -1,26 +1,44 @@
 package com.dactor.patient.ui.discovery
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.dactor.patient.data.model.ClinicService
 import com.dactor.patient.data.model.Doctor
 import com.dactor.patient.domain.util.CurrencyFormatter
 import com.dactor.patient.ui.navigation.NavRoutes
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,10 +48,16 @@ fun ClinicDetailScreen(
     clinicRepository: com.dactor.patient.data.repository.ClinicRepository? = null,
     doctorRepository: com.dactor.patient.data.repository.DoctorRepository? = null
 ) {
+    val context = LocalContext.current
     var clinic by remember { mutableStateOf<com.dactor.patient.data.model.Clinic?>(null) }
-    var services by remember { mutableStateOf<List<com.dactor.patient.data.model.ClinicService>>(emptyList()) }
-    var doctors by remember { mutableStateOf<List<com.dactor.patient.data.model.Doctor>>(emptyList()) }
+    var services by remember { mutableStateOf<List<ClinicService>>(emptyList()) }
+    var doctors by remember { mutableStateOf<List<Doctor>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var isFavorite by remember { mutableStateOf(false) }
+
+    // Auto-advancing looping photo carousel index
+    var selectedPhotoIndex by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Overview, 1: Timings, 2: Services
 
     LaunchedEffect(clinicId) {
         if (!clinicId.isNullOrBlank() && clinicRepository != null) {
@@ -46,20 +70,96 @@ fun ClinicDetailScreen(
     }
 
     val clinicName = clinic?.name ?: "Clinic Profile"
-    val clinicType = clinic?.type?.replace("_", " ")?.capitalize() ?: "Healthcare Facility"
-    val address = clinic?.addressText ?: "Nepal"
-    val coordinates = "${clinic?.latitude ?: 27.7052}° N, ${clinic?.longitude ?: 85.3193}° E"
-    val phone = clinic?.contactPhone ?: "N/A"
-    val email = clinic?.contactEmail ?: "N/A"
-    val autoNotifyThreshold = clinic?.autoNotifyThreshold ?: 2
+    val address = clinic?.addressText?.ifBlank { null } ?: "Address not listed"
+    val phone = clinic?.contactPhone?.trim().orEmpty()
+    val email = clinic?.contactEmail?.trim().orEmpty()
+    val panNumber = clinic?.panNumber?.trim().orEmpty()
+    val description = clinic?.description?.trim().orEmpty().ifBlank {
+        "$clinicName provides outpatient consultations, diagnostic care, and queue-managed appointments."
+    }
+    val pictures = clinic?.pictures ?: emptyList()
+    val specialties = if (clinic?.specialties.isNullOrEmpty()) listOf("General Medicine") else clinic!!.specialties
+    val primaryDoctor = doctors.firstOrNull()
+    val todaySchedule = remember(clinic) {
+        clinic?.getTodaySchedule() ?: com.dactor.patient.data.model.DayScheduleInfo(
+            dayOfWeek = "TODAY",
+            displayName = "Today",
+            isOpen = true,
+            openTime = "09:00 AM",
+            closeTime = "05:00 PM",
+            hasBreak = true,
+            breakStart = "01:00 PM",
+            breakEnd = "02:00 PM"
+        )
+    }
+    val weeklySchedule = remember(clinic) {
+        clinic?.getWeeklySchedule() ?: com.dactor.patient.data.model.ClinicScheduleHelper.defaultDays
+    }
+
+    // ── Auto-slide image carousel loop ───────────────────────────────────────
+    LaunchedEffect(pictures.size) {
+        if (pictures.size > 1) {
+            while (true) {
+                delay(3500) // Slide automatically every 3.5 seconds
+                selectedPhotoIndex = (selectedPhotoIndex + 1) % pictures.size
+            }
+        }
+    }
+
+    fun dialNumber(number: String) {
+        if (number.isNotBlank()) {
+            try {
+                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Cannot open dialer: $number", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun sendEmail(targetEmail: String) {
+        if (targetEmail.isNotBlank()) {
+            try {
+                val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$targetEmail"))
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Cannot open email client: $targetEmail", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun openMaps(addr: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(addr)}"))
+            context.startActivity(intent)
+        } catch (ignored: Exception) {}
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Clinic Profile", fontWeight = FontWeight.Bold) },
+                title = { Text("Clinic Profile", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { isFavorite = !isFavorite }) {
+                        Icon(
+                            if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (isFavorite) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    IconButton(onClick = {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, "Check out $clinicName on Dactor Nepal: $address. Book online instantly!")
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share Clinic"))
+                    }) {
+                        Icon(Icons.Default.Share, contentDescription = "Share")
                     }
                 }
             )
@@ -68,210 +168,668 @@ fun ClinicDetailScreen(
             Surface(
                 tonalElevation = 8.dp,
                 shadowElevation = 8.dp,
+                color = Color.White,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(modifier = Modifier.padding(16.dp)) {
                     Button(
-                        onClick = { navController.navigate(NavRoutes.Booking.createRoute(clinicId ?: clinic?.id ?: "")) },
+                        onClick = {
+                            val targetId = clinicId ?: clinic?.id ?: ""
+                            navController.navigate(NavRoutes.Booking.createRoute(targetId))
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(12.dp)
+                            .height(52.dp)
                     ) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = null)
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Book Appointment with Slot Lock", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text("Book Appointment", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
                 }
             }
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            // Header Info Card
-            item {
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Text(
-                                clinicType,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        Text(clinicName, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                            Text(address, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.Phone, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(14.dp))
-                                Text(phone, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.Email, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(14.dp))
-                                Text(email, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-                }
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Color(0xFF00796B))
             }
-
-            // Interactive Map GPS Card
-            item {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.Map, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                            Text("Map Location & GPS Coordinates", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                        Text(
-                            "Coordinates: $coordinates (Bagbazar Chowk)",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surface,
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(Color(0xFFF8FAFC)),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
+                // ── 1. HERO IMAGE CAROUSEL (ONLY IF PHOTOS EXIST) OR WORKING & BREAK HOURS BANNER ──
+                item {
+                    val activeUrl = pictures.getOrNull(selectedPhotoIndex) ?: clinic?.logoUrl
+                    if (!activeUrl.isNullOrBlank()) {
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(90.dp)
+                                .height(190.dp)
+                                .background(Color(0xFFE2E8F0))
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Icon(Icons.Default.NearMe, contentDescription = null, tint = Color(0xFFEF4444))
-                                    Text("Open in Google Maps / Apple Maps", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            AsyncImage(
+                                model = activeUrl,
+                                contentDescription = "Clinic Photo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            // Verified Clinic Pill Badge (Top Right)
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color(0xFFDCFCE7),
+                                border = BorderStroke(1.dp, Color(0xFF86EFAC)),
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(14.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(13.dp))
+                                    Text(
+                                        "Verified Clinic",
+                                        color = Color(0xFF15803D),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // Sliding Progress / Dot Indicators at Bottom Left
+                            if (pictures.size > 1) {
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(14.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    pictures.indices.forEach { idx ->
+                                        val isCur = idx == selectedPhotoIndex
+                                        Box(
+                                            modifier = Modifier
+                                                .height(5.dp)
+                                                .width(if (isCur) 18.dp else 6.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isCur) Color.White else Color.White.copy(alpha = 0.5f))
+                                                .clickable { selectedPhotoIndex = idx }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // Available Services Catalog
-            item {
-                Text("Services & Rates Catalog", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-
-            items(services) { service ->
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                // ── 2. CLINIC HEADER INFO (Name, Location, Call Card) ────────────
+                item {
+                    Surface(
+                        color = Color.White,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(service.serviceName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            if (service.description != null) {
-                                Text(service.description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                        Text(
-                            CurrencyFormatter.formatNPR(service.price),
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-
-            // Doctors at Clinic & Presence Indicators
-            item {
-                Text("Doctors & Specialists", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-
-            items(doctors) { doctor ->
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(46.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(doctor.fullName ?: "Doctor", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("${doctor.specialty ?: "General"} • ${doctor.nmcLicenseNumber ?: ""}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                "Fee: ${CurrencyFormatter.formatNPR(doctor.consultationFee ?: 500.0)}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        // Physical presence badge
-                        val isInClinic = doctor.isInClinic == true
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isInClinic) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFEF4444).copy(alpha = 0.15f)
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
                             ) {
-                                Box(
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    // Clinic Icon Square
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = Color(0xFFE6F4F1),
+                                        modifier = Modifier.size(54.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.LocalHospital,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00796B),
+                                                modifier = Modifier.size(30.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text(
+                                            text = clinicName,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 19.sp,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(15.dp))
+                                            Text(
+                                                text = address,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF64748B)
+                                            )
+                                        }
+
+                                        // Specialties tags
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.padding(top = 4.dp)
+                                        ) {
+                                            specialties.take(2).forEach { spec ->
+                                                Surface(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = Color(0xFFE6F4F1)
+                                                ) {
+                                                    Text(
+                                                        text = spec,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = Color(0xFF00796B),
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Call Button Card on right
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFE6F4F1),
+                                    border = BorderStroke(1.dp, Color(0xFF00796B).copy(alpha = 0.3f)),
                                     modifier = Modifier
-                                        .size(6.dp)
-                                        .background(if (isInClinic) Color(0xFF10B981) else Color(0xFFEF4444), CircleShape)
+                                        .padding(start = 8.dp)
+                                        .clickable { dialNumber(phone) }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(16.dp))
+                                        Column {
+                                            Text("Call", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00796B))
+                                            Text(phone.take(13), fontSize = 10.sp, color = Color(0xFF00796B))
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                            // ── 3. WORKING HOURS & BREAK HOURS CARD (Replaces empty space & demo stats) ──
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFFF0FDF4),
+                                border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Schedule,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00796B),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Column {
+                                                Text(
+                                                    "Working Hours (${todaySchedule.displayName})",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF475569),
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Text(
+                                                    if (todaySchedule.isOpen) "${todaySchedule.openTime} – ${todaySchedule.closeTime}" else "Closed Today",
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = if (todaySchedule.isOpen) Color(0xFF0F172A) else Color(0xFFDC2626)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (todaySchedule.isOpen) Color(0xFFDCFCE7) else Color(0xFFFEE2E2)
+                                        ) {
+                                            Text(
+                                                text = if (todaySchedule.isOpen) "OPEN TODAY" else "CLOSED",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = if (todaySchedule.isOpen) Color(0xFF15803D) else Color(0xFFB91C1C),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = Color(0xFFDCFCE7))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(16.dp))
+                                            Text(
+                                                "Outpatient OPD & Consultation",
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFF475569),
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(Icons.Default.People, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(16.dp))
+                                            Text(
+                                                "${doctors.size.coerceAtLeast(1)} Doctor(s)",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF0F172A)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── 4. CONSULTING DOCTOR CARD ────────────────────────────────────
+                item {
+                    val docToDisplay = primaryDoctor
+                    if (docToDisplay != null) {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clickable {
+                                    val targetId = clinicId ?: clinic?.id ?: ""
+                                    navController.navigate("booking/$targetId?doctorId=${docToDisplay.id}")
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(14.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                // Doctor Avatar
+                                if (!docToDisplay.resolvedProfilePictureUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = docToDisplay.resolvedProfilePictureUrl,
+                                        contentDescription = docToDisplay.fullName,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(54.dp)
+                                            .clip(CircleShape)
+                                    )
+                                } else {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFE6F4F1),
+                                        modifier = Modifier.size(54.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(28.dp))
+                                        }
+                                    }
+                                }
+
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("Consulting Doctor", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium)
+                                    Text(
+                                        "Dr. ${docToDisplay.fullName.removePrefix("Dr.").removePrefix("dr.").trim()}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                    if (!docToDisplay.education.isNullOrBlank()) {
+                                        Text(
+                                            docToDisplay.education,
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF64748B)
+                                        )
+                                    }
+                                    Text(
+                                        docToDisplay.specialty?.ifBlank { null } ?: "Medical Specialist",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF00796B)
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFDCFCE7),
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    ) {
+                                        Text(
+                                            "Available Today",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF15803D),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    contentDescription = "View Doctor",
+                                    tint = Color(0xFF00796B),
+                                    modifier = Modifier.size(24.dp)
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // ── 5. TAB SELECTOR (Overview, Timings, Services) ────────────────
+                item {
+                    Surface(
+                        color = Color.White,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                    ) {
+                        TabRow(
+                            selectedTabIndex = selectedTab,
+                            containerColor = Color.White,
+                            contentColor = Color(0xFF00796B),
+                            divider = { HorizontalDivider(color = Color(0xFFE2E8F0)) }
+                        ) {
+                            listOf("Overview", "Timings", "Services").forEachIndexed { index, title ->
+                                Tab(
+                                    selected = selectedTab == index,
+                                    onClick = { selectedTab = index },
+                                    text = {
+                                        Text(
+                                            title,
+                                            fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Medium,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── 6. TAB CONTENT ───────────────────────────────────────────────
+                item {
+                    Surface(
+                        color = Color.White,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            when (selectedTab) {
+                                0 -> {
+                                    // Overview Description
+                                    Text(
+                                        text = description,
+                                        fontSize = 13.sp,
+                                        color = Color(0xFF475569),
+                                        lineHeight = 19.sp
+                                    )
+
+                                    // 4 Highlight Icons Grid
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Modern Facilities
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(0xFFF8FAFC),
+                                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(10.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(Icons.Default.Apartment, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(20.dp))
+                                                Text("Modern Facilities", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                            }
+                                        }
+
+                                        // Clean & Safe
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(0xFFF8FAFC),
+                                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(10.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(Icons.Default.HealthAndSafety, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(20.dp))
+                                                Text("Clean & Safe Environment", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                            }
+                                        }
+
+                                        // Experienced Team
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(0xFFF8FAFC),
+                                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(10.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(Icons.Default.Group, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(20.dp))
+                                                Text("Experienced Medical Team", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                            }
+                                        }
+
+                                        // Affordable Fees
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(0xFFF8FAFC),
+                                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(10.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(Icons.Default.Payments, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(20.dp))
+                                                Text("Affordable Consultation", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                            }
+                                        }
+                                    }
+                                }
+                                1 -> {
+                                    // Weekly Working Hours & Break Hours Schedule
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Weekly Working Hours & Break Schedule:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0F172A))
+                                        weeklySchedule.forEach { daySched ->
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = Color(0xFFF8FAFC),
+                                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(daySched.displayName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                                                    Column(horizontalAlignment = Alignment.End) {
+                                                        Text(
+                                                            text = if (daySched.isOpen) "${daySched.openTime} – ${daySched.closeTime}" else "Closed",
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = if (daySched.isOpen) Color(0xFF00796B) else Color(0xFFDC2626)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                2 -> {
+                                    // Services List
+                                    if (services.isEmpty()) {
+                                        Text("General OPD consultations, follow-up evaluations and prescription refills available.", fontSize = 12.sp, color = Color(0xFF64748B))
+                                    } else {
+                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            services.forEach { srv ->
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Text(srv.serviceName, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                                    Text(CurrencyFormatter.formatNPR(srv.price), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00796B))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── 7. CONTACT INFORMATION SECTION ───────────────────────────────
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                                Text("Contact Information", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+
+                            // Phone
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
+                                    Text(phone, fontSize = 13.sp, color = Color(0xFF0F172A))
+                                }
                                 Text(
-                                    text = if (isInClinic) "In Clinic" else "Away",
-                                    fontSize = 11.sp,
+                                    "Call",
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isInClinic) Color(0xFF047857) else Color(0xFFB91C1C)
+                                    color = Color(0xFF00796B),
+                                    modifier = Modifier.clickable { dialNumber(phone) }
+                                )
+                            }
+
+                            HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                            // Email
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Default.Email, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
+                                    Text(email, fontSize = 13.sp, color = Color(0xFF0F172A))
+                                }
+                                Text(
+                                    "Email",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00796B),
+                                    modifier = Modifier.clickable { sendEmail(email) }
+                                )
+                            }
+
+                            HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                            // Address
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Default.Place, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
+                                    Text(address, fontSize = 12.sp, color = Color(0xFF0F172A))
+                                }
+                                Text(
+                                    "Get Directions",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00796B),
+                                    modifier = Modifier.clickable { openMaps(address) }
                                 )
                             }
                         }

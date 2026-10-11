@@ -1,0 +1,747 @@
+import { supabase } from '../lib/supabase'
+import {
+  Clinic,
+  Doctor,
+  Appointment,
+  Slot,
+  ClinicService,
+  LabReport,
+  DactorNotification,
+  MedicalSpecialty,
+  MedicalQualification,
+} from '../types'
+
+// ==========================================
+// CLINICS API
+// ==========================================
+export async function getClinics(): Promise<Clinic[]> {
+  try {
+    const { data, error } = await supabase
+      .from('clinics')
+      .select('*')
+      .order('name', { ascending: true })
+
+    if (error) throw error
+    return (data || []).map(mapClinic)
+  } catch (err) {
+    console.error('Error fetching clinics:', err)
+    return []
+  }
+}
+
+export async function getClinicById(id: string): Promise<Clinic | null> {
+  try {
+    const { data, error } = await supabase
+      .from('clinics')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error) return null
+    return data ? mapClinic(data) : null
+  } catch {
+    return null
+  }
+}
+
+export async function getClinicByEmail(email: string): Promise<Clinic | null> {
+  try {
+    const { data, error } = await supabase
+      .from('clinics')
+      .select('*')
+      .ilike('contact_email', email.trim().toLowerCase())
+      .single()
+
+    if (error) return null
+    return data ? mapClinic(data) : null
+  } catch {
+    return null
+  }
+}
+
+export async function createClinic(clinic: Partial<Clinic>): Promise<Clinic | null> {
+  try {
+    const dbPayload = {
+      id: clinic.id || crypto.randomUUID(),
+      name: clinic.name,
+      type: clinic.type || 'opd_clinic',
+      verification_status: clinic.verificationStatus || 'approved',
+      contact_phone: clinic.contactPhone,
+      contact_email: clinic.contactEmail?.toLowerCase(),
+      address_text: clinic.addressText,
+      latitude: clinic.latitude,
+      longitude: clinic.longitude,
+      auto_notify_threshold: clinic.autoNotifyThreshold || 2,
+      description: clinic.description,
+      pan_number: clinic.panNumber,
+      manager_phone: clinic.managerPhone,
+      registration_doc_url: clinic.registrationDocUrl,
+      pictures: clinic.pictures || [],
+      specialties: clinic.specialties || [],
+    }
+
+    const { data, error } = await supabase
+      .from('clinics')
+      .insert(dbPayload)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data ? mapClinic(data) : null
+  } catch (err) {
+    console.error('Error creating clinic:', err)
+    return null
+  }
+}
+
+// ==========================================
+// DOCTORS API
+// ==========================================
+export async function getDoctors(): Promise<Doctor[]> {
+  try {
+    const { data, error } = await supabase
+      .from('doctors')
+      .select('*')
+      .order('full_name', { ascending: true })
+
+    if (error) throw error
+    return (data || []).map(mapDoctor)
+  } catch (err) {
+    console.error('Error fetching doctors:', err)
+    return []
+  }
+}
+
+export async function getDoctorsByClinic(clinicId: string): Promise<Doctor[]> {
+  try {
+    const { data, error } = await supabase
+      .from('doctors')
+      .select('*')
+      .or(`clinic_id.eq.${clinicId},active_clinic_id.eq.${clinicId}`)
+      .order('full_name', { ascending: true })
+
+    if (error) throw error
+    return (data || []).map(mapDoctor)
+  } catch (err) {
+    console.error('Error fetching clinic doctors:', err)
+    return []
+  }
+}
+
+export async function getDoctorById(id: string): Promise<Doctor | null> {
+  try {
+    const { data, error } = await supabase
+      .from('doctors')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error) return null
+    return data ? mapDoctor(data) : null
+  } catch {
+    return null
+  }
+}
+
+export async function getDoctorByEmail(email: string): Promise<Doctor | null> {
+  try {
+    const { data, error } = await supabase
+      .from('doctors')
+      .select('*')
+      .ilike('email', email.trim().toLowerCase())
+      .single()
+
+    if (error) return null
+    return data ? mapDoctor(data) : null
+  } catch {
+    return null
+  }
+}
+
+export async function createDoctor(doctor: Partial<Doctor>): Promise<Doctor | null> {
+  try {
+    const dbPayload = {
+      id: doctor.id || crypto.randomUUID(),
+      full_name: doctor.fullName,
+      email: doctor.email?.toLowerCase(),
+      specialty: doctor.specialty || 'General Physician',
+      specialties: doctor.specialties || [doctor.specialty || 'General Physician'],
+      education: doctor.education,
+      nmc_license_number: doctor.nmcLicenseNumber,
+      experience_years: doctor.experienceYears || (doctor.startingPracticingYear ? 2026 - doctor.startingPracticingYear : 5),
+      starting_practicing_year: doctor.startingPracticingYear,
+      gender: doctor.gender,
+      age: doctor.age,
+      personal_mobile_number: doctor.personalMobileNumber,
+      public_mobile_number: doctor.publicMobileNumber,
+      consultation_fee: doctor.consultationFee || 500,
+      is_in_clinic: doctor.isInClinic ?? true,
+      clinic_id: doctor.clinicId,
+      active_clinic_id: doctor.activeClinicId || doctor.clinicId,
+      kyc_status: doctor.kycStatus || 'approved',
+      profile_picture_url: doctor.profilePictureUrl,
+      description: doctor.description,
+      practitioner_role: doctor.practitionerRole || (doctor.isLabTechnician ? 'lab_technician' : 'doctor'),
+    }
+
+    const { data, error } = await supabase
+      .from('doctors')
+      .insert(dbPayload)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data ? mapDoctor(data) : null
+  } catch (err) {
+    console.error('Error creating doctor:', err)
+    return null
+  }
+}
+
+// ==========================================
+// APPOINTMENTS & LIVE QUEUE API
+// ==========================================
+export async function getAppointmentByTrackingCode(code: string): Promise<Appointment | null> {
+  try {
+    const cleanCode = code.trim()
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*, clinic:clinics(*), doctor:doctors(*)')
+      .eq('tracking_code_10_digit', cleanCode)
+      .single()
+
+    if (error) return null
+    return data ? mapAppointment(data) : null
+  } catch {
+    return null
+  }
+}
+
+export async function getAppointmentsByClinic(clinicId: string, date?: string): Promise<Appointment[]> {
+  try {
+    let query = supabase
+      .from('appointments')
+      .select('*, doctor:doctors(*)')
+      .eq('clinic_id', clinicId)
+
+    if (date) {
+      query = query.eq('appointment_date', date)
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: true })
+    if (error) throw error
+    return (data || []).map(mapAppointment)
+  } catch (err) {
+    console.error('Error fetching appointments by clinic:', err)
+    return []
+  }
+}
+
+export async function getAppointmentsByDoctor(doctorId: string, date?: string): Promise<Appointment[]> {
+  try {
+    let query = supabase
+      .from('appointments')
+      .select('*, clinic:clinics(*)')
+      .eq('doctor_id', doctorId)
+
+    if (date) {
+      query = query.eq('appointment_date', date)
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: true })
+    if (error) throw error
+    return (data || []).map(mapAppointment)
+  } catch (err) {
+    console.error('Error fetching appointments by doctor:', err)
+    return []
+  }
+}
+
+export async function createAppointment(appt: Partial<Appointment>): Promise<Appointment | null> {
+  try {
+    const code10 = appt.trackingCode10Digit || generate10DigitTrackingCode()
+    const dbPayload = {
+      id: appt.id || crypto.randomUUID(),
+      tracking_code_10_digit: code10,
+      user_id: appt.userId,
+      clinic_id: appt.clinicId,
+      doctor_id: appt.doctorId,
+      patient_name: appt.patientName,
+      patient_age: appt.patientAge,
+      patient_gender: appt.patientGender,
+      patient_mobile: appt.patientMobile,
+      patient_email: appt.patientEmail,
+      appointment_date: appt.appointmentDate || new Date().toISOString().split('T')[0],
+      appointment_time: appt.appointmentTime || '10:00 AM',
+      checkin_status: appt.checkinStatus || 'waiting',
+      payment_status: appt.paymentStatus || 'unpaid',
+      fee_amount: appt.feeAmount || 0,
+      notes: appt.notes,
+      selected_tests: appt.selectedTests || [],
+    }
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .insert(dbPayload)
+      .select('*, clinic:clinics(*), doctor:doctors(*)')
+      .single()
+
+    if (error) throw error
+    return data ? mapAppointment(data) : null
+  } catch (err) {
+    console.error('Error creating appointment:', err)
+    return null
+  }
+}
+
+export async function updateAppointmentStatus(id: string, status: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('appointments')
+      .update({ checkin_status: status, updated_at: new Date().toISOString() })
+      .eq('id', id)
+
+    return !error
+  } catch {
+    return false
+  }
+}
+
+// ==========================================
+// SLOTS & SCHEDULE API
+// ==========================================
+export async function getSlots(clinicId: string, date: string): Promise<Slot[]> {
+  try {
+    const { data, error } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('clinic_id', clinicId)
+      .eq('slot_date', date)
+      .order('start_time', { ascending: true })
+
+    if (error) throw error
+    return (data || []).map(mapSlot)
+  } catch (err) {
+    console.error('Error fetching slots:', err)
+    return []
+  }
+}
+
+export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
+  try {
+    const dbPayload = {
+      id: slot.id || crypto.randomUUID(),
+      clinic_id: slot.clinicId,
+      doctor_id: slot.doctorId,
+      slot_date: slot.slotDate,
+      start_time: slot.startTime,
+      end_time: slot.endTime,
+      max_capacity: slot.maxCapacity || 10,
+      booked_count: slot.bookedCount || 0,
+    }
+
+    const { data, error } = await supabase
+      .from('slots')
+      .insert(dbPayload)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data ? mapSlot(data) : null
+  } catch {
+    return null
+  }
+}
+
+// ==========================================
+// DIAGNOSTIC LAB SERVICES & RATES
+// ==========================================
+export async function getClinicServices(clinicId: string): Promise<ClinicService[]> {
+  try {
+    const { data, error } = await supabase
+      .from('clinic_services')
+      .select('*')
+      .eq('clinic_id', clinicId)
+      .order('service_name', { ascending: true })
+
+    if (error) throw error
+    return (data || []).map(mapService)
+  } catch (err) {
+    console.error('Error fetching clinic services:', err)
+    return []
+  }
+}
+
+export async function createClinicService(service: Partial<ClinicService>): Promise<ClinicService | null> {
+  try {
+    const dbPayload = {
+      id: service.id || crypto.randomUUID(),
+      clinic_id: service.clinicId,
+      service_name: service.serviceName,
+      price: service.price || 0,
+      category: service.category || 'Diagnostic Test',
+      description: service.description,
+      is_available: service.isAvailable ?? true,
+    }
+
+    const { data, error } = await supabase
+      .from('clinic_services')
+      .insert(dbPayload)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data ? mapService(data) : null
+  } catch {
+    return null
+  }
+}
+
+// ==========================================
+// LAB REPORTS API
+// ==========================================
+export async function getLabReportsByTrackingCode(code: string): Promise<LabReport[]> {
+  try {
+    const { data, error } = await supabase
+      .from('lab_reports')
+      .select('*')
+      .eq('tracking_code_10_digit', code.trim())
+      .order('uploaded_at', { ascending: false })
+
+    if (error) throw error
+    return (data || []).map(mapLabReport)
+  } catch (err) {
+    console.error('Error fetching lab reports by code:', err)
+    return []
+  }
+}
+
+export async function getLabReportsByClinic(clinicId: string): Promise<LabReport[]> {
+  try {
+    const { data, error } = await supabase
+      .from('lab_reports')
+      .select('*')
+      .eq('clinic_id', clinicId)
+      .order('uploaded_at', { ascending: false })
+
+    if (error) throw error
+    return (data || []).map(mapLabReport)
+  } catch (err) {
+    console.error('Error fetching lab reports by clinic:', err)
+    return []
+  }
+}
+
+export async function saveLabReport(report: Partial<LabReport>): Promise<LabReport | null> {
+  try {
+    const dbPayload = {
+      id: report.id || crypto.randomUUID(),
+      appointment_id: report.appointmentId,
+      tracking_code_10_digit: report.trackingCode10Digit,
+      patient_name: report.patientName,
+      clinic_id: report.clinicId,
+      test_name: report.testName,
+      report_file_url: report.reportFileUrl,
+      report_file_type: report.reportFileType || 'pdf',
+      status: report.status || 'processing',
+      uploaded_at: report.uploadedAt || new Date().toISOString(),
+      sample_collected_at: report.sampleCollectedAt,
+      prepared_at: report.preparedAt,
+      technician_notes: report.technicianNotes,
+    }
+
+    const { data, error } = await supabase
+      .from('lab_reports')
+      .upsert(dbPayload)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data ? mapLabReport(data) : null
+  } catch (err) {
+    console.error('Error saving lab report:', err)
+    return null
+  }
+}
+
+export async function uploadReportFile(fileName: string, fileBlob: Blob): Promise<string | null> {
+  try {
+    const bucket = 'clinic_files'
+    const path = `lab_reports/${Date.now()}_${fileName.replace(/\s+/g, '_')}`
+    const { error } = await supabase.storage.from(bucket).upload(path, fileBlob, {
+      upsert: true,
+      contentType: fileBlob.type || 'application/pdf',
+    })
+
+    if (error) throw error
+    const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(path)
+    return publicData.publicUrl
+  } catch (err) {
+    console.error('Error uploading report file:', err)
+    return null
+  }
+}
+
+// ==========================================
+// NOTIFICATIONS API
+// ==========================================
+export async function getClinicNotifications(clinicId: string): Promise<DactorNotification[]> {
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .or(`clinic_id.eq.${clinicId},user_id.eq.${clinicId}`)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) throw error
+    return (data || []).map(mapNotification)
+  } catch (err) {
+    console.error('Error fetching notifications:', err)
+    return []
+  }
+}
+
+export async function sendBroadcastNotification(clinicId: string, title: string, message: string): Promise<boolean> {
+  try {
+    const metaObj = {
+      meta_version: 1,
+      audience: 'All Patients & Queue',
+      category: 'clinic_broadcast',
+      left_label: 'Sender',
+      left_value: 'Clinic Administration',
+      right_label: 'Priority',
+      right_value: 'Important Update',
+    }
+
+    const { error } = await supabase.from('notifications').insert({
+      id: crypto.randomUUID(),
+      clinic_id: clinicId,
+      title: title.trim(),
+      message: message.trim(),
+      type: 'clinic_broadcast',
+      meta_json: JSON.stringify(metaObj),
+      is_read: false,
+      created_at: new Date().toISOString(),
+    })
+
+    return !error
+  } catch {
+    return false
+  }
+}
+
+// ==========================================
+// TAXONOMY API
+// ==========================================
+export async function getMedicalSpecialties(): Promise<MedicalSpecialty[]> {
+  try {
+    const { data, error } = await supabase
+      .from('medical_specialties')
+      .select('*')
+      .order('name', { ascending: true })
+
+    if (error) throw error
+    return data || []
+  } catch {
+    return [
+      { id: '1', name: 'General Physician', description: 'Primary Care, Fever, Infection, Blood Pressure' },
+      { id: '2', name: 'Cardiology (Heart Care)', description: 'Heart, ECG, Hypertension, Chest Pain' },
+      { id: '3', name: 'Pathology & Diagnostic Lab', description: 'Blood tests, Biochemistry, Histopathology' },
+      { id: '4', name: 'Pediatrics & Child Health', description: 'Infant, Child Care, Growth, Vaccines' },
+      { id: '5', name: 'Orthopedics & Joint Care', description: 'Bones, Fractures, Arthritis, Spine' },
+      { id: '6', name: 'Dermatology & Skin Care', description: 'Skin, Allergies, Hair, Cosmetic Health' },
+      { id: '7', name: 'Gynecology & Women Health', description: 'Maternity, Antenatal, Reproductive Care' },
+      { id: '8', name: 'Dental Care & Dentistry', description: 'Teeth, Root Canal, Orthodontics' },
+      { id: '9', name: 'ENT (Ear, Nose, Throat)', description: 'Sinus, Hearing, Throat Infection' },
+    ]
+  }
+}
+
+export async function getMedicalQualifications(): Promise<MedicalQualification[]> {
+  try {
+    const { data, error } = await supabase
+      .from('medical_qualifications')
+      .select('*')
+      .order('degree_name', { ascending: true })
+
+    if (error) throw error
+    return data || []
+  } catch {
+    return [
+      { id: '1', degreeName: 'MBBS', fullTitle: 'Bachelor of Medicine, Bachelor of Surgery' },
+      { id: '2', degreeName: 'MD - Internal Medicine', fullTitle: 'Doctor of Medicine' },
+      { id: '3', degreeName: 'MS - General Surgery', fullTitle: 'Master of Surgery' },
+      { id: '4', degreeName: 'BDS', fullTitle: 'Bachelor of Dental Surgery' },
+      { id: '5', degreeName: 'DM - Cardiology', fullTitle: 'Doctorate in Medicine' },
+      { id: '6', degreeName: 'BMLT / B.Sc. MLT', fullTitle: 'Bachelor in Medical Lab Technology' },
+      { id: '7', degreeName: 'CMLT / DMLT', fullTitle: 'Diploma in Medical Lab Technology' },
+      { id: '8', degreeName: 'M.Sc. MLT / Biochemistry', fullTitle: 'Master in Medical Lab Technology' },
+    ]
+  }
+}
+
+// ==========================================
+// HELPER MAPPERS
+// ==========================================
+function mapClinic(c: any): Clinic {
+  return {
+    id: c.id,
+    name: c.name,
+    type: c.type,
+    verificationStatus: c.verification_status,
+    contactPhone: c.contact_phone,
+    contactEmail: c.contact_email,
+    addressText: c.address_text,
+    latitude: c.latitude,
+    longitude: c.longitude,
+    autoNotifyThreshold: c.auto_notify_threshold,
+    description: c.description,
+    panNumber: c.pan_number,
+    managerPhone: c.manager_phone,
+    registrationDocUrl: c.registration_doc_url,
+    pictures: c.pictures || [],
+    specialties: c.specialties || [],
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+    isArchived: c.is_archived,
+    deletionScheduledAt: c.deletion_scheduled_at,
+    logoUrl: c.logo_url,
+  }
+}
+
+function mapDoctor(d: any): Doctor {
+  return {
+    id: d.id,
+    fullName: d.full_name,
+    email: d.email,
+    specialty: d.specialty,
+    specialties: d.specialties || (d.specialty ? [d.specialty] : []),
+    education: d.education,
+    nmcLicenseNumber: d.nmc_license_number,
+    experienceYears: d.experience_years,
+    startingPracticingYear: d.starting_practicing_year,
+    gender: d.gender,
+    age: d.age,
+    personalMobileNumber: d.personal_mobile_number,
+    publicMobileNumber: d.public_mobile_number,
+    consultationFee: d.consultation_fee,
+    isInClinic: d.is_in_clinic,
+    clinicId: d.clinic_id,
+    activeClinicId: d.active_clinic_id,
+    kycStatus: d.kyc_status,
+    profilePictureUrl: d.profile_picture_url,
+    description: d.description,
+    practitionerRole: d.practitioner_role,
+    isLabTechnician: d.practitioner_role === 'lab_technician' || (d.specialty && d.specialty.toLowerCase().includes('lab')),
+  }
+}
+
+function mapAppointment(a: any): Appointment {
+  return {
+    id: a.id,
+    trackingCode10Digit: a.tracking_code_10_digit,
+    userId: a.user_id,
+    clinicId: a.clinic_id,
+    doctorId: a.doctor_id,
+    patientName: a.patient_name,
+    patientAge: a.patient_age,
+    patientGender: a.patient_gender,
+    patientMobile: a.patient_mobile,
+    patientEmail: a.patient_email,
+    appointmentDate: a.appointment_date,
+    appointmentTime: a.appointment_time,
+    checkinStatus: a.checkin_status,
+    paymentStatus: a.payment_status,
+    feeAmount: Number(a.fee_amount || 0),
+    queueNumber: a.queue_number,
+    notes: a.notes,
+    createdAt: a.created_at,
+    updatedAt: a.updated_at,
+    selectedTests: a.selected_tests || [],
+    clinic: a.clinic ? mapClinic(a.clinic) : undefined,
+    doctor: a.doctor ? mapDoctor(a.doctor) : undefined,
+  }
+}
+
+function mapSlot(s: any): Slot {
+  return {
+    id: s.id,
+    clinicId: s.clinic_id,
+    doctorId: s.doctor_id,
+    slotDate: s.slot_date,
+    startTime: s.start_time,
+    endTime: s.end_time,
+    maxCapacity: s.max_capacity,
+    bookedCount: s.booked_count,
+    isAvailable: s.is_available ?? true,
+  }
+}
+
+function mapService(s: any): ClinicService {
+  return {
+    id: s.id,
+    clinicId: s.clinic_id,
+    serviceName: s.service_name,
+    price: Number(s.price || 0),
+    category: s.category,
+    description: s.description,
+    isAvailable: s.is_available ?? true,
+  }
+}
+
+function mapLabReport(r: any): LabReport {
+  return {
+    id: r.id,
+    appointmentId: r.appointment_id,
+    trackingCode10Digit: r.tracking_code_10_digit,
+    patientName: r.patient_name,
+    clinicId: r.clinic_id,
+    testName: r.test_name,
+    reportFileUrl: r.report_file_url,
+    reportFileType: r.report_file_type,
+    status: r.status,
+    uploadedAt: r.uploaded_at,
+    sampleCollectedAt: r.sample_collected_at,
+    preparedAt: r.prepared_at,
+    technicianNotes: r.technician_notes,
+  }
+}
+
+function mapNotification(n: any): DactorNotification {
+  let leftLabel, leftValue, rightLabel, rightValue, trackingCode
+  if (n.meta_json) {
+    try {
+      const parsed = JSON.parse(n.meta_json)
+      leftLabel = parsed.left_label
+      leftValue = parsed.left_value
+      rightLabel = parsed.right_label
+      rightValue = parsed.right_value
+      trackingCode = parsed.tracking_code
+    } catch {}
+  }
+
+  return {
+    id: n.id,
+    userId: n.user_id,
+    clinicId: n.clinic_id,
+    title: n.title,
+    message: n.message,
+    type: n.type,
+    metaJson: n.meta_json,
+    isRead: n.is_read ?? false,
+    createdAt: n.created_at,
+    leftLabel,
+    leftValue,
+    rightLabel,
+    rightValue,
+    trackingCode,
+  }
+}
+
+export function generate10DigitTrackingCode(): string {
+  // Generate a clean 10-digit numeric tracking code
+  const first = Math.floor(Math.random() * 9) + 1 // 1-9
+  const rest = Math.floor(Math.random() * 1000000000).toString().padStart(9, '0')
+  return `${first}${rest}`
+}

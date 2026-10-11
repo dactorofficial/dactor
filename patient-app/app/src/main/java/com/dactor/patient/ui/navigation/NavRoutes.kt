@@ -1,10 +1,14 @@
 package com.dactor.patient.ui.navigation
 
 sealed class NavRoutes(val route: String) {
+    object Onboarding : NavRoutes("onboarding")
     object Landing : NavRoutes("landing")
     object Login : NavRoutes("login")
     object Register : NavRoutes("register")
     object Discovery : NavRoutes("discovery")
+    object PatientMain : NavRoutes("patient_main") {
+        fun createRoute(tab: Int = 0) = "patient_main?tab=$tab"
+    }
     object ClinicDetail : NavRoutes("clinic_detail/{clinicId}") {
         fun createRoute(clinicId: String) = "clinic_detail/$clinicId"
     }
@@ -13,6 +17,8 @@ sealed class NavRoutes(val route: String) {
     }
     object Booking : NavRoutes("booking/{clinicId}") {
         fun createRoute(clinicId: String) = "booking/$clinicId"
+        fun createRoute(clinicId: String, doctorId: String?) = 
+            if (!doctorId.isNullOrBlank()) "booking/$clinicId?doctorId=$doctorId" else "booking/$clinicId"
     }
     object BookingForm : NavRoutes("booking_form/{slotId}") {
         fun createRoute(slotId: String) = "booking_form/$slotId"

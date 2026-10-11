@@ -5,6 +5,8 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.lifecycle.lifecycleScope
 import com.dactor.patient.data.local.RegistrationDraftManager
 import com.dactor.patient.data.local.UserSessionManager
@@ -62,47 +64,112 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
 
-        // 4. Start real-time background watcher for doctor alerts
+        // 4. Start real-time background watcher for doctor alerts, automatic queue alerts & broadcasts
+        try {
+            val watchdogIntent = Intent(this, com.dactor.patient.service.NotificationWatchdogService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(watchdogIntent)
+            } else {
+                startService(watchdogIntent)
+            }
+        } catch (ignored: Exception) {}
+
         lifecycleScope.launch(Dispatchers.IO) {
+            var isFirstPoll = true
             while (isActive) {
                 try {
                     val userId = authRepository.getCurrentUser() ?: sessionManager.getSavedPatientId()
+                    val email = sessionManager.getSavedEmail()?.takeIf { it.isNotBlank() }
+                        ?: authRepository.getCurrentUserEmail()?.takeIf { it.isNotBlank() }
+                    val phone = sessionManager.getSavedPhone()?.takeIf { it.isNotBlank() }
                     val savedCodes = sessionManager.getSavedTrackingCodes().map { it.first }
-                    val notifs = notificationRepository.getNotifications(userId = userId, appointmentIds = savedCodes)
+                    val allIds = savedCodes.toMutableSet()
 
-                    for (notif in notifs) {
-                        if (!sessionManager.isNotificationSeen(notif.id)) {
-                            sessionManager.markNotificationSeen(notif.id)
-                            val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
-                            NotificationHelper.showSystemNotification(
-                                context = this@MainActivity,
-                                id = notifId,
-                                title = notif.title,
-                                message = notif.message,
-                                appointmentId = notif.appointmentId
-                            )
+                    try {
+                        val appts = appointmentRepository.getAllPatientAppointments(
+                            userId = userId,
+                            email = email,
+                            phone = phone,
+                            trackingCodes = savedCodes
+                        )
+                        for (appt in appts) {
+                            if (appt.id.isNotBlank()) allIds.add(appt.id)
+                            if (appt.trackingCode10Digit.isNotBlank()) allIds.add(appt.trackingCode10Digit)
+                        }
+                    } catch (_: Exception) {}
+
+                    val notifs = notificationRepository.getNotifications(
+                        userId = userId,
+                        appointmentIds = allIds.toList()
+                    )
+
+                    if (isFirstPoll) {
+                        for (notif in notifs) {
+                            val isTargeted = !notif.userId.isNullOrBlank() ||
+                                !notif.appointmentId.isNullOrBlank() ||
+                                notif.type in listOf("manual_alert", "queue_alert", "lab_report", "clinic_break")
+                            if (!sessionManager.isNotificationSeen(notif.id)) {
+                                sessionManager.markNotificationSeen(notif.id)
+                                if (isTargeted && !notif.isRead) {
+                                    val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
+                                    NotificationHelper.showSystemNotification(
+                                        context = this@MainActivity,
+                                        id = notifId,
+                                        title = notif.title.ifBlank { "Dactor Health Alert" },
+                                        message = notif.message,
+                                        appointmentId = notif.appointmentId,
+                                        type = notif.type
+                                    )
+                                }
+                            }
+                        }
+                        isFirstPoll = false
+                    } else {
+                        for (notif in notifs) {
+                            if (!sessionManager.isNotificationSeen(notif.id)) {
+                                sessionManager.markNotificationSeen(notif.id)
+                                val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
+                                NotificationHelper.showSystemNotification(
+                                    context = this@MainActivity,
+                                    id = notifId,
+                                    title = notif.title.ifBlank { "Dactor Health Alert" },
+                                    message = notif.message,
+                                    appointmentId = notif.appointmentId,
+                                    type = notif.type
+                                )
+                            }
                         }
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(6000L) // Poll every 6 seconds for instant alerts from doctor
+                delay(4000L) // Poll every 4 seconds for instant alerts
             }
         }
 
         setContent {
-            DactorNavHost(
-                authRepository = authRepository,
-                clinicRepository = clinicRepository,
-                doctorRepository = doctorRepository,
-                appointmentRepository = appointmentRepository,
-                queueRepository = queueRepository,
-                slotRepository = slotRepository,
-                labReportRepository = labReportRepository,
-                notificationRepository = notificationRepository,
-                draftManager = draftManager,
-                sessionManager = sessionManager
-            )
+            com.dactor.patient.ui.theme.DactorPatientTheme {
+                androidx.compose.material3.Surface(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxSize()
+                        .navigationBarsPadding(),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.background
+                ) {
+                    com.dactor.patient.ui.components.NotificationPermissionEnforcer()
+                    DactorNavHost(
+                        authRepository = authRepository,
+                        clinicRepository = clinicRepository,
+                        doctorRepository = doctorRepository,
+                        appointmentRepository = appointmentRepository,
+                        queueRepository = queueRepository,
+                        slotRepository = slotRepository,
+                        labReportRepository = labReportRepository,
+                        notificationRepository = notificationRepository,
+                        draftManager = draftManager,
+                        sessionManager = sessionManager
+                    )
+                }
+            }
         }
     }
 

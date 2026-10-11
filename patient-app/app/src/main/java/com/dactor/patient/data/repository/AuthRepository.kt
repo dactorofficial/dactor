@@ -111,57 +111,113 @@ class AuthRepository @Inject constructor(
         userId: String,
         email: String,
         fullName: String,
-        phone: String = ""
+        phone: String = "",
+        gender: String? = null,
+        age: Int? = null
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val trimmedEmail = email.trim().lowercase()
-            val existing = supabaseClient.postgrest["profiles"].select {
-                filter {
-                    eq("email", trimmedEmail)
-                }
-            }.decodeSingleOrNull<Profile>()
+            val existing = try {
+                supabaseClient.postgrest["profiles"].select {
+                    filter {
+                        ilike("email", trimmedEmail)
+                    }
+                }.decodeList<Profile>().firstOrNull()
+            } catch (e: Exception) {
+                supabaseClient.postgrest["profiles"].select {
+                    filter {
+                        eq("email", trimmedEmail)
+                    }
+                }.decodeList<Profile>().firstOrNull()
+            }
 
-            val profileId = existing?.id ?: java.util.UUID.randomUUID().toString()
+            // Check if there are any pre-existing appointments saved with this email before sign-in
+            val emailAppts = if (trimmedEmail.isNotBlank()) {
+                try {
+                    supabaseClient.postgrest["appointments"].select {
+                        filter {
+                            ilike("patient_email", trimmedEmail)
+                        }
+                    }.decodeList<com.dactor.patient.data.model.Appointment>()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+
+            val latestEmailAppt = emailAppts.maxByOrNull { it.appointmentDate }
+            val effectiveName = fullName.trim().ifBlank {
+                existing?.fullName?.trim().orEmpty().ifBlank { latestEmailAppt?.patientName?.trim().orEmpty() }
+            }
+            val effectivePhone = phone.trim().ifBlank {
+                existing?.phone?.trim().orEmpty().ifBlank { latestEmailAppt?.patientMobile?.trim().orEmpty() }
+            }
+            val effectiveGender = gender?.trim()?.ifBlank { null }
+                ?: existing?.gender?.ifBlank { null }
+                ?: latestEmailAppt?.patientGender
+            val effectiveAge = age?.takeIf { it > 0 }
+                ?: existing?.age
+                ?: latestEmailAppt?.patientAge
+
+            val profileId = existing?.id
+                ?: emailAppts.firstNotNullOfOrNull { it.userId?.takeIf { uid -> uid.isNotBlank() } }
+                ?: userId.takeIf { it.isNotBlank() }
+                ?: java.util.UUID.randomUUID().toString()
 
             if (existing != null) {
                 supabaseClient.postgrest["profiles"].update({
                     set("role", "patient")
-                    if (fullName.isNotBlank()) set("full_name", fullName.trim())
-                    if (phone.isNotBlank()) set("phone", phone.trim())
+                    set("email", trimmedEmail)
+                    if (effectiveName.isNotBlank()) set("full_name", effectiveName)
+                    if (effectivePhone.isNotBlank()) set("phone", effectivePhone)
+                    if (!effectiveGender.isNullOrBlank()) set("gender", effectiveGender)
+                    if (effectiveAge != null && effectiveAge > 0) set("age", effectiveAge)
                 }) {
                     filter {
                         eq("id", existing.id)
                     }
                 }
             } else {
-                supabaseClient.postgrest["profiles"].insert(
-                    mapOf(
-                        "id" to profileId,
-                        "email" to trimmedEmail,
-                        "full_name" to fullName.trim(),
-                        "role" to "patient",
-                        "phone" to phone.trim()
-                    )
+                val insertMap = mutableMapOf<String, Any>(
+                    "id" to profileId,
+                    "email" to trimmedEmail,
+                    "full_name" to effectiveName,
+                    "role" to "patient",
+                    "phone" to effectivePhone
                 )
+                if (!effectiveGender.isNullOrBlank()) insertMap["gender"] = effectiveGender
+                if (effectiveAge != null && effectiveAge > 0) insertMap["age"] = effectiveAge
+                try {
+                    supabaseClient.postgrest["profiles"].insert(insertMap)
+                } catch (e: Exception) {
+                    supabaseClient.postgrest["profiles"].insert(
+                        mapOf(
+                            "id" to profileId,
+                            "email" to trimmedEmail,
+                            "full_name" to effectiveName,
+                            "role" to "patient",
+                            "phone" to effectivePhone
+                        )
+                    )
+                }
             }
 
-            // Retroactively sync any past walk-in or guest appointments matching phone or email
+            // Retroactively sync any past or live walk-in/guest appointments matching email or phone
             try {
-                if (phone.isNotBlank()) {
+                if (effectivePhone.isNotBlank()) {
                     supabaseClient.postgrest["appointments"].update(
                         mapOf("user_id" to profileId)
                     ) {
                         filter {
-                            eq("patient_mobile", phone.trim())
+                            eq("patient_mobile", effectivePhone)
                         }
                     }
                 }
-                if (email.isNotBlank()) {
+                if (trimmedEmail.isNotBlank()) {
                     supabaseClient.postgrest["appointments"].update(
-                        mapOf("user_id" to profileId)
+                        mapOf("user_id" to profileId, "patient_email" to trimmedEmail)
                     ) {
                         filter {
-                            eq("patient_email", trimmedEmail)
+                            ilike("patient_email", trimmedEmail)
                         }
                     }
                 }
@@ -181,8 +237,10 @@ class AuthRepository @Inject constructor(
         userId: String,
         email: String,
         fullName: String,
-        phone: String
-    ): Result<Boolean> = syncPatientProfile(userId, email, fullName, phone)
+        phone: String,
+        gender: String? = null,
+        age: Int? = null
+    ): Result<Boolean> = syncPatientProfile(userId, email, fullName, phone, gender, age)
 
     suspend fun handleAuthCallback(uri: android.net.Uri): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -256,16 +314,27 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun getProfileByEmail(email: String): Profile? = withContext(Dispatchers.IO) {
+        val cleanEmail = email.trim().lowercase()
+        if (cleanEmail.isBlank()) return@withContext null
         try {
             supabaseClient.postgrest["profiles"]
                 .select {
                     filter {
-                        eq("email", email.trim().lowercase())
+                        ilike("email", cleanEmail)
                     }
-                }.decodeSingleOrNull<Profile>()
+                }.decodeList<Profile>().firstOrNull()
         } catch (e: Exception) {
-            e.printStackTrace()
-            null
+            try {
+                supabaseClient.postgrest["profiles"]
+                    .select {
+                        filter {
+                            eq("email", cleanEmail)
+                        }
+                    }.decodeList<Profile>().firstOrNull()
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+                null
+            }
         }
     }
 

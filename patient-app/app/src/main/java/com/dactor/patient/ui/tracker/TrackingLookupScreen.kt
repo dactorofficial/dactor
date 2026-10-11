@@ -1,6 +1,7 @@
 package com.dactor.patient.ui.tracker
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -25,19 +26,57 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.dactor.patient.data.local.UserSessionManager
+import com.dactor.patient.data.model.Appointment
+import com.dactor.patient.data.repository.AppointmentRepository
+import com.dactor.patient.data.repository.AuthRepository
 import com.dactor.patient.ui.navigation.NavRoutes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackingLookupScreen(
-    navController: NavController
+    navController: NavController,
+    appointmentRepository: AppointmentRepository? = null,
+    authRepository: AuthRepository? = null,
+    sessionManager: UserSessionManager? = null
 ) {
     var trackingCode by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var linkedLiveAppointments by remember { mutableStateOf<List<Appointment>>(emptyList()) }
 
     val focusManager = LocalFocusManager.current
     val scrollState = rememberScrollState()
+
+    LaunchedEffect(Unit) {
+        if (appointmentRepository != null) {
+            try {
+                val patientId = sessionManager?.getSavedPatientId()
+                val email = sessionManager?.getSavedEmail()?.takeIf { it.isNotBlank() }
+                    ?: authRepository?.getCurrentUserEmail()
+                val phone = sessionManager?.getSavedPhone()
+                val savedCodes = sessionManager?.getSavedTrackingCodes()?.map { it.first } ?: emptyList()
+
+                val allAppts = appointmentRepository.getAllPatientAppointments(
+                    userId = patientId,
+                    email = email,
+                    phone = phone,
+                    trackingCodes = savedCodes
+                )
+                for (appt in allAppts) {
+                    if (appt.trackingCode10Digit.isNotBlank()) {
+                        sessionManager?.saveTrackingCode(
+                            appt.trackingCode10Digit,
+                            "${appt.patientName} • ${appt.appointmentDate}"
+                        )
+                    }
+                }
+                linkedLiveAppointments = allAppts.filter {
+                    it.checkinStatus != "completed" && it.checkinStatus != "cancelled"
+                }
+            } catch (ignored: Exception) {}
+        }
+    }
 
     fun performLookup() {
         focusManager.clearFocus()
@@ -72,6 +111,84 @@ fun TrackingLookupScreen(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            // Direct 1-Tap Live Queue Tracking for Appointments Linked to Email/Account
+            if (linkedLiveAppointments.isNotEmpty()) {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE0F2F1)),
+                    border = BorderStroke(1.dp, Color(0xFF00796B).copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(20.dp))
+                            Text(
+                                text = "Live Queue Linked to Your Email",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 15.sp,
+                                color = Color(0xFF004D40)
+                            )
+                        }
+                        Text(
+                            text = "Tap any appointment below to track its live queue directly without entering a code:",
+                            fontSize = 12.sp,
+                            color = Color(0xFF00695C)
+                        )
+                        linkedLiveAppointments.forEach { appt ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.White,
+                                border = BorderStroke(1.dp, Color(0xFFB2DFDB)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        navController.navigate(NavRoutes.QueueStatus.createRoute(appt.trackingCode10Digit))
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = appt.patientName,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                        Text(
+                                            text = "${appt.appointmentDate} • ${appt.appointmentTime} • ID #${appt.trackingCode10Digit}",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF64748B)
+                                        )
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF00796B)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text("Track Live", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Header Info Card
             Card(
                 shape = RoundedCornerShape(20.dp),
@@ -125,8 +242,8 @@ fun TrackingLookupScreen(
                                 if (errorMessage != null) errorMessage = null
                             }
                         },
-                        label = { Text("e.g. 9841203841") },
-                        placeholder = { Text("10 digits code") },
+                        label = { Text("10-Digit Tracking Code") },
+                        placeholder = { Text("Enter 10-digit code") },
                         leadingIcon = {
                             Icon(Icons.Default.Pin, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         },

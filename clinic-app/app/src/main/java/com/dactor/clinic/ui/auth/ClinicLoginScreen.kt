@@ -6,16 +6,24 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.painterResource
+import com.dactor.clinic.R
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -47,8 +55,24 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import android.accounts.AccountManager
+import com.google.android.gms.common.AccountPicker
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Build
+import android.os.Bundle
+import android.os.Looper
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import java.util.Locale
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -73,6 +97,7 @@ fun ClinicLoginScreen(
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var emailInput by remember { mutableStateOf("") }
 
     // Google Account Details
     var googleAccount by remember { mutableStateOf<GoogleSignInAccount?>(null) }
@@ -92,22 +117,97 @@ fun ClinicLoginScreen(
     var clinicRegDocName by remember { mutableStateOf<String?>(null) }
     var clinicPictures by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var clinicType by remember { mutableStateOf("single_visit") }
+    var clinicSpecialties by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var availableSpecialtiesList by remember { mutableStateOf<List<com.dactor.clinic.data.model.MedicalSpecialty>>(emptyList()) }
+    var availableQualificationsList by remember { mutableStateOf<List<com.dactor.clinic.data.model.MedicalQualification>>(emptyList()) }
     var clinicDesc by remember { mutableStateOf("") }
 
-    // Doctor Registration Form Fields
+    // Doctor Registration Form Fields (never prefill name, gender, or age from Google account or demo defaults)
+    var doctorPractitionerRole by remember { mutableStateOf("doctor") } // "doctor" or "lab_technician"
+    var educationDropdownExpanded by remember { mutableStateOf(false) }
+    var doctorStartingYearDropdownExpanded by remember { mutableStateOf(false) }
+    val practicingYears = remember { (2026 downTo 1960).map { it.toString() } }
     var doctorName by remember { mutableStateOf("") }
-    var doctorGender by remember { mutableStateOf("Male") }
+    var doctorGender by remember { mutableStateOf("") }
     var doctorAge by remember { mutableStateOf("") }
     var doctorStartingYear by remember { mutableStateOf("") }
     var doctorPictureUri by remember { mutableStateOf<Uri?>(null) }
     var doctorPictureName by remember { mutableStateOf<String?>(null) }
-    var doctorSpecialty by remember { mutableStateOf("General Physician") }
+    var doctorSpecialty by remember { mutableStateOf("") }
     var doctorEducation by remember { mutableStateOf("") }
     var doctorNmc by remember { mutableStateOf("") }
     var doctorPersonalPhone by remember { mutableStateOf("") }
     var doctorPublicPhone by remember { mutableStateOf("") }
     var doctorDesc by remember { mutableStateOf("") }
-    var doctorFee by remember { mutableStateOf("500") }
+
+    // Validation & Focus Requesters
+    var clinicValidationTriggered by remember { mutableStateOf(false) }
+    var doctorValidationTriggered by remember { mutableStateOf(false) }
+
+    val clinicNameFocus = remember { FocusRequester() }
+    val clinicPanFocus = remember { FocusRequester() }
+    val clinicPhoneFocus = remember { FocusRequester() }
+    val managerPhoneFocus = remember { FocusRequester() }
+
+    val doctorNameFocus = remember { FocusRequester() }
+    val doctorAgeFocus = remember { FocusRequester() }
+    val doctorNmcFocus = remember { FocusRequester() }
+    val doctorPhoneFocus = remember { FocusRequester() }
+
+    // Field Y Offsets for Auto-Scroll Redirection
+    var clinicNameFieldY by remember { mutableIntStateOf(0) }
+    var clinicAddressFieldY by remember { mutableIntStateOf(0) }
+    var clinicRegDocFieldY by remember { mutableIntStateOf(0) }
+    var clinicPanFieldY by remember { mutableIntStateOf(0) }
+    var clinicPhoneFieldY by remember { mutableIntStateOf(0) }
+    var managerPhoneFieldY by remember { mutableIntStateOf(0) }
+    var clinicPicturesFieldY by remember { mutableIntStateOf(0) }
+    var clinicTermsFieldY by remember { mutableIntStateOf(0) }
+
+    var doctorNameFieldY by remember { mutableIntStateOf(0) }
+    var doctorGenderFieldY by remember { mutableIntStateOf(0) }
+    var doctorAgeFieldY by remember { mutableIntStateOf(0) }
+    var doctorStartingYearFieldY by remember { mutableIntStateOf(0) }
+    var doctorSpecialtyFieldY by remember { mutableIntStateOf(0) }
+    var doctorEducationFieldY by remember { mutableIntStateOf(0) }
+    var doctorNmcFieldY by remember { mutableIntStateOf(0) }
+    var doctorPhoneFieldY by remember { mutableIntStateOf(0) }
+    var doctorTermsFieldY by remember { mutableIntStateOf(0) }
+
+    // Terms & Conditions States
+    var showTermsDialog by remember { mutableStateOf(false) }
+    var termsDialogInitialTab by remember { mutableIntStateOf(0) }
+    var clinicTermsAccepted by remember { mutableStateOf(false) }
+    var doctorTermsAccepted by remember { mutableStateOf(false) }
+
+    // Live Validation Criteria - Clinic Form
+    val cleanClinicPanDigits = clinicPan.filter { it.isDigit() }
+    val cleanClinicPhoneDigits = clinicPhoneDigits.filter { it.isDigit() }
+    val cleanManagerPhoneDigits = managerPhoneDigits.filter { it.isDigit() }
+
+    val isClinicNameError = (clinicValidationTriggered || clinicName.isNotEmpty()) && clinicName.trim().length < 2
+    val isClinicAddressError = clinicValidationTriggered && clinicAddress.isBlank()
+    val isClinicRegDocError = clinicValidationTriggered && clinicRegDocUri == null
+    val isClinicPanError = (clinicValidationTriggered || clinicPan.isNotEmpty()) && cleanClinicPanDigits.length != 9
+    val isClinicPhoneError = (clinicValidationTriggered || clinicPhoneDigits.isNotEmpty()) && (cleanClinicPhoneDigits.length != 10 || !cleanClinicPhoneDigits.startsWith("9"))
+    val isManagerPhoneError = (clinicValidationTriggered || managerPhoneDigits.isNotEmpty()) && (cleanManagerPhoneDigits.length != 10 || !cleanManagerPhoneDigits.startsWith("9"))
+    val isClinicPicturesError = clinicValidationTriggered && clinicPictures.isEmpty()
+    val isClinicTermsError = clinicValidationTriggered && !clinicTermsAccepted
+
+    // Live Validation Criteria - Doctor Form
+    val parsedDocAge = doctorAge.trim().toIntOrNull()
+    val parsedDocYear = doctorStartingYear.trim().toIntOrNull()
+    val cleanDocPhoneDigits = doctorPersonalPhone.filter { it.isDigit() }
+
+    val isDoctorNameError = (doctorValidationTriggered || doctorName.isNotEmpty()) && doctorName.trim().length < 3
+    val isDoctorGenderError = doctorValidationTriggered && doctorGender.isBlank()
+    val isDoctorAgeError = (doctorValidationTriggered || doctorAge.isNotEmpty()) && (parsedDocAge == null || parsedDocAge !in 20..100)
+    val isDoctorStartingYearError = doctorValidationTriggered && (parsedDocYear == null || parsedDocYear !in 1960..2026)
+    val isDoctorSpecialtyError = doctorValidationTriggered && doctorSpecialty.isBlank()
+    val isDoctorEducationError = doctorValidationTriggered && doctorEducation.isBlank()
+    val isDoctorNmcError = (doctorValidationTriggered || doctorNmc.isNotEmpty()) && doctorNmc.trim().length < 3
+    val isDoctorPhoneError = (doctorValidationTriggered || doctorPersonalPhone.isNotEmpty()) && (cleanDocPhoneDigits.length != 10 || !cleanDocPhoneDigits.startsWith("9"))
+    val isDoctorTermsError = doctorValidationTriggered && !doctorTermsAccepted
 
     // Pending Admin Verification State
     var pendingEntityName by remember { mutableStateOf("") }
@@ -136,6 +236,18 @@ fun ClinicLoginScreen(
     }
 
     LaunchedEffect(Unit) {
+        // Load master medical specialties and qualifications
+        coroutineScope.launch {
+            try {
+                val specs = clinicRepository?.getSpecialties() ?: emptyList()
+                if (specs.isNotEmpty()) availableSpecialtiesList = specs
+                val quals = doctorRepository?.getQualifications() ?: emptyList()
+                if (quals.isNotEmpty()) availableQualificationsList = quals
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
         // Clear active login session so returning from launcher home never resumes a stale account
         sessionManager?.clearActiveLoginSession()
         try {
@@ -152,6 +264,8 @@ fun ClinicLoginScreen(
                         if (clinic != null) {
                             if (clinic.verificationStatus.equals("approved", ignoreCase = true)) {
                                 sessionManager.clearPendingVerification()
+                                clinicRepository?.clearCache()
+                                doctorRepository?.clearCache()
                                 sessionManager.saveClinicSession(clinic.id, clinic.contactEmail ?: pending.email, clinic.name)
                                 navController.navigate("${NavRoutes.Dashboard}/${clinic.id}") {
                                     popUpTo(NavRoutes.ClinicLogin) { inclusive = true }
@@ -171,6 +285,8 @@ fun ClinicLoginScreen(
                         if (doc != null) {
                             if (doc.kycStatus.equals("approved", ignoreCase = true) || doc.kycStatus.equals("verified", ignoreCase = true)) {
                                 sessionManager.clearPendingVerification()
+                                clinicRepository?.clearCache()
+                                doctorRepository?.clearCache()
                                 sessionManager.saveDoctorSession(doc.id, doc.email, doc.fullName)
                                 navController.navigate("${NavRoutes.DoctorDashboard}/${doc.id}") {
                                     popUpTo(NavRoutes.ClinicLogin) { inclusive = true }
@@ -193,72 +309,53 @@ fun ClinicLoginScreen(
         }
     }
 
-    fun handleGoogleAccountReceived(account: GoogleSignInAccount) {
+    fun processLoginForEmail(email: String, displayName: String = "", accountId: String? = null) {
+        val trimmedEmail = email.trim().lowercase()
+        if (trimmedEmail.isBlank()) {
+            isLoading = false
+            statusMessage = null
+            return
+        }
+        isLoading = true
+        errorMessage = null
+        statusMessage = "Checking account status..."
+        verifiedEmail = trimmedEmail
+        verifiedDisplayName = ""
+
         coroutineScope.launch {
             try {
-                googleAccount = account
-                verifiedEmail = account.email ?: ""
-                verifiedDisplayName = account.displayName ?: ""
-
-                // Firebase Auth credential link in background
-                val idToken = account.idToken
-                if (!idToken.isNullOrBlank()) {
-                    try {
-                        val credential = GoogleAuthProvider.getCredential(idToken, null)
-                        FirebaseAuth.getInstance().signInWithCredential(credential).await()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-
-                statusMessage = "Looking up your account in Supabase..."
-                val trimmedEmail = verifiedEmail.trim().lowercase()
-
                 if (selectedTab == 0) {
-                    // Look up Clinic
-                    val existingClinic = clinicRepository?.getClinicByEmail(trimmedEmail)
+                    // CLINIC STAFF
+                    val existingClinic = try {
+                        clinicRepository?.getClinicByEmail(trimmedEmail)
+                    } catch (e: Exception) {
+                        null
+                    }
+
                     if (existingClinic != null) {
+                        val clinicId = existingClinic.id
                         if (existingClinic.isArchived == true) {
-                            val daysRemaining = com.dactor.clinic.domain.util.ArchiveDateUtils.calculateDaysRemaining(existingClinic.deletionScheduledAt)
-                            if (daysRemaining <= 0) {
-                                try {
-                                    clinicRepository.purgeExceededArchivedClinicData(existingClinic.id)
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                                isLoading = false
-                                statusMessage = null
-                                errorMessage = "This clinic account exceeded the 30-day archive period and was permanently deleted along with all associated patient records."
-                                return@launch
-                            } else {
-                                statusMessage = "Opening Clinic Archive..."
-                                sessionManager?.saveClinicSession(existingClinic.id, existingClinic.contactEmail ?: trimmedEmail, existingClinic.name)
-                                sessionManager?.setClinicArchivedStatus(true, existingClinic.deletionScheduledAt)
-                                authRepository?.syncProfile(account.id ?: "", trimmedEmail, existingClinic.name, "clinic_admin")
-                                isLoading = false
-                                navController.navigate("${NavRoutes.Dashboard}/${existingClinic.id}") {
-                                    popUpTo(NavRoutes.ClinicLogin) { inclusive = true }
-                                }
-                                return@launch
-                            }
+                            sessionManager?.setClinicArchivedStatus(true, existingClinic.deletionScheduledAt)
                         } else {
                             sessionManager?.setClinicArchivedStatus(false, null)
                         }
 
-                        val isApproved = existingClinic.verificationStatus.equals("approved", ignoreCase = true)
-                        if (isApproved) {
+                        if (existingClinic.verificationStatus.equals("approved", ignoreCase = true)) {
                             sessionManager?.clearPendingVerification()
-                            statusMessage = "Opening Clinic Portal..."
-                            sessionManager?.saveClinicSession(existingClinic.id, existingClinic.contactEmail ?: trimmedEmail, existingClinic.name)
-                            authRepository?.syncProfile(account.id ?: "", trimmedEmail, existingClinic.name, "clinic_admin")
+                            clinicRepository?.clearCache()
+                            doctorRepository?.clearCache()
+                            sessionManager?.saveClinicSession(clinicId, existingClinic.contactEmail ?: trimmedEmail, existingClinic.name)
+                            try {
+                                authRepository?.syncProfile(accountId ?: clinicId, trimmedEmail, existingClinic.name, "clinic_admin")
+                            } catch (ignored: Exception) {}
+
                             isLoading = false
-                            navController.navigate("${NavRoutes.Dashboard}/${existingClinic.id}") {
+                            statusMessage = null
+                            navController.navigate("${NavRoutes.Dashboard}/$clinicId") {
                                 popUpTo(NavRoutes.ClinicLogin) { inclusive = true }
                             }
                         } else {
-                            // Application pending or rejected by Admin
-                            isLoading = false
-                            statusMessage = null
+                            // Pending admin review
                             pendingEntityName = existingClinic.name
                             pendingEmail = existingClinic.contactEmail ?: trimmedEmail
                             pendingRole = "clinic"
@@ -268,40 +365,51 @@ fun ClinicLoginScreen(
                             sessionManager?.savePendingVerification(
                                 email = pendingEmail,
                                 role = "clinic",
-                                name = pendingEntityName,
-                                id = pendingId,
+                                name = existingClinic.name,
+                                id = existingClinic.id,
                                 details = pendingDetails,
                                 status = pendingStatus
                             )
+                            isLoading = false
+                            statusMessage = null
                             currentView = "pending_verification"
                         }
                     } else {
-                        // No existing clinic found -> Ask for information as a new account
+                        // First-time clinic registration: Do NOT prefill clinicName from Google account
+                        clinicName = ""
+                        isUnregisteredAccountNotice = false
                         isLoading = false
                         statusMessage = null
-                        clinicName = verifiedDisplayName.ifBlank { "Medical Clinic" }
-                        isUnregisteredAccountNotice = (authActionIntent == "login")
                         currentView = "register_form"
                     }
                 } else {
-                    // Look up Doctor
-                    val existingDoctor = doctorRepository?.getDoctorByEmail(trimmedEmail)
+                    // DOCTOR / SPECIALIST
+                    val existingDoctor = try {
+                        doctorRepository?.getDoctorByEmail(trimmedEmail)
+                    } catch (e: Exception) {
+                        null
+                    }
+
                     if (existingDoctor != null) {
-                        val isApproved = existingDoctor.kycStatus.equals("approved", ignoreCase = true) ||
-                                existingDoctor.kycStatus.equals("verified", ignoreCase = true)
-                        if (isApproved) {
+                        val doctorId = existingDoctor.id
+                        if (existingDoctor.kycStatus.equals("approved", ignoreCase = true) ||
+                            existingDoctor.kycStatus.equals("verified", ignoreCase = true)
+                        ) {
                             sessionManager?.clearPendingVerification()
-                            statusMessage = "Opening Doctor Dashboard..."
-                            sessionManager?.saveDoctorSession(existingDoctor.id, existingDoctor.email, existingDoctor.fullName)
-                            authRepository?.syncProfile(account.id ?: "", trimmedEmail, existingDoctor.fullName, "doctor")
+                            clinicRepository?.clearCache()
+                            doctorRepository?.clearCache()
+                            sessionManager?.saveDoctorSession(doctorId, existingDoctor.email, existingDoctor.fullName)
+                            try {
+                                authRepository?.syncProfile(accountId ?: doctorId, trimmedEmail, existingDoctor.fullName, "doctor")
+                            } catch (ignored: Exception) {}
+
                             isLoading = false
-                            navController.navigate("${NavRoutes.DoctorDashboard}/${existingDoctor.id}") {
+                            statusMessage = null
+                            navController.navigate("${NavRoutes.DoctorDashboard}/$doctorId") {
                                 popUpTo(NavRoutes.ClinicLogin) { inclusive = true }
                             }
                         } else {
-                            // Application pending or rejected by Admin
-                            isLoading = false
-                            statusMessage = null
+                            // Pending KYC review
                             pendingEntityName = existingDoctor.fullName
                             pendingEmail = existingDoctor.email
                             pendingRole = "doctor"
@@ -311,53 +419,96 @@ fun ClinicLoginScreen(
                             sessionManager?.savePendingVerification(
                                 email = pendingEmail,
                                 role = "doctor",
-                                name = pendingEntityName,
-                                id = pendingId,
+                                name = existingDoctor.fullName,
+                                id = existingDoctor.id,
                                 details = pendingDetails,
                                 status = pendingStatus
                             )
+                            isLoading = false
+                            statusMessage = null
                             currentView = "pending_verification"
                         }
                     } else {
-                        // No existing doctor found -> Ask for information as a new account
+                        // First-time doctor registration: Do NOT prefill doctorName from Google account
+                        doctorName = ""
+                        isUnregisteredAccountNotice = false
                         isLoading = false
                         statusMessage = null
-                        doctorName = if (verifiedDisplayName.startsWith("Dr.", ignoreCase = true)) verifiedDisplayName else "Dr. $verifiedDisplayName"
-                        isUnregisteredAccountNotice = (authActionIntent == "login")
                         currentView = "register_form"
                     }
                 }
             } catch (e: Exception) {
+                // If checking DB fails (e.g. network glitch or first time user), do NOT prefill from Google account
                 isLoading = false
                 statusMessage = null
-                errorMessage = "Google login error: ${e.message ?: "Please try again."}"
+                if (selectedTab == 0) {
+                    clinicName = ""
+                    currentView = "register_form"
+                } else {
+                    doctorName = ""
+                    currentView = "register_form"
+                }
             }
+        }
+    }
+
+    fun handleGoogleAccountReceived(account: GoogleSignInAccount) {
+        googleAccount = account
+        val email = account.email ?: ""
+        val idToken = account.idToken
+        if (!idToken.isNullOrBlank()) {
+            try {
+                val credential = GoogleAuthProvider.getCredential(idToken, null)
+                FirebaseAuth.getInstance().signInWithCredential(credential)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        processLoginForEmail(email, "", account.id)
+    }
+
+    val accountPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val email = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (!email.isNullOrBlank()) {
+                processLoginForEmail(email, "")
+            } else {
+                isLoading = false
+                statusMessage = null
+            }
+        } else {
+            isLoading = false
+            statusMessage = null
         }
     }
 
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        val emailFromExtra = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+        if (!emailFromExtra.isNullOrBlank()) {
+            processLoginForEmail(emailFromExtra, "")
+            return@rememberLauncherForActivityResult
+        }
+
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
                 val account = task.getResult(ApiException::class.java)
-                if (account != null) {
+                if (account != null && !account.email.isNullOrBlank()) {
                     handleGoogleAccountReceived(account)
-                } else {
-                    isLoading = false
-                    statusMessage = null
-                    errorMessage = "Unable to read Google account."
+                    return@rememberLauncherForActivityResult
                 }
-            } catch (e: ApiException) {
-                isLoading = false
-                statusMessage = null
-                errorMessage = when (e.statusCode) {
-                    7 -> "Network error. Please check your connection."
-                    12501 -> null // User cancelled account chooser
-                    else -> "Google sign-in error (${e.statusCode}): ${e.localizedMessage}"
-                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
+        }
+
+        val lastAccount = GoogleSignIn.getLastSignedInAccount(context)
+        if (lastAccount != null && !lastAccount.email.isNullOrBlank()) {
+            handleGoogleAccountReceived(lastAccount)
         } else {
             isLoading = false
             statusMessage = null
@@ -393,6 +544,163 @@ fun ClinicLoginScreen(
         }
     }
 
+    var isFetchingLocation by remember { mutableStateOf(false) }
+    var showEnableGpsDialog by remember { mutableStateOf(false) }
+    var showLocationPermissionDialog by remember { mutableStateOf(false) }
+
+    fun isDeviceLocationEnabled(): Boolean {
+        val locManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+        return try {
+            locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun fetchCurrentLocation() {
+        val locManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        if (locManager == null) {
+            isFetchingLocation = false
+            return
+        }
+
+        if (!isDeviceLocationEnabled()) {
+            isFetchingLocation = false
+            showEnableGpsDialog = true
+            return
+        }
+
+        isFetchingLocation = true
+
+        fun applyLocation(loc: Location) {
+            val lat = loc.latitude
+            val lng = loc.longitude
+            coroutineScope.launch(Dispatchers.IO) {
+                var addressResult = ""
+                try {
+                    val geocoder = Geocoder(context, Locale.getDefault())
+                    val addresses = geocoder.getFromLocation(lat, lng, 1)
+                    if (!addresses.isNullOrEmpty()) {
+                        val addr = addresses[0]
+                        val parts = listOfNotNull(
+                            addr.featureName,
+                            addr.subLocality,
+                            addr.locality,
+                            addr.subAdminArea,
+                            addr.adminArea
+                        ).distinct()
+                        addressResult = parts.joinToString(", ")
+                    }
+                } catch (ignored: Exception) {}
+
+                if (addressResult.isBlank()) {
+                    addressResult = "Location (${String.format(Locale.US, "%.5f", lat)}, ${String.format(Locale.US, "%.5f", lng)})"
+                }
+
+                withContext(Dispatchers.Main) {
+                    clinicLat = lat
+                    clinicLng = lng
+                    clinicAddress = addressResult
+                    isFetchingLocation = false
+                }
+            }
+        }
+
+        // 1. Initial cached reading if present
+        var bestLoc: Location? = null
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        for (p in providers) {
+            try {
+                val loc = locManager.getLastKnownLocation(p)
+                if (loc != null && (bestLoc == null || loc.accuracy < bestLoc.accuracy)) {
+                    bestLoc = loc
+                }
+            } catch (ignored: Exception) {}
+        }
+        if (bestLoc != null) {
+            applyLocation(bestLoc)
+        }
+
+        // 2. Request active real live GPS fix
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val provider = when {
+                    locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                    locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                    else -> LocationManager.PASSIVE_PROVIDER
+                }
+                locManager.getCurrentLocation(provider, null, context.mainExecutor) { liveLoc ->
+                    if (liveLoc != null) {
+                        applyLocation(liveLoc)
+                    } else if (bestLoc == null) {
+                        coroutineScope.launch(Dispatchers.Main) { isFetchingLocation = false }
+                    }
+                }
+            } else {
+                val listener = object : LocationListener {
+                    override fun onLocationChanged(location: Location) {
+                        locManager.removeUpdates(this)
+                        applyLocation(location)
+                    }
+                    @Deprecated("Deprecated in Java")
+                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                    override fun onProviderEnabled(provider: String) {}
+                    override fun onProviderDisabled(provider: String) {}
+                }
+                if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, listener, Looper.getMainLooper())
+                } else if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    locManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, listener, Looper.getMainLooper())
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            if (bestLoc == null) {
+                coroutineScope.launch(Dispatchers.Main) { isFetchingLocation = false }
+            }
+        }
+    }
+
+    val gpsSettingsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (isDeviceLocationEnabled()) {
+            fetchCurrentLocation()
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                      permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            fetchCurrentLocation()
+        } else {
+            showLocationPermissionDialog = true
+        }
+    }
+
+    fun requestLocationAndFetch() {
+        val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasFine || hasCoarse) {
+            fetchCurrentLocation()
+        } else {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
+    }
+
+    // Automatically request location permission and fetch location when entering Clinic Registration
+    LaunchedEffect(currentView, selectedTab) {
+        if (currentView == "register_form" && selectedTab == 0 && clinicAddress.isBlank()) {
+            requestLocationAndFetch()
+        }
+    }
+
     fun launchGoogleSignIn(intentType: String) {
         if (isLoading) return
         isLoading = true
@@ -400,25 +708,21 @@ fun ClinicLoginScreen(
         authActionIntent = intentType
         statusMessage = "Opening Google account chooser..."
         isUnregisteredAccountNotice = false
+
         try {
-            // ALWAYS sign out first so Google Play Services shows the account chooser dialog
-            // listing all available Gmail accounts on the device every single time
-            googleSignInClient.signOut().addOnCompleteListener {
-                try {
-                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                } catch (e: Exception) {
-                    isLoading = false
-                    statusMessage = null
-                    errorMessage = "Failed to open account chooser: ${e.message}"
-                }
-            }
+            val pickerIntent = AccountPicker.newChooseAccountIntent(
+                AccountPicker.AccountChooserOptions.Builder()
+                    .setAllowableAccountsTypes(listOf("com.google"))
+                    .build()
+            )
+            accountPickerLauncher.launch(pickerIntent)
         } catch (e: Exception) {
             try {
                 googleSignInLauncher.launch(googleSignInClient.signInIntent)
             } catch (e2: Exception) {
                 isLoading = false
                 statusMessage = null
-                errorMessage = "Failed to launch Google Sign-In: ${e2.message}"
+                errorMessage = "Failed to launch account picker: ${e2.message}"
             }
         }
     }
@@ -454,6 +758,8 @@ fun ClinicLoginScreen(
 
     fun resetToAuthChoice() {
         sessionManager?.clearSession()
+        clinicRepository?.clearCache()
+        doctorRepository?.clearCache()
         isLoading = false
         statusMessage = null
         errorMessage = null
@@ -471,17 +777,19 @@ fun ClinicLoginScreen(
         clinicPictures = emptyList()
         clinicDesc = ""
         doctorName = ""
-        doctorGender = "Male"
+        doctorGender = ""
         doctorAge = ""
         doctorStartingYear = ""
         doctorPictureUri = null
         doctorPictureName = null
-        doctorSpecialty = "General Physician"
+        doctorSpecialty = ""
         doctorEducation = ""
         doctorNmc = ""
         doctorPersonalPhone = ""
         doctorPublicPhone = ""
         doctorDesc = ""
+        clinicValidationTriggered = false
+        doctorValidationTriggered = false
         currentView = "auth_choice"
         try {
             googleSignInClient.signOut()
@@ -490,35 +798,72 @@ fun ClinicLoginScreen(
     }
 
     fun submitClinicRegistration() {
-        if (clinicName.isBlank()) {
-            errorMessage = "Please enter the clinic / hospital name."
+        clinicValidationTriggered = true
+        if (clinicName.trim().length < 2) {
+            errorMessage = "Please enter clinic name (at least 2 characters)."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((clinicNameFieldY - 200).coerceAtLeast(0))
+                runCatching { clinicNameFocus.requestFocus() }
+            }
             return
         }
         if (clinicAddress.isBlank()) {
             errorMessage = "Please enter or pick the clinic location."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((clinicAddressFieldY - 200).coerceAtLeast(0))
+            }
+            return
+        }
+        if (clinicRegDocUri == null) {
+            errorMessage = "Please upload the clinic registration certificate (PDF or Image)."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((clinicRegDocFieldY - 200).coerceAtLeast(0))
+            }
             return
         }
         val cleanPan = clinicPan.trim()
         if (cleanPan.length != 9 || !cleanPan.all { it.isDigit() }) {
             errorMessage = "PAN number must be exactly 9 digits."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((clinicPanFieldY - 200).coerceAtLeast(0))
+                runCatching { clinicPanFocus.requestFocus() }
+            }
             return
         }
         val cleanClinicPhone = clinicPhoneDigits.trim()
-        if (cleanClinicPhone.length != 10 || !cleanClinicPhone.all { it.isDigit() }) {
-            errorMessage = "Clinic contact number must be exactly 10 digits (country code +977)."
+        if (cleanClinicPhone.length != 10 || !cleanClinicPhone.startsWith("9") || !cleanClinicPhone.all { it.isDigit() }) {
+            errorMessage = "Clinic contact number must be exactly 10 digits starting with 9."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((clinicPhoneFieldY - 200).coerceAtLeast(0))
+                runCatching { clinicPhoneFocus.requestFocus() }
+            }
             return
         }
         val cleanManagerPhone = managerPhoneDigits.trim()
-        if (cleanManagerPhone.length != 10 || !cleanManagerPhone.all { it.isDigit() }) {
-            errorMessage = "Manager contact number must be exactly 10 digits (country code +977)."
+        if (cleanManagerPhone.length != 10 || !cleanManagerPhone.startsWith("9") || !cleanManagerPhone.all { it.isDigit() }) {
+            errorMessage = "Manager contact number must be exactly 10 digits starting with 9."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((managerPhoneFieldY - 200).coerceAtLeast(0))
+                runCatching { managerPhoneFocus.requestFocus() }
+            }
             return
         }
         if (clinicPictures.isEmpty()) {
             errorMessage = "Please upload at least 1 clinic picture (1 to 4 pictures required)."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((clinicPicturesFieldY - 200).coerceAtLeast(0))
+            }
             return
         }
         if (clinicPictures.size > 4) {
             errorMessage = "Maximum 4 clinic pictures allowed."
+            return
+        }
+        if (!clinicTermsAccepted) {
+            errorMessage = "Please review and accept the Clinic Terms of Service & Regulatory Policy to register."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((clinicTermsFieldY - 200).coerceAtLeast(0))
+            }
             return
         }
 
@@ -530,6 +875,41 @@ fun ClinicLoginScreen(
             try {
                 val newId = UUID.randomUUID().toString()
                 val email = verifiedEmail.trim().lowercase()
+
+                // 1. Upload registration document to Supabase Storage if selected
+                var uploadedRegDocUrl: String? = null
+                if (clinicRegDocUri != null) {
+                    statusMessage = "Uploading registration document to Supabase Storage..."
+                    try {
+                        val bytes = context.contentResolver.openInputStream(clinicRegDocUri!!)?.use { it.readBytes() }
+                        if (bytes != null) {
+                            val cleanDocName = (clinicRegDocName ?: "doc.pdf").replace("\\s+".toRegex(), "_")
+                            val fileName = "reg_${newId}_${System.currentTimeMillis()}_$cleanDocName"
+                            uploadedRegDocUrl = clinicRepository?.uploadClinicFile(fileName, bytes)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                // 2. Upload clinic pictures to Supabase Storage
+                val uploadedPictureUrls = mutableListOf<String>()
+                statusMessage = "Uploading clinic pictures to Supabase Storage..."
+                for ((idx, picUri) in clinicPictures.withIndex()) {
+                    try {
+                        val bytes = context.contentResolver.openInputStream(picUri)?.use { it.readBytes() }
+                        if (bytes != null) {
+                            val fileName = "clinic_${newId}_${System.currentTimeMillis()}_${idx + 1}.jpg"
+                            val publicUrl = clinicRepository?.uploadClinicFile(fileName, bytes)
+                            if (publicUrl != null) {
+                                uploadedPictureUrls.add(publicUrl)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
                 val newClinic = Clinic(
                     id = newId,
                     name = clinicName.trim(),
@@ -544,8 +924,9 @@ fun ClinicLoginScreen(
                     description = clinicDesc.trim().ifBlank { null },
                     panNumber = cleanPan,
                     managerPhone = "+977$cleanManagerPhone",
-                    registrationDocUrl = clinicRegDocUri?.toString(),
-                    pictures = clinicPictures.map { it.toString() }
+                    registrationDocUrl = uploadedRegDocUrl,
+                    pictures = uploadedPictureUrls,
+                    specialties = clinicSpecialties.toList()
                 )
 
                 clinicRepository?.createClinic(newClinic)
@@ -578,28 +959,76 @@ fun ClinicLoginScreen(
     }
 
     fun submitDoctorRegistration() {
-        if (doctorName.isBlank() || doctorSpecialty.isBlank() || doctorNmc.isBlank()) {
-            errorMessage = "Please fill in doctor name, specialization, and NMC license ID."
+        doctorValidationTriggered = true
+        if (doctorName.trim().length < 3) {
+            errorMessage = "Please enter doctor full name (at least 3 characters)."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((doctorNameFieldY - 200).coerceAtLeast(0))
+                runCatching { doctorNameFocus.requestFocus() }
+            }
+            return
+        }
+        if (doctorGender.isBlank()) {
+            errorMessage = "Please select doctor gender."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((doctorGenderFieldY - 200).coerceAtLeast(0))
+            }
             return
         }
         val cleanAge = doctorAge.trim().toIntOrNull()
-        if (doctorAge.isNotBlank() && (cleanAge == null || cleanAge < 20 || cleanAge > 100)) {
+        if (cleanAge == null || cleanAge !in 20..100) {
             errorMessage = "Please enter a valid age between 20 and 100."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((doctorAgeFieldY - 200).coerceAtLeast(0))
+                runCatching { doctorAgeFocus.requestFocus() }
+            }
             return
         }
         val cleanYear = doctorStartingYear.trim().toIntOrNull()
-        if (doctorStartingYear.isNotBlank() && (cleanYear == null || cleanYear < 1960 || cleanYear > 2026)) {
-            errorMessage = "Please enter a valid starting practicing year (e.g. 2018)."
+        if (cleanYear == null || cleanYear !in 1960..2026) {
+            errorMessage = "Please select starting practicing year from the dropdown."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((doctorStartingYearFieldY - 200).coerceAtLeast(0))
+            }
+            return
+        }
+        if (doctorSpecialty.isBlank()) {
+            errorMessage = "Please specify practitioner specialization."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((doctorSpecialtyFieldY - 200).coerceAtLeast(0))
+            }
+            return
+        }
+        if (doctorEducation.isBlank()) {
+            errorMessage = "Please select educational qualification."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((doctorEducationFieldY - 200).coerceAtLeast(0))
+            }
+            return
+        }
+        if (doctorNmc.trim().length < 3) {
+            errorMessage = "Please enter a valid NMC license number (at least 3 characters)."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((doctorNmcFieldY - 200).coerceAtLeast(0))
+                runCatching { doctorNmcFocus.requestFocus() }
+            }
             return
         }
         val cleanPersonal = doctorPersonalPhone.trim()
-        if (cleanPersonal.isNotBlank() && (cleanPersonal.length != 10 || !cleanPersonal.all { it.isDigit() })) {
-            errorMessage = "Personal mobile number must be exactly 10 digits."
+        val cleanPublic = doctorPublicPhone.trim()
+        if (cleanPersonal.length != 10 || !cleanPersonal.startsWith("9") || !cleanPersonal.all { it.isDigit() }) {
+            errorMessage = "Personal mobile number must be exactly 10 digits starting with 9."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((doctorPhoneFieldY - 200).coerceAtLeast(0))
+                runCatching { doctorPhoneFocus.requestFocus() }
+            }
             return
         }
-        val cleanPublic = doctorPublicPhone.trim()
-        if (cleanPublic.isNotBlank() && (cleanPublic.length != 10 || !cleanPublic.all { it.isDigit() })) {
-            errorMessage = "Public mobile number must be exactly 10 digits."
+        if (!doctorTermsAccepted) {
+            errorMessage = "Please review and accept the Doctor Terms of Service & NMC Code of Ethics to register."
+            coroutineScope.launch {
+                scrollState.animateScrollTo((doctorTermsFieldY - 200).coerceAtLeast(0))
+            }
             return
         }
 
@@ -611,6 +1040,23 @@ fun ClinicLoginScreen(
             try {
                 val newId = UUID.randomUUID().toString()
                 val email = verifiedEmail.trim().lowercase()
+
+                // Upload doctor profile picture to Supabase Storage if selected
+                var uploadedProfilePicUrl: String? = null
+                if (doctorPictureUri != null) {
+                    statusMessage = "Uploading doctor photo to Supabase Storage..."
+                    try {
+                        val bytes = context.contentResolver.openInputStream(doctorPictureUri!!)?.use { it.readBytes() }
+                        if (bytes != null) {
+                            val cleanPicName = (doctorPictureName ?: "profile.jpg").replace("\\s+".toRegex(), "_")
+                            val fileName = "doc_${newId}_${System.currentTimeMillis()}_$cleanPicName"
+                            uploadedProfilePicUrl = doctorRepository?.uploadProfilePicture(fileName, bytes)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
                 val newDoctor = Doctor(
                     id = newId,
                     fullName = doctorName.trim(),
@@ -618,8 +1064,9 @@ fun ClinicLoginScreen(
                     gender = doctorGender,
                     age = cleanAge,
                     startingPracticingYear = cleanYear,
-                    profilePictureUrl = doctorPictureUri?.toString(),
+                    profilePictureUrl = uploadedProfilePicUrl,
                     specialty = doctorSpecialty.trim(),
+                    specialties = listOf(doctorSpecialty.trim()),
                     education = doctorEducation.trim().ifBlank { null },
                     nmcLicenseNumber = doctorNmc.trim(),
                     personalMobileNumber = if (cleanPersonal.isNotBlank()) cleanPersonal else null,
@@ -627,7 +1074,8 @@ fun ClinicLoginScreen(
                     description = doctorDesc.trim().ifBlank { null },
                     kycStatus = "pending", // Pending admin verification
                     isInClinic = true,
-                    consultationFee = doctorFee.toDoubleOrNull() ?: 500.0
+                    consultationFee = 500.0, // Controlled by clinic in Operational Management
+                    practitionerRole = doctorPractitionerRole
                 )
 
                 doctorRepository?.createDoctor(newDoctor)
@@ -678,6 +1126,8 @@ fun ClinicLoginScreen(
                         pendingStatus = refreshedClinic.verificationStatus ?: "pending"
                         if (refreshedClinic.verificationStatus.equals("approved", ignoreCase = true)) {
                             statusMessage = "Your clinic has been verified! Opening portal..."
+                            clinicRepository?.clearCache()
+                            doctorRepository?.clearCache()
                             sessionManager?.saveClinicSession(refreshedClinic.id, refreshedClinic.contactEmail ?: email, refreshedClinic.name)
                             authRepository?.syncProfile(googleAccount?.id ?: "", email, refreshedClinic.name, "clinic_admin")
                             isLoading = false
@@ -710,6 +1160,8 @@ fun ClinicLoginScreen(
                             refreshedDoctor.kycStatus.equals("verified", ignoreCase = true)
                         ) {
                             statusMessage = "Your doctor profile has been verified! Opening OPD dashboard..."
+                            clinicRepository?.clearCache()
+                            doctorRepository?.clearCache()
                             sessionManager?.saveDoctorSession(refreshedDoctor.id, refreshedDoctor.email, refreshedDoctor.fullName)
                             authRepository?.syncProfile(googleAccount?.id ?: "", email, refreshedDoctor.fullName, "doctor")
                             isLoading = false
@@ -742,6 +1194,8 @@ fun ClinicLoginScreen(
         try {
             googleSignInClient.signOut()
             FirebaseAuth.getInstance().signOut()
+            clinicRepository?.clearCache()
+            doctorRepository?.clearCache()
             sessionManager?.clearSession()
         } catch (ignored: Exception) {}
         currentView = "auth_choice"
@@ -874,20 +1328,14 @@ fun ClinicLoginScreen(
                 }
 
                 // Portal Avatar Icon
-                Surface(
-                    shape = CircleShape,
-                    color = if (selectedTab == 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer,
-                    modifier = Modifier.size(80.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (selectedTab == 0) Icons.Default.LocalHospital else Icons.Default.MedicalServices,
-                            contentDescription = null,
-                            tint = if (selectedTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(44.dp)
-                        )
-                    }
-                }
+                Image(
+                    painter = painterResource(id = R.drawable.app_logo),
+                    contentDescription = "Dactor Logo",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .size(88.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                )
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
@@ -941,6 +1389,35 @@ fun ClinicLoginScreen(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )
+                        }
+
+                        // Terms & Conditions and Regulatory Policy Disclosure Button
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "By continuing, you accept Dactor's ",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(
+                                onClick = {
+                                    termsDialogInitialTab = if (selectedTab == 0) 0 else 1
+                                    showTermsDialog = true
+                                },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(
+                                    if (selectedTab == 0) "Clinic Terms & Policy" else "Doctor Terms & Policy",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selectedTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+                                )
+                            }
                         }
                     }
                 }
@@ -1031,11 +1508,11 @@ fun ClinicLoginScreen(
                         OutlinedButton(
                             onClick = { switchGoogleAccount() },
                             shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(34.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 36.dp),
                             enabled = !isLoading
                         ) {
-                            Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Switch", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
@@ -1059,55 +1536,115 @@ fun ClinicLoginScreen(
                             // 1. Clinic Name
                             OutlinedTextField(
                                 value = clinicName,
-                                onValueChange = { clinicName = it },
+                                onValueChange = {
+                                    clinicName = it
+                                    if (errorMessage != null) errorMessage = null
+                                },
                                 label = { Text("Name of the Clinic *") },
                                 placeholder = { Text("e.g. Patan Health Care Polyclinic") },
                                 leadingIcon = { Icon(Icons.Default.LocalHospital, contentDescription = null) },
+                                isError = isClinicNameError,
+                                supportingText = if (isClinicNameError) {
+                                    { Text("Required: Clinic name must be at least 2 characters", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                                } else null,
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(clinicNameFocus)
+                                    .onGloballyPositioned { clinicNameFieldY = it.positionInRoot().y.toInt() },
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // 2. Location (With Location Picker)
+                            // 2. Location (With GPS & OpenStreetMap Picker)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                modifier = Modifier.fillMaxWidth()
+                                color = if (isClinicAddressError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(if (isClinicAddressError) 1.5.dp else 1.dp, if (isClinicAddressError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { clinicAddressFieldY = it.positionInRoot().y.toInt() }
                             ) {
-                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.LocationOn,
+                                            contentDescription = null,
+                                            tint = if (isClinicAddressError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            "Clinic Location *",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                            color = if (isClinicAddressError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                            Text("Clinic Location *", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                        }
                                         FilledTonalButton(
-                                            onClick = { showLocationPicker = true },
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                            modifier = Modifier.height(32.dp)
+                                            onClick = { requestLocationAndFetch() },
+                                            shape = RoundedCornerShape(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                            modifier = Modifier.weight(1f).height(40.dp),
+                                            enabled = !isFetchingLocation
                                         ) {
-                                            Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(Modifier.width(4.dp))
-                                            Text("Open Location Picker", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            if (isFetchingLocation) {
+                                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                            } else {
+                                                Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            }
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = if (isFetchingLocation) "Locating..." else "Use GPS",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1
+                                            )
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = { showLocationPicker = true },
+                                            shape = RoundedCornerShape(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                            modifier = Modifier.weight(1f).height(40.dp)
+                                        ) {
+                                            Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = "Map Picker",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1
+                                            )
                                         }
                                     }
 
                                     OutlinedTextField(
                                         value = clinicAddress,
-                                        onValueChange = { clinicAddress = it },
-                                        placeholder = { Text("e.g. Lagankhel, Lalitpur (or tap picker)") },
+                                        onValueChange = {
+                                            clinicAddress = it
+                                            if (errorMessage != null) errorMessage = null
+                                        },
+                                        placeholder = { Text("e.g. Lagankhel, Lalitpur (or tap Use GPS / Map Picker)") },
+                                        isError = isClinicAddressError,
+                                        supportingText = if (isClinicAddressError) {
+                                            { Text("Required: Location cannot be blank", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                                        } else null,
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(10.dp)
                                     )
 
                                     Text(
-                                        text = "Pinned GPS: (${String.format("%.4f", clinicLat)}, ${String.format("%.4f", clinicLng)})",
+                                        text = "Pinned GPS: (${String.format(Locale.US, "%.4f", clinicLat)}, ${String.format(Locale.US, "%.4f", clinicLng)})",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1117,9 +1654,11 @@ fun ClinicLoginScreen(
                             // 3. Registration Paper (Upload)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                modifier = Modifier.fillMaxWidth()
+                                color = if (isClinicRegDocError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(if (isClinicRegDocError) 1.5.dp else 1.dp, if (isClinicRegDocError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { clinicRegDocFieldY = it.positionInRoot().y.toInt() }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(12.dp),
@@ -1127,11 +1666,19 @@ fun ClinicLoginScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("Registration Paper (Upload) *", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                         Text(
-                                            text = clinicRegDocName ?: "No file uploaded yet (PDF or Image)",
+                                            "Registration Paper (Upload) *",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                            color = if (isClinicRegDocError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = if (isClinicRegDocError) "Required: Please upload registration certificate (PDF/Image)"
+                                                   else clinicRegDocName ?: "No file uploaded yet (PDF or Image)",
                                             fontSize = 11.sp,
-                                            color = if (clinicRegDocName != null) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = if (isClinicRegDocError) MaterialTheme.colorScheme.error
+                                                    else if (clinicRegDocName != null) Color(0xFF047857)
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontWeight = if (clinicRegDocName != null) FontWeight.Bold else FontWeight.Normal
                                         )
                                     }
@@ -1139,12 +1686,12 @@ fun ClinicLoginScreen(
                                     OutlinedButton(
                                         onClick = { regDocLauncher.launch("*/*") },
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                        modifier = Modifier.height(34.dp)
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                                     ) {
-                                        Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(15.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text(if (clinicRegDocName != null) "Change" else "Upload", fontSize = 12.sp)
+                                        Text(if (clinicRegDocName != null) "Change" else "Upload", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -1152,34 +1699,46 @@ fun ClinicLoginScreen(
                             // 4. PAN Number (always 9 digit)
                             OutlinedTextField(
                                 value = clinicPan,
-                                onValueChange = {
-                                    if (it.length <= 9 && it.all { ch -> ch.isDigit() }) {
-                                        clinicPan = it
-                                    }
+                                onValueChange = { input ->
+                                    val digitsOnly = input.filter { it.isDigit() }.take(9)
+                                    clinicPan = digitsOnly
+                                    if (errorMessage != null) errorMessage = null
                                 },
                                 label = { Text("PAN Number (9 Digits Always) *") },
                                 placeholder = { Text("e.g. 601234567") },
                                 leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
+                                isError = isClinicPanError,
                                 supportingText = {
-                                    Text(
-                                        text = "${clinicPan.length}/9 digits" + if (clinicPan.length == 9) " ✓ Valid" else " (Must be exactly 9 digits)",
-                                        color = if (clinicPan.length == 9) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    if (isClinicPanError) {
+                                        Text(
+                                            "Required: PAN must be exactly 9 digits (${cleanClinicPanDigits.length}/9)",
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontSize = 11.sp
+                                        )
+                                    } else {
+                                        Text(
+                                            "${clinicPan.length}/9 digits" + if (clinicPan.length == 9) " ✓ Valid" else "",
+                                            color = if (clinicPan.length == 9) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
+                                    }
                                 },
-                                isError = clinicPan.isNotBlank() && clinicPan.length != 9,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(clinicPanFocus)
+                                    .onGloballyPositioned { clinicPanFieldY = it.positionInRoot().y.toInt() },
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // 5. Clinic Contact Number (+977 and 10 digits)
+                            // 5. Clinic Contact Number (+977 and 10 digits starting with 9)
                             OutlinedTextField(
                                 value = clinicPhoneDigits,
-                                onValueChange = {
-                                    if (it.length <= 10 && it.all { ch -> ch.isDigit() }) {
-                                        clinicPhoneDigits = it
-                                    }
+                                onValueChange = { input ->
+                                    val digitsOnly = input.filter { it.isDigit() }.take(10)
+                                    clinicPhoneDigits = digitsOnly
+                                    if (errorMessage != null) errorMessage = null
                                 },
                                 label = { Text("Clinic Contact Number *") },
                                 placeholder = { Text("98xxxxxxxx (10 digits)") },
@@ -1187,24 +1746,36 @@ fun ClinicLoginScreen(
                                 leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                                 singleLine = true,
+                                isError = isClinicPhoneError,
                                 supportingText = {
-                                    Text(
-                                        text = "Country code +977 • ${clinicPhoneDigits.length}/10 digits" + if (clinicPhoneDigits.length == 10) " ✓" else "",
-                                        color = if (clinicPhoneDigits.length == 10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    if (isClinicPhoneError) {
+                                        Text(
+                                            "Required: 10 digits starting with 9 (${cleanClinicPhoneDigits.length}/10)",
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontSize = 11.sp
+                                        )
+                                    } else {
+                                        Text(
+                                            "Country code +977 • ${clinicPhoneDigits.length}/10 digits" + if (cleanClinicPhoneDigits.length == 10 && cleanClinicPhoneDigits.startsWith("9")) " ✓" else "",
+                                            color = if (cleanClinicPhoneDigits.length == 10 && cleanClinicPhoneDigits.startsWith("9")) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
+                                    }
                                 },
-                                isError = clinicPhoneDigits.isNotBlank() && clinicPhoneDigits.length != 10,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(clinicPhoneFocus)
+                                    .onGloballyPositioned { clinicPhoneFieldY = it.positionInRoot().y.toInt() },
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // 6. Manager Contact Number (+977 and 10 digits)
+                            // 6. Manager Contact Number (+977 and 10 digits starting with 9)
                             OutlinedTextField(
                                 value = managerPhoneDigits,
-                                onValueChange = {
-                                    if (it.length <= 10 && it.all { ch -> ch.isDigit() }) {
-                                        managerPhoneDigits = it
-                                    }
+                                onValueChange = { input ->
+                                    val digitsOnly = input.filter { it.isDigit() }.take(10)
+                                    managerPhoneDigits = digitsOnly
+                                    if (errorMessage != null) errorMessage = null
                                 },
                                 label = { Text("Manager Contact Number *") },
                                 placeholder = { Text("98xxxxxxxx (10 digits)") },
@@ -1212,23 +1783,37 @@ fun ClinicLoginScreen(
                                 leadingIcon = { Icon(Icons.Default.ContactPhone, contentDescription = null) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                                 singleLine = true,
+                                isError = isManagerPhoneError,
                                 supportingText = {
-                                    Text(
-                                        text = "Country code +977 • ${managerPhoneDigits.length}/10 digits" + if (managerPhoneDigits.length == 10) " ✓" else "",
-                                        color = if (managerPhoneDigits.length == 10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    if (isManagerPhoneError) {
+                                        Text(
+                                            "Required: 10 digits starting with 9 (${cleanManagerPhoneDigits.length}/10)",
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontSize = 11.sp
+                                        )
+                                    } else {
+                                        Text(
+                                            "Country code +977 • ${managerPhoneDigits.length}/10 digits" + if (cleanManagerPhoneDigits.length == 10 && cleanManagerPhoneDigits.startsWith("9")) " ✓" else "",
+                                            color = if (cleanManagerPhoneDigits.length == 10 && cleanManagerPhoneDigits.startsWith("9")) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
+                                    }
                                 },
-                                isError = managerPhoneDigits.isNotBlank() && managerPhoneDigits.length != 10,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(managerPhoneFocus)
+                                    .onGloballyPositioned { managerPhoneFieldY = it.positionInRoot().y.toInt() },
                                 shape = RoundedCornerShape(12.dp)
                             )
 
                             // 7. Pictures of Clinic (1-4, one by one)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                modifier = Modifier.fillMaxWidth()
+                                color = if (isClinicPicturesError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(if (isClinicPicturesError) 1.5.dp else 1.dp, if (isClinicPicturesError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { clinicPicturesFieldY = it.positionInRoot().y.toInt() }
                             ) {
                                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Row(
@@ -1250,12 +1835,12 @@ fun ClinicLoginScreen(
                                             OutlinedButton(
                                                 onClick = { clinicPictureLauncher.launch("image/*") },
                                                 shape = RoundedCornerShape(8.dp),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                                modifier = Modifier.height(34.dp)
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                                modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                                             ) {
-                                                Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(15.dp))
                                                 Spacer(Modifier.width(4.dp))
-                                                Text(if (clinicPictures.isEmpty()) "+ Add Photo" else "+ Add Another", fontSize = 12.sp)
+                                                Text(if (clinicPictures.isEmpty()) "+ Add Photo" else "+ Add Another", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
@@ -1371,6 +1956,132 @@ fun ClinicLoginScreen(
                                 )
                             }
 
+                            // Clinic Specialties (Multi-Select)
+                            val allClinicSpecOptions = if (availableSpecialtiesList.isNotEmpty()) {
+                                availableSpecialtiesList.map { it.name }
+                            } else {
+                                listOf(
+                                    "Dental Care & Dentistry",
+                                    "Ophthalmology (Eye Care)",
+                                    "Dermatology & Skin Care",
+                                    "Cardiology (Heart Care)",
+                                    "Orthopedics & Joint Care",
+                                    "Pediatrics & Child Health",
+                                    "ENT (Ear, Nose & Throat)",
+                                    "Gynecology & Obstetrics",
+                                    "General Medicine & Physician",
+                                    "Gastroenterology",
+                                    "Neurology (Brain & Nerve)",
+                                    "Psychiatry & Mental Health",
+                                    "Urology & Kidney Care",
+                                    "Pathology & Diagnostic Lab"
+                                )
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Clinic Specialties (Select Multiple):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "${clinicSpecialties.size} Selected",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    "Select all departments you operate. When patients search for symptoms (e.g. eye, teeth, skin, heart), your clinic will match.",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                allClinicSpecOptions.chunked(2).forEach { rowSpecs ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        rowSpecs.forEach { specName ->
+                                            val isSelected = clinicSpecialties.contains(specName)
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    clinicSpecialties = if (isSelected) {
+                                                        clinicSpecialties - specName
+                                                    } else {
+                                                        clinicSpecialties + specName
+                                                    }
+                                                },
+                                                label = { Text(specName, fontSize = 11.sp, maxLines = 1) },
+                                                leadingIcon = if (isSelected) {
+                                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                                } else null,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                        if (rowSpecs.size == 1) {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Terms Acceptance Checkbox Card
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isClinicTermsError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(if (isClinicTermsError) 1.5.dp else 1.dp, if (isClinicTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { clinicTermsFieldY = it.positionInRoot().y.toInt() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Checkbox(
+                                        checked = clinicTermsAccepted,
+                                        onCheckedChange = {
+                                            clinicTermsAccepted = it
+                                            if (errorMessage != null) errorMessage = null
+                                        }
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                "I accept the ",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            TextButton(
+                                                onClick = {
+                                                    termsDialogInitialTab = 0
+                                                    showTermsDialog = true
+                                                },
+                                                contentPadding = PaddingValues(0.dp)
+                                            ) {
+                                                Text(
+                                                    "Clinic Terms & Policy *",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isClinicTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            if (isClinicTermsError) "Required: Please review and accept terms to register clinic"
+                                            else "Compliant with Nepal Health Institution Standards 2077 & Google Play Policies.",
+                                            fontSize = 10.sp,
+                                            color = if (isClinicTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            lineHeight = 14.sp
+                                        )
+                                    }
+                                }
+                            }
+
                             Button(
                                 onClick = { submitClinicRegistration() },
                                 modifier = Modifier
@@ -1392,7 +2103,37 @@ fun ClinicLoginScreen(
                         }
                     }
                 } else {
-                    // DOCTOR FORM
+                    // DOCTOR / LAB TECHNICIAN FORM
+                    val labTechnicianEducations = listOf(
+                        "CMLT (Certificate in Medical Lab Technology)",
+                        "DMLT (Diploma in Medical Lab Technology)",
+                        "BMLT / B.Sc. MLT (Bachelor in Medical Lab Technology)",
+                        "M.Sc. MLT / Clinical Biochemistry",
+                        "M.Sc. Medical Microbiology",
+                        "PCL in Medical Lab Technology",
+                        "Certified Phlebotomy & Lab Technician"
+                    )
+                    val doctorEducations = if (availableQualificationsList.isNotEmpty()) {
+                        availableQualificationsList.map { it.degreeName }
+                    } else {
+                        listOf(
+                            "MBBS",
+                            "MD - Internal Medicine",
+                            "MS - General Surgery",
+                            "BDS",
+                            "MDS",
+                            "DM - Cardiology",
+                            "MCh - Neurosurgery",
+                            "MD - Pediatrics",
+                            "DNB",
+                            "FRCS",
+                            "MRCP",
+                            "BAMS",
+                            "BHMS",
+                            "BPT"
+                        )
+                    }
+
                     Card(
                         shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1403,63 +2144,192 @@ fun ClinicLoginScreen(
                             modifier = Modifier.padding(20.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            Text("Doctor Details", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                            Text(
+                                text = if (doctorPractitionerRole == "lab_technician") "Lab Technician Details" else "Doctor Details",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp
+                            )
+
+                            // 0. Practitioner Role (Doctor vs Lab Technician)
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Practitioner Role *", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = doctorPractitionerRole == "doctor",
+                                        onClick = {
+                                            doctorPractitionerRole = "doctor"
+                                            if (doctorSpecialty.contains("Lab", ignoreCase = true) || doctorSpecialty.contains("Pathology", ignoreCase = true)) {
+                                                doctorSpecialty = "General Physician"
+                                            }
+                                            if (doctorEducation in labTechnicianEducations || doctorEducation.isBlank()) {
+                                                doctorEducation = doctorEducations.firstOrNull() ?: "MBBS"
+                                            }
+                                        },
+                                        label = { Text("Doctor", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.MedicalServices,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    FilterChip(
+                                        selected = doctorPractitionerRole == "lab_technician",
+                                        onClick = {
+                                            doctorPractitionerRole = "lab_technician"
+                                            if (doctorSpecialty == "General Physician" || doctorSpecialty.isBlank()) {
+                                                doctorSpecialty = "Medical Lab Technician"
+                                            }
+                                            if (doctorEducation !in labTechnicianEducations) {
+                                                doctorEducation = labTechnicianEducations.first()
+                                            }
+                                        },
+                                        label = { Text("Lab Technician", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Biotech,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
 
                             // 1. Name
                             OutlinedTextField(
                                 value = doctorName,
-                                onValueChange = { doctorName = it },
+                                onValueChange = {
+                                    doctorName = it
+                                    if (errorMessage != null) errorMessage = null
+                                },
                                 label = { Text("Full Name with Title *") },
-                                placeholder = { Text("e.g. Dr. Ram Bahadur Sharma") },
+                                placeholder = {
+                                    Text(
+                                        if (doctorPractitionerRole == "lab_technician") "e.g. Tech. Suman Thapa"
+                                        else "e.g. Dr. Ram Bahadur Sharma"
+                                    )
+                                },
                                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                                isError = isDoctorNameError,
+                                supportingText = if (isDoctorNameError) {
+                                    { Text("Required: Doctor name must be at least 3 characters", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                                } else null,
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(doctorNameFocus)
+                                    .onGloballyPositioned { doctorNameFieldY = it.positionInRoot().y.toInt() },
                                 shape = RoundedCornerShape(12.dp)
                             )
 
                             // 2. Gender
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("Gender *", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.onGloballyPositioned { doctorGenderFieldY = it.positionInRoot().y.toInt() }
+                            ) {
+                                Text(
+                                    text = "Gender *" + if (isDoctorGenderError) " (Required: Select Gender)" else "",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isDoctorGenderError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                )
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("Male", "Female", "Other").forEach { g ->
                                         FilterChip(
                                             selected = doctorGender == g,
                                             onClick = { doctorGender = g },
-                                            label = { Text(g, fontSize = 12.sp) }
+                                            label = { Text(g, fontSize = 12.sp) },
+                                            border = if (isDoctorGenderError) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null
                                         )
                                     }
                                 }
                             }
 
                             // 3. Age & Starting Practicing Year in a Row
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
                                 OutlinedTextField(
                                     value = doctorAge,
                                     onValueChange = {
                                         if (it.length <= 3 && it.all { ch -> ch.isDigit() }) doctorAge = it
+                                        if (errorMessage != null) errorMessage = null
                                     },
                                     label = { Text("Age *") },
                                     placeholder = { Text("e.g. 38") },
                                     leadingIcon = { Icon(Icons.Default.Cake, contentDescription = null) },
+                                    isError = isDoctorAgeError,
+                                    supportingText = if (isDoctorAgeError) {
+                                        { Text("Age: 20-100", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                                    } else null,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     singleLine = true,
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .focusRequester(doctorAgeFocus)
+                                        .onGloballyPositioned { doctorAgeFieldY = it.positionInRoot().y.toInt() },
                                     shape = RoundedCornerShape(12.dp)
                                 )
 
-                                OutlinedTextField(
-                                    value = doctorStartingYear,
-                                    onValueChange = {
-                                        if (it.length <= 4 && it.all { ch -> ch.isDigit() }) doctorStartingYear = it
-                                    },
-                                    label = { Text("Practicing Since *") },
-                                    placeholder = { Text("e.g. 2014") },
-                                    leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
+                                // Drop box for practicing since / starting year
+                                ExposedDropdownMenuBox(
+                                    expanded = doctorStartingYearDropdownExpanded,
+                                    onExpandedChange = { doctorStartingYearDropdownExpanded = !doctorStartingYearDropdownExpanded },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .onGloballyPositioned { doctorStartingYearFieldY = it.positionInRoot().y.toInt() }
+                                ) {
+                                    OutlinedTextField(
+                                        value = doctorStartingYear,
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text("Practicing Since *") },
+                                        placeholder = { Text("Select year") },
+                                        leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
+                                        trailingIcon = {
+                                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = doctorStartingYearDropdownExpanded)
+                                        },
+                                        isError = isDoctorStartingYearError,
+                                        supportingText = if (isDoctorStartingYearError) {
+                                            { Text("Select year", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                                        } else null,
+                                        singleLine = true,
+                                        modifier = Modifier
+                                            .menuAnchor()
+                                            .fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+
+                                    ExposedDropdownMenu(
+                                        expanded = doctorStartingYearDropdownExpanded,
+                                        onDismissRequest = { doctorStartingYearDropdownExpanded = false }
+                                    ) {
+                                        practicingYears.forEach { yr ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        text = yr,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (doctorStartingYear == yr) FontWeight.Bold else FontWeight.Normal
+                                                    )
+                                                },
+                                                onClick = {
+                                                    doctorStartingYear = yr
+                                                    doctorStartingYearDropdownExpanded = false
+                                                    if (errorMessage != null) errorMessage = null
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
                             }
 
                             // 4. Picture Upload
@@ -1515,9 +2385,9 @@ fun ClinicLoginScreen(
                                         }
 
                                         Column {
-                                            Text("Doctor Picture / Photo", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                            Text("Profile Picture / Photo", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                             Text(
-                                                text = doctorPictureName ?: "Select doctor profile picture",
+                                                text = doctorPictureName ?: "Select profile picture",
                                                 fontSize = 11.sp,
                                                 color = if (doctorPictureName != null) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontWeight = if (doctorPictureName != null) FontWeight.Bold else FontWeight.Normal
@@ -1528,49 +2398,187 @@ fun ClinicLoginScreen(
                                     OutlinedButton(
                                         onClick = { doctorPictureLauncher.launch("image/*") },
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                        modifier = Modifier.height(34.dp)
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                                     ) {
-                                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(15.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text(if (doctorPictureName != null) "Change" else "Upload", fontSize = 12.sp)
+                                        Text(if (doctorPictureName != null) "Change" else "Upload", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
 
                             // 5. Specialization
+                            val docSpecOptions = if (doctorPractitionerRole == "lab_technician") {
+                                listOf(
+                                    "Medical Lab Technician",
+                                    "Pathology & Hematology Technician",
+                                    "Clinical Biochemistry Technician",
+                                    "Microbiology Lab Technician",
+                                    "Histopathology & Cytology Technician",
+                                    "Phlebotomist & Sample Collection"
+                                )
+                            } else if (availableSpecialtiesList.isNotEmpty()) {
+                                availableSpecialtiesList.map { it.name }
+                            } else {
+                                listOf(
+                                    "General Physician",
+                                    "Cardiology (Heart Care)",
+                                    "Ophthalmology (Eye Care)",
+                                    "Dental Care & Dentistry",
+                                    "Dermatology & Skin Care",
+                                    "Orthopedics & Joint Care",
+                                    "Pediatrics & Child Health",
+                                    "ENT (Ear, Nose & Throat)",
+                                    "Gynecology & Obstetrics"
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                docSpecOptions.forEach { spec ->
+                                    FilterChip(
+                                        selected = doctorSpecialty == spec,
+                                        onClick = { doctorSpecialty = spec },
+                                        label = { Text(spec, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
                             OutlinedTextField(
                                 value = doctorSpecialty,
-                                onValueChange = { doctorSpecialty = it },
+                                onValueChange = {
+                                    doctorSpecialty = it
+                                    if (errorMessage != null) errorMessage = null
+                                },
                                 label = { Text("Specialization *") },
-                                placeholder = { Text("e.g. Cardiologist, Pediatrics, Orthopedics") },
+                                placeholder = {
+                                    Text(
+                                        if (doctorPractitionerRole == "lab_technician") "e.g. Medical Lab Technician, Pathology"
+                                        else "e.g. Cardiologist, Pediatrics, Orthopedics"
+                                    )
+                                },
                                 leadingIcon = { Icon(Icons.Default.MedicalServices, contentDescription = null) },
+                                isError = isDoctorSpecialtyError,
+                                supportingText = if (isDoctorSpecialtyError) {
+                                    { Text("Required: Please specify specialization", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                                } else null,
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { doctorSpecialtyFieldY = it.positionInRoot().y.toInt() },
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // 6. Education
-                            OutlinedTextField(
-                                value = doctorEducation,
-                                onValueChange = { doctorEducation = it },
-                                label = { Text("Education / Qualifications *") },
-                                placeholder = { Text("e.g. MBBS, MD (Internal Medicine) T.U.") },
-                                leadingIcon = { Icon(Icons.Default.School, contentDescription = null) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
+                            // 6. Education (Dropdown / Dropbox instead of scroll buttons, options based on Doctor vs Lab Technician)
+                            val docQualOptions = if (doctorPractitionerRole == "lab_technician") {
+                                labTechnicianEducations
+                            } else {
+                                doctorEducations
+                            }
 
-                            // 7. NMC ID
+                            ExposedDropdownMenuBox(
+                                expanded = educationDropdownExpanded,
+                                onExpandedChange = { educationDropdownExpanded = !educationDropdownExpanded },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { doctorEducationFieldY = it.positionInRoot().y.toInt() }
+                            ) {
+                                OutlinedTextField(
+                                    value = doctorEducation,
+                                    onValueChange = {
+                                        doctorEducation = it
+                                        if (errorMessage != null) errorMessage = null
+                                    },
+                                    readOnly = true,
+                                    label = {
+                                        Text(
+                                            if (doctorPractitionerRole == "lab_technician") "Lab Technician Education / Qualification *"
+                                            else "Doctor Education / Qualification *"
+                                        )
+                                    },
+                                    placeholder = {
+                                        Text(
+                                            if (doctorPractitionerRole == "lab_technician") "Select Lab Technician Qualification"
+                                            else "Select Medical Degree / Qualification"
+                                        )
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.School, contentDescription = null) },
+                                    trailingIcon = {
+                                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = educationDropdownExpanded)
+                                    },
+                                    isError = isDoctorEducationError,
+                                    supportingText = if (isDoctorEducationError) {
+                                        { Text("Required: Please select qualification", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                                    } else null,
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+
+                                ExposedDropdownMenu(
+                                    expanded = educationDropdownExpanded,
+                                    onDismissRequest = { educationDropdownExpanded = false }
+                                ) {
+                                    docQualOptions.forEach { qual ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = qual,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = if (doctorEducation == qual) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            },
+                                            onClick = {
+                                                doctorEducation = qual
+                                                educationDropdownExpanded = false
+                                                if (errorMessage != null) errorMessage = null
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = if (doctorPractitionerRole == "lab_technician") Icons.Default.Biotech else Icons.Default.School,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (doctorEducation == qual) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 7. NMC / NHPC License ID
                             OutlinedTextField(
                                 value = doctorNmc,
-                                onValueChange = { doctorNmc = it },
-                                label = { Text("NMC License ID *") },
-                                placeholder = { Text("e.g. NMC-14520") },
+                                onValueChange = {
+                                    doctorNmc = it
+                                    if (errorMessage != null) errorMessage = null
+                                },
+                                label = {
+                                    Text(
+                                        if (doctorPractitionerRole == "lab_technician") "NHPC / Lab Council License ID *"
+                                        else "NMC License ID *"
+                                    )
+                                },
+                                placeholder = {
+                                    Text(
+                                        if (doctorPractitionerRole == "lab_technician") "e.g. NHPC-A-4520"
+                                        else "e.g. NMC-14520"
+                                    )
+                                },
                                 leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
+                                isError = isDoctorNmcError,
+                                supportingText = if (isDoctorNmcError) {
+                                    { Text("Required: Valid License ID (at least 3 characters)", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                                } else null,
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(doctorNmcFocus)
+                                    .onGloballyPositioned { doctorNmcFieldY = it.positionInRoot().y.toInt() },
                                 shape = RoundedCornerShape(12.dp)
                             )
 
@@ -1579,13 +2587,21 @@ fun ClinicLoginScreen(
                                 value = doctorPersonalPhone,
                                 onValueChange = {
                                     if (it.length <= 10 && it.all { ch -> ch.isDigit() }) doctorPersonalPhone = it
+                                    if (errorMessage != null) errorMessage = null
                                 },
                                 label = { Text("Personal Mobile Number *") },
                                 placeholder = { Text("98xxxxxxxx (10 digits)") },
                                 leadingIcon = { Icon(Icons.Default.PhoneIphone, contentDescription = null) },
+                                isError = isDoctorPhoneError,
+                                supportingText = if (isDoctorPhoneError) {
+                                    { Text("Required: Exactly 10 digits starting with 9", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                                } else null,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(doctorPhoneFocus)
+                                    .onGloballyPositioned { doctorPhoneFieldY = it.positionInRoot().y.toInt() },
                                 shape = RoundedCornerShape(12.dp)
                             )
 
@@ -1594,6 +2610,7 @@ fun ClinicLoginScreen(
                                 value = doctorPublicPhone,
                                 onValueChange = {
                                     if (it.length <= 10 && it.all { ch -> ch.isDigit() }) doctorPublicPhone = it
+                                    if (errorMessage != null) errorMessage = null
                                 },
                                 label = { Text("Public Mobile Number (For Patients)") },
                                 placeholder = { Text("98xxxxxxxx (10 digits)") },
@@ -1615,18 +2632,59 @@ fun ClinicLoginScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // 11. Consultation Fee
-                            OutlinedTextField(
-                                value = doctorFee,
-                                onValueChange = { doctorFee = it },
-                                label = { Text("Consultation Fee (Rs.) *") },
-                                placeholder = { Text("500") },
-                                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
+                            // Terms Acceptance Checkbox Card
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isDoctorTermsError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(if (isDoctorTermsError) 1.5.dp else 1.dp, if (isDoctorTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { doctorTermsFieldY = it.positionInRoot().y.toInt() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Checkbox(
+                                        checked = doctorTermsAccepted,
+                                        onCheckedChange = {
+                                            doctorTermsAccepted = it
+                                            if (errorMessage != null) errorMessage = null
+                                        }
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                "I accept the ",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            TextButton(
+                                                onClick = {
+                                                    termsDialogInitialTab = 1
+                                                    showTermsDialog = true
+                                                },
+                                                contentPadding = PaddingValues(0.dp)
+                                            ) {
+                                                Text(
+                                                    "Doctor Terms & NMC Code *",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isDoctorTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            if (isDoctorTermsError) "Required: Please review and accept doctor terms to register"
+                                            else "Compliant with Nepal Medical Council Act 2020 & Google Play Health Policies.",
+                                            fontSize = 10.sp,
+                                            color = if (isDoctorTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            lineHeight = 14.sp
+                                        )
+                                    }
+                                }
+                            }
 
                             Button(
                                 onClick = { submitDoctorRegistration() },
@@ -1835,96 +2893,104 @@ fun ClinicLoginScreen(
             Triple("Dharan (BPKIHS Area)", 26.8124, 87.2834),
             Triple("Nepalgunj (Birendra Chowk)", 28.0500, 81.6167)
         )
-        var tempAddress by remember { mutableStateOf(clinicAddress.ifBlank { "Kathmandu, Nepal" }) }
-        var tempLat by remember { mutableDoubleStateOf(clinicLat) }
-        var tempLng by remember { mutableDoubleStateOf(clinicLng) }
-
-        AlertDialog(
-            onDismissRequest = { showLocationPicker = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text("Select Clinic Location", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                }
+        com.dactor.clinic.ui.components.OpenStreetMapPicker(
+            initialAddress = clinicAddress,
+            initialLat = clinicLat,
+            initialLng = clinicLng,
+            onSaveLocation = { newAddress, newLat, newLng ->
+                clinicAddress = newAddress
+                clinicLat = newLat
+                clinicLng = newLng
+                showLocationPicker = false
             },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("Pick from major healthcare hubs in Nepal or enter custom coordinates:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            onDismiss = {
+                showLocationPicker = false
+            }
+        )
+    }
 
-                    OutlinedTextField(
-                        value = tempAddress,
-                        onValueChange = { tempAddress = it },
-                        label = { Text("Address / Location Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        singleLine = true
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = tempLat.toString(),
-                            onValueChange = { it.toDoubleOrNull()?.let { l -> tempLat = l } },
-                            label = { Text("Latitude") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = tempLng.toString(),
-                            onValueChange = { it.toDoubleOrNull()?.let { l -> tempLng = l } },
-                            label = { Text("Longitude") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            singleLine = true
-                        )
-                    }
-
-                    Text("Quick Selection (Nepal Hubs):", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        predefinedLocations.forEach { (locName, lat, lng) ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (tempAddress == locName) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                onClick = {
-                                    tempAddress = locName
-                                    tempLat = lat
-                                    tempLng = lng
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(locName, fontSize = 12.sp, fontWeight = if (tempAddress == locName) FontWeight.Bold else FontWeight.Normal)
-                                    Text("(${String.format("%.4f", lat)}, ${String.format("%.4f", lng)})", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                    }
+    // CLINIC & DOCTOR TERMS & CONDITIONS DIALOG
+    if (showTermsDialog) {
+        com.dactor.clinic.ui.legal.ClinicTermsAndConditionsDialog(
+            initialTab = termsDialogInitialTab,
+            onAccept = {
+                if (termsDialogInitialTab == 0) {
+                    clinicTermsAccepted = true
+                } else {
+                    doctorTermsAccepted = true
                 }
+                showTermsDialog = false
+            },
+            onDismiss = {
+                showTermsDialog = false
+            }
+        )
+    }
+
+    if (showEnableGpsDialog) {
+        AlertDialog(
+            onDismissRequest = { showEnableGpsDialog = false },
+            icon = { Icon(Icons.Default.MyLocation, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Enable Device Location", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Device GPS / Location Services are currently turned off. Please turn on Location Services so the app can automatically pin your clinic's exact GPS coordinates.",
+                    fontSize = 13.sp
+                )
             },
             confirmButton = {
                 Button(onClick = {
-                    clinicAddress = tempAddress
-                    clinicLat = tempLat
-                    clinicLng = tempLng
-                    showLocationPicker = false
+                    showEnableGpsDialog = false
+                    try {
+                        gpsSettingsLauncher.launch(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                    } catch (e: Exception) {
+                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                    }
                 }) {
-                    Text("Confirm Location")
+                    Text("Turn On Location")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showLocationPicker = false }) {
+                TextButton(onClick = { showEnableGpsDialog = false }) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showLocationPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showLocationPermissionDialog = false },
+            icon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Location Permission Required", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Dactor needs Location Permission to detect your clinic's GPS coordinates and display your location on the map. Please grant Location Permission.",
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showLocationPermissionDialog = false
+                    try {
+                        val intent = android.content.Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", context.packageName, null)
+                        )
+                        context.startActivity(intent)
+                    } catch (ignored: Exception) {}
+                }) {
+                    Text("Open Permission Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showLocationPermissionDialog = false
+                    locationPermissionLauncher.launch(
+                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                    )
+                }) {
+                    Text("Ask Again")
                 }
             }
         )

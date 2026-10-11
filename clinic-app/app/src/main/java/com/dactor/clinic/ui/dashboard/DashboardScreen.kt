@@ -3,6 +3,7 @@ package com.dactor.clinic.ui.dashboard
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -16,9 +17,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -31,6 +36,8 @@ import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.domain.util.ArchiveDateUtils
 import com.dactor.clinic.ui.navigation.NavRoutes
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,9 +51,21 @@ fun DashboardScreen(
 ) {
     val context = LocalContext.current
     val sessionManager = remember { UserSessionManager(context) }
-    var clinic by remember { mutableStateOf<Clinic?>(null) }
-    var doctors by remember { mutableStateOf<List<Doctor>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val initialEffectiveClinicId = remember(clinicId) {
+        if (!clinicId.isNullOrBlank() && clinicId != "c1") clinicId
+        else sessionManager.getSavedClinicId() ?: ""
+    }
+    var clinic by remember(initialEffectiveClinicId) {
+        mutableStateOf<Clinic?>(
+            if (initialEffectiveClinicId.isNotBlank()) clinicRepository?.getCachedClinicById(initialEffectiveClinicId) else null
+        )
+    }
+    var doctors by remember(initialEffectiveClinicId) {
+        mutableStateOf<List<Doctor>>(
+            if (initialEffectiveClinicId.isNotBlank()) doctorRepository?.getCachedDoctorsByClinic(initialEffectiveClinicId) ?: emptyList() else emptyList()
+        )
+    }
+    var isLoading by remember { mutableStateOf(clinic == null) }
     var isRestoringAccount by remember { mutableStateOf(false) }
 
     // Activation & License Subscription state
@@ -64,16 +83,30 @@ fun DashboardScreen(
             if (clinicRepository != null) {
                 val currentEmail = authRepository?.getCurrentUserEmail()
                 val sessionClinicId = sessionManager.getSavedClinicId()
-                val fetchedClinic = if (!clinicId.isNullOrBlank() && clinicId != "c1") {
-                    clinicRepository.getClinicById(clinicId)
-                } else if (!sessionClinicId.isNullOrBlank()) {
-                    clinicRepository.getClinicById(sessionClinicId)
+                val targetCid = when {
+                    !clinicId.isNullOrBlank() && clinicId != "c1" -> clinicId
+                    !sessionClinicId.isNullOrBlank() -> sessionClinicId
+                    else -> ""
+                }
+
+                // If targetCid is already known, fetch doctors concurrently with clinic so there is zero sequential delay
+                val earlyDocsJob = if (targetCid.isNotBlank() && doctorRepository != null) {
+                    launch {
+                        val liveDocs = doctorRepository.getDoctorsByClinic(targetCid)
+                        doctors = liveDocs
+                    }
+                } else null
+
+                val fetchedClinic = if (targetCid.isNotBlank()) {
+                    clinicRepository.getClinicById(targetCid)
                 } else if (!currentEmail.isNullOrBlank()) {
                     clinicRepository.getClinicByEmail(currentEmail)
                 } else {
                     null
                 }
-                clinic = fetchedClinic
+                if (fetchedClinic != null) {
+                    clinic = fetchedClinic
+                }
 
                 if (fetchedClinic != null) {
                     sessionManager.saveClinicSession(
@@ -99,16 +132,50 @@ fun DashboardScreen(
                     }
                 }
 
-                if (fetchedClinic != null && doctorRepository != null) {
+                if (fetchedClinic != null && doctorRepository != null && earlyDocsJob == null) {
                     doctors = doctorRepository.getDoctorsByClinic(fetchedClinic.id)
                 }
+                earlyDocsJob?.join()
             }
             isLoading = false
         }
     }
 
-    LaunchedEffect(clinicId) {
+    // Track recently toggled doctor IDs with a timestamp debounce so background poll doesn't reverse user clicks
+    var pendingToggleDoctors by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+
+    LaunchedEffect(initialEffectiveClinicId) {
         loadClinic()
+        // Periodic live presence sync loop:
+        // Automatically reflects whenever a doctor is toggled in another clinic or by the doctor themselves
+        while (isActive) {
+            delay(3500L)
+            val currentCid = clinic?.id ?: sessionManager.getSavedClinicId()
+            if (!currentCid.isNullOrBlank() && doctorRepository != null) {
+                try {
+                    val liveDocs = doctorRepository.getDoctorsByClinic(currentCid)
+                    val now = System.currentTimeMillis()
+                    val activePending = pendingToggleDoctors.filterValues { now - it < 4500L }
+                    pendingToggleDoctors = activePending
+                    
+                    if (activePending.isEmpty()) {
+                        doctors = liveDocs
+                    } else {
+                        // Merge liveDocs while preserving optimistic local state for doctors toggled in the last 4.5 seconds
+                        doctors = liveDocs.map { liveDoc ->
+                            if (activePending.containsKey(liveDoc.id)) {
+                                val currentDoc = doctors.find { it.id == liveDoc.id }
+                                if (currentDoc != null) liveDoc.copy(isInClinic = currentDoc.isInClinic) else liveDoc
+                            } else {
+                                liveDoc
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // ignore polling errors
+                }
+            }
+        }
     }
 
     val isClinicArchived = clinic?.isArchived == true || sessionManager.isClinicArchived()
@@ -125,38 +192,37 @@ fun DashboardScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(displayClinicTitle, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1)
-                        Text(displayClinicSubtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    }
-                },
-                actions = {
-                    if (!isClinicArchived && isClinicActivated) {
-                        IconButton(onClick = { navController.navigate(NavRoutes.ClinicSettings) }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+            if (isClinicArchived || !isClinicActivated) {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(displayClinicTitle, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1)
+                            Text(displayClinicSubtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
-                    }
-                    IconButton(
-                        onClick = {
-                            sessionManager.clearSession()
-                            try {
-                                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                    context,
-                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                ).signOut()
-                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                            } catch (ignored: Exception) {}
-                            navController.navigate(NavRoutes.ClinicLogin) {
-                                popUpTo(0) { inclusive = true }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                sessionManager.clearSession()
+                                clinicRepository?.clearCache()
+                                doctorRepository?.clearCache()
+                                try {
+                                    com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
+                                        context,
+                                        com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                                    ).signOut()
+                                    com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                                } catch (ignored: Exception) {}
+                                navController.navigate(NavRoutes.ClinicLogin) {
+                                    popUpTo(0) { inclusive = true }
+                                }
                             }
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Sign Out", tint = MaterialTheme.colorScheme.error)
                         }
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Sign Out", tint = MaterialTheme.colorScheme.error)
                     }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
 
@@ -201,6 +267,8 @@ fun DashboardScreen(
                     Button(
                         onClick = {
                             sessionManager.clearSession()
+                            clinicRepository?.clearCache()
+                            doctorRepository?.clearCache()
                             navController.navigate(NavRoutes.ClinicLogin) {
                                 popUpTo(0) { inclusive = true }
                             }
@@ -326,6 +394,8 @@ fun DashboardScreen(
                     OutlinedButton(
                         onClick = {
                             sessionManager.clearSession()
+                            clinicRepository?.clearCache()
+                            doctorRepository?.clearCache()
                             try {
                                 com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
                                     context,
@@ -605,6 +675,8 @@ fun DashboardScreen(
                 OutlinedButton(
                     onClick = {
                         sessionManager.clearSession()
+                        clinicRepository?.clearCache()
+                        doctorRepository?.clearCache()
                         try {
                             com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
                                 context,
@@ -634,8 +706,9 @@ fun DashboardScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .statusBarsPadding()
                     .verticalScroll(scrollState)
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (clinic == null && !isLoading) {
@@ -666,205 +739,155 @@ fun DashboardScreen(
                     }
                 }
 
-                // CLINIC SUBSCRIPTION & ACTIVATION STATUS BANNER
-                if (clinic != null) {
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (activationDaysLeft <= 7) Color(0xFFFEF3C7) else Color(0xFFECFDF5)
-                        ),
-                        border = BorderStroke(1.dp, if (activationDaysLeft <= 7) Color(0xFFFDE68A) else Color(0xFFA7F3D0)),
-                        modifier = Modifier.fillMaxWidth()
+                // 1. TOP CLINIC IDENTITY HEADER
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.weight(1f)
+                        val clinicThumb = clinic?.pictures?.firstOrNull() ?: clinic?.logoUrl ?: clinic?.registrationDocUrl
+                        if (!clinicThumb.isNullOrBlank()) {
+                            AsyncImage(
+                                model = clinicThumb,
+                                contentDescription = clinic?.name ?: "Clinic",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                            )
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFFF1F5F9),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.size(56.dp)
                             ) {
-                                Icon(
-                                    if (activationDaysLeft <= 7) Icons.Default.Warning else Icons.Default.Verified,
-                                    contentDescription = null,
-                                    tint = if (activationDaysLeft <= 7) Color(0xFFD97706) else Color(0xFF059669),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Column {
-                                    Text(
-                                        text = if (activationDaysLeft <= 7) "Subscription Expiring Soon ($activationDaysLeft days left)" else "Active Portal Subscription ($activationDaysLeft days left)",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = if (activationDaysLeft <= 7) Color(0xFF92400E) else Color(0xFF065F46)
-                                    )
-                                    Text(
-                                        text = "Expires on $formattedActivationExpiry",
-                                        fontSize = 11.sp,
-                                        color = if (activationDaysLeft <= 7) Color(0xFFB45309) else Color(0xFF047857)
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.LocalHospital,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0284C7),
+                                        modifier = Modifier.size(28.dp)
                                     )
                                 }
                             }
-                            TextButton(
-                                onClick = { showRenewalDialog = true }
+                        }
+
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text("Renew / Extend", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (activationDaysLeft <= 7) Color(0xFFB45309) else Color(0xFF059669))
+                                Text(
+                                    text = clinic?.name ?: "Clinic Administration",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    color = Color(0xFF0F172A),
+                                    maxLines = 1
+                                )
+                                Icon(
+                                    Icons.Default.Verified,
+                                    contentDescription = "Verified Clinic",
+                                    tint = Color(0xFF2563EB),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Place,
+                                    contentDescription = null,
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = clinic?.addressText?.ifBlank { "Kathmandu, Nepal" } ?: "Kathmandu, Nepal",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF64748B),
+                                    maxLines = 1
+                                )
                             }
                         }
                     }
-                }
 
-                // CLINIC VERIFICATION STATUS BANNER
-                if (clinic?.verificationStatus?.equals("pending", ignoreCase = true) == true) {
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7))
+                    Spacer(Modifier.width(8.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        // Top Right Notification Bell Button
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clickable { navController.navigate(NavRoutes.Notifications) }
                         ) {
-                            Icon(Icons.Default.HourglassTop, contentDescription = null, tint = Color(0xFFD97706))
-                            Column {
-                                Text("Waiting for Admin Confirmation", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF92400E))
-                                Text("Your clinic registration is under review by the Super Admin. Full public patient discovery and booking will be enabled upon approval.", fontSize = 11.sp, color = Color(0xFF78350F))
-                            }
-                        }
-                    }
-                } else if (clinic != null) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFFD1FAE5)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF047857), modifier = Modifier.size(16.dp))
-                            Text("Clinic Verified & Active on Dactor Nepal", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
-                        }
-                    }
-                }
-
-                // Section 1: Quick Action Cards
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { navController.navigate(NavRoutes.QueueBoard) }
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Icon(Icons.Default.People, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
-                            Spacer(Modifier.height(8.dp))
-                            Text("Live Queue", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Text("Call next patient & manage turns", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                        }
-                    }
-
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { navController.navigate(NavRoutes.WalkinBooking) }
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Icon(Icons.Default.PersonAdd, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(28.dp))
-                            Spacer(Modifier.height(8.dp))
-                            Text("Walk-in Token", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Text("Issue new 10-digit OPD token", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
-                        }
-                    }
-                }
-
-                // Section 2: Enlisted Doctors List with Clinic Presence Toggle
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Enlisted Doctors & Presence", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            TextButton(onClick = { navController.navigate(NavRoutes.InvitationManager) }) {
-                                Text("+ Invite Doctor", fontSize = 12.sp)
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Notifications,
+                                    contentDescription = "Notifications",
+                                    tint = Color(0xFF1E293B),
+                                    modifier = Modifier.size(19.dp)
+                                )
                             }
                         }
 
-                        if (doctors.isEmpty()) {
-                            Text(
-                                "No doctors enlisted yet. Invite medical specialists using their email.",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            doctors.forEach { doctor ->
-                                var isInClinic by remember(doctor.id, doctor.isInClinic) { mutableStateOf(doctor.isInClinic) }
-
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
+                        // Top Right Subscription Badge (Clickable to open Renewal Dialog / Page)
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFFDCFCE7),
+                            border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                            modifier = Modifier.clickable { showRenewalDialog = true }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF16A34A))
+                                )
+                                Column {
+                                    Text(
+                                        text = "Active",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF15803D),
+                                        lineHeight = 13.sp
+                                    )
                                     Row(
-                                        modifier = Modifier.padding(12.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = if (isInClinic) Color(0xFFD1FAE5) else Color(0xFFF3F4F6),
-                                                modifier = Modifier.size(40.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        Icons.Default.MedicalServices,
-                                                        contentDescription = null,
-                                                        tint = if (isInClinic) Color(0xFF047857) else Color.Gray,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                }
-                                            }
-
-                                            Column {
-                                                Text(doctor.fullName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                                Text(
-                                                    "${doctor.specialty} • ${if (isInClinic) "Present in Clinic" else "Away / Off-Duty"}",
-                                                    fontSize = 11.sp,
-                                                    color = if (isInClinic) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-
-                                        // Presence Toggle Control
-                                        Switch(
-                                            checked = isInClinic,
-                                            onCheckedChange = { checked ->
-                                                isInClinic = checked
-                                                coroutineScope.launch {
-                                                    doctorRepository?.toggleDoctorPresence(doctor.id, checked)
-                                                }
-                                            }
+                                        Text(
+                                            text = "$activationDaysLeft days left",
+                                            fontSize = 10.sp,
+                                            color = Color(0xFF166534),
+                                            lineHeight = 12.sp
+                                        )
+                                        Icon(
+                                            Icons.Default.ChevronRight,
+                                            contentDescription = null,
+                                            tint = Color(0xFF166534),
+                                            modifier = Modifier.size(12.dp)
                                         )
                                     }
                                 }
@@ -873,75 +896,766 @@ fun DashboardScreen(
                     }
                 }
 
-                // Section 3: Operational Modules Grid
-                Text("Operational Management", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                // 2. ACTIVE PORTAL SUBSCRIPTION BANNER (Only shown when expiring within 7 days)
+                if (clinic != null && activationDaysLeft <= 7) {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFECFDF5)),
+                        border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showRenewalDialog = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFD1FAE5),
+                                    modifier = Modifier.size(46.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.CalendarMonth,
+                                            contentDescription = null,
+                                            tint = Color(0xFF059669),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "Active Portal Subscription ($activationDaysLeft days left)",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = Color(0xFF065F46)
+                                    )
+                                    Text(
+                                        text = "Expires on $formattedActivationExpiry",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF047857)
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { showRenewalDialog = true }) {
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    contentDescription = "Renew",
+                                    tint = Color(0xFF059669),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                    }
+                }
 
-                val modules = listOf(
-                    ModuleItem(
-                        title = "Slot Publishing",
-                        desc = "Doctor schedules & capacity",
-                        icon = Icons.Default.CalendarMonth,
-                        route = NavRoutes.SlotManager,
-                        color = Color(0xFF2563EB)
-                    ),
-                    ModuleItem(
-                        title = "Patient Directory",
-                        desc = "Past visits & history",
-                        icon = Icons.Default.FolderShared,
-                        route = NavRoutes.PatientDirectory,
-                        color = Color(0xFF059669)
-                    ),
-                    ModuleItem(
-                        title = "Future OPD",
-                        desc = "Upcoming scheduled patients",
-                        icon = Icons.Default.Event,
-                        route = NavRoutes.FutureAppointments,
-                        color = Color(0xFFD97706)
-                    ),
-                    ModuleItem(
-                        title = "Catalog & Rates",
-                        desc = "Consultation fees & procedures",
-                        icon = Icons.Default.ReceiptLong,
-                        route = NavRoutes.CatalogManager,
-                        color = Color(0xFF7C3AED)
-                    ),
-                    ModuleItem(
-                        title = "Diagnostic Lab",
-                        desc = "Pathology sample workflow",
-                        icon = Icons.Default.Science,
-                        route = NavRoutes.LabWorkflow,
-                        color = Color(0xFFDC2626)
-                    ),
-                    ModuleItem(
-                        title = "Doctor Invites",
-                        desc = "Enlist & manage specialists",
-                        icon = Icons.Default.PersonAddAlt1,
-                        route = NavRoutes.InvitationManager,
-                        color = Color(0xFF0891B2)
-                    ),
-                    ModuleItem(
-                        title = "Clinic Settings",
-                        desc = "Type, APIs & profile",
-                        icon = Icons.Default.Tune,
-                        route = NavRoutes.ClinicSettings,
-                        color = Color(0xFF4B5563)
+                // 3. QUICK ACTION CARDS: LIVE QUEUE & WALK-IN TOKEN
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Live Queue Card
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                        border = BorderStroke(1.dp, Color(0xFFDBEAFE)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(170.dp)
+                            .clickable {
+                                val activeCid = clinic?.id?.takeIf { it.isNotBlank() } ?: initialEffectiveClinicId
+                                navController.navigate(if (activeCid.isNotBlank()) "${NavRoutes.QueueBoard}/$activeCid" else NavRoutes.QueueBoard)
+                            }
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFDBEAFE),
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.People,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2563EB),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    "Live Queue",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Text(
+                                    "Call next patient &\nmanage turns",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF64748B),
+                                    lineHeight = 14.sp
+                                )
+                            }
+
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomEnd) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFDBEAFE),
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.ArrowForward,
+                                            contentDescription = null,
+                                            tint = Color(0xFF2563EB),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Walk-in Token Card
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F3FF)),
+                        border = BorderStroke(1.dp, Color(0xFFEDE9FE)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(170.dp)
+                            .clickable {
+                                val activeCid = clinic?.id?.takeIf { it.isNotBlank() } ?: initialEffectiveClinicId
+                                navController.navigate(if (activeCid.isNotBlank()) "${NavRoutes.WalkinBooking}/$activeCid" else NavRoutes.WalkinBooking)
+                            }
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFEDE9FE),
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.PersonAdd,
+                                        contentDescription = null,
+                                        tint = Color(0xFF7C3AED),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    "Walk-in Token",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Text(
+                                    "Issue new 10-digit OPD\ntoken",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF64748B),
+                                    lineHeight = 14.sp
+                                )
+                            }
+
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomEnd) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFEDE9FE),
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.ArrowForward,
+                                            contentDescription = null,
+                                            tint = Color(0xFF7C3AED),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. ENLISTED DOCTORS & PRESENCE
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFE0F2FE),
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.MedicalServices,
+                                            contentDescription = null,
+                                            tint = Color(0xFF0284C7),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    "Enlisted Doctors & Presence",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                            }
+
+                            if (doctors.isNotEmpty()) {
+                                val anyPresent = doctors.any { it.isInClinic }
+                                Switch(
+                                    checked = anyPresent,
+                                    onCheckedChange = { checked ->
+                                        val now = System.currentTimeMillis()
+                                        pendingToggleDoctors = pendingToggleDoctors + doctors.associate { it.id to now }
+                                        val updatedList = doctors.map { it.copy(isInClinic = checked) }
+                                        doctors = updatedList
+                                        val cid = clinic?.id ?: sessionManager.getSavedClinicId() ?: ""
+                                        doctorRepository?.updateCachedDoctorsByClinic(cid, updatedList)
+                                        coroutineScope.launch {
+                                            updatedList.forEach { doc ->
+                                                doctorRepository?.toggleDoctorPresence(doc.id, checked, cid)
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+
+                        if (doctors.isEmpty()) {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFEFF6FF),
+                                        modifier = Modifier.size(44.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.PersonAddAlt1,
+                                                contentDescription = null,
+                                                tint = Color(0xFF2563EB),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        "No Doctors Enlisted",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                    Text(
+                                        "No medical specialists are currently connected with this clinic. Invite doctors to manage queues and publish slots.",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF64748B),
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Button(
+                                        onClick = {
+                                            val activeCid = clinic?.id?.takeIf { it.isNotBlank() } ?: initialEffectiveClinicId
+                                            navController.navigate(if (activeCid.isNotBlank()) "${NavRoutes.InvitationManager}/$activeCid" else NavRoutes.InvitationManager)
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Add / Invite Doctor", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        } else {
+                            doctors.forEach { doctor ->
+                                key(doctor.id) {
+                                    val isInClinic = doctor.isInClinic
+                                    val displayDocName = when {
+                                        doctor.isLabTechnician -> if (doctor.fullName.startsWith("Lab", ignoreCase = true)) doctor.fullName else "Lab Tech. ${doctor.fullName}"
+                                        doctor.fullName.startsWith("Dr.", ignoreCase = true) -> doctor.fullName
+                                        else -> "Dr. ${doctor.fullName}"
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color.White,
+                                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                        shadowElevation = 1.dp,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(14.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            // Top Row: Avatar + Details + Accepted Badge
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.Top
+                                            ) {
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    // Doctor Photo with Online dot
+                                                    Box(modifier = Modifier.size(52.dp)) {
+                                                        if (!doctor.resolvedProfilePictureUrl.isNullOrBlank()) {
+                                                            AsyncImage(
+                                                                model = doctor.resolvedProfilePictureUrl,
+                                                                contentDescription = doctor.fullName,
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier
+                                                                    .fillMaxSize()
+                                                                    .clip(CircleShape)
+                                                            )
+                                                        } else {
+                                                            Surface(
+                                                                shape = CircleShape,
+                                                                color = Color(0xFFE2E8F0),
+                                                                modifier = Modifier.fillMaxSize()
+                                                            ) {
+                                                                Box(contentAlignment = Alignment.Center) {
+                                                                    Icon(
+                                                                        if (doctor.isLabTechnician) Icons.Default.Biotech else Icons.Default.MedicalServices,
+                                                                        contentDescription = null,
+                                                                        tint = Color(0xFF64748B),
+                                                                        modifier = Modifier.size(24.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(14.dp)
+                                                                .align(Alignment.BottomEnd)
+                                                                .background(Color.White, CircleShape)
+                                                                .padding(2.dp)
+                                                                .background(if (isInClinic) Color(0xFF10B981) else Color(0xFF94A3B8), CircleShape)
+                                                        )
+                                                    }
+
+                                                    // Doctor Details
+                                                    Column(
+                                                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = displayDocName,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 15.sp,
+                                                                color = Color(0xFF0F172A),
+                                                                maxLines = 1,
+                                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                            )
+                                                            Icon(
+                                                                Icons.Default.Verified,
+                                                                contentDescription = "Verified",
+                                                                tint = Color(0xFF0284C7),
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+
+                                                        Text(
+                                                            text = "${doctor.specialty ?: if (doctor.isLabTechnician) "Medical Lab Technician" else "General Physician"} • NMC: ${doctor.nmcLicenseNumber ?: "N/A"}",
+                                                            fontSize = 12.sp,
+                                                            color = Color(0xFF64748B),
+                                                            maxLines = 1,
+                                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                        )
+
+                                                        // Degree & Specialty Pills
+                                                        Row(
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                            modifier = Modifier.padding(top = 2.dp)
+                                                        ) {
+                                                            val degreeText = doctor.education?.split(",")?.firstOrNull()?.trim() ?: if (doctor.isLabTechnician) "DMLT" else "MBBS"
+                                                            Surface(
+                                                                shape = RoundedCornerShape(6.dp),
+                                                                color = Color(0xFFE0F2FE)
+                                                            ) {
+                                                                Text(
+                                                                    text = degreeText,
+                                                                    color = Color(0xFF0284C7),
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Medium,
+                                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                )
+                                                            }
+
+                                                            val specialtyTag = doctor.specialty?.ifBlank { if (doctor.isLabTechnician) "Technician" else "General Physician" } ?: "General Physician"
+                                                            Surface(
+                                                                shape = RoundedCornerShape(6.dp),
+                                                                color = Color(0xFFE0F2FE)
+                                                            ) {
+                                                                Text(
+                                                                    text = specialtyTag,
+                                                                    color = Color(0xFF0284C7),
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Medium,
+                                                                    maxLines = 1,
+                                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                )
+                                                            }
+                                                        }
+
+                                                        // Email Row
+                                                        if (doctor.email.isNotBlank()) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                                modifier = Modifier.padding(top = 2.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    Icons.Default.MailOutline,
+                                                                    contentDescription = null,
+                                                                    tint = Color(0xFF64748B),
+                                                                    modifier = Modifier.size(13.dp)
+                                                                )
+                                                                Text(
+                                                                    text = doctor.email,
+                                                                    fontSize = 11.5.sp,
+                                                                    color = Color(0xFF64748B),
+                                                                    maxLines = 1,
+                                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // Top-Right Accepted Badge
+                                                Surface(
+                                                    color = Color(0xFFDCFCE7),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Default.Check,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF15803D),
+                                                            modifier = Modifier.size(13.dp)
+                                                        )
+                                                        Text(
+                                                            text = "Accepted",
+                                                            color = Color(0xFF15803D),
+                                                            fontSize = 11.5.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            // Bottom Bar: Active on Clinic Roster + Presence Switch (No Fee Indicator)
+                                            Surface(
+                                                color = Color(0xFFF0F9FF),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Surface(
+                                                        color = Color(0xFFDCFCE7),
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    ) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Default.CheckCircle,
+                                                                contentDescription = null,
+                                                                tint = Color(0xFF16A34A),
+                                                                modifier = Modifier.size(13.dp)
+                                                            )
+                                                            Text(
+                                                                text = "Accepted • Active on Clinic Roster",
+                                                                color = Color(0xFF15803D),
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                        }
+                                                    }
+
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = if (isInClinic) "Present" else "Off-Duty",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (isInClinic) Color(0xFF16A34A) else Color(0xFF64748B)
+                                                        )
+                                                         Switch(
+                                                            checked = isInClinic,
+                                                            onCheckedChange = { checked ->
+                                                                val cid = clinic?.id ?: sessionManager.getSavedClinicId() ?: ""
+                                                                pendingToggleDoctors = pendingToggleDoctors + (doctor.id to System.currentTimeMillis())
+                                                                val updatedList = doctors.map {
+                                                                    if (it.id == doctor.id) it.copy(isInClinic = checked) else it
+                                                                }
+                                                                doctors = updatedList
+                                                                doctorRepository?.updateCachedDoctorsByClinic(cid, updatedList)
+                                                                coroutineScope.launch {
+                                                                    val ok = doctorRepository?.toggleDoctorPresence(doctor.id, checked, cid)
+                                                                    if (ok != true) {
+                                                                        val reverted = doctors.map {
+                                                                            if (it.id == doctor.id) it.copy(isInClinic = !checked) else it
+                                                                        }
+                                                                        doctors = reverted
+                                                                        doctorRepository?.updateCachedDoctorsByClinic(cid, reverted)
+                                                                    }
+                                                                }
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val isLabClinic = clinic?.type?.equals("diagnostic_lab", ignoreCase = true) == true ||
+                        clinic?.type?.contains("lab", ignoreCase = true) == true ||
+                        clinic?.name?.contains("lab", ignoreCase = true) == true ||
+                        clinic?.specialties?.any { it.contains("lab", ignoreCase = true) || it.contains("patholog", ignoreCase = true) } == true
+
+                // 5. OPERATIONAL MANAGEMENT
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = null,
+                        tint = Color(0xFF2563EB),
+                        modifier = Modifier.size(22.dp)
                     )
-                )
+                    Text(
+                        "Operational Management",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        color = Color(0xFF0F172A)
+                    )
+                }
 
-                modules.chunked(2).forEach { rowModules ->
+                val isMultiVisitClinic = remember(clinic) {
+                    val type = clinic?.type?.lowercase() ?: ""
+                    type.contains("multi") || type.contains("poly") || type.contains("hospital") || type.contains("center") || ((clinic?.specialties?.size ?: 0) > 1)
+                }
+                // No-show button in operational management is only retained for single visit and lab clinics
+                val isNoShowSupported = !isMultiVisitClinic || isLabClinic
+
+                val opModules = buildList {
+                    add(
+                        ModuleItem(
+                            title = "Slot Publishing",
+                            desc = if (isLabClinic) "Publish lab booking slots & capacity" else "Publish doctor booking slots & capacity",
+                            icon = Icons.Default.CalendarMonth,
+                            route = NavRoutes.SlotManager,
+                            color = Color(0xFF2563EB)
+                        )
+                    )
+                    add(
+                        ModuleItem(
+                            title = "Working Hours & Break",
+                            desc = "Sun–Sat working hours, break times & live break toggle",
+                            icon = Icons.Default.Schedule,
+                            route = NavRoutes.WorkingHoursBreak,
+                            color = Color(0xFF00796B)
+                        )
+                    )
+                    add(
+                        ModuleItem(
+                            title = "Patient Directory",
+                            desc = "Past visits & history",
+                            icon = Icons.Default.FolderShared,
+                            route = NavRoutes.PatientDirectory,
+                            color = Color(0xFF059669)
+                        )
+                    )
+                    add(
+                        ModuleItem(
+                            title = "Average Time",
+                            desc = "Ensures estimated consultation time & queue pacing",
+                            icon = Icons.Default.Timer,
+                            route = NavRoutes.AverageTime,
+                            color = Color(0xFF006B7D)
+                        )
+                    )
+                    add(
+                        ModuleItem(
+                            title = "Future OPD",
+                            desc = "Upcoming scheduled patients",
+                            icon = Icons.Default.Event,
+                            route = NavRoutes.FutureAppointments,
+                            color = Color(0xFFD97706)
+                        )
+                    )
+                    // No-show management button for single-visit and lab clinics
+                    if (isNoShowSupported) {
+                        add(
+                            ModuleItem(
+                                title = "No-Show Patients",
+                                desc = "Past-day missed visits & arrange new date",
+                                icon = Icons.Default.EventBusy,
+                                route = NavRoutes.NoShowManager,
+                                color = Color(0xFFDC2626)
+                            )
+                        )
+                    }
+                    if (!isLabClinic) {
+                        add(
+                            ModuleItem(
+                                title = "Consultation Fees",
+                                desc = "Set & manage doctor OPD consultation fees",
+                                icon = Icons.Default.Payments,
+                                route = NavRoutes.ConsultationFeeManager,
+                                color = Color(0xFF0D9488)
+                            )
+                        )
+                    }
+                    if (isLabClinic) {
+                        add(
+                            ModuleItem(
+                                title = "Lab Tests & Rates",
+                                desc = "Add tests & report prices selectable during patient booking",
+                                icon = Icons.Default.Science,
+                                route = NavRoutes.ServicesScreen,
+                                color = Color(0xFF0284C7)
+                            )
+                        )
+                    } else {
+                        add(
+                            ModuleItem(
+                                title = "Services & Pricing",
+                                desc = "Procedures, medical services & charges",
+                                icon = Icons.Default.MedicalServices,
+                                route = NavRoutes.ServicesScreen,
+                                color = Color(0xFF0284C7)
+                            )
+                        )
+                    }
+                    add(
+                        ModuleItem(
+                            title = "Catalog & Rates",
+                            desc = if (isLabClinic) "Billing items & package rates" else "Procedures, tests & billing items",
+                            icon = Icons.Default.ReceiptLong,
+                            route = NavRoutes.CatalogManager,
+                            color = Color(0xFF7C3AED)
+                        )
+                    )
+                    // Dedicated Processing section button in Operational Management ONLY for Lab Clinics
+                    if (isLabClinic) {
+                        add(
+                            ModuleItem(
+                                title = "Processing",
+                                desc = "Collected samples → Mark Prepared & upload optional PDF/photo",
+                                icon = Icons.Default.Biotech,
+                                route = NavRoutes.LabWorkflow,
+                                color = Color(0xFFDC2626)
+                            )
+                        )
+                    }
+                    add(
+                        ModuleItem(
+                            title = if (isLabClinic) "Lab Tech & Doctor Invites" else "Doctor Invites",
+                            desc = if (isLabClinic) "Enlist lab technicians & pathologists" else "Enlist & manage specialists",
+                            icon = Icons.Default.PersonAddAlt1,
+                            route = NavRoutes.InvitationManager,
+                            color = Color(0xFF0891B2)
+                        )
+                    )
+                }
+
+                opModules.chunked(2).forEach { rowModules ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         rowModules.forEach { module ->
                             Card(
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                shape = RoundedCornerShape(18.dp),
+                                colors = CardDefaults.cardColors(containerColor = module.color.copy(alpha = 0.08f)),
+                                border = BorderStroke(1.dp, module.color.copy(alpha = 0.2f)),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(140.dp)
-                                    .clickable { navController.navigate(module.route) }
+                                    .height(155.dp)
+                                    .clickable {
+                                        val activeCid = clinic?.id?.takeIf { it.isNotBlank() } ?: initialEffectiveClinicId
+                                        val targetRoute = if (activeCid.isNotBlank()) "${module.route}/$activeCid" else module.route
+                                        navController.navigate(targetRoute)
+                                    }
                             ) {
                                 Column(
                                     modifier = Modifier
@@ -949,23 +1663,198 @@ fun DashboardScreen(
                                         .fillMaxSize(),
                                     verticalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .background(module.color.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
-                                        contentAlignment = Alignment.Center
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = module.color.copy(alpha = 0.15f),
+                                        modifier = Modifier.size(42.dp)
                                     ) {
-                                        Icon(module.icon, contentDescription = null, tint = module.color, modifier = Modifier.size(20.dp))
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(module.icon, contentDescription = null, tint = module.color, modifier = Modifier.size(22.dp))
+                                        }
                                     }
 
-                                    Column {
-                                        Text(module.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        Text(module.desc, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, lineHeight = 13.sp)
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(module.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
+                                        Text(module.desc, fontSize = 11.sp, color = Color(0xFF64748B), maxLines = 2, lineHeight = 14.sp)
+                                    }
+
+                                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomEnd) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = module.color.copy(alpha = 0.18f),
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    Icons.Default.ArrowForward,
+                                                    contentDescription = null,
+                                                    tint = module.color,
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+
+                // 6. DEDICATED DOCTOR INVITATION CARD (Below Operational Management modules when scrolled)
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                    border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val activeCid = clinic?.id?.takeIf { it.isNotBlank() } ?: initialEffectiveClinicId
+                            navController.navigate(if (activeCid.isNotBlank()) "${NavRoutes.InvitationManager}/$activeCid" else NavRoutes.InvitationManager)
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFDBEAFE),
+                                modifier = Modifier.size(46.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.PersonAddAlt1,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2563EB),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    "Invite & Enlist Doctors",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color(0xFF1E3A8A)
+                                )
+                                Text(
+                                    "Send digital invitations to specialists to connect and publish OPD slots",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF3B82F6),
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                val activeCid = clinic?.id?.takeIf { it.isNotBlank() } ?: initialEffectiveClinicId
+                                navController.navigate(if (activeCid.isNotBlank()) "${NavRoutes.InvitationManager}/$activeCid" else NavRoutes.InvitationManager)
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Invite", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // 7. CLINIC PROFILE & SETTINGS CARD
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val activeCid = clinic?.id?.takeIf { it.isNotBlank() } ?: initialEffectiveClinicId
+                            navController.navigate(if (activeCid.isNotBlank()) "${NavRoutes.ClinicSettings}/$activeCid" else NavRoutes.ClinicSettings)
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                                modifier = Modifier.size(46.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.Tune,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    "Clinic Profile & Settings",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "Manage specialties, operating hours, photos, PAN & payment APIs",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // 8. SIGN OUT BUTTON
+                OutlinedButton(
+                    onClick = {
+                        sessionManager.clearSession()
+                        clinicRepository?.clearCache()
+                        doctorRepository?.clearCache()
+                        try {
+                            com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
+                                context,
+                                com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                            ).signOut()
+                            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                        } catch (ignored: Exception) {}
+                        navController.navigate(NavRoutes.ClinicLogin) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sign Out from Clinic Account", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
                 }
             }
         }

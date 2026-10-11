@@ -3,10 +3,22 @@
 # Ensure that adb is in your PATH.
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$apkPaths = @(
-    (Join-Path $scriptDir "APKs\Dactor-ClinicApp-debug.apk"),
-    (Join-Path $scriptDir "APKs\Dactor-PatientApp-debug.apk")
-)
+$apksDir = Join-Path $scriptDir "APKs"
+
+# Resolve latest Clinic & Patient APKs dynamically (supports versioned and legacy filenames)
+$clinicApk = Get-ChildItem -Path $apksDir -Filter "*Clinic*.apk" -ErrorAction SilentlyContinue | 
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$patientApk = Get-ChildItem -Path $apksDir -Filter "*Patient*.apk" -ErrorAction SilentlyContinue | 
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+$apkPaths = @()
+if ($clinicApk) { $apkPaths += $clinicApk.FullName }
+if ($patientApk) { $apkPaths += $patientApk.FullName }
+
+if ($apkPaths.Count -eq 0) {
+    Write-Host "❌ No APK files found in $apksDir." -ForegroundColor Red
+    exit 1
+}
 
 $adbCmd = if (Get-Command adb -ErrorAction SilentlyContinue) { "adb" } elseif (Test-Path "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe") { "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" } else { "adb" }
 

@@ -16,8 +16,8 @@ android {
         applicationId = "com.dactor.patient"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -98,6 +98,9 @@ dependencies {
     
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
+
+    // WorkManager for background notification sync when app is closed
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

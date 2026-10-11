@@ -64,8 +64,12 @@ fun DoctorDashboardScreen(
 
     // Settings & Profile Dialog state
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var editPractitionerRole by remember { mutableStateOf("doctor") }
+    var editEducationDropdownExpanded by remember { mutableStateOf(false) }
+    var editStartingYearDropdownExpanded by remember { mutableStateOf(false) }
+    val practicingYears = remember { (2026 downTo 1960).map { it.toString() } }
     var editName by remember { mutableStateOf("") }
-    var editGender by remember { mutableStateOf("Male") }
+    var editGender by remember { mutableStateOf("") }
     var editAge by remember { mutableStateOf("") }
     var editStartingYear by remember { mutableStateOf("") }
     var editPictureUri by remember { mutableStateOf<Uri?>(null) }
@@ -76,9 +80,10 @@ fun DoctorDashboardScreen(
     var editPersonalPhone by remember { mutableStateOf("") }
     var editPublicPhone by remember { mutableStateOf("") }
     var editDescription by remember { mutableStateOf("") }
-    var editFee by remember { mutableStateOf("") }
     var isSavingProfile by remember { mutableStateOf(false) }
     var profileMessage by remember { mutableStateOf<String?>(null) }
+    var masterSpecialtiesList by remember { mutableStateOf<List<com.dactor.clinic.data.model.MedicalSpecialty>>(emptyList()) }
+    var masterQualificationsList by remember { mutableStateOf<List<com.dactor.clinic.data.model.MedicalQualification>>(emptyList()) }
 
     val editPictureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -124,31 +129,47 @@ fun DoctorDashboardScreen(
                     targetDoc.email,
                     targetDoc.fullName
                 )
-                doctorIsInClinic = targetDoc.isInClinic
+                // Load all affiliated clinics for this doctor
+                val affClinics = doctorRepository.getAffiliatedClinicsForDoctor(targetDoc.id, targetDoc.email)
+                affiliatedClinics = affClinics
+
+                val sessionActiveClinicId = com.dactor.clinic.data.local.UserSessionManager(context).getSavedActiveClinicIdForDoctor()
+                val activeCId = sessionActiveClinicId?.takeIf { id -> affClinics.any { it.id == id } }
+                    ?: targetDoc.activeClinicId?.takeIf { id -> affClinics.any { it.id == id } }
+                    ?: targetDoc.clinicId?.takeIf { id -> affClinics.any { it.id == id } }
+                    ?: affClinics.firstOrNull()?.id
+
+                clinic = if (!activeCId.isNullOrBlank() && clinicRepository != null) {
+                    affClinics.find { it.id == activeCId } ?: clinicRepository.getClinicById(activeCId)
+                } else {
+                    affClinics.firstOrNull()
+                }
+
+                if (clinic != null) {
+                    com.dactor.clinic.data.local.UserSessionManager(context).saveActiveClinicIdForDoctor(clinic!!.id)
+                }
+
+                doctorIsInClinic = (targetDoc.isInClinic == true)
+                editPractitionerRole = if (targetDoc.isLabTechnician) "lab_technician" else "doctor"
                 editName = targetDoc.fullName
-                editGender = targetDoc.gender ?: "Male"
+                editGender = targetDoc.gender ?: ""
                 editAge = targetDoc.age?.toString() ?: ""
                 editStartingYear = targetDoc.startingPracticingYear?.toString() ?: ""
                 editPictureName = targetDoc.profilePictureUrl?.substringAfterLast('/')
-                editSpecialty = targetDoc.specialty ?: "General Physician"
+                editSpecialty = targetDoc.specialty ?: if (targetDoc.isLabTechnician) "Medical Lab Technician" else "General Physician"
                 editEducation = targetDoc.education ?: ""
                 editNmc = targetDoc.nmcLicenseNumber ?: ""
                 editPersonalPhone = targetDoc.personalMobileNumber ?: ""
                 editPublicPhone = targetDoc.publicMobileNumber ?: ""
                 editDescription = targetDoc.description ?: ""
-                editFee = (targetDoc.consultationFee ?: 500.0).toInt().toString()
 
-                // Load all affiliated clinics for this doctor
-                val affClinics = doctorRepository.getAffiliatedClinicsForDoctor(targetDoc.id, targetDoc.email)
-                affiliatedClinics = affClinics
-
-                // Active clinic is targetDoc.clinicId (or first affiliated clinic)
-                if (!targetDoc.clinicId.isNullOrBlank() && clinicRepository != null) {
-                    clinic = affClinics.find { it.id == targetDoc.clinicId } ?: clinicRepository.getClinicById(targetDoc.clinicId)
-                } else if (affClinics.isNotEmpty()) {
-                    clinic = affClinics.first()
-                } else {
-                    clinic = null
+                try {
+                    val specs = doctorRepository.getSpecialties()
+                    if (specs.isNotEmpty()) masterSpecialtiesList = specs
+                    val quals = doctorRepository.getQualifications()
+                    if (quals.isNotEmpty()) masterQualificationsList = quals
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
 
                 // Load clinic invitations & inviting clinic details
@@ -172,9 +193,10 @@ fun DoctorDashboardScreen(
                 // Load today's active appointments
                 if (appointmentRepository != null) {
                     val appts = appointmentRepository.getAppointmentsByDoctor(targetDoc.id)
-                    appointmentsQueue = appts.filter {
-                        (it.checkinStatus == "checked_in" || it.checkinStatus == "in_consultation" || it.checkinStatus == "inside_opd") &&
-                        it.checkinStatus != "completed" && it.checkinStatus != "cancelled"
+                    val effectiveTargetClinicId = clinic?.id ?: activeCId
+                    appointmentsQueue = appts.filter { appt ->
+                        (effectiveTargetClinicId.isNullOrBlank() || appt.clinicId == effectiveTargetClinicId) &&
+                        appt.checkinStatus != "completed" && appt.checkinStatus != "cancelled"
                     }
                 }
             }
@@ -225,12 +247,17 @@ fun DoctorDashboardScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { navController.navigate(NavRoutes.Notifications) }) {
+                        Icon(Icons.Default.Notifications, contentDescription = "Notifications", tint = MaterialTheme.colorScheme.onSurface)
+                    }
                     IconButton(onClick = { showSettingsDialog = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Doctor Profile Settings", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(
                         onClick = {
                             com.dactor.clinic.data.local.UserSessionManager(context).clearSession()
+                            clinicRepository?.clearCache()
+                            doctorRepository?.clearCache()
                             try {
                                 com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
                                     context,
@@ -319,7 +346,9 @@ fun DoctorDashboardScreen(
                         )
 
                         affiliatedClinics.forEach { affClinic ->
-                            val isActiveClinic = affClinic.id == clinic?.id
+                            val savedActiveCId = com.dactor.clinic.data.local.UserSessionManager(context).getSavedActiveClinicIdForDoctor()
+                            val effectiveActiveClinicId = clinic?.id ?: savedActiveCId ?: doctor?.activeClinicId ?: doctor?.clinicId
+                            val isActiveClinic = affClinic.id == effectiveActiveClinicId
                             Card(
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(
@@ -359,7 +388,10 @@ fun DoctorDashboardScreen(
                                                 coroutineScope.launch {
                                                     val targetId = doctor?.id
                                                     if (targetId != null && doctorRepository != null) {
-                                                        doctorRepository.switchActiveClinic(targetId, affClinic.id, doctorIsInClinic)
+                                                        com.dactor.clinic.data.local.UserSessionManager(context).saveActiveClinicIdForDoctor(affClinic.id)
+                                                        clinic = affClinic
+                                                        doctorIsInClinic = true
+                                                        doctorRepository.switchActiveClinic(targetId, affClinic.id, true)
                                                         loadDoctorData()
                                                     }
                                                 }
@@ -476,11 +508,12 @@ fun DoctorDashboardScreen(
                                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(48.dp)
+                                        .defaultMinSize(minHeight = 44.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Accept Invitation", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Accept Invite", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
                                 }
 
                                 OutlinedButton(
@@ -495,11 +528,12 @@ fun DoctorDashboardScreen(
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
                                     border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
-                                    modifier = Modifier.height(48.dp)
+                                    modifier = Modifier.defaultMinSize(minHeight = 44.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
                                     Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Decline", fontSize = 13.sp)
+                                    Text("Decline", fontSize = 12.sp, maxLines = 1)
                                 }
                             }
                         }
@@ -562,7 +596,7 @@ fun DoctorDashboardScreen(
                             coroutineScope.launch {
                                 val targetId = doctor?.id ?: doctorId
                                 if (targetId != null) {
-                                    val currentClinicId = clinic?.id ?: doctor?.clinicId ?: ""
+                                    val currentClinicId = doctor?.activeClinicId ?: clinic?.id ?: doctor?.clinicId ?: ""
                                     if (newState && currentClinicId.isNotBlank()) {
                                         doctorRepository?.switchActiveClinic(targetId, currentClinicId, true)
                                     } else {
@@ -655,6 +689,10 @@ fun DoctorDashboardScreen(
                             }
                         }
 
+                        val isLabPractitionerOrClinic = doctor?.isLabTechnician == true ||
+                            clinic?.type == "diagnostic_lab" ||
+                            clinic?.type?.contains("lab", ignoreCase = true) == true
+
                         // Clinical Rx & Lab Buttons
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -672,16 +710,18 @@ fun DoctorDashboardScreen(
                                 Text("Clinical Rx", fontSize = 12.sp)
                             }
 
-                            OutlinedButton(
-                                onClick = {
-                                    navController.navigate(NavRoutes.LabWorkflow)
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.Biotech, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Order Lab", fontSize = 12.sp)
+                            if (isLabPractitionerOrClinic) {
+                                OutlinedButton(
+                                    onClick = {
+                                        navController.navigate(NavRoutes.LabWorkflow)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Biotech, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Lab Workflow", fontSize = 12.sp)
+                                }
                             }
                         }
 
@@ -694,10 +734,10 @@ fun DoctorDashboardScreen(
                                 coroutineScope.launch {
                                     try {
                                         if (appointmentRepository != null) {
-                                            val ok = appointmentRepository.completeConsultation(activeAppointment.id)
-                                            if (ok) {
-                                                appointmentsQueue = appointmentsQueue.filter { it.id != activeAppointment.id }
-                                            }
+                                            val completedApptId = activeAppointment.id
+                                            // Immediately update local state so next patient appears smoothly
+                                            appointmentsQueue = appointmentsQueue.filter { it.id != completedApptId }
+                                            val ok = appointmentRepository.completeConsultation(completedApptId)
                                         }
                                         loadDoctorData()
                                     } catch (e: Exception) {
@@ -796,7 +836,15 @@ fun DoctorDashboardScreen(
             }
 
             // DOCTOR WORKSPACE MODULES
-            Text("Doctor Clinical Tools", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            val showLabModule = doctor?.isLabTechnician == true ||
+                clinic?.type == "diagnostic_lab" ||
+                clinic?.type?.contains("lab", ignoreCase = true) == true
+
+            Text(
+                if (doctor?.isLabTechnician == true) "Lab Technician & Clinical Tools" else "Doctor Clinical Tools",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            )
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Card(
@@ -844,20 +892,22 @@ fun DoctorDashboardScreen(
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Card(
-                    modifier = Modifier.weight(1f).height(100.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    onClick = { navController.navigate(NavRoutes.LabWorkflow) }
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp).fillMaxSize(),
-                        verticalArrangement = Arrangement.SpaceBetween
+                if (showLabModule) {
+                    Card(
+                        modifier = Modifier.weight(1f).height(100.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        onClick = { navController.navigate(NavRoutes.LabWorkflow) }
                     ) {
-                        Icon(Icons.Default.Biotech, contentDescription = null, tint = Color(0xFFEC4899))
-                        Column {
-                            Text("Lab Reports", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            Text("Review diagnostic results", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(
+                            modifier = Modifier.padding(12.dp).fillMaxSize(),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Icon(Icons.Default.Biotech, contentDescription = null, tint = Color(0xFFEC4899))
+                            Column {
+                                Text("Lab Process Workflow", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("Sample -> Process -> Publish Report", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
@@ -883,14 +933,55 @@ fun DoctorDashboardScreen(
         }
     }
 
-    // DOCTOR PROFILE & SETTINGS DIALOG
+    // DOCTOR / LAB TECHNICIAN PROFILE & SETTINGS DIALOG
     if (showSettingsDialog) {
+        val labTechQualifications = listOf(
+            "CMLT (Certificate in Medical Lab Technology)",
+            "DMLT (Diploma in Medical Lab Technology)",
+            "BMLT / B.Sc. MLT (Bachelor in Medical Lab Technology)",
+            "M.Sc. MLT / Clinical Biochemistry",
+            "M.Sc. Medical Microbiology",
+            "PCL in Medical Lab Technology",
+            "Certified Phlebotomy & Lab Technician"
+        )
+        val doctorQualifications = if (masterQualificationsList.isNotEmpty()) {
+            masterQualificationsList.map { it.degreeName }
+        } else {
+            listOf(
+                "MBBS",
+                "MD - Internal Medicine",
+                "MS - General Surgery",
+                "BDS",
+                "MDS",
+                "DM - Cardiology",
+                "MCh - Neurosurgery",
+                "MD - Pediatrics",
+                "DNB",
+                "FRCS",
+                "MRCP",
+                "BAMS",
+                "BHMS",
+                "BPT"
+            )
+        }
+
+        val cleanEditPersonal = editPersonalPhone.filter { it.isDigit() }
+        val cleanEditPublic = editPublicPhone.filter { it.isDigit() }
+        val parsedEditAge = editAge.trim().toIntOrNull()
+        val isEditNameError = editName.isNotBlank() && editName.trim().length < 3
+        val isEditAgeError = editAge.isNotBlank() && (parsedEditAge == null || parsedEditAge !in 20..100)
+        val isEditPersonalPhoneError = editPersonalPhone.isNotBlank() && (cleanEditPersonal.length != 10 || !cleanEditPersonal.startsWith("9"))
+        val isEditPublicPhoneError = editPublicPhone.isNotBlank() && (cleanEditPublic.length != 10 || !cleanEditPublic.startsWith("9"))
+
         AlertDialog(
             onDismissRequest = { showSettingsDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text("Doctor Profile & Settings", fontWeight = FontWeight.Bold)
+                    Text(
+                        if (editPractitionerRole == "lab_technician") "Lab Technician Profile" else "Doctor Profile & Settings",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             text = {
@@ -917,13 +1008,67 @@ fun DoctorDashboardScreen(
                         }
                     }
 
+                    // 0. Practitioner Role (Doctor vs Lab Technician)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Practitioner Role *", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = editPractitionerRole == "doctor",
+                                onClick = {
+                                    editPractitionerRole = "doctor"
+                                    if (editSpecialty.contains("Lab", ignoreCase = true) || editSpecialty.contains("Pathology", ignoreCase = true)) {
+                                        editSpecialty = "General Physician"
+                                    }
+                                    if (editEducation in labTechQualifications || editEducation.isBlank()) {
+                                        editEducation = doctorQualifications.firstOrNull() ?: "MBBS"
+                                    }
+                                },
+                                label = { Text("Doctor", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.MedicalServices, contentDescription = null, modifier = Modifier.size(15.dp))
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = editPractitionerRole == "lab_technician",
+                                onClick = {
+                                    editPractitionerRole = "lab_technician"
+                                    if (editSpecialty == "General Physician" || editSpecialty.isBlank()) {
+                                        editSpecialty = "Medical Lab Technician"
+                                    }
+                                    if (editEducation !in labTechQualifications) {
+                                        editEducation = labTechQualifications.first()
+                                    }
+                                },
+                                label = { Text("Lab Technician", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Biotech, contentDescription = null, modifier = Modifier.size(15.dp))
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+
                     // 1. Full Name
                     OutlinedTextField(
                         value = editName,
                         onValueChange = { editName = it },
                         label = { Text("Full Name with Title *") },
-                        placeholder = { Text("e.g. Dr. Ram Bahadur Sharma") },
+                        placeholder = {
+                            Text(
+                                if (editPractitionerRole == "lab_technician") "e.g. Tech. Suman Thapa"
+                                else "e.g. Dr. Ram Bahadur Sharma"
+                            )
+                        },
                         leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                        isError = isEditNameError,
+                        supportingText = if (isEditNameError) {
+                            { Text("Required: Name must be at least 3 characters", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                        } else null,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
@@ -944,7 +1089,10 @@ fun DoctorDashboardScreen(
                     }
 
                     // 3. Age & Starting Practicing Year
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         OutlinedTextField(
                             value = editAge,
                             onValueChange = {
@@ -953,25 +1101,60 @@ fun DoctorDashboardScreen(
                             label = { Text("Age") },
                             placeholder = { Text("e.g. 38") },
                             leadingIcon = { Icon(Icons.Default.Cake, contentDescription = null) },
+                            isError = isEditAgeError,
+                            supportingText = if (isEditAgeError) {
+                                { Text("Age: 20-100", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                            } else null,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp)
                         )
 
-                        OutlinedTextField(
-                            value = editStartingYear,
-                            onValueChange = {
-                                if (it.length <= 4 && it.all { ch -> ch.isDigit() }) editStartingYear = it
-                            },
-                            label = { Text("Practicing Since") },
-                            placeholder = { Text("e.g. 2014") },
-                            leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
+                        // Dropbox for doctor starting practicing year
+                        ExposedDropdownMenuBox(
+                            expanded = editStartingYearDropdownExpanded,
+                            onExpandedChange = { editStartingYearDropdownExpanded = !editStartingYearDropdownExpanded },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            OutlinedTextField(
+                                value = editStartingYear,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Practicing Since") },
+                                placeholder = { Text("Select year") },
+                                leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = editStartingYearDropdownExpanded)
+                                },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+
+                            ExposedDropdownMenu(
+                                expanded = editStartingYearDropdownExpanded,
+                                onDismissRequest = { editStartingYearDropdownExpanded = false }
+                            ) {
+                                practicingYears.forEach { yr ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = yr,
+                                                fontSize = 13.sp,
+                                                fontWeight = if (editStartingYear == yr) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            editStartingYear = yr
+                                            editStartingYearDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     // 4. Picture Upload
@@ -987,7 +1170,7 @@ fun DoctorDashboardScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Doctor Picture / Avatar", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                Text("Profile Picture / Avatar", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                                 Text(
                                     text = editPictureName ?: "No picture uploaded",
                                     fontSize = 11.sp,
@@ -998,8 +1181,8 @@ fun DoctorDashboardScreen(
                             OutlinedButton(
                                 onClick = { editPictureLauncher.launch("image/*") },
                                 shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                modifier = Modifier.height(32.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                             ) {
                                 Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -1009,13 +1192,28 @@ fun DoctorDashboardScreen(
                     }
 
                     // 5. Specialization
-                    Text("Medical Specialization *", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text("Specialization *", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+
+                    val specOptions = if (editPractitionerRole == "lab_technician") {
+                        listOf(
+                            "Medical Lab Technician",
+                            "Pathology & Hematology Technician",
+                            "Clinical Biochemistry Technician",
+                            "Microbiology Lab Technician",
+                            "Histopathology & Cytology Technician",
+                            "Phlebotomist & Sample Collection"
+                        )
+                    } else if (masterSpecialtiesList.isNotEmpty()) {
+                        masterSpecialtiesList.map { it.name }
+                    } else {
+                        commonSpecialties
+                    }
 
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        commonSpecialties.forEach { spec ->
+                        specOptions.forEach { spec ->
                             FilterChip(
                                 selected = editSpecialty == spec,
                                 onClick = { editSpecialty = spec },
@@ -1028,29 +1226,103 @@ fun DoctorDashboardScreen(
                         value = editSpecialty,
                         onValueChange = { editSpecialty = it },
                         label = { Text("Specialty") },
-                        placeholder = { Text("e.g. Cardiologist") },
+                        placeholder = {
+                            Text(
+                                if (editPractitionerRole == "lab_technician") "e.g. Medical Lab Technician"
+                                else "e.g. Cardiologist"
+                            )
+                        },
                         leadingIcon = { Icon(Icons.Default.MedicalServices, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
                     )
 
-                    // 6. Education
-                    OutlinedTextField(
-                        value = editEducation,
-                        onValueChange = { editEducation = it },
-                        label = { Text("Education / Qualifications") },
-                        placeholder = { Text("e.g. MBBS, MD (Internal Medicine)") },
-                        leadingIcon = { Icon(Icons.Default.School, contentDescription = null) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
+                    // 6. Education / Qualifications (Dropdown / Dropbox instead of scroll buttons)
+                    Text("Education / Qualifications *", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
 
-                    // 7. NMC ID
+                    val qualOptions = if (editPractitionerRole == "lab_technician") {
+                        labTechQualifications
+                    } else {
+                        doctorQualifications
+                    }
+
+                    ExposedDropdownMenuBox(
+                        expanded = editEducationDropdownExpanded,
+                        onExpandedChange = { editEducationDropdownExpanded = !editEducationDropdownExpanded },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = editEducation,
+                            onValueChange = { editEducation = it },
+                            label = {
+                                Text(
+                                    if (editPractitionerRole == "lab_technician") "Lab Technician Qualification"
+                                    else "Medical Degree / Qualification"
+                                )
+                            },
+                            placeholder = {
+                                Text(
+                                    if (editPractitionerRole == "lab_technician") "Select Lab Technician Qualification"
+                                    else "Select Medical Qualification"
+                                )
+                            },
+                            leadingIcon = { Icon(Icons.Default.School, contentDescription = null) },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = editEducationDropdownExpanded)
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = editEducationDropdownExpanded,
+                            onDismissRequest = { editEducationDropdownExpanded = false }
+                        ) {
+                            qualOptions.forEach { qual ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = qual,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (editEducation == qual) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        editEducation = qual
+                                        editEducationDropdownExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (editPractitionerRole == "lab_technician") Icons.Default.Biotech else Icons.Default.School,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp),
+                                            tint = if (editEducation == qual) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // 7. NMC / NHPC License ID
                     OutlinedTextField(
                         value = editNmc,
                         onValueChange = { editNmc = it },
-                        label = { Text("NMC License ID") },
-                        placeholder = { Text("e.g. NMC-14520") },
+                        label = {
+                            Text(
+                                if (editPractitionerRole == "lab_technician") "NHPC / Lab Council License ID"
+                                else "NMC License ID"
+                            )
+                        },
+                        placeholder = {
+                            Text(
+                                if (editPractitionerRole == "lab_technician") "e.g. NHPC-A-4520"
+                                else "e.g. NMC-14520"
+                            )
+                        },
                         leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
@@ -1063,8 +1335,12 @@ fun DoctorDashboardScreen(
                             if (it.length <= 10 && it.all { ch -> ch.isDigit() }) editPersonalPhone = it
                         },
                         label = { Text("Personal Mobile Number") },
-                        placeholder = { Text("98xxxxxxxx") },
+                        placeholder = { Text("98xxxxxxxx (10 digits)") },
                         leadingIcon = { Icon(Icons.Default.PhoneIphone, contentDescription = null) },
+                        isError = isEditPersonalPhoneError,
+                        supportingText = if (isEditPersonalPhoneError) {
+                            { Text("Must be 10 digits starting with 9", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                        } else null,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
@@ -1077,8 +1353,12 @@ fun DoctorDashboardScreen(
                             if (it.length <= 10 && it.all { ch -> ch.isDigit() }) editPublicPhone = it
                         },
                         label = { Text("Public Mobile Number (For Patients)") },
-                        placeholder = { Text("98xxxxxxxx") },
+                        placeholder = { Text("98xxxxxxxx (10 digits)") },
                         leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                        isError = isEditPublicPhoneError,
+                        supportingText = if (isEditPublicPhoneError) {
+                            { Text("Must be 10 digits starting with 9", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                        } else null,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
@@ -1094,17 +1374,6 @@ fun DoctorDashboardScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
                     )
-
-                    // 11. Consultation Fee
-                    OutlinedTextField(
-                        value = editFee,
-                        onValueChange = { editFee = it },
-                        label = { Text("Consultation Fee (Rs.)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
                 }
             },
             confirmButton = {
@@ -1114,10 +1383,23 @@ fun DoctorDashboardScreen(
                         if (targetDoc != null && doctorRepository != null) {
                             isSavingProfile = true
                             coroutineScope.launch {
-                                val feeDouble = editFee.toDoubleOrNull() ?: targetDoc.consultationFee ?: 500.0
+                                val feeDouble = targetDoc.consultationFee ?: 500.0
                                 val ageInt = editAge.toIntOrNull()
                                 val yearInt = editStartingYear.toIntOrNull()
-                                val picUrl = editPictureUri?.toString() ?: targetDoc.profilePictureUrl
+                                val picUrl = if (editPictureUri != null) {
+                                    try {
+                                        val bytes = context.contentResolver.openInputStream(editPictureUri!!)?.use { it.readBytes() }
+                                        if (bytes != null) {
+                                            val cleanPicName = (editPictureName ?: "profile.jpg").replace("\\s+".toRegex(), "_")
+                                            val fileName = "doc_${targetDoc.id}_${System.currentTimeMillis()}_$cleanPicName"
+                                            doctorRepository.uploadProfilePicture(fileName, bytes) ?: targetDoc.profilePictureUrl
+                                        } else targetDoc.profilePictureUrl
+                                    } catch (e: Exception) {
+                                        targetDoc.profilePictureUrl
+                                    }
+                                } else {
+                                    targetDoc.profilePictureUrl
+                                }
 
                                 doctorRepository.updateDoctorFullProfile(
                                     id = targetDoc.id,
@@ -1132,7 +1414,8 @@ fun DoctorDashboardScreen(
                                     personalMobile = editPersonalPhone.trim().ifBlank { null },
                                     publicMobile = editPublicPhone.trim().ifBlank { null },
                                     description = editDescription.trim().ifBlank { null },
-                                    consultationFee = feeDouble
+                                    consultationFee = feeDouble,
+                                    practitionerRole = editPractitionerRole
                                 )
 
                                 doctor = targetDoc.copy(
@@ -1142,19 +1425,21 @@ fun DoctorDashboardScreen(
                                     startingPracticingYear = yearInt,
                                     profilePictureUrl = picUrl,
                                     specialty = editSpecialty.trim(),
+                                    specialties = listOf(editSpecialty.trim()),
                                     education = editEducation.trim().ifBlank { null },
                                     nmcLicenseNumber = editNmc.trim().ifBlank { null },
                                     personalMobileNumber = editPersonalPhone.trim().ifBlank { null },
                                     publicMobileNumber = editPublicPhone.trim().ifBlank { null },
                                     description = editDescription.trim().ifBlank { null },
-                                    consultationFee = feeDouble
+                                    consultationFee = feeDouble,
+                                    practitionerRole = editPractitionerRole
                                 )
                                 isSavingProfile = false
                                 profileMessage = "Profile updated successfully!"
                             }
                         }
                     },
-                    enabled = !isSavingProfile,
+                    enabled = !isSavingProfile && !isEditNameError && !isEditAgeError && !isEditPersonalPhoneError && !isEditPublicPhoneError,
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(if (isSavingProfile) "Saving..." else "Save Changes")

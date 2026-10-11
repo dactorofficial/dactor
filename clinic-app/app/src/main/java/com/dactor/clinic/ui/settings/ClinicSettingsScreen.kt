@@ -68,7 +68,10 @@ fun ClinicSettingsScreen(
     var latitude by remember { mutableStateOf("27.7052") }
     var longitude by remember { mutableStateOf("85.3193") }
     var selectedType by remember { mutableStateOf("multi_visit") }
+    var selectedSpecialties by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var availableSpecialtiesList by remember { mutableStateOf<List<com.dactor.clinic.data.model.MedicalSpecialty>>(emptyList()) }
     var threshold by remember { mutableStateOf("2") }
+    var avgConsultationTimeMinutes by remember { mutableStateOf("10") }
     var description by remember { mutableStateOf("") }
 
     var regDocUri by remember { mutableStateOf<Uri?>(null) }
@@ -83,6 +86,17 @@ fun ClinicSettingsScreen(
     var paymentApiKey by remember { mutableStateOf("") }
     var paymentSecretKey by remember { mutableStateOf("") }
     var showSecretKey by remember { mutableStateOf(false) }
+    var paymentGatewaysConfig by remember { mutableStateOf(com.dactor.clinic.data.model.PaymentGatewaysConfig()) }
+    var isSavingGatewayOnly by remember { mutableStateOf(false) }
+
+    // Platform License / Admin Subscription Payment state
+    var showSubscriptionPayDialog by remember { mutableStateOf(false) }
+    var platformGatewaysConfig by remember { mutableStateOf<com.dactor.clinic.data.model.PaymentGatewaysConfig?>(null) }
+    var isLoadingPlatformGateways by remember { mutableStateOf(false) }
+    var isProcessingSubscriptionPayment by remember { mutableStateOf(false) }
+    var selectedAdminPlan by remember { mutableStateOf("1_month") } // "1_month" (1500) or "12_month" (15000)
+    var selectedAdminGateway by remember { mutableStateOf("esewa") }
+    var adminPaymentTxId by remember { mutableStateOf("") }
 
     // Clinic Activation & Subscription state
     var isActivated by remember { mutableStateOf<Boolean?>(true) }
@@ -134,7 +148,7 @@ fun ClinicSettingsScreen(
                 val clinic = if (effectiveClinicId.isNotBlank()) {
                     clinicRepository.getClinicById(effectiveClinicId)
                 } else {
-                    clinicRepository.getClinics().firstOrNull()
+                    null
                 }
                 if (clinic != null) {
                     loadedClinicId = clinic.id
@@ -148,11 +162,22 @@ fun ClinicSettingsScreen(
                     latitude = (clinic.latitude ?: 27.7052).toString()
                     longitude = (clinic.longitude ?: 85.3193).toString()
                     selectedType = clinic.type ?: "multi_visit"
+                    selectedSpecialties = clinic.specialties.toSet()
                     threshold = (clinic.autoNotifyThreshold ?: 2).toString()
+                    avgConsultationTimeMinutes = (clinic.avgConsultationTimeMinutes ?: sessionManager.getAverageConsultationTimeMinutes(clinic.id)).toString()
                     description = clinic.description ?: ""
                     existingRegDocUrl = clinic.registrationDocUrl
                     regDocName = clinic.registrationDocUrl?.substringAfterLast('/')
                     clinicPictures = clinic.pictures
+
+                    coroutineScope.launch {
+                        try {
+                            val specs = clinicRepository?.getSpecialties() ?: emptyList()
+                            if (specs.isNotEmpty()) availableSpecialtiesList = specs
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
 
                     // Payment Gateway
                     isDirectPaymentEnabled = clinic.isDirectPaymentEnabled ?: false
@@ -160,6 +185,7 @@ fun ClinicSettingsScreen(
                     paymentMerchantId = clinic.merchantId ?: ""
                     paymentApiKey = clinic.paymentApiKey ?: ""
                     paymentSecretKey = clinic.paymentSecretKey ?: ""
+                    paymentGatewaysConfig = clinic.getPaymentGatewaysConfig()
 
                     // Activation & Subscription
                     isActivated = clinic.isActivated
@@ -598,6 +624,38 @@ fun ClinicSettingsScreen(
                                 }
                             }
                         }
+
+                        // Pay & Renew Subscription Button
+                        Button(
+                            onClick = {
+                                showSubscriptionPayDialog = true
+                                isLoadingPlatformGateways = true
+                                coroutineScope.launch {
+                                    try {
+                                        platformGatewaysConfig = clinicRepository?.getPlatformPaymentConfig()
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    } finally {
+                                        isLoadingPlatformGateways = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isLicValid) MaterialTheme.colorScheme.primary else Color(0xFFDC2626)
+                            )
+                        ) {
+                            Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (isLicValid) "Pay & Renew Platform License" else "Activate Platform License Now",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
 
@@ -651,6 +709,87 @@ fun ClinicSettingsScreen(
                     }
                 }
 
+                // Section 1.5: Medical Specialties & Clinical Offerings (Multi-Select)
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Clinical Specialties (Multi-Select)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(
+                                "${selectedSpecialties.size} Selected",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            "Select all medical departments provided at your facility. When patients search for symptoms or conditions (e.g. eye, teeth, skin, heart, child), matching specialties direct them to your clinic.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        val allSpecNames = if (availableSpecialtiesList.isNotEmpty()) {
+                            availableSpecialtiesList.map { it.name }
+                        } else {
+                            listOf(
+                                "Dental Care & Dentistry",
+                                "Ophthalmology (Eye Care)",
+                                "Dermatology & Skin Care",
+                                "Cardiology (Heart Care)",
+                                "Orthopedics & Joint Care",
+                                "Pediatrics & Child Health",
+                                "ENT (Ear, Nose & Throat)",
+                                "Gynecology & Obstetrics",
+                                "General Medicine & Physician",
+                                "Gastroenterology",
+                                "Neurology (Brain & Nerve)",
+                                "Psychiatry & Mental Health",
+                                "Urology & Kidney Care",
+                                "Pathology & Diagnostic Lab"
+                            )
+                        }
+
+                        // Grid of selectable chips
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            allSpecNames.chunked(2).forEach { rowSpecs ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    rowSpecs.forEach { specName ->
+                                        val isSelected = selectedSpecialties.contains(specName)
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                selectedSpecialties = if (isSelected) {
+                                                    selectedSpecialties - specName
+                                                } else {
+                                                    selectedSpecialties + specName
+                                                }
+                                            },
+                                            label = { Text(specName, fontSize = 11.sp, maxLines = 1) },
+                                            leadingIcon = if (isSelected) {
+                                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                            } else null,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                    if (rowSpecs.size == 1) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Section 2: Clinic Profile Details (Full Editing)
                 Card(
                     shape = RoundedCornerShape(16.dp),
@@ -691,12 +830,12 @@ fun ClinicSettingsScreen(
                                     FilledTonalButton(
                                         onClick = { showLocationPicker = true },
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                        modifier = Modifier.height(32.dp)
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                        modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                                     ) {
                                         Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(14.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("Open Location Picker", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text("Open Map Picker", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
 
@@ -756,8 +895,8 @@ fun ClinicSettingsScreen(
                                 OutlinedButton(
                                     onClick = { regDocLauncher.launch("*/*") },
                                     shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                    modifier = Modifier.height(34.dp)
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                                 ) {
                                     Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(Modifier.width(4.dp))
@@ -867,8 +1006,8 @@ fun ClinicSettingsScreen(
                                         OutlinedButton(
                                             onClick = { pictureLauncher.launch("image/*") },
                                             shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                            modifier = Modifier.height(34.dp)
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                                         ) {
                                             Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(14.dp))
                                             Spacer(Modifier.width(4.dp))
@@ -976,6 +1115,19 @@ fun ClinicSettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
                         )
+
+                        // 10. Average Consultation Time
+                        OutlinedTextField(
+                            value = avgConsultationTimeMinutes,
+                            onValueChange = { avgConsultationTimeMinutes = it.filter { ch -> ch.isDigit() } },
+                            label = { Text("Average Consultation Duration (Minutes)") },
+                            placeholder = { Text("15") },
+                            trailingIcon = { Text("mins", modifier = Modifier.padding(end = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            supportingText = { Text("Auto-recalculated after each consultation based on actual time inside. You can edit this value anytime.") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
                     }
                 }
 
@@ -1047,7 +1199,13 @@ fun ClinicSettingsScreen(
                                 gateways.take(3).forEach { (id, label) ->
                                     FilterChip(
                                         selected = selectedGatewayProvider == id,
-                                        onClick = { selectedGatewayProvider = id },
+                                        onClick = {
+                                            selectedGatewayProvider = id
+                                            val currentItem = paymentGatewaysConfig.getGateway(id)
+                                            paymentMerchantId = currentItem.merchantId
+                                            paymentApiKey = currentItem.publicKey
+                                            paymentSecretKey = currentItem.secretKey
+                                        },
                                         label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
                                     )
                                 }
@@ -1059,17 +1217,79 @@ fun ClinicSettingsScreen(
                                 gateways.drop(3).forEach { (id, label) ->
                                     FilterChip(
                                         selected = selectedGatewayProvider == id,
-                                        onClick = { selectedGatewayProvider = id },
+                                        onClick = {
+                                            selectedGatewayProvider = id
+                                            val currentItem = paymentGatewaysConfig.getGateway(id)
+                                            paymentMerchantId = currentItem.merchantId
+                                            paymentApiKey = currentItem.publicKey
+                                            paymentSecretKey = currentItem.secretKey
+                                        },
                                         label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
                                     )
                                 }
                             }
 
-                            // Merchant ID / Code
+                            val activeGatewayItem = paymentGatewaysConfig.getGateway(selectedGatewayProvider)
+
+                            // Gateway Enabled Switch
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Enable ${activeGatewayItem.providerName.ifBlank { selectedGatewayProvider.uppercase() }} for Patients", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Switch(
+                                    checked = activeGatewayItem.enabled,
+                                    onCheckedChange = { isEn ->
+                                        paymentGatewaysConfig = paymentGatewaysConfig.withGateway(
+                                            selectedGatewayProvider,
+                                            activeGatewayItem.copy(enabled = isEn)
+                                        )
+                                    }
+                                )
+                            }
+
+                            // Environment Switch (Live vs Test Mode)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Gateway Environment", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    Text(
+                                        if (activeGatewayItem.environment.lowercase() == "live") "Live Production Mode" else "Sandbox / Test Environment",
+                                        fontSize = 10.sp,
+                                        color = if (activeGatewayItem.environment.lowercase() == "live") Color(0xFF059669) else Color(0xFFD97706)
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(if (activeGatewayItem.environment.lowercase() == "live") "LIVE" else "TEST", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.width(6.dp))
+                                    Switch(
+                                        checked = activeGatewayItem.environment.lowercase() == "live",
+                                        onCheckedChange = { isLive ->
+                                            val envStr = if (isLive) "live" else "test"
+                                            paymentGatewaysConfig = paymentGatewaysConfig.withGateway(
+                                                selectedGatewayProvider,
+                                                activeGatewayItem.copy(environment = envStr)
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Merchant ID / Client Code
                             OutlinedTextField(
                                 value = paymentMerchantId,
-                                onValueChange = { paymentMerchantId = it },
-                                label = { Text("Merchant ID / Client Code") },
+                                onValueChange = {
+                                    paymentMerchantId = it
+                                    paymentGatewaysConfig = paymentGatewaysConfig.withGateway(
+                                        selectedGatewayProvider,
+                                        activeGatewayItem.copy(merchantId = it)
+                                    )
+                                },
+                                label = { Text("${selectedGatewayProvider.uppercase()} Merchant ID / Client Code") },
                                 placeholder = { Text("e.g. EPAYTEST or merchant_12345") },
                                 leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
                                 singleLine = true,
@@ -1077,11 +1297,17 @@ fun ClinicSettingsScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // API Public Key
+                            // API Public Key / App Key
                             OutlinedTextField(
                                 value = paymentApiKey,
-                                onValueChange = { paymentApiKey = it },
-                                label = { Text("API Public Key / App Key") },
+                                onValueChange = {
+                                    paymentApiKey = it
+                                    paymentGatewaysConfig = paymentGatewaysConfig.withGateway(
+                                        selectedGatewayProvider,
+                                        activeGatewayItem.copy(publicKey = it)
+                                    )
+                                },
+                                label = { Text("${selectedGatewayProvider.uppercase()} API Public Key / App Key") },
                                 placeholder = { Text("Live or test public API key") },
                                 leadingIcon = { Icon(Icons.Default.VpnKey, contentDescription = null) },
                                 singleLine = true,
@@ -1089,11 +1315,17 @@ fun ClinicSettingsScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // API Secret Key
+                            // API Secret Key (Encrypted)
                             OutlinedTextField(
                                 value = paymentSecretKey,
-                                onValueChange = { paymentSecretKey = it },
-                                label = { Text("API Secret Key (Encrypted)") },
+                                onValueChange = {
+                                    paymentSecretKey = it
+                                    paymentGatewaysConfig = paymentGatewaysConfig.withGateway(
+                                        selectedGatewayProvider,
+                                        activeGatewayItem.copy(secretKey = it)
+                                    )
+                                },
+                                label = { Text("${selectedGatewayProvider.uppercase()} API Secret Key (Encrypted)") },
                                 placeholder = { Text("Secret / private hash key") },
                                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                                 trailingIcon = {
@@ -1109,6 +1341,94 @@ fun ClinicSettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
                             )
+
+                            // Receiving Account Number / Wallet Number / QR ID
+                            OutlinedTextField(
+                                value = activeGatewayItem.accountNumber,
+                                onValueChange = {
+                                    paymentGatewaysConfig = paymentGatewaysConfig.withGateway(
+                                        selectedGatewayProvider,
+                                        activeGatewayItem.copy(accountNumber = it)
+                                    )
+                                },
+                                label = { Text("Receiving Account / Wallet / Terminal ID") },
+                                placeholder = { Text("e.g. 9801234567 or Fonepay Terminal ID") },
+                                leadingIcon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = null) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            // Callback / Webhook URL
+                            OutlinedTextField(
+                                value = activeGatewayItem.callbackUrl,
+                                onValueChange = {
+                                    paymentGatewaysConfig = paymentGatewaysConfig.withGateway(
+                                        selectedGatewayProvider,
+                                        activeGatewayItem.copy(callbackUrl = it)
+                                    )
+                                },
+                                label = { Text("Gateway Webhook / Callback URL") },
+                                placeholder = { Text("https://dactor.np/payment/callback") },
+                                leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            // Direct Save Gateway Credentials Button (Anti-Double-Click Guarded)
+                            Button(
+                                onClick = {
+                                    if (isSavingGatewayOnly) return@Button
+                                    isSavingGatewayOnly = true
+                                    coroutineScope.launch {
+                                        try {
+                                            val targetId = loadedClinicId ?: effectiveClinicId
+                                            val curr = paymentGatewaysConfig.getGateway(selectedGatewayProvider)
+                                            val updatedConfig = paymentGatewaysConfig.copy(primaryGateway = selectedGatewayProvider)
+                                            clinicRepository?.updatePaymentGatewayKeys(
+                                                clinicId = targetId,
+                                                gatewayProvider = selectedGatewayProvider,
+                                                apiKey = curr.publicKey,
+                                                secretKey = curr.secretKey,
+                                                merchantId = curr.merchantId,
+                                                isDirectPaymentEnabled = isDirectPaymentEnabled
+                                            )
+                                            val currentClinic = clinicRepository?.getClinicById(targetId)
+                                            if (currentClinic != null) {
+                                                clinicRepository?.updateClinic(
+                                                    targetId,
+                                                    currentClinic.copy(
+                                                        isDirectPaymentEnabled = isDirectPaymentEnabled,
+                                                        paymentGatewayProvider = selectedGatewayProvider,
+                                                        paymentApiKey = curr.publicKey.ifBlank { null },
+                                                        paymentSecretKey = curr.secretKey.ifBlank { null },
+                                                        merchantId = curr.merchantId.ifBlank { null },
+                                                        paymentGatewaysJson = updatedConfig.toJson()
+                                                    )
+                                                )
+                                            }
+                                            Toast.makeText(context, "${selectedGatewayProvider.uppercase()} API credentials saved!", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error saving gateway keys: ${e.message}", Toast.LENGTH_LONG).show()
+                                        } finally {
+                                            isSavingGatewayOnly = false
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(42.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                enabled = !isSavingGatewayOnly
+                            ) {
+                                if (isSavingGatewayOnly) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (isSavingGatewayOnly) "Saving Credentials..." else "Save ${selectedGatewayProvider.uppercase()} Keys", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -1136,6 +1456,60 @@ fun ClinicSettingsScreen(
                         isSaving = true
                         coroutineScope.launch {
                             val targetId = loadedClinicId ?: effectiveClinicId.ifBlank { java.util.UUID.randomUUID().toString() }
+
+                            // 1. Upload any newly selected local pictures (content:// URIs) to Supabase Storage with <= 500 KB compression
+                            val uploadedPictures = mutableListOf<String>()
+                            for ((idx, pic) in clinicPictures.withIndex()) {
+                                if (pic.startsWith("content://") || pic.startsWith("file://")) {
+                                    try {
+                                        val uri = Uri.parse(pic)
+                                        val compressed = com.dactor.clinic.domain.util.FileCompressor.compressUri(
+                                            context = context,
+                                            uri = uri,
+                                            fallbackFileName = "clinic_${targetId}_${idx + 1}.jpg"
+                                        )
+                                        if (compressed != null) {
+                                            val fileName = "clinic_${targetId}_${System.currentTimeMillis()}_${compressed.fileName}"
+                                            val publicUrl = clinicRepository?.uploadClinicFile(fileName, compressed.bytes, "clinic_photos")
+                                            if (!publicUrl.isNullOrBlank()) {
+                                                uploadedPictures.add(publicUrl)
+                                            } else {
+                                                uploadedPictures.add(pic)
+                                            }
+                                        } else {
+                                            uploadedPictures.add(pic)
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        uploadedPictures.add(pic)
+                                    }
+                                } else {
+                                    uploadedPictures.add(pic)
+                                }
+                            }
+
+                            // 2. Upload newly selected registration document if present with <= 500 KB compression
+                            var finalRegDocUrl = existingRegDocUrl
+                            if (regDocUri != null) {
+                                try {
+                                    val compressedDoc = com.dactor.clinic.domain.util.FileCompressor.compressUri(
+                                        context = context,
+                                        uri = regDocUri!!,
+                                        fallbackFileName = regDocName ?: "registration_doc.pdf"
+                                    )
+                                    if (compressedDoc != null) {
+                                        val cleanDocName = compressedDoc.fileName.replace("\\s+".toRegex(), "_")
+                                        val fileName = "reg_${targetId}_${System.currentTimeMillis()}_$cleanDocName"
+                                        val publicDocUrl = clinicRepository?.uploadClinicFile(fileName, compressedDoc.bytes, "clinic_photos")
+                                        if (!publicDocUrl.isNullOrBlank()) {
+                                            finalRegDocUrl = publicDocUrl
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+
                             val updated = Clinic(
                                 id = targetId,
                                 name = name.trim(),
@@ -1150,8 +1524,9 @@ fun ClinicSettingsScreen(
                                 longitude = longitude.toDoubleOrNull() ?: 85.3193,
                                 autoNotifyThreshold = threshold.toIntOrNull() ?: 2,
                                 description = description.trim().ifBlank { null },
-                                registrationDocUrl = regDocUri?.toString() ?: existingRegDocUrl,
-                                pictures = clinicPictures,
+                                registrationDocUrl = finalRegDocUrl,
+                                pictures = uploadedPictures,
+                                specialties = selectedSpecialties.toList(),
                                 isArchived = isArchived,
                                 archivedAt = archivedAt,
                                 deletionScheduledAt = deletionScheduledAt,
@@ -1160,18 +1535,28 @@ fun ClinicSettingsScreen(
                                 paymentSecretKey = paymentSecretKey.trim().ifBlank { null },
                                 merchantId = paymentMerchantId.trim().ifBlank { null },
                                 isDirectPaymentEnabled = isDirectPaymentEnabled,
+                                paymentGatewaysJson = paymentGatewaysConfig.toJson(),
                                 isActivated = isActivated,
                                 activationExpiresAt = activationExpiresAt,
                                 activationPlan = activationPlan,
                                 activationPaidAmount = activationPaidAmount,
                                 activationNotes = activationNotes,
-                                activationPaymentProofUrl = activationPaymentProofUrl
+                                activationPaymentProofUrl = activationPaymentProofUrl,
+                                avgConsultationTimeMinutes = avgConsultationTimeMinutes.toIntOrNull() ?: 10,
+                                manualAvgConsultationTimeMinutes = avgConsultationTimeMinutes.toIntOrNull() ?: 10
                             )
 
                             val res = clinicRepository?.updateClinic(targetId, updated)
                             if (res == true || res == null) {
+                                clinicPictures = uploadedPictures
+                                existingRegDocUrl = finalRegDocUrl
+                                regDocUri = null
+                                val savedMins = avgConsultationTimeMinutes.toIntOrNull() ?: 10
+                                sessionManager.saveClinicSession(targetId, email.trim(), name.trim())
+                                sessionManager.saveAverageConsultationTimeMinutes(targetId, savedMins)
+                                sessionManager.saveManualAverageConsultationTimeMinutes(targetId, savedMins)
                                 showSuccessMessage = true
-                                Toast.makeText(context, "Clinic configuration saved!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Clinic configuration & photos saved!", Toast.LENGTH_SHORT).show()
                             } else {
                                 errorMessage = "Failed to update clinic configuration."
                             }
@@ -1418,73 +1803,207 @@ fun ClinicSettingsScreen(
         var tempLat by remember { mutableStateOf(latitude) }
         var tempLng by remember { mutableStateOf(longitude) }
 
+        com.dactor.clinic.ui.components.OpenStreetMapPicker(
+            initialAddress = address,
+            initialLat = latitude.toDoubleOrNull() ?: 27.7052,
+            initialLng = longitude.toDoubleOrNull() ?: 85.3193,
+            onSaveLocation = { newAddress, newLat, newLng ->
+                address = newAddress
+                latitude = newLat.toString()
+                longitude = newLng.toString()
+                showLocationPicker = false
+            },
+            onDismiss = {
+                showLocationPicker = false
+            }
+        )
+    }
+
+    // PLATFORM LICENSE & SUBSCRIPTION PAYMENT DIALOG (WITH TEST BYPASS)
+    if (showSubscriptionPayDialog) {
+        val planAmount = if (selectedAdminPlan == "12_month") 15000.0 else 1500.0
+        val daysToAdd = if (selectedAdminPlan == "12_month") 365 else 30
+        val targetId = loadedClinicId ?: effectiveClinicId
+
         AlertDialog(
-            onDismissRequest = { showLocationPicker = false },
+            onDismissRequest = {
+                if (!isProcessingSubscriptionPayment) showSubscriptionPayDialog = false
+            },
+            icon = {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Payment, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            },
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text("Select Clinic Location", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Renew Platform License", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text("Pay administration to keep clinic active", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             text = {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 420.dp)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Select from popular healthcare areas in Nepal or customize coordinates:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (isLoadingPlatformGateways) {
+                        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        // 1. Select Plan
+                        Text("1. Select Subscription Plan:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = selectedAdminPlan == "1_month",
+                                onClick = { selectedAdminPlan = "1_month" },
+                                label = { Text("1 Month (NPR 1,500)", fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = selectedAdminPlan == "12_month",
+                                onClick = { selectedAdminPlan = "12_month" },
+                                label = { Text("12 Months (NPR 15,000)", fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
 
-                    OutlinedTextField(
-                        value = tempAddress,
-                        onValueChange = { tempAddress = it },
-                        label = { Text("Address / Location Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        singleLine = true
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = tempLat,
-                            onValueChange = { tempLat = it },
-                            label = { Text("Latitude") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            singleLine = true
+                        // 2. Select Payment Method
+                        Text("2. Pay via Admin Gateway:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        val adminGateways = listOf(
+                            "esewa" to "eSewa",
+                            "khalti" to "Khalti",
+                            "fonepay" to "Fonepay QR",
+                            "connectips" to "ConnectIPS"
                         )
-                        OutlinedTextField(
-                            value = tempLng,
-                            onValueChange = { tempLng = it },
-                            label = { Text("Longitude") },
-                            modifier = Modifier.weight(1f),
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            adminGateways.forEach { (gId, gName) ->
+                                FilterChip(
+                                    selected = selectedAdminGateway == gId,
+                                    onClick = { selectedAdminGateway = gId },
+                                    label = { Text(gName, fontSize = 10.sp) }
+                                )
+                            }
+                        }
+
+                        // Admin Gateway Real Credentials Card
+                        val adminGw = platformGatewaysConfig?.getGateway(selectedAdminGateway)
+                            ?: com.dactor.clinic.data.model.GatewayCredentialItem()
+
+                        Surface(
                             shape = RoundedCornerShape(10.dp),
-                            singleLine = true
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Gateway:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(selectedAdminGateway.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Payable Amount:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("NPR ${planAmount.toInt()}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                                if (adminGw.merchantId.isNotBlank()) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Admin Merchant ID:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(adminGw.merchantId, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                                if (adminGw.accountNumber.isNotBlank()) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Admin Wallet / Account:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(adminGw.accountNumber, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Environment:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        if (adminGw.environment.lowercase() == "live") "LIVE PRODUCTION" else "SANDBOX / TEST",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (adminGw.environment.lowercase() == "live") Color(0xFF059669) else Color(0xFFD97706)
+                                    )
+                                }
+                            }
+                        }
+
+                        // 3. Transaction ID input
+                        OutlinedTextField(
+                            value = adminPaymentTxId,
+                            onValueChange = { adminPaymentTxId = it },
+                            label = { Text("Transaction / Reference ID") },
+                            placeholder = { Text("e.g. TXN987654321") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
                         )
-                    }
 
-                    Text("Quick Selection (Nepal Hubs):", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        predefinedLocations.forEach { (locName, lat, lng) ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (tempAddress == locName) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                onClick = {
-                                    tempAddress = locName
-                                    tempLat = lat.toString()
-                                    tempLng = lng.toString()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                        // 4. Test Bypass Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFFBEB),
+                            border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    "Testing & Development Mode:",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB45309)
+                                )
+                                Text(
+                                    "Use bypass to instantly confirm payment without real transaction and activate subscription.",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF92400E),
+                                    lineHeight = 14.sp
+                                )
+                                Button(
+                                    onClick = {
+                                        if (isProcessingSubscriptionPayment) return@Button
+                                        isProcessingSubscriptionPayment = true
+                                        coroutineScope.launch {
+                                            try {
+                                                val testTxId = "BYPASS-TEST-${System.currentTimeMillis()}"
+                                                val res = clinicRepository?.completeClinicSubscriptionPayment(
+                                                    clinicId = targetId,
+                                                    daysToAdd = daysToAdd,
+                                                    planName = selectedAdminPlan,
+                                                    paidAmount = planAmount,
+                                                    transactionId = testTxId,
+                                                    gateway = "${selectedAdminGateway}_bypass"
+                                                )
+                                                if (res != null && res.isSuccess) {
+                                                    Toast.makeText(context, "Subscription extended by $daysToAdd days (Bypass Testing)!", Toast.LENGTH_LONG).show()
+                                                    showSubscriptionPayDialog = false
+                                                    loadClinicData()
+                                                } else {
+                                                    Toast.makeText(context, "Bypass failed: ${res?.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                                }
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                            } finally {
+                                                isProcessingSubscriptionPayment = false
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(38.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    enabled = !isProcessingSubscriptionPayment
                                 ) {
-                                    Text(locName, fontSize = 12.sp, fontWeight = if (tempAddress == locName) FontWeight.Bold else FontWeight.Normal)
-                                    Text("(${String.format("%.4f", lat)}, ${String.format("%.4f", lng)})", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Bypass Payment for Testing", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1492,17 +2011,54 @@ fun ClinicSettingsScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    address = tempAddress
-                    latitude = tempLat
-                    longitude = tempLng
-                    showLocationPicker = false
-                }) {
-                    Text("Confirm Location")
+                Button(
+                    onClick = {
+                        if (isProcessingSubscriptionPayment) return@Button
+                        if (adminPaymentTxId.isBlank()) {
+                            Toast.makeText(context, "Please enter your payment Transaction ID", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        isProcessingSubscriptionPayment = true
+                        coroutineScope.launch {
+                            try {
+                                val res = clinicRepository?.completeClinicSubscriptionPayment(
+                                    clinicId = targetId,
+                                    daysToAdd = daysToAdd,
+                                    planName = selectedAdminPlan,
+                                    paidAmount = planAmount,
+                                    transactionId = adminPaymentTxId.trim(),
+                                    gateway = selectedAdminGateway
+                                )
+                                if (res != null && res.isSuccess) {
+                                    Toast.makeText(context, "License payment recorded! Active for $daysToAdd days.", Toast.LENGTH_LONG).show()
+                                    showSubscriptionPayDialog = false
+                                    adminPaymentTxId = ""
+                                    loadClinicData()
+                                } else {
+                                    Toast.makeText(context, "Payment failed: ${res?.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                            } finally {
+                                isProcessingSubscriptionPayment = false
+                            }
+                        }
+                    },
+                    enabled = !isProcessingSubscriptionPayment && !isLoadingPlatformGateways,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (isProcessingSubscriptionPayment) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text("Confirm & Submit Payment", fontSize = 12.sp)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showLocationPicker = false }) {
+                TextButton(
+                    onClick = { showSubscriptionPayDialog = false },
+                    enabled = !isProcessingSubscriptionPayment
+                ) {
                     Text("Cancel")
                 }
             }

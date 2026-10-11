@@ -588,7 +588,21 @@ The following rules govern this entire project:
 | 6 | **Clinic can edit their own type** | Clinics can change their type (single_visit/multi_visit/diagnostic_lab) from settings. |
 | 7 | **Admin broadcast notifications** | Admin can push notifications to all users, all doctors, all clinics, or any combination. |
 | 8 | **Separate project folders** | `patient-app/`, `clinic-app/`, `admin-panel/` — each app in its own folder. |
+| 9 | **Supabase Storage Buckets & Binary Uploads** | Created `clinic_photos`, `doctor_photos`, and `doctor-kyc` public buckets. Native Android app reads file byte streams and uploads directly to Supabase Storage. |
+| 10 | **Clinic Activation System & Schema Migration** | Added license expiry calculation, plan tier extension (`1_month` / `12_months`), and live status indicators on the admin console. |
+| 11 | **Admin Portal GitHub Pages Deployment** | Auto-deploying Vite React app to GitHub Pages (`dactorofficial.github.io/admin-portal/`). |
 
 ---
 
-*This is the final work plan. All 10 original prompts plus all corrections are incorporated. Nothing will proceed without explicit approval at each gate.*
+## 12. Component Handoff Documentation
+
+Detailed handoff documents for each platform layer are available:
+- **[Master System Handoff](file:///G:/My%20Drive/New%20folder/HANDOFF.md)**
+- **[Admin Portal Handoff](file:///G:/My%20Drive/New%20folder/admin-panel/HANDOFF.md)**
+- **[Clinic & Doctor App Handoff](file:///G:/My%20Drive/New%20folder/clinic-app/HANDOFF.md)**
+- **[Patient App Handoff](file:///G:/My%20Drive/New%20folder/patient-app/HANDOFF.md)**
+- **[Supabase Backend Handoff](file:///G:/My%20Drive/New%20folder/supabase/HANDOFF.md)**
+
+---
+
+*This is the final work plan. All 10 original prompts plus all corrections and recent system upgrades are incorporated.*

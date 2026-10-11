@@ -90,7 +90,7 @@ fun LandingScreen(navController: NavController) {
                     )
 
                     Button(
-                        onClick = { navController.navigate(NavRoutes.Discovery.route) },
+                        onClick = { navController.navigate(NavRoutes.PatientMain.route) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 4.dp),
@@ -135,7 +135,7 @@ fun LandingScreen(navController: NavController) {
                             }
                         },
                         label = { Text("10-Digit Tracking Code") },
-                        placeholder = { Text("e.g. 9841203841") },
+                        placeholder = { Text("Enter 10-digit code") },
                         leadingIcon = { Icon(Icons.Default.Numbers, contentDescription = null) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
@@ -168,7 +168,7 @@ fun LandingScreen(navController: NavController) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedCard(
-                    onClick = { navController.navigate(NavRoutes.Profile.route) },
+                    onClick = { navController.navigate("patient_main?tab=2") },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.weight(1f)
                 ) {
@@ -203,7 +203,7 @@ fun LandingScreen(navController: NavController) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedCard(
-                    onClick = { navController.navigate(NavRoutes.LabReport.createRoute("")) },
+                    onClick = { navController.navigate("patient_main?tab=1") },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.weight(1f)
                 ) {

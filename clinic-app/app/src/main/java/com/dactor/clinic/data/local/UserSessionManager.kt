@@ -43,7 +43,12 @@ class UserSessionManager @Inject constructor(
     }
 
     fun getSavedClinicId(): String? = prefs.getString("clinic_id", null)
+    fun getClinicId(): String = getSavedClinicId().orEmpty()
     fun getSavedDoctorId(): String? = prefs.getString("doctor_id", null)
+    fun saveActiveClinicIdForDoctor(clinicId: String) {
+        prefs.edit().putString("doctor_active_clinic_id", clinicId.trim()).apply()
+    }
+    fun getSavedActiveClinicIdForDoctor(): String? = prefs.getString("doctor_active_clinic_id", null)
     fun getSavedEmail(): String? = prefs.getString("user_email", null)
     fun getSavedName(): String? = prefs.getString("user_name", null)
     fun getUserRole(): String? = prefs.getString("user_role", null)
@@ -115,4 +120,40 @@ class UserSessionManager @Inject constructor(
     fun clearSession() {
         prefs.edit().clear().apply()
     }
+
+    fun saveAverageConsultationTimeMinutes(clinicId: String, minutes: Int) {
+        prefs.edit().putInt("avg_consultation_time_${clinicId}", minutes).apply()
+    }
+
+    fun getAverageConsultationTimeMinutes(clinicId: String): Int {
+        return prefs.getInt("avg_consultation_time_${clinicId}", 10)
+    }
+
+    fun saveManualAverageConsultationTimeMinutes(clinicId: String, minutes: Int) {
+        prefs.edit().putInt("manual_avg_consultation_time_${clinicId}", minutes).apply()
+    }
+
+    fun getManualAverageConsultationTimeMinutes(clinicId: String): Int {
+        return prefs.getInt("manual_avg_consultation_time_${clinicId}", 10)
+    }
+
+    fun saveCalculatedAverageConsultationTimeMinutes(clinicId: String, minutes: Int) {
+        prefs.edit().putInt("calc_avg_consultation_time_${clinicId}", minutes).apply()
+    }
+
+    fun getCalculatedAverageConsultationTimeMinutes(clinicId: String): Int? {
+        val v = prefs.getInt("calc_avg_consultation_time_${clinicId}", -1)
+        return if (v > 0) v else null
+    }
+
+    fun saveAverageTimeMode(clinicId: String, mode: String) {
+        prefs.edit().putString("avg_time_mode_${clinicId}", mode).apply()
+    }
+
+    fun getAverageTimeMode(clinicId: String): String {
+        return prefs.getString("avg_time_mode_${clinicId}", "auto") ?: "auto"
+    }
 }
+
+typealias ClinicSessionManager = UserSessionManager
+

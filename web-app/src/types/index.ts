@@ -1,0 +1,143 @@
+export interface Clinic {
+  id: string
+  name: string
+  type?: string // polyclinic, diagnostic_lab, opd_clinic, etc.
+  verificationStatus?: string // approved, pending, rejected
+  contactPhone?: string
+  contactEmail?: string
+  addressText?: string
+  latitude?: number
+  longitude?: number
+  autoNotifyThreshold?: number
+  description?: string
+  panNumber?: string
+  managerPhone?: string
+  registrationDocUrl?: string
+  pictures?: string[]
+  specialties?: string[]
+  createdAt?: string
+  updatedAt?: string
+  isArchived?: boolean
+  deletionScheduledAt?: string
+  logoUrl?: string
+}
+
+export interface Doctor {
+  id: string
+  fullName: string
+  email: string
+  specialty?: string
+  specialties?: string[]
+  education?: string
+  nmcLicenseNumber?: string
+  experienceYears?: number
+  startingPracticingYear?: number
+  gender?: string
+  age?: number
+  personalMobileNumber?: string
+  publicMobileNumber?: string
+  consultationFee?: number
+  isInClinic?: boolean
+  clinicId?: string
+  activeClinicId?: string
+  kycStatus?: string // approved, pending, rejected
+  profilePictureUrl?: string
+  description?: string
+  practitionerRole?: string // doctor or lab_technician
+  isLabTechnician?: boolean
+}
+
+export interface Slot {
+  id: string
+  clinicId: string
+  doctorId: string
+  slotDate: string
+  startTime: string
+  endTime: string
+  maxCapacity: number
+  bookedCount: number
+  isAvailable?: boolean
+}
+
+export interface ClinicService {
+  id: string
+  clinicId: string
+  serviceName: string
+  price: number
+  category?: string
+  description?: string
+  isAvailable?: boolean
+}
+
+export interface Appointment {
+  id: string
+  trackingCode10Digit: string
+  userId?: string | null
+  clinicId: string
+  doctorId?: string | null
+  patientName: string
+  patientAge?: number | null
+  patientGender?: string | null
+  patientMobile?: string | null
+  patientEmail?: string | null
+  appointmentDate: string
+  appointmentTime: string
+  checkinStatus: string // booked, waiting, in_consultation, completed, cancelled, no_show
+  paymentStatus: string // unpaid, paid, partial
+  feeAmount: number
+  queueNumber?: number
+  notes?: string
+  createdAt?: string
+  updatedAt?: string
+  selectedTests?: string[]
+  // Joined fields for display
+  clinic?: Clinic
+  doctor?: Doctor
+}
+
+export interface LabReport {
+  id: string
+  appointmentId?: string
+  trackingCode10Digit: string
+  patientName: string
+  clinicId: string
+  testName: string
+  reportFileUrl?: string
+  reportFileType?: string // pdf, image
+  status: 'sample_collected' | 'processing' | 'prepared' | 'delivered'
+  uploadedAt?: string
+  sampleCollectedAt?: string
+  preparedAt?: string
+  technicianNotes?: string
+}
+
+export interface DactorNotification {
+  id: string
+  userId?: string
+  clinicId?: string
+  title: string
+  message: string
+  type: string // queue_update, lab_report, appointment_reminder, clinic_broadcast
+  metaJson?: string
+  isRead: boolean
+  createdAt: string
+  // Parsed template metadata
+  leftLabel?: string
+  leftValue?: string
+  rightLabel?: string
+  rightValue?: string
+  trackingCode?: string
+}
+
+export interface MedicalSpecialty {
+  id: string
+  name: string
+  description?: string
+  iconName?: string
+}
+
+export interface MedicalQualification {
+  id: string
+  degreeName: string
+  fullTitle?: string
+}

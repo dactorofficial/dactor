@@ -41,5 +41,16 @@ ALTER TABLE doctors ADD COLUMN IF NOT EXISTS personal_mobile_number VARCHAR(50);
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS public_mobile_number VARCHAR(50);
 ALTER TABLE doctors ADD COLUMN IF NOT EXISTS description TEXT;
 
--- 4. Reload PostgREST schema cache
+-- 4. Queue Entries & Clinic Consultation Duration Columns
+ALTER TABLE queue_entries ADD COLUMN IF NOT EXISTS consultation_duration_seconds BIGINT;
+ALTER TABLE clinics ADD COLUMN IF NOT EXISTS avg_consultation_time_minutes INT DEFAULT 10;
+ALTER TABLE clinics ADD COLUMN IF NOT EXISTS manual_avg_consultation_time_minutes INT DEFAULT 10;
+ALTER TABLE clinics ADD COLUMN IF NOT EXISTS calculated_avg_consultation_time_minutes INT;
+ALTER TABLE clinics ADD COLUMN IF NOT EXISTS avg_time_mode VARCHAR(20) DEFAULT 'auto';
+
+-- 5. Appointments Selected Lab Tests
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS selected_lab_tests TEXT;
+
+-- 6. Reload PostgREST schema cache
 NOTIFY pgrst, 'reload schema';
+
