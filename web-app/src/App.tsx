@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Navbar } from './components/Navbar'
 import { Footer } from './components/Footer'
 import { Home } from './pages/Home'
@@ -12,17 +12,76 @@ import { LiveTrackerModal } from './components/LiveTrackerModal'
 import { LabReportModal } from './components/LabReportModal'
 import { NotificationModal } from './components/NotificationModal'
 
+// Helper to determine initial tab from URL hash or path
+const getTabFromUrl = (): string => {
+  const hash = window.location.hash.toLowerCase().replace('#', '').replace('/', '')
+  if (hash === 'portal' || hash === 'admin-portal' || hash === 'clinic-portal') return 'portal'
+  if (hash === 'clinics' || hash === 'doctors') return 'clinics'
+  if (hash === 'lab-reports' || hash === 'reports') return 'lab-reports'
+  if (hash === 'average-time' || hash === 'wait-time') return 'average-time'
+  if (hash === 'live-queue' || hash === 'queue') return 'live-queue'
+  if (hash === 'home') return 'home'
+
+  const path = window.location.pathname.toLowerCase()
+  if (path.includes('admin-portal') || path.includes('/portal')) return 'portal'
+  if (path.includes('clinics')) return 'clinics'
+  if (path.includes('lab-reports')) return 'lab-reports'
+  if (path.includes('average-time')) return 'average-time'
+  if (path.includes('live-queue')) return 'live-queue'
+
+  return 'home'
+}
+
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<string>('home')
+  const [activeTab, setActiveTab] = useState<string>(() => getTabFromUrl())
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(null)
   const [activeTrackingCode, setActiveTrackingCode] = useState<string>('')
   const [clinicFilter, setClinicFilter] = useState<string>('all')
+
+  // Authentication State
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('dactor_auth_logged_in') === 'true'
+    } catch {
+      return false
+    }
+  })
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('dactor_auth_email') || null
+    } catch {
+      return null
+    }
+  })
 
   // Modals
   const [trackerModalOpen, setTrackerModalOpen] = useState(false)
   const [reportModalOpen, setReportModalOpen] = useState(false)
   const [notificationModalOpen, setNotificationModalOpen] = useState(false)
   const [reportModalInitialCode, setReportModalInitialCode] = useState('')
+
+  // Sync with browser URL hash
+  useEffect(() => {
+    const handleHashChange = () => {
+      const tab = getTabFromUrl()
+      setActiveTab(tab)
+    }
+
+    const syncAuth = () => {
+      try {
+        setIsLoggedIn(localStorage.getItem('dactor_auth_logged_in') === 'true')
+        setCurrentUserEmail(localStorage.getItem('dactor_auth_email') || null)
+      } catch {}
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    window.addEventListener('storage', syncAuth)
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange)
+      window.removeEventListener('storage', syncAuth)
+    }
+  }, [])
 
   // Navigation handler
   const handleNavigate = (tab: string, params?: any) => {
@@ -38,13 +97,29 @@ export const App: React.FC = () => {
     }
 
     setActiveTab(tab)
+    if (window.location.hash !== `#${tab}`) {
+      window.location.hash = `#${tab}`
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // Handle logout
+  const handleLogout = () => {
+    try {
+      localStorage.removeItem('dactor_auth_logged_in')
+      localStorage.removeItem('dactor_auth_email')
+      localStorage.removeItem('dactor_auth_role')
+      setIsLoggedIn(false)
+      setCurrentUserEmail(null)
+      window.dispatchEvent(new Event('storage'))
+    } catch {}
   }
 
   // Open live queue page with specific tracking code
   const handleOpenLiveQueue = (code: string) => {
     setActiveTrackingCode(code)
     setActiveTab('live-queue')
+    window.location.hash = '#live-queue'
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -66,6 +141,9 @@ export const App: React.FC = () => {
         onOpenReportModal={() => handleOpenReportModal()}
         onOpenNotificationModal={() => setNotificationModalOpen(true)}
         unreadNotificationsCount={2}
+        isLoggedIn={isLoggedIn}
+        currentUserEmail={currentUserEmail}
+        onLogout={handleLogout}
       />
 
       {/* Main View Router */}
