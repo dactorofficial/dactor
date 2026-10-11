@@ -12,6 +12,7 @@ import {
   Building2,
   Sparkles,
 } from 'lucide-react'
+import dactorLogo from '../assets/logo.png'
 
 interface NavbarProps {
   activeTab: string
@@ -58,9 +59,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             }}
           >
             <img
-              src="./app_logo.png"
+              src={dactorLogo}
               alt="Dactor Logo"
-              className="w-11 h-11 rounded-2xl object-contain shadow-md shadow-cyan-600/20 group-hover:scale-105 transition-transform duration-200 bg-white border border-slate-100 p-0.5"
+              className="w-11 h-11 rounded-2xl object-contain shadow-md shadow-sky-600/20 group-hover:scale-105 transition-transform duration-200 bg-white border border-slate-100 p-0.5"
             />
             <div>
               <div className="flex items-center space-x-1.5">

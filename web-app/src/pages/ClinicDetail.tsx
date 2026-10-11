@@ -193,7 +193,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
-        <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <div className="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
         <p className="text-slate-600 font-bold">Loading clinic profile...</p>
       </div>
     )
@@ -206,7 +206,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         <h2 className="text-xl font-bold text-slate-800">Clinic Not Found</h2>
         <button
           onClick={onBack}
-          className="mt-4 px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl"
+          className="mt-4 px-6 py-2.5 bg-brand-600 text-white font-bold rounded-xl"
         >
           Return to Clinics
         </button>
@@ -218,13 +218,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   if (confirmedAppt) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12">
-        <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-emerald-100 text-center space-y-6 animate-in zoom-in-95 duration-200">
-          <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+        <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-brand-100 text-center space-y-6 animate-in zoom-in-95 duration-200">
+          <div className="w-20 h-20 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center mx-auto shadow-inner">
             <CheckCircle2 className="w-10 h-10 stroke-[2.5]" />
           </div>
 
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+            <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
               Booking Confirmed
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">
@@ -236,7 +236,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           </div>
 
           {/* 10-Digit Code Showcase Box */}
-          <div className="p-6 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl border border-emerald-200 text-center space-y-2">
+          <div className="p-6 bg-gradient-to-br from-brand-50 to-teal-50 rounded-2xl border border-brand-200 text-center space-y-2">
             <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
               Your 10-Digit Live Tracking Code
             </span>
@@ -267,14 +267,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             </div>
             <div>
               <span className="text-slate-400 font-medium">Total Fee Payable</span>
-              <p className="font-bold text-emerald-700 text-sm">Rs. {confirmedAppt.feeAmount}</p>
+              <p className="font-bold text-brand-700 text-sm">Rs. {confirmedAppt.feeAmount}</p>
             </div>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               onClick={() => onOpenLiveQueue(confirmedAppt.trackingCode10Digit)}
-              className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2"
+              className="flex-1 py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2"
             >
               <Sparkles className="w-4 h-4" />
               <span>Track Live Queue Now</span>
@@ -296,7 +296,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       {/* Back Button */}
       <button
         onClick={onBack}
-        className="inline-flex items-center space-x-2 text-xs font-bold text-slate-600 hover:text-emerald-700 transition-colors py-1"
+        className="inline-flex items-center space-x-2 text-xs font-bold text-slate-600 hover:text-brand-700 transition-colors py-1"
       >
         <ArrowLeft className="w-4 h-4" />
         <span>Back to Clinics Directory</span>
@@ -308,7 +308,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-sm space-y-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100">
           <div className="flex items-start space-x-5">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-black text-2xl sm:text-3xl shadow-md shrink-0">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-gradient-to-tr from-brand-600 to-teal-500 text-white flex items-center justify-center font-black text-2xl sm:text-3xl shadow-md shrink-0">
               {clinic.logoUrl ? (
                 <img
                   src={clinic.logoUrl}
@@ -325,8 +325,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             <div className="space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900">{clinic.name}</h1>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
-                  <ShieldCheck className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-brand-100 text-brand-800">
+                  <ShieldCheck className="w-3.5 h-3.5 mr-1 text-brand-600" />
                   Verified Clinic
                 </span>
               </div>
@@ -352,7 +352,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               onClick={() => setActiveTab('opd')}
               className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 ${
                 activeTab === 'opd'
-                  ? 'bg-emerald-600 text-white shadow-xs'
+                  ? 'bg-brand-600 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -378,12 +378,12 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         {/* ========================================================= */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Working Hours */}
-          <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 flex items-start space-x-3.5">
-            <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl shrink-0 mt-0.5">
+          <div className="p-4 bg-brand-50/60 rounded-2xl border border-brand-200/80 flex items-start space-x-3.5">
+            <div className="p-2 bg-brand-100 text-brand-700 rounded-xl shrink-0 mt-0.5">
               <Clock className="w-5 h-5" />
             </div>
             <div>
-              <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
+              <span className="text-[11px] font-bold text-brand-800 uppercase tracking-wider block">
                 Daily Working Hours
               </span>
               <p className="text-sm font-black text-slate-900 mt-0.5">
@@ -436,7 +436,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           <div className="lg:col-span-2 space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-black text-slate-900">Available Doctors & Specialists</h2>
-              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
+              <span className="text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1 rounded-full">
                 {doctors.length} Doctors on Roster
               </span>
             </div>
@@ -457,12 +457,12 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       onClick={() => setSelectedDoctor(doc)}
                       className={`p-5 rounded-3xl border transition-all cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
                         isSelected
-                          ? 'bg-emerald-50/50 border-emerald-400 shadow-md shadow-emerald-500/10 ring-2 ring-emerald-400/30'
-                          : 'bg-white border-slate-200/80 hover:border-emerald-300'
+                          ? 'bg-brand-50/50 border-brand-400 shadow-md shadow-brand-500/10 ring-2 ring-brand-400/30'
+                          : 'bg-white border-slate-200/80 hover:border-brand-300'
                       }`}
                     >
                       <div className="flex items-center space-x-4">
-                        <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xl shrink-0">
+                        <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xl shrink-0">
                           {doc.profilePictureUrl ? (
                             <img
                               src={doc.profilePictureUrl}
@@ -478,10 +478,10 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                           <div className="flex items-center space-x-2">
                             <h3 className="text-base font-black text-slate-900">{doc.fullName}</h3>
                             {doc.isInClinic && (
-                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" title="In Clinic Now" />
+                              <span className="w-2.5 h-2.5 rounded-full bg-brand-500 animate-pulse" title="In Clinic Now" />
                             )}
                           </div>
-                          <p className="text-xs font-bold text-emerald-700">
+                          <p className="text-xs font-bold text-brand-700">
                             {doc.specialty || 'Consultant Physician'}
                           </p>
                           <p className="text-[11px] text-slate-500 mt-0.5">
@@ -500,7 +500,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         <span
                           className={`mt-1 text-xs font-bold px-3 py-1 rounded-xl ${
                             isSelected
-                              ? 'bg-emerald-600 text-white'
+                              ? 'bg-brand-600 text-white'
                               : 'bg-slate-100 text-slate-600'
                           }`}
                         >
@@ -536,7 +536,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         onClick={() => setSelectedDate(iso)}
                         className={`p-2.5 rounded-xl border font-bold transition-all ${
                           isSelected
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                            ? 'bg-brand-600 text-white border-brand-600 shadow-xs'
                             : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                         }`}
                       >
@@ -558,7 +558,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       onClick={() => setSelectedSlotTime(t)}
                       className={`p-2.5 rounded-xl border font-bold transition-all ${
                         selectedSlotTime === t
-                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          ? 'bg-brand-600 text-white border-brand-600 shadow-xs'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
@@ -580,13 +580,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 </div>
                 <div className="flex justify-between pt-1 border-t border-slate-200 font-bold">
                   <span className="text-slate-700">Total Fee:</span>
-                  <span className="text-emerald-700 text-sm">Rs. {selectedDoctor?.consultationFee || 500}</span>
+                  <span className="text-brand-700 text-sm">Rs. {selectedDoctor?.consultationFee || 500}</span>
                 </div>
               </div>
 
               <button
                 onClick={() => setShowBookingModal(true)}
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2"
+                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2"
               >
                 <span>Proceed to Patient Details</span>
                 <ChevronRight className="w-4 h-4" />
@@ -695,7 +695,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Sample Collection Fee:</span>
-                  <span className="text-emerald-700 font-bold">FREE</span>
+                  <span className="text-brand-700 font-bold">FREE</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-teal-200/80 font-black text-sm text-teal-900">
                   <span>Total Payable:</span>
@@ -746,7 +746,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
                     formErrors.name
                       ? 'border-rose-500 bg-rose-50/50 focus:ring-rose-500'
-                      : 'border-slate-200 bg-slate-50 focus:bg-white focus:ring-emerald-500'
+                      : 'border-slate-200 bg-slate-50 focus:bg-white focus:ring-brand-500'
                   } focus:outline-none focus:ring-2`}
                 />
                 {formErrors.name && (
@@ -774,7 +774,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       formErrors.age
                         ? 'border-rose-500 bg-rose-50/50'
                         : 'border-slate-200 bg-slate-50'
-                    } focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+                    } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                   />
                   {formErrors.age && (
                     <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.age}</p>
@@ -786,7 +786,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   <select
                     value={patientGender}
                     onChange={(e) => setPatientGender(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
@@ -812,7 +812,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     formErrors.mobile
                       ? 'border-rose-500 bg-rose-50/50'
                       : 'border-slate-200 bg-slate-50'
-                  } focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+                  } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                 />
                 {formErrors.mobile && (
                   <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.mobile}</p>
@@ -829,7 +829,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   value={patientNotes}
                   onChange={(e) => setPatientNotes(e.target.value)}
                   placeholder="Describe any symptoms or recent medical history..."
-                  className="w-full px-3.5 py-2 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -845,7 +845,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-emerald-600/20"
+                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20"
                 >
                   {submitting ? 'Confirming Token...' : 'Confirm & Generate Token'}
                 </button>

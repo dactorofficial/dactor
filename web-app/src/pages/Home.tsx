@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { Clinic, Doctor } from '../types'
 import { getClinics, getDoctors } from '../services/db'
+import dactorLogo from '../assets/logo.png'
 
 interface HomeProps {
   onNavigate: (tab: string, params?: any) => void
@@ -357,20 +358,20 @@ export const Home: React.FC<HomeProps> = ({
         <div className="bg-gradient-to-br from-brand-50/70 via-slate-50 to-white border border-brand-200/60 rounded-3xl p-6 sm:p-10 shadow-sm relative overflow-hidden">
           {/* Subtle medical shield background watermark */}
           <div className="absolute right-0 top-1/2 -translate-y-1/2 w-80 h-80 opacity-5 pointer-events-none -mr-16">
-            <img src="./app_logo.png" alt="" className="w-full h-full object-contain" />
+            <img src={dactorLogo} alt="" className="w-full h-full object-contain" />
           </div>
 
           <div className="flex flex-col lg:flex-row items-center justify-between gap-8 relative z-10">
             {/* Left: Branding & Message */}
             <div className="space-y-4 max-w-2xl text-left">
               <div className="inline-flex items-center space-x-2.5 px-3.5 py-1.5 rounded-full bg-brand-100/90 border border-brand-300 text-brand-900 text-xs font-bold tracking-wide shadow-xs">
-                <img src="./app_logo.png" alt="Dactor" className="w-4 h-4 object-contain rounded-full" />
+                <img src={dactorLogo} alt="Dactor" className="w-4 h-4 object-contain rounded-full" />
                 <span>Nepal's Realtime OPD Queue & Diagnostic Ecosystem</span>
               </div>
 
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 tracking-tight leading-tight">
                 Live OPD Tokens.{' '}
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-cyan-500">
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-sky-500">
                   Zero Waiting Room Hassle.
                 </span>
               </h1>
@@ -383,7 +384,7 @@ export const Home: React.FC<HomeProps> = ({
             {/* Right: Authentic Logo Showcase & Quick Highlights */}
             <div className="flex flex-col sm:flex-row items-center gap-5 shrink-0 bg-white/80 backdrop-blur-xs p-5 rounded-3xl border border-brand-100 shadow-sm">
               <img
-                src="./app_logo.png"
+                src={dactorLogo}
                 alt="Dactor Shield"
                 className="w-24 h-24 object-contain drop-shadow-md rounded-2xl"
               />

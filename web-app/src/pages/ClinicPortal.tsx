@@ -1226,12 +1226,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     return (
       <div className="max-w-xl mx-auto px-4 py-16">
         <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-slate-200/80 text-center space-y-6">
-          <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-inner">
+          <div className="w-16 h-16 rounded-3xl bg-brand-100 text-brand-700 flex items-center justify-center mx-auto shadow-inner">
             <Building2 className="w-8 h-8 stroke-[2.5]" />
           </div>
 
           <div className="space-y-1.5">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+            <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
               Provider Access Only
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
@@ -1253,7 +1253,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 const found = clinics.find((c) => c.id === e.target.value)
                 if (found) setSelectedClinic(found)
               }}
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               {clinics.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -1272,7 +1272,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           >
             {firebaseLoading ? (
               <>
-                <RefreshCw className="w-5 h-5 animate-spin text-emerald-600" />
+                <RefreshCw className="w-5 h-5 animate-spin text-brand-600" />
                 <span>Signing in with Google...</span>
               </>
             ) : (
@@ -1307,9 +1307,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           )}
 
-          <div className="p-3.5 bg-emerald-50/60 rounded-2xl border border-emerald-100 text-left space-y-1">
-            <div className="flex items-center space-x-2 text-emerald-800 font-bold text-xs">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <div className="p-3.5 bg-brand-50/60 rounded-2xl border border-brand-100 text-left space-y-1">
+            <div className="flex items-center space-x-2 text-brand-800 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-brand-600" />
               <span>Real Database Synchronization</span>
             </div>
             <p className="text-[11px] text-slate-600 leading-relaxed">
@@ -1333,7 +1333,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* Top Banner / Clinic Context Bar */}
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden">
+          <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden">
             {selectedClinic?.logoUrl ? (
               <img
                 src={selectedClinic.logoUrl}
@@ -1350,7 +1350,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <h1 className="text-xl sm:text-2xl font-black text-slate-900">
                 {selectedClinic?.name}
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-brand-100 text-brand-800">
                 {selectedClinic?.type === 'diagnostic_lab' ? 'Diagnostic Lab' : 'Polyclinic OPD'}
               </span>
             </div>
@@ -1369,14 +1369,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               disabled={updatingPresence}
               className={`flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                 doctorInClinic
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                  ? 'bg-brand-50 border-brand-300 text-brand-800 hover:bg-brand-100'
                   : 'bg-rose-50 border-rose-300 text-rose-800 hover:bg-rose-100'
               }`}
               title="Click to toggle Doctor In-Clinic Presence"
             >
               <span
                 className={`w-2.5 h-2.5 rounded-full ${
-                  doctorInClinic ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                  doctorInClinic ? 'bg-brand-500 animate-pulse' : 'bg-rose-500'
                 }`}
               />
               <span>{doctorInClinic ? 'Doctor is In' : 'Doctor is Out'}</span>
@@ -1400,7 +1400,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
           <button
             onClick={() => setShowDoctorOnboarding(true)}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-brand-50 hover:bg-brand-100 text-brand-800 border border-brand-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Add Doctor</span>
@@ -1422,7 +1422,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('queue')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'queue'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-brand-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -1434,7 +1434,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('walkin')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'walkin'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-brand-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -1446,7 +1446,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('future_appts')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'future_appts'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-brand-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -1458,7 +1458,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('working_hours')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'working_hours'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-brand-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -1470,7 +1470,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('doctors')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'doctors'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-brand-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -1482,7 +1482,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('billing')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'billing'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-brand-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -1494,7 +1494,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('patients')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'patients'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-brand-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -1534,7 +1534,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('broadcast')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'broadcast'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-brand-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -1546,7 +1546,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('settings')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'settings'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-brand-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -1597,7 +1597,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
               <span className="text-[11px] font-bold uppercase text-slate-400">Completed Today</span>
-              <p className="text-2xl font-black text-emerald-600 mt-1">{queueCompletedCount}</p>
+              <p className="text-2xl font-black text-brand-600 mt-1">{queueCompletedCount}</p>
             </div>
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
               <span className="text-[11px] font-bold uppercase text-slate-400">Total Registered</span>
@@ -1627,7 +1627,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   onClick={() => setAvgTimeMode('auto')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     avgTimeMode === 'auto'
-                      ? 'bg-white text-emerald-800 shadow-2xs'
+                      ? 'bg-white text-brand-800 shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -1638,7 +1638,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   onClick={() => setAvgTimeMode('manual')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     avgTimeMode === 'manual'
-                      ? 'bg-white text-emerald-800 shadow-2xs'
+                      ? 'bg-white text-brand-800 shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -1654,7 +1654,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     max="60"
                     value={manualAvgMinutes}
                     onChange={(e) => setManualAvgMinutes(Number(e.target.value) || 10)}
-                    className="w-16 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-16 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-center focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                   <span className="text-xs font-bold text-slate-500">Mins</span>
                 </div>
@@ -1664,7 +1664,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 type="button"
                 onClick={handleSaveAvgTimeSettings}
                 disabled={savingAvgTime}
-                className="px-3 py-1.5 bg-slate-900 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs cursor-pointer"
+                className="px-3 py-1.5 bg-slate-900 hover:bg-brand-600 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs cursor-pointer"
               >
                 {savingAvgTime ? 'Saving...' : 'Save Settings'}
               </button>
@@ -1699,7 +1699,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <div className="flex items-center space-x-2 w-full md:w-auto">
                 <button
                   onClick={() => handleStatusChange(activeConsultationPatient.id, 'completed')}
-                  className="flex-1 md:flex-initial px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                  className="flex-1 md:flex-initial px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
                 >
                   Mark Consultation Done
                 </button>
@@ -1731,7 +1731,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
             <button
               onClick={() => setRefreshKey((k) => k + 1)}
-              className="flex items-center space-x-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl cursor-pointer"
+              className="flex items-center space-x-1.5 text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1.5 rounded-xl cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               <span>Refresh Board</span>
@@ -1796,7 +1796,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 Inside Cabin
                               </span>
                             ) : isDone ? (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-brand-100 text-brand-800">
                                 Completed
                               </span>
                             ) : (
@@ -1814,7 +1814,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                     : timing.isOnBreak
                                     ? 'bg-amber-100 text-amber-800'
                                     : timing.isSoonBeReady
-                                    ? 'bg-emerald-100 text-emerald-800 animate-pulse'
+                                    ? 'bg-brand-100 text-brand-800 animate-pulse'
                                     : 'bg-slate-100 text-slate-700'
                                 }`}
                               >
@@ -1832,7 +1832,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 appt.paymentStatus === 'paid'
-                                  ? 'bg-emerald-100 text-emerald-800'
+                                  ? 'bg-brand-100 text-brand-800'
                                   : appt.paymentStatus === 'partial'
                                   ? 'bg-amber-100 text-amber-800'
                                   : 'bg-slate-100 text-slate-700'
@@ -1856,7 +1856,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {inCabin && (
                               <button
                                 onClick={() => handleStatusChange(appt.id, 'completed')}
-                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
+                                className="px-2.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
                               >
                                 Mark Done
                               </button>
@@ -1914,18 +1914,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             {walkinSuccessCode && (
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
+              <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl flex items-center justify-between">
                 <div>
-                  <span className="text-xs font-bold text-emerald-800 block">
+                  <span className="text-xs font-bold text-brand-800 block">
                     Walk-in Patient Added to Live Queue!
                   </span>
-                  <span className="text-base font-black font-mono text-emerald-900">
+                  <span className="text-base font-black font-mono text-brand-900">
                     Code: #{walkinSuccessCode}
                   </span>
                 </div>
                 <button
                   onClick={() => setWalkinSuccessCode(null)}
-                  className="px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-lg cursor-pointer"
+                  className="px-3 py-1 bg-brand-600 text-white text-xs font-bold rounded-lg cursor-pointer"
                 >
                   New Booking
                 </button>
@@ -1947,7 +1947,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   placeholder="Enter Patient Full Name"
                   className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
                     walkinErrors.name ? 'border-rose-500 bg-rose-50/50' : 'border-slate-200 bg-slate-50'
-                  } focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+                  } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                 />
                 {walkinErrors.name && (
                   <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.name}</p>
@@ -1969,7 +1969,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     placeholder="e.g. 28"
                     className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
                       walkinErrors.age ? 'border-rose-500 bg-rose-50/50' : 'border-slate-200 bg-slate-50'
-                    } focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+                    } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                   />
                   {walkinErrors.age && (
                     <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.age}</p>
@@ -1981,7 +1981,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <select
                     value={walkinGender}
                     onChange={(e) => setWalkinGender(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
@@ -2004,7 +2004,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   placeholder="e.g. 98XXXXXXXX"
                   className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
                     walkinErrors.mobile ? 'border-rose-500 bg-rose-50/50' : 'border-slate-200 bg-slate-50'
-                  } focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+                  } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                 />
                 {walkinErrors.mobile && (
                   <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.mobile}</p>
@@ -2016,7 +2016,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <select
                   value={walkinDoctorId}
                   onChange={(e) => setWalkinDoctorId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
                   {clinicDoctors.map((d) => (
                     <option key={d.id} value={d.id}>
@@ -2028,7 +2028,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               <button
                 type="submit"
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer"
+                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer"
               >
                 <span>Issue Live OPD Token</span>
                 <ChevronRight className="w-4 h-4" />
@@ -2058,7 +2058,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 type="date"
                 value={futureSelectedDate}
                 onChange={(e) => setFutureSelectedDate(e.target.value)}
-                className="px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
 
               {/* Declare Holiday Toggle */}
@@ -2149,7 +2149,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {appt.checkinStatus.toUpperCase()}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 font-bold text-emerald-700">
+                        <td className="py-3.5 px-4 font-bold text-brand-700">
                           Rs. {appt.feeAmount} ({appt.paymentStatus})
                         </td>
                         <td className="py-3.5 px-4 text-right space-x-1.5">
@@ -2205,8 +2205,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           </div>
 
           {scheduleSaveSuccess && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center space-x-2 text-emerald-800 text-xs font-bold">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl flex items-center space-x-2 text-brand-800 text-xs font-bold">
+              <CheckCircle2 className="w-4 h-4 text-brand-600" />
               <span>Weekly operational schedule successfully saved to clinic profile!</span>
             </div>
           )}
@@ -2230,7 +2230,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           updated[idx] = { ...sched, isOpen: e.target.checked }
                           setWeeklySchedule(updated)
                         }}
-                        className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                        className="rounded text-brand-600 focus:ring-brand-500 w-4 h-4"
                       />
                       <span className="text-[11px] font-bold text-slate-600">
                         {sched.isOpen ? 'Open' : 'Closed'}
@@ -2256,7 +2256,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 setWeeklySchedule(updated)
                               }}
                               placeholder="08:00 AM"
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
                             />
                           </div>
                           <div>
@@ -2270,7 +2270,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 setWeeklySchedule(updated)
                               }}
                               placeholder="08:00 PM"
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
                             />
                           </div>
                         </div>
@@ -2290,7 +2290,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 updated[idx] = { ...sched, hasBreak: e.target.checked }
                                 setWeeklySchedule(updated)
                               }}
-                              className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
+                              className="rounded text-brand-600 focus:ring-brand-500 w-3.5 h-3.5"
                             />
                             <span className="text-[10px] text-slate-500">Enable</span>
                           </label>
@@ -2309,7 +2309,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                   setWeeklySchedule(updated)
                                 }}
                                 placeholder="01:00 PM"
-                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
                               />
                             </div>
                             <div>
@@ -2323,7 +2323,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                   setWeeklySchedule(updated)
                                 }}
                                 placeholder="02:00 PM"
-                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
                               />
                             </div>
                           </div>
@@ -2343,7 +2343,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="submit"
                 disabled={savingSchedule}
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 text-xs transition-colors cursor-pointer"
+                className="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 text-xs transition-colors cursor-pointer"
               >
                 {savingSchedule ? 'Saving Schedule...' : 'Save Weekly Operational Schedule'}
               </button>
@@ -2366,7 +2366,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
             <button
               onClick={() => setShowDoctorOnboarding(true)}
-              className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+              className="flex items-center space-x-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Add New Doctor</span>
@@ -2381,12 +2381,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black text-lg">
+                    <div className="w-12 h-12 rounded-2xl bg-brand-100 text-brand-800 flex items-center justify-center font-black text-lg">
                       {doc.fullName.charAt(0)}
                     </div>
                     <div>
                       <h3 className="text-sm font-black text-slate-900">{doc.fullName}</h3>
-                      <p className="text-xs text-emerald-700 font-bold">{doc.specialty || 'General'}</p>
+                      <p className="text-xs text-brand-700 font-bold">{doc.specialty || 'General'}</p>
                     </div>
                   </div>
 
@@ -2396,7 +2396,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     onClick={() => handleToggleDoctorPresence(doc)}
                     className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
                       doc.isInClinic ?? true
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        ? 'bg-brand-50 border-brand-300 text-brand-800'
                         : 'bg-rose-50 border-rose-300 text-rose-800'
                     }`}
                   >
@@ -2425,7 +2425,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Consultation Fee:</span>
-                    <span className="font-black text-emerald-700">Rs. {doc.consultationFee || 500}</span>
+                    <span className="font-black text-brand-700">Rs. {doc.consultationFee || 500}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Mobile:</span>
@@ -2450,7 +2450,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 Track all patient payments, total bills, and dates. Generates invoices on request.
               </p>
             </div>
-            <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-xl">
+            <span className="text-xs font-bold text-brand-800 bg-brand-50 px-3 py-1.5 rounded-xl">
               {invoices.length} Invoices Recorded
             </span>
           </div>
@@ -2479,13 +2479,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         </span>
                       </td>
                       <td className="py-3.5 px-4 font-black text-slate-900">Rs. {inv.totalAmount}</td>
-                      <td className="py-3.5 px-4 font-bold text-emerald-700">Rs. {inv.paidAmount}</td>
+                      <td className="py-3.5 px-4 font-bold text-brand-700">Rs. {inv.paidAmount}</td>
                       <td className="py-3.5 px-4 font-bold text-rose-700">Rs. {inv.balanceDue}</td>
                       <td className="py-3.5 px-4">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             inv.paymentStatus === 'paid'
-                              ? 'bg-emerald-100 text-emerald-800'
+                              ? 'bg-brand-100 text-brand-800'
                               : inv.paymentStatus === 'partial'
                               ? 'bg-amber-100 text-amber-800'
                               : 'bg-rose-100 text-rose-800'
@@ -2537,13 +2537,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={patientSearchQuery}
                   onChange={(e) => setPatientSearchQuery(e.target.value)}
                   placeholder="Enter 10-Digit Code, Mobile, or Patient Name..."
-                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
               <button
                 type="submit"
                 disabled={searchingPatients}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs cursor-pointer"
+                className="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs cursor-pointer"
               >
                 {searchingPatients ? 'Searching...' : 'Search'}
               </button>
@@ -2591,7 +2591,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {res.checkinStatus.toUpperCase()}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 font-bold text-emerald-700">
+                        <td className="py-3.5 px-4 font-bold text-brand-700">
                           Rs. {res.feeAmount} ({res.paymentStatus})
                         </td>
                         <td className="py-3.5 px-4 text-right">
@@ -2674,7 +2674,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         </td>
                         <td className="py-3.5 px-4">
                           {labStatus === 'prepared' ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-brand-100 text-brand-800">
                               Prepared (Ready)
                             </span>
                           ) : labStatus === 'processing' ? (
@@ -2702,7 +2702,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 setTargetLabAppt(appt)
                                 setLabUploadModalOpen(true)
                               }}
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
+                              className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
                             >
                               Mark Prepared & Upload
                             </button>
@@ -2840,8 +2840,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             {broadcastSent && (
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl text-brand-800 text-xs font-bold flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-brand-600" />
                 <span>Broadcast message successfully sent to all patients!</span>
               </div>
             )}
@@ -2856,7 +2856,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={broadcastTitle}
                   onChange={(e) => setBroadcastTitle(e.target.value)}
                   placeholder="e.g. Doctor Delay Notice / Break Hour Resumption"
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -2869,13 +2869,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={broadcastMessage}
                   onChange={(e) => setBroadcastMessage(e.target.value)}
                   placeholder="Enter detailed notification content..."
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer"
+                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer"
               >
                 <Send className="w-4 h-4" />
                 <span>Broadcast Notification</span>
@@ -2899,8 +2899,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             {settingsSuccess && (
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl text-brand-800 text-xs font-bold flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-brand-600" />
                 <span>Clinic settings successfully updated in database!</span>
               </div>
             )}
@@ -2912,7 +2912,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   type="text"
                   value={settingName}
                   onChange={(e) => setSettingName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -2924,7 +2924,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={settingPhone}
                     onChange={(e) => setSettingPhone(e.target.value)}
                     placeholder="e.g. 014XXXXXX"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -2934,7 +2934,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={settingManagerPhone}
                     onChange={(e) => setSettingManagerPhone(e.target.value)}
                     placeholder="e.g. 98XXXXXXXX"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
@@ -2947,7 +2947,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={settingPan}
                     onChange={(e) => setSettingPan(e.target.value)}
                     placeholder="e.g. 601234567"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -2957,7 +2957,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={settingEmail}
                     onChange={(e) => setSettingEmail(e.target.value)}
                     placeholder="clinic@example.com"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
@@ -2969,7 +2969,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={settingAddress}
                   onChange={(e) => setSettingAddress(e.target.value)}
                   placeholder="Street Address, City, Ward"
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -2983,14 +2983,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   max="10"
                   value={settingThreshold}
                   onChange={(e) => setSettingThreshold(Number(e.target.value) || 2)}
-                  className="w-32 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-32 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={savingSettings}
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all text-xs cursor-pointer"
+                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all text-xs cursor-pointer"
               >
                 {savingSettings ? 'Saving Settings...' : 'Save Clinic Settings'}
               </button>
@@ -3031,10 +3031,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   {/* Real App Logo SVG */}
-                  <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center text-white shadow-xs">
+                  <div className="w-7 h-7 rounded-lg bg-brand-500 flex items-center justify-center text-white shadow-xs">
                     <Stethoscope className="w-4 h-4 stroke-[2.5]" />
                   </div>
-                  <span className="text-xs font-black tracking-wide text-emerald-400">
+                  <span className="text-xs font-black tracking-wide text-brand-400">
                     DACTOR HEALTH
                   </span>
                 </div>
@@ -3054,7 +3054,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <span className="text-[10px] text-slate-400 font-medium block">
                     Estimated Time Left
                   </span>
-                  <span className="text-xs font-black text-emerald-400 mt-0.5 block">
+                  <span className="text-xs font-black text-brand-400 mt-0.5 block">
                     {pushAlertLeftVal || 'Soon, be ready'}
                   </span>
                 </div>
@@ -3167,8 +3167,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
 
               {pushAlertSentSuccess && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <div className="p-3 bg-brand-50 border border-brand-200 rounded-xl text-brand-800 text-xs font-bold flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-brand-600" />
                   <span>Push notification delivered to patient device!</span>
                 </div>
               )}
@@ -3202,7 +3202,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-brand-600">
                   Billing & Payment Desk
                 </span>
                 <h3 className="text-lg font-black text-slate-900">
@@ -3232,7 +3232,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={billTotalAmount}
                     onChange={(e) => setBillTotalAmount(e.target.value)}
                     placeholder="e.g. 1000"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
@@ -3245,7 +3245,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={billPaidAmount}
                     onChange={(e) => setBillPaidAmount(e.target.value)}
                     placeholder="e.g. 1000"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
@@ -3269,7 +3269,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={billRemarks}
                   onChange={(e) => setBillRemarks(e.target.value)}
                   placeholder="Optional notes (e.g. Paid in Cash / eSewa)"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -3282,10 +3282,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   type="file"
                   accept="image/*,application/pdf"
                   onChange={handleBillReceiptFileChange}
-                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 cursor-pointer"
                 />
                 {billReceiptCompressionInfo && (
-                  <p className="text-[11px] text-emerald-700 font-bold bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+                  <p className="text-[11px] text-brand-700 font-bold bg-brand-50 p-2 rounded-lg border border-brand-200">
                     ⚡ {billReceiptCompressionInfo}
                   </p>
                 )}
@@ -3318,7 +3318,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <span>Doctor: {selectedDoctor?.fullName || 'OPD Doctor'}</span>
                     <span>Total Fee: Rs. {billTotalAmount || 500}</span>
                   </div>
-                  <div className="flex justify-between font-bold text-emerald-700 pt-1 border-t border-slate-200">
+                  <div className="flex justify-between font-bold text-brand-700 pt-1 border-t border-slate-200">
                     <span>Amount Paid: Rs. {billPaidAmount || 0}</span>
                     <span>
                       Balance Due: Rs.{' '}
@@ -3339,7 +3339,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <button
                   type="submit"
                   disabled={savingBill}
-                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-emerald-600/20 cursor-pointer"
+                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20 cursor-pointer"
                 >
                   {savingBill ? 'Saving & Pushing...' : 'Push Bill to Patient'}
                 </button>
@@ -3453,7 +3453,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   placeholder="e.g. Dr. Sushil Karki"
                   className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
                     onboardingErrors.name ? 'border-rose-500 bg-rose-50/50' : 'border-slate-200 bg-slate-50'
-                  } focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+                  } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                 />
                 {onboardingErrors.name && (
                   <p className="text-[11px] text-rose-600 font-bold mt-1">{onboardingErrors.name}</p>
@@ -3466,7 +3466,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <select
                     value={docSpecialty}
                     onChange={(e) => setDocSpecialty(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="General Physician">General Physician</option>
                     <option value="Cardiology">Cardiology</option>
@@ -3485,7 +3485,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={docEducation}
                     onChange={(e) => setDocEducation(e.target.value)}
                     placeholder="MBBS, MD"
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
@@ -3503,7 +3503,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       if (onboardingErrors.license) setOnboardingErrors({ ...onboardingErrors, license: '' })
                     }}
                     placeholder="e.g. 14250"
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                   {onboardingErrors.license && (
                     <p className="text-[11px] text-rose-600 font-bold mt-1">{onboardingErrors.license}</p>
@@ -3517,7 +3517,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <select
                     value={docStartingYear}
                     onChange={(e) => setDocStartingYear(Number(e.target.value))}
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     {practicingYears.map((yr) => (
                       <option key={yr} value={yr}>
@@ -3541,7 +3541,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       if (onboardingErrors.mobile) setOnboardingErrors({ ...onboardingErrors, mobile: '' })
                     }}
                     placeholder="98XXXXXXXX"
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                   {onboardingErrors.mobile && (
                     <p className="text-[11px] text-rose-600 font-bold mt-1">{onboardingErrors.mobile}</p>
@@ -3554,7 +3554,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="number"
                     value={docFee}
                     onChange={(e) => setDocFee(Number(e.target.value))}
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
@@ -3569,7 +3569,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-emerald-600/20 cursor-pointer"
+                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20 cursor-pointer"
                 >
                   Register Practitioner
                 </button>

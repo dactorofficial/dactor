@@ -173,7 +173,7 @@ export const LabReports: React.FC = () => {
                   currentStatus === 'processing' ||
                   currentStatus === 'prepared' ||
                   currentStatus === 'delivered'
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                    ? 'bg-brand-50 border-brand-300 text-brand-800'
                     : 'bg-slate-50 border-slate-200 text-slate-400'
                 }`}
               >
@@ -188,7 +188,7 @@ export const LabReports: React.FC = () => {
                   currentStatus === 'delivered'
                     ? currentStatus === 'processing'
                       ? 'bg-blue-50 border-blue-400 text-blue-800 ring-2 ring-blue-300'
-                      : 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                      : 'bg-brand-50 border-brand-300 text-brand-800'
                     : 'bg-slate-50 border-slate-200 text-slate-400'
                 }`}
               >
@@ -199,7 +199,7 @@ export const LabReports: React.FC = () => {
               <div
                 className={`p-4 rounded-2xl border text-center transition-all ${
                   currentStatus === 'prepared' || currentStatus === 'delivered'
-                    ? 'bg-emerald-50 border-emerald-400 text-emerald-800 ring-2 ring-emerald-300'
+                    ? 'bg-brand-50 border-brand-400 text-brand-800 ring-2 ring-brand-300'
                     : 'bg-slate-50 border-slate-200 text-slate-400'
                 }`}
               >
@@ -213,7 +213,7 @@ export const LabReports: React.FC = () => {
           {currentStatus === 'prepared' || currentStatus === 'delivered' ? (
             <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
               <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm">
-                <Lock className="w-5 h-5 text-emerald-600" />
+                <Lock className="w-5 h-5 text-brand-600" />
                 <span>Patient Name Verification</span>
               </div>
               <p className="text-xs text-slate-600">
@@ -227,27 +227,27 @@ export const LabReports: React.FC = () => {
                     value={verifyNameInput}
                     onChange={(e) => setVerifyNameInput(e.target.value)}
                     placeholder="Enter Patient Full Name..."
-                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                   {verifyError && (
                     <p className="text-xs text-rose-600 font-bold">{verifyError}</p>
                   )}
                   <button
                     type="submit"
-                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                    className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
                   >
                     Verify & Unlock Report
                   </button>
                 </form>
               ) : (
                 <div className="space-y-4 pt-2">
-                  <div className="p-3 bg-emerald-100 border border-emerald-300 rounded-xl flex items-center space-x-2 text-emerald-900 text-xs font-bold">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                  <div className="p-3 bg-brand-100 border border-brand-300 rounded-xl flex items-center space-x-2 text-brand-900 text-xs font-bold">
+                    <CheckCircle2 className="w-4 h-4 text-brand-700" />
                     <span>Identity Verified for: {appointment?.patientName || reports[0]?.patientName}</span>
                   </div>
 
                   {reports.length > 0 && reports[0].reportFileUrl ? (
-                    <div className="p-4 bg-white rounded-xl border border-emerald-200 flex items-center justify-between">
+                    <div className="p-4 bg-white rounded-xl border border-brand-200 flex items-center justify-between">
                       <div className="flex items-center space-x-3">
                         <FileText className="w-8 h-8 text-teal-600" />
                         <div>
@@ -266,7 +266,7 @@ export const LabReports: React.FC = () => {
                           target="_blank"
                           rel="noopener noreferrer"
                           download
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center space-x-1.5"
+                          className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center space-x-1.5"
                         >
                           <Download className="w-3.5 h-3.5" />
                           <span>Download Report</span>
@@ -274,7 +274,7 @@ export const LabReports: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <div className="p-4 bg-white rounded-xl border border-emerald-200 text-xs text-slate-600">
+                    <div className="p-4 bg-white rounded-xl border border-brand-200 text-xs text-slate-600">
                       Your diagnostic report is prepared and ready for collection at the clinic desk. A digital PDF copy will also sync here if uploaded by the lab.
                     </div>
                   )}

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { getAppointmentByTrackingCode } from '../services/db'
 import { Appointment } from '../types'
+import dactorLogo from '../assets/logo.png'
 
 interface LiveTrackerModalProps {
   isOpen: boolean
@@ -104,7 +105,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
         {/* Header */}
         <div className="flex items-center space-x-3 mb-6">
           <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center border border-brand-100">
-            <img src="./app_logo.png" alt="Dactor" className="w-7 h-7 object-contain" />
+            <img src={dactorLogo} alt="Dactor" className="w-7 h-7 object-contain" />
           </div>
           <div>
             <h3 className="text-xl font-black text-slate-900">Live OPD Queue Tracker</h3>

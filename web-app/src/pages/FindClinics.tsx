@@ -62,7 +62,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Page Header */}
       <div className="space-y-3">
-        <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+        <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
           Find Healthcare Centers
         </span>
         <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
@@ -82,7 +82,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search by clinic name, specialty, or location..."
-            className="w-full px-4 py-3 pl-11 bg-slate-50 rounded-2xl border border-slate-200 text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all placeholder:font-normal placeholder:text-slate-400"
+            className="w-full px-4 py-3 pl-11 bg-slate-50 rounded-2xl border border-slate-200 text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all placeholder:font-normal placeholder:text-slate-400"
           />
           <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-3.5" />
         </div>
@@ -93,7 +93,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
             onClick={() => setFilterType('all')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
               filterType === 'all'
-                ? 'bg-emerald-600 text-white shadow-xs'
+                ? 'bg-brand-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -103,7 +103,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
             onClick={() => setFilterType('polyclinic')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
               filterType === 'polyclinic'
-                ? 'bg-emerald-600 text-white shadow-xs'
+                ? 'bg-brand-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -145,7 +145,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
             return (
               <div
                 key={clinic.id}
-                className="group bg-white rounded-3xl border border-slate-200/80 hover:border-emerald-300 p-6 shadow-sm hover:shadow-xl hover:shadow-emerald-500/10 transition-all duration-200 flex flex-col justify-between"
+                className="group bg-white rounded-3xl border border-slate-200/80 hover:border-brand-300 p-6 shadow-sm hover:shadow-xl hover:shadow-brand-500/10 transition-all duration-200 flex flex-col justify-between"
               >
                 <div>
                   {/* Top Header */}
@@ -154,7 +154,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                       className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg ${
                         isLab
                           ? 'bg-teal-100 text-teal-700'
-                          : 'bg-emerald-100 text-emerald-700'
+                          : 'bg-brand-100 text-brand-700'
                       }`}
                     >
                       {clinic.logoUrl ? (
@@ -173,7 +173,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                       className={`px-3 py-1 rounded-full text-xs font-bold border ${
                         isLab
                           ? 'bg-teal-50 text-teal-800 border-teal-200'
-                          : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : 'bg-brand-50 text-brand-800 border-brand-200'
                       }`}
                     >
                       {isLab ? 'Diagnostic Lab' : 'Polyclinic OPD'}
@@ -181,7 +181,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                   </div>
 
                   {/* Title & Address */}
-                  <h3 className="text-xl font-black text-slate-900 group-hover:text-emerald-700 transition-colors line-clamp-1">
+                  <h3 className="text-xl font-black text-slate-900 group-hover:text-brand-700 transition-colors line-clamp-1">
                     {clinic.name}
                   </h3>
 
@@ -192,7 +192,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
 
                   {/* Operational Hours Strip */}
                   <div className="mt-3.5 p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-600 flex items-center space-x-2">
-                    <Clock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <Clock className="w-3.5 h-3.5 text-brand-600 shrink-0" />
                     <span>08:00 AM – 07:30 PM (Break: 01:00 PM – 02:00 PM)</span>
                   </div>
 
@@ -221,7 +221,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                     className={`w-full py-3 rounded-2xl text-xs font-bold transition-all shadow-xs flex items-center justify-center space-x-2 ${
                       isLab
                         ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-600/20'
-                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                        : 'bg-brand-600 hover:bg-brand-700 text-white shadow-brand-600/20'
                     }`}
                   >
                     <span>{isLab ? 'Select Diagnostic Tests' : 'Book OPD Consultation'}</span>

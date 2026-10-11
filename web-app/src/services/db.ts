@@ -514,6 +514,27 @@ export async function uploadReportFile(fileName: string, fileBlob: Blob): Promis
   }
 }
 
+export async function uploadClinicDocument(fileName: string, fileBlob: Blob, folder = 'registration_docs'): Promise<string | null> {
+  try {
+    const bucket = 'clinic_files'
+    const cleanName = fileName.replace(/\s+/g, '_')
+    const path = `${folder}/${Date.now()}_${cleanName}`
+    const { error } = await supabase.storage.from(bucket).upload(path, fileBlob, {
+      upsert: true,
+      contentType: fileBlob.type || 'application/octet-stream',
+    })
+    if (error) {
+      console.warn('Storage upload error, falling back:', error)
+      return null
+    }
+    const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(path)
+    return publicData.publicUrl
+  } catch (err) {
+    console.error('Error uploading document:', err)
+    return null
+  }
+}
+
 // ==========================================
 // NOTIFICATIONS API
 // ==========================================

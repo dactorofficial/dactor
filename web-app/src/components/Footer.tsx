@@ -8,6 +8,7 @@ import {
   Heart,
   ChevronRight,
 } from 'lucide-react'
+import dactorLogo from '../assets/logo.png'
 
 interface FooterProps {
   onNavigate: (tab: string) => void
@@ -22,9 +23,9 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center space-x-3">
               <img
-                src="./app_logo.png"
+                src={dactorLogo}
                 alt="Dactor Logo"
-                className="w-10 h-10 rounded-2xl object-contain shadow-md shadow-cyan-600/20 bg-white p-0.5 border border-slate-800"
+                className="w-10 h-10 rounded-2xl object-contain shadow-md shadow-sky-600/20 bg-white p-0.5 border border-slate-800"
               />
               <span className="text-2xl font-black tracking-tight text-white">Dactor</span>
             </div>

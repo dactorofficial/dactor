@@ -82,7 +82,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
         {/* Top Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center">
               <Bell className="w-5 h-5 stroke-[2.5]" />
             </div>
             <div>
@@ -96,7 +96,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           <div className="flex items-center space-x-2">
             <button
               onClick={fetchNotes}
-              className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-full transition-colors"
+              className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-full transition-colors"
               title="Refresh"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -115,11 +115,11 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           {notifications.map((note) => (
             <div
               key={note.id}
-              className="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 hover:bg-emerald-50/20 transition-all space-y-2.5"
+              className="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 hover:bg-brand-50/20 transition-all space-y-2.5"
             >
               <div className="flex items-start justify-between gap-2">
                 <h4 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 inline-block" />
+                  <span className="w-2 h-2 rounded-full bg-brand-500 shrink-0 inline-block" />
                   <span>{note.title}</span>
                 </h4>
                 <span className="text-[10px] text-slate-400 whitespace-nowrap font-medium">
@@ -147,12 +147,12 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                   {note.rightLabel && (
                     <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-100">
                       <span className="text-slate-400 block font-medium">{note.rightLabel}</span>
-                      <span className="font-bold text-emerald-700">{note.rightValue || 'Alert'}</span>
+                      <span className="font-bold text-brand-700">{note.rightValue || 'Alert'}</span>
                     </div>
                   )}
 
                   {note.trackingCode && (
-                    <div className="col-span-2 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 text-emerald-900 font-bold">
+                    <div className="col-span-2 bg-brand-50 px-2.5 py-1.5 rounded-lg border border-brand-200 text-brand-900 font-bold">
                       Tracking Code: #{note.trackingCode}
                     </div>
                   )}

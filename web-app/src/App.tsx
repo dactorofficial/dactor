@@ -135,8 +135,8 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-slate-800 font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Navbar with Aaransh360 Emerald Theme */}
+    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-slate-800 font-sans selection:bg-brand-500 selection:text-white">
+      {/* Navbar with Aaransh360 brand Theme */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={(tab) => handleNavigate(tab)}

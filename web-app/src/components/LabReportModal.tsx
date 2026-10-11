@@ -132,7 +132,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
         return {
           label: 'Prepared & Ready',
           desc: 'Your certified lab report is ready. Verify your registered patient name below to view or download.',
-          badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+          badgeClass: 'bg-brand-100 text-brand-800 border-brand-200',
           icon: CheckCircle2,
         }
       default:
@@ -246,7 +246,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
                     currentStatus === 'processing' ||
                     currentStatus === 'prepared' ||
                     currentStatus === 'delivered'
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                      ? 'bg-brand-50 border-brand-300 text-brand-800'
                       : 'bg-white border-slate-200 text-slate-400'
                   }`}
                 >
@@ -262,7 +262,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
                     currentStatus === 'delivered'
                       ? currentStatus === 'processing'
                         ? 'bg-blue-50 border-blue-400 text-blue-800 ring-2 ring-blue-300'
-                        : 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : 'bg-brand-50 border-brand-300 text-brand-800'
                       : 'bg-white border-slate-200 text-slate-400'
                   }`}
                 >
@@ -274,7 +274,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
                 <div
                   className={`p-2.5 rounded-xl border text-center transition-all ${
                     currentStatus === 'prepared' || currentStatus === 'delivered'
-                      ? 'bg-emerald-50 border-emerald-400 text-emerald-800 ring-2 ring-emerald-300'
+                      ? 'bg-brand-50 border-brand-400 text-brand-800 ring-2 ring-brand-300'
                       : 'bg-white border-slate-200 text-slate-400'
                   }`}
                 >
@@ -290,9 +290,9 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
 
             {/* If Status is PREPARED: Require Name Verification before Viewing/Downloading */}
             {(currentStatus === 'prepared' || currentStatus === 'delivered') && (
-              <div className="bg-emerald-50/70 border border-emerald-200 p-5 rounded-2xl space-y-4">
-                <div className="flex items-center space-x-2 text-emerald-900 font-bold text-sm">
-                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              <div className="bg-brand-50/70 border border-brand-200 p-5 rounded-2xl space-y-4">
+                <div className="flex items-center space-x-2 text-brand-900 font-bold text-sm">
+                  <ShieldCheck className="w-5 h-5 text-brand-600" />
                   <span>Confidentiality: Name Verification Required</span>
                 </div>
                 <p className="text-xs text-slate-600">
@@ -307,7 +307,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
                         value={verifyNameInput}
                         onChange={(e) => setVerifyNameInput(e.target.value)}
                         placeholder="Enter Patient Full Name"
-                        className="w-full px-3.5 py-2.5 bg-white border border-emerald-300 rounded-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full px-3.5 py-2.5 bg-white border border-brand-300 rounded-xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                       />
                     </div>
                     {verifyError && (
@@ -315,7 +315,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
                     )}
                     <button
                       type="submit"
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center space-x-1.5"
+                      className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center space-x-1.5"
                     >
                       <ShieldCheck className="w-4 h-4" />
                       <span>Verify Name & Unlock Report</span>
@@ -323,14 +323,14 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
                   </form>
                 ) : (
                   <div className="space-y-3 pt-2">
-                    <div className="p-2.5 bg-emerald-100/70 border border-emerald-300 rounded-xl flex items-center space-x-2 text-emerald-900 text-xs font-bold">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                    <div className="p-2.5 bg-brand-100/70 border border-brand-300 rounded-xl flex items-center space-x-2 text-brand-900 text-xs font-bold">
+                      <CheckCircle2 className="w-4 h-4 text-brand-700" />
                       <span>Identity Verified! Patient: {appointment?.patientName || reports[0]?.patientName}</span>
                     </div>
 
                     {/* Report Files List */}
                     {reports.length > 0 && reports[0].reportFileUrl ? (
-                      <div className="p-3.5 bg-white rounded-xl border border-emerald-200 flex items-center justify-between">
+                      <div className="p-3.5 bg-white rounded-xl border border-brand-200 flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <div className="w-9 h-9 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center">
                             <FileText className="w-5 h-5" />
@@ -364,7 +364,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
                             target="_blank"
                             rel="noopener noreferrer"
                             download
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 shadow-xs"
+                            className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 shadow-xs"
                           >
                             <Download className="w-3.5 h-3.5" />
                             <span>Download</span>
@@ -372,7 +372,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <div className="p-3.5 bg-white rounded-xl border border-emerald-200 text-xs text-slate-600">
+                      <div className="p-3.5 bg-white rounded-xl border border-brand-200 text-xs text-slate-600">
                         <p className="font-semibold text-slate-900">
                           {reports[0]?.testName || 'Diagnostic Test'} marked Prepared.
                         </p>

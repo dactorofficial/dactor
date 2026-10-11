@@ -916,7 +916,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex items-start sm:items-center space-x-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 font-black text-2xl flex-shrink-0">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-brand-500/20 font-black text-2xl flex-shrink-0">
                 {patientUser?.fullName ? patientUser.fullName.charAt(0).toUpperCase() : <User className="w-8 h-8" />}
               </div>
               <div>
@@ -925,7 +925,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     {patientUser?.fullName || 'Guest Patient Portal'}
                   </h1>
                   {patientUser ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-brand-100 text-brand-800">
                       <ShieldCheck className="w-3.5 h-3.5 mr-1" />
                       Verified Patient
                     </span>
@@ -968,7 +968,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     setAuthMode('login')
                     setShowAuthModal(true)
                   }}
-                  className="flex items-center space-x-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-600/20 transition transform hover:scale-[1.02]"
+                  className="flex items-center space-x-2 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition transform hover:scale-[1.02]"
                 >
                   <LogIn className="w-4 h-4" />
                   <span>Patient Login / Sign Up</span>
@@ -1001,7 +1001,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 }}
                 className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
                   isActive
-                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                    ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
@@ -1010,7 +1010,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 {tab.badge !== undefined && tab.badge > 0 && (
                   <span
                     className={`ml-1 px-2 py-0.5 text-xs rounded-full font-bold ${
-                      isActive ? 'bg-white text-emerald-800' : 'bg-slate-200 text-slate-700'
+                      isActive ? 'bg-white text-brand-800' : 'bg-slate-200 text-slate-700'
                     }`}
                   >
                     {tab.badge}
@@ -1052,7 +1052,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   setActiveTab('book')
                   setBookingStep(1)
                 }}
-                className="flex items-center space-x-1.5 text-sm font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-4 py-2 rounded-xl transition"
+                className="flex items-center space-x-1.5 text-sm font-bold text-brand-600 hover:text-brand-700 bg-brand-50 px-4 py-2 rounded-xl transition"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>+ Book Another</span>
@@ -1061,7 +1061,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             {isLoadingAppointments ? (
               <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
-                <RefreshCw className="w-8 h-8 animate-spin mx-auto text-emerald-600 mb-3" />
+                <RefreshCw className="w-8 h-8 animate-spin mx-auto text-brand-600 mb-3" />
                 <p className="text-slate-500 font-semibold text-sm">Loading your appointments & live queue tokens...</p>
               </div>
             ) : filteredAppointments.length === 0 ? (
@@ -1080,7 +1080,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     setActiveTab('book')
                     setBookingStep(1)
                   }}
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition shadow-md shadow-emerald-600/20"
+                  className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl transition shadow-md shadow-brand-600/20"
                 >
                   Book OPD or Lab Slot
                 </button>
@@ -1095,7 +1095,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <div
                       key={appt.id}
                       className={`bg-white rounded-3xl p-6 shadow-sm border transition hover:shadow-md ${
-                        isToday ? 'border-emerald-500/80 ring-2 ring-emerald-500/10' : 'border-slate-200'
+                        isToday ? 'border-brand-500/80 ring-2 ring-brand-500/10' : 'border-slate-200'
                       }`}
                     >
                       {/* Top Bar with 10-Digit Code Pill */}
@@ -1109,11 +1109,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           </span>
                           <button
                             onClick={() => handleCopyCode(appt.trackingCode10Digit)}
-                            className="p-1 text-slate-400 hover:text-emerald-600 transition"
+                            className="p-1 text-slate-400 hover:text-brand-600 transition"
                             title="Copy tracking code"
                           >
                             {copiedCode === appt.trackingCode10Digit ? (
-                              <Check className="w-4 h-4 text-emerald-600" />
+                              <Check className="w-4 h-4 text-brand-600" />
                             ) : (
                               <Copy className="w-4 h-4" />
                             )}
@@ -1129,7 +1129,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               ? 'bg-blue-100 text-blue-800'
                               : appt.checkinStatus === 'in_consultation'
                               ? 'bg-purple-100 text-purple-800 animate-pulse'
-                              : 'bg-emerald-100 text-emerald-800'
+                              : 'bg-brand-100 text-brand-800'
                           }`}
                         >
                           {isCancelled
@@ -1149,7 +1149,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             <h4 className="text-lg font-black text-slate-900">
                               {appt.doctor?.fullName || 'General OPD Specialist'}
                             </h4>
-                            <p className="text-xs font-semibold text-emerald-600">
+                            <p className="text-xs font-semibold text-brand-600">
                               {appt.doctor?.specialty || 'General Medicine'}
                             </p>
                           </div>
@@ -1177,7 +1177,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             <Clock className="w-3.5 h-3.5 text-slate-500" />
                             <span>{appt.appointmentTime}</span>
                           </div>
-                          <div className="flex items-center space-x-1.5 bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-xl border border-emerald-200/60">
+                          <div className="flex items-center space-x-1.5 bg-brand-50 text-brand-800 px-3 py-1.5 rounded-xl border border-brand-200/60">
                             <CreditCard className="w-3.5 h-3.5" />
                             <span>{appt.paymentStatus === 'paid' ? 'Paid Online' : 'Payment at Clinic'}</span>
                           </div>
@@ -1199,7 +1199,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               window.location.hash = '#live-queue'
                             }
                           }}
-                          className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-emerald-600 rounded-xl transition"
+                          className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-brand-600 rounded-xl transition"
                         >
                           <Activity className="w-3.5 h-3.5" />
                           <span>Live Queue Board</span>
@@ -1241,9 +1241,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <div
                       className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
                         bookingStep === st.num
-                          ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-4 ring-emerald-100'
+                          ? 'bg-brand-600 text-white shadow-md shadow-brand-600/30 ring-4 ring-brand-100'
                           : bookingStep > st.num
-                          ? 'bg-emerald-100 text-emerald-800'
+                          ? 'bg-brand-100 text-brand-800'
                           : 'bg-slate-100 text-slate-400'
                       }`}
                     >
@@ -1276,14 +1276,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <div
                       key={c.id}
                       onClick={() => handleSelectClinic(c)}
-                      className="p-5 rounded-2xl border border-slate-200 hover:border-emerald-500 bg-slate-50/50 hover:bg-emerald-50/30 cursor-pointer transition flex flex-col justify-between group shadow-xs"
+                      className="p-5 rounded-2xl border border-slate-200 hover:border-brand-500 bg-slate-50/50 hover:bg-brand-50/30 cursor-pointer transition flex flex-col justify-between group shadow-xs"
                     >
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
                             {(c.type || 'clinic').replace('_', ' ')}
                           </span>
-                          <span className="text-xs font-bold text-emerald-600 flex items-center">
+                          <span className="text-xs font-bold text-brand-600 flex items-center">
                             Select <ChevronRight className="w-3.5 h-3.5 ml-0.5 group-hover:translate-x-1 transition-transform" />
                           </span>
                         </div>
@@ -1313,7 +1313,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <ArrowLeft className="w-4 h-4" />
                     <span>Back to Clinics</span>
                   </button>
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
+                  <span className="text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1 rounded-full">
                     {selectedClinic.name}
                   </span>
                 </div>
@@ -1331,12 +1331,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           onClick={() => setSelectedDoctor(doc)}
                           className={`p-4 rounded-2xl border cursor-pointer transition ${
                             selectedDoctor?.id === doc.id
-                              ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20'
+                              ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-500/20'
                               : 'border-slate-200 bg-white hover:border-slate-300'
                           }`}
                         >
                           <div className="font-bold text-sm text-slate-900">{doc.fullName}</div>
-                          <div className="text-xs text-emerald-600 font-medium">{doc.specialty}</div>
+                          <div className="text-xs text-brand-600 font-medium">{doc.specialty}</div>
                           <div className="text-xs text-slate-400 mt-1">
                             Fee: <strong>NPR {doc.consultationFee || 500}</strong>
                           </div>
@@ -1356,7 +1356,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     min={todayStr}
                     value={bookingDate}
                     onChange={(e) => setBookingDate(e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-800 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-800 text-sm focus:ring-2 focus:ring-brand-500 outline-none"
                   />
                 </div>
 
@@ -1373,7 +1373,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
                   {isLoadingSlots ? (
                     <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200">
-                      <RefreshCw className="w-5 h-5 animate-spin mx-auto text-emerald-600 mb-2" />
+                      <RefreshCw className="w-5 h-5 animate-spin mx-auto text-brand-600 mb-2" />
                       <span className="text-xs text-slate-500">Checking slot availability...</span>
                     </div>
                   ) : availableSlots.length === 0 ? (
@@ -1393,12 +1393,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           onClick={() => setSelectedSlot(slot)}
                           className={`p-3 rounded-xl border text-center transition ${
                             selectedSlot?.id === slot.id
-                              ? 'border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-600/20 font-bold'
+                              ? 'border-brand-600 bg-brand-600 text-white shadow-md shadow-brand-600/20 font-bold'
                               : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700 font-semibold'
                           }`}
                         >
                           <div className="text-xs">{slot.startTime} - {slot.endTime}</div>
-                          <div className={`text-[10px] mt-0.5 ${selectedSlot?.id === slot.id ? 'text-emerald-100' : 'text-slate-400'}`}>
+                          <div className={`text-[10px] mt-0.5 ${selectedSlot?.id === slot.id ? 'text-brand-100' : 'text-slate-400'}`}>
                             {slot.maxCapacity - slot.bookedCount} spots left
                           </div>
                         </button>
@@ -1410,7 +1410,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 <button
                   onClick={() => setBookingStep(3)}
                   disabled={!selectedSlot && availableSlots.length > 0}
-                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-600/20 transition flex items-center justify-center space-x-2"
+                  className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2"
                 >
                   <span>Continue to Patient Details</span>
                   <ArrowRight className="w-4 h-4" />
@@ -1455,7 +1455,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         }}
                         className={`flex-1 py-2 rounded-xl text-xs font-bold border transition ${
                           bookFor === 'self'
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-500'
+                            ? 'bg-brand-50 text-brand-800 border-brand-500'
                             : 'bg-white text-slate-600 border-slate-200'
                         }`}
                       >
@@ -1466,7 +1466,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         onClick={() => setBookFor('family')}
                         className={`flex-1 py-2 rounded-xl text-xs font-bold border transition ${
                           bookFor === 'family'
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-500'
+                            ? 'bg-brand-50 text-brand-800 border-brand-500'
                             : 'bg-white text-slate-600 border-slate-200'
                         }`}
                       >
@@ -1509,7 +1509,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     value={bookPatientName}
                     onChange={(e) => setBookPatientName(e.target.value)}
                     placeholder="e.g. Sita Sharma"
-                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
@@ -1524,7 +1524,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       onChange={(e) => setBookPatientPhone(e.target.value.replace(/\D/g, ''))}
                       placeholder="98xxxxxxxx"
                       maxLength={10}
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                     />
                   </div>
                   <div className="space-y-1">
@@ -1537,7 +1537,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       placeholder="e.g. 32"
                       min="1"
                       max="120"
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                     />
                   </div>
                 </div>
@@ -1571,13 +1571,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     value={bookPatientNotes}
                     onChange={(e) => setBookPatientNotes(e.target.value)}
                     placeholder="Brief description of headache, fever, previous checkup..."
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-600/20 transition flex items-center justify-center space-x-2"
+                  className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2"
                 >
                   <span>Proceed to Payment Confirmation</span>
                   <ArrowRight className="w-4 h-4" />
@@ -1626,7 +1626,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </div>
                   <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
                     <span className="text-sm font-bold text-slate-900">Total Consultation Fee</span>
-                    <span className="text-lg font-black text-emerald-700">NPR {calculatedFee}</span>
+                    <span className="text-lg font-black text-brand-700">NPR {calculatedFee}</span>
                   </div>
                 </div>
 
@@ -1637,7 +1637,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </label>
                   <div className="grid grid-cols-2 gap-3">
                     {[
-                      { id: 'esewa', name: 'eSewa Wallet', color: 'bg-emerald-500' },
+                      { id: 'esewa', name: 'eSewa Wallet', color: 'bg-brand-500' },
                       { id: 'khalti', name: 'Khalti Digital', color: 'bg-purple-600' },
                       { id: 'fonepay', name: 'Fonepay QR', color: 'bg-rose-500' },
                       { id: 'cash', name: 'Pay at Clinic', color: 'bg-slate-700' },
@@ -1648,7 +1648,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         onClick={() => setSelectedPaymentMethod(pm.id as any)}
                         className={`p-4 rounded-2xl border text-left transition flex items-center space-x-3 ${
                           selectedPaymentMethod === pm.id
-                            ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20'
+                            ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-500/20'
                             : 'border-slate-200 bg-white hover:border-slate-300'
                         }`}
                       >
@@ -1695,7 +1695,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     type="button"
                     disabled={isPaymentProcessing}
                     onClick={() => handleExecutePayment(false)}
-                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-600/20 transition flex items-center justify-center space-x-2"
+                    className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2"
                   >
                     <ShieldCheck className="w-4 h-4" />
                     <span>
@@ -1721,7 +1721,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             {/* STEP 5: BOOKING CONFIRMED */}
             {bookingStep === 5 && confirmedBooking && (
               <div className="space-y-6 max-w-md mx-auto text-center py-4">
-                <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+                <div className="w-16 h-16 rounded-3xl bg-brand-100 text-brand-600 flex items-center justify-center mx-auto shadow-inner">
                   <CheckCircle2 className="w-10 h-10" />
                 </div>
                 <div>
@@ -1742,16 +1742,16 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     </span>
                     <button
                       onClick={() => handleCopyCode(confirmedBooking.trackingCode10Digit)}
-                      className="p-1.5 text-slate-400 hover:text-emerald-600"
+                      className="p-1.5 text-slate-400 hover:text-brand-600"
                     >
                       {copiedCode === confirmedBooking.trackingCode10Digit ? (
-                        <Check className="w-5 h-5 text-emerald-600" />
+                        <Check className="w-5 h-5 text-brand-600" />
                       ) : (
                         <Copy className="w-5 h-5" />
                       )}
                     </button>
                   </div>
-                  <p className="text-[11px] text-emerald-600 font-semibold">
+                  <p className="text-[11px] text-brand-600 font-semibold">
                     Keep this 10-digit code to track your queue position or check in at the clinic desk.
                   </p>
                 </div>
@@ -1765,7 +1765,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         window.location.hash = '#live-queue'
                       }
                     }}
-                    className="flex-1 py-3 bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-md transition"
+                    className="flex-1 py-3 bg-slate-900 hover:bg-brand-600 text-white font-bold text-xs rounded-xl shadow-md transition"
                   >
                     Open Live Queue Board
                   </button>
@@ -1798,7 +1798,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               </div>
               <button
                 onClick={loadTransactions}
-                className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-xl transition"
+                className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-xl transition"
                 title="Refresh transactions"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -1807,7 +1807,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             {isLoadingTransactions ? (
               <div className="p-8 text-center">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-600 mb-2" />
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-brand-600 mb-2" />
                 <span className="text-xs text-slate-500">Loading transaction history...</span>
               </div>
             ) : transactions.length === 0 ? (
@@ -1849,7 +1849,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           <span
                             className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${
                               tx.paymentStatus === 'paid'
-                                ? 'bg-emerald-100 text-emerald-800'
+                                ? 'bg-brand-100 text-brand-800'
                                 : tx.paymentStatus === 'free'
                                 ? 'bg-blue-100 text-blue-800'
                                 : tx.paymentStatus === 'failed'
@@ -1885,7 +1885,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             {isLoadingReports ? (
               <div className="p-8 text-center">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-600 mb-2" />
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-brand-600 mb-2" />
                 <span className="text-xs text-slate-500">Checking lab records...</span>
               </div>
             ) : patientLabReports.length === 0 ? (
@@ -1907,7 +1907,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       <span
                         className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
                           rep.status === 'delivered' || rep.status === 'prepared'
-                            ? 'bg-emerald-100 text-emerald-800'
+                            ? 'bg-brand-100 text-brand-800'
                             : 'bg-amber-100 text-amber-800'
                         }`}
                       >
@@ -1935,7 +1935,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           href={rep.reportFileUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+                          className="flex items-center space-x-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
                         >
                           <Download className="w-3.5 h-3.5" />
                           <span>Download PDF</span>
@@ -1977,7 +1977,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     key={notif.id}
                     className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 flex items-start space-x-3.5"
                   >
-                    <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <div className="w-9 h-9 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center flex-shrink-0 mt-0.5">
                       <Bell className="w-4 h-4" />
                     </div>
                     <div className="flex-1 space-y-1">
@@ -2010,7 +2010,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               </div>
               <button
                 onClick={() => setShowAddFamilyModal(true)}
-                className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
+                className="flex items-center space-x-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
               >
                 <Users className="w-4 h-4" />
                 <span>+ Add Member</span>
@@ -2030,7 +2030,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 {familyMembers.map((mem) => (
                   <div key={mem.id} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand-100 text-brand-800">
                         {mem.relation}
                       </span>
                       <button
@@ -2085,7 +2085,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               </div>
             )}
             {authSuccess && (
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+              <div className="p-3 rounded-xl bg-brand-50 border border-brand-200 text-brand-700 text-xs font-semibold">
                 {authSuccess}
               </div>
             )}
@@ -2101,7 +2101,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       value={authFullName}
                       onChange={(e) => setAuthFullName(e.target.value)}
                       placeholder="e.g. Ram Bahadur"
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -2112,7 +2112,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         value={authPhone}
                         onChange={(e) => setAuthPhone(e.target.value)}
                         placeholder="98xxxxxxxx"
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                       />
                     </div>
                     <div>
@@ -2122,7 +2122,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         value={authAge}
                         onChange={(e) => setAuthAge(e.target.value)}
                         placeholder="28"
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                       />
                     </div>
                   </div>
@@ -2137,7 +2137,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
                   placeholder="patient@gmail.com"
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -2149,7 +2149,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       <button
                         type="button"
                         onClick={() => setAuthMode('forgot')}
-                        className="text-[11px] font-semibold text-emerald-600 hover:underline"
+                        className="text-[11px] font-semibold text-brand-600 hover:underline"
                       >
                         Forgot password?
                       </button>
@@ -2161,7 +2161,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     value={authPassword}
                     onChange={(e) => setAuthPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               )}
@@ -2169,7 +2169,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               <button
                 type="submit"
                 disabled={authSubmitting}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 transition"
+                className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-md shadow-brand-600/20 transition"
               >
                 {authSubmitting
                   ? 'Connecting...'
@@ -2205,7 +2205,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <button
                       type="button"
                       onClick={() => setAuthMode('signup')}
-                      className="font-bold text-emerald-600 hover:underline"
+                      className="font-bold text-brand-600 hover:underline"
                     >
                       Create account
                     </button>
@@ -2216,7 +2216,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <button
                       type="button"
                       onClick={() => setAuthMode('login')}
-                      className="font-bold text-emerald-600 hover:underline"
+                      className="font-bold text-brand-600 hover:underline"
                     >
                       Sign in
                     </button>
@@ -2254,7 +2254,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   required
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -2264,7 +2264,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   type="tel"
                   value={editPhone}
                   onChange={(e) => setEditPhone(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -2275,7 +2275,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     type="number"
                     value={editAge}
                     onChange={(e) => setEditAge(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -2295,7 +2295,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               <button
                 type="submit"
                 disabled={isUpdatingProfile}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition"
+                className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-md transition"
               >
                 {isUpdatingProfile ? 'Saving...' : 'Save Profile Changes'}
               </button>
@@ -2331,7 +2331,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   value={newFamilyName}
                   onChange={(e) => setNewFamilyName(e.target.value)}
                   placeholder="e.g. Suman Sharma"
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -2377,7 +2377,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition"
+                className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-md transition"
               >
                 Save Family Member
               </button>

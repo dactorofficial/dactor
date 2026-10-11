@@ -102,8 +102,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Header */}
       <div className="text-center max-w-2xl mx-auto space-y-3">
-        <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold uppercase tracking-wider">
-          <Activity className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+        <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-brand-100 text-brand-800 text-xs font-bold uppercase tracking-wider">
+          <Activity className="w-3.5 h-3.5 text-brand-600 animate-pulse" />
           <span>Real-Time Queue Telemetry</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
@@ -129,11 +129,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               maxLength={10}
               className="w-full px-4 py-3 pl-11 text-lg font-black tracking-wider text-slate-900 bg-transparent focus:outline-none placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal"
             />
-            <Search className="w-5 h-5 text-emerald-600 absolute left-3.5 top-3.5" />
+            <Search className="w-5 h-5 text-brand-600 absolute left-3.5 top-3.5" />
           </div>
           <button
             type="submit"
-            className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all shrink-0"
+            className="px-6 py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all shrink-0"
           >
             Track
           </button>
@@ -153,13 +153,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           {/* Top Status Bar with Auto-Refresh */}
           <div className="flex items-center justify-between text-xs text-slate-500">
             <div className="flex items-center space-x-2 font-medium">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+              <span className="w-2.5 h-2.5 rounded-full bg-brand-500 animate-ping inline-block" />
               <span>Live Synced with OPD Desk</span>
             </div>
             <div className="flex items-center space-x-3">
               <button
                 onClick={() => fetchQueueData(activeCode)}
-                className="flex items-center space-x-1 text-emerald-700 hover:underline font-bold"
+                className="flex items-center space-x-1 text-brand-700 hover:underline font-bold"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 <span>Refresh Now</span>
@@ -169,11 +169,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
           {/* Alert Banner if currently IN CONSULTATION */}
           {appointment.checkinStatus === 'in_consultation' && (
-            <div className="p-6 bg-gradient-to-r from-amber-500 to-emerald-600 text-white rounded-3xl shadow-xl flex items-center space-x-4 animate-bounce">
+            <div className="p-6 bg-gradient-to-r from-amber-500 to-brand-600 text-white rounded-3xl shadow-xl flex items-center space-x-4 animate-bounce">
               <BellRing className="w-10 h-10 shrink-0" />
               <div>
                 <h3 className="text-xl font-black">YOUR TURN IS NOW!</h3>
-                <p className="text-xs font-semibold text-emerald-100">
+                <p className="text-xs font-semibold text-brand-100">
                   Doctor is currently seeing you in consultation cabin. Please step inside.
                 </p>
               </div>
@@ -196,7 +196,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     Currently Inside Cabin
                   </span>
                 ) : appointment.checkinStatus === 'completed' ? (
-                  <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
+                  <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-black bg-brand-100 text-brand-800">
                     <CheckCircle2 className="w-4 h-4 mr-1" />
                     Consultation Completed
                   </span>
@@ -214,7 +214,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                 Position in Line
               </span>
-              <div className="text-4xl font-black text-emerald-600">
+              <div className="text-4xl font-black text-brand-600">
                 {appointment.checkinStatus === 'completed'
                   ? '0'
                   : `${patientsAhead} Ahead`}
