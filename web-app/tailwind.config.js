@@ -8,17 +8,25 @@ export default {
     extend: {
       colors: {
         brand: {
-          50: '#ecfdf5',
-          100: '#d1fae5',
-          200: '#a7f3d0',
-          300: '#6ee7b7',
-          400: '#34d399',
-          500: '#10b981', // Aaransh360 Theme Color
-          600: '#059669',
-          700: '#047857',
-          800: '#065f46',
-          900: '#064e3b',
-          950: '#022c22',
+          50: '#ecfeff',
+          100: '#cffafe',
+          200: '#a5f3fc',
+          300: '#67e8f9',
+          400: '#22d3ee',
+          500: '#06b6d4', // Tertiary Cyan Accent
+          600: '#0891b2', // Primary Medical Teal (from Dactor Android App)
+          700: '#0e7490',
+          800: '#155e75',
+          900: '#0c4a6e', // Secondary Deep Medical Navy (from Dactor Android App)
+          950: '#082f49',
+        },
+        dactor: {
+          primary: '#0891b2',
+          navy: '#0c4a6e',
+          cyan: '#06b6d4',
+          bg: '#f8fafc',
+          green: '#059669',
+          greenBg: '#ecfdf5',
         },
       },
       fontFamily: {

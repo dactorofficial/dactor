@@ -49,7 +49,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-20">
-          {/* Brand Logo */}
+          {/* Brand Logo with Real App Icon */}
           <div
             className="flex items-center space-x-3 cursor-pointer group select-none"
             onClick={() => {
@@ -57,20 +57,22 @@ export const Navbar: React.FC<NavbarProps> = ({
               window.scrollTo({ top: 0, behavior: 'smooth' })
             }}
           >
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25 group-hover:scale-105 transition-transform duration-200">
-              <Activity className="w-6 h-6 stroke-[2.5]" />
-            </div>
+            <img
+              src="./app_logo.png"
+              alt="Dactor Logo"
+              className="w-11 h-11 rounded-2xl object-contain shadow-md shadow-cyan-600/20 group-hover:scale-105 transition-transform duration-200 bg-white border border-slate-100 p-0.5"
+            />
             <div>
               <div className="flex items-center space-x-1.5">
-                <span className="text-2xl font-black tracking-tight text-slate-900 group-hover:text-emerald-600 transition-colors">
+                <span className="text-2xl font-black tracking-tight text-slate-900 group-hover:text-brand-600 transition-colors">
                   Dactor
                 </span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 tracking-wide uppercase">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-100 text-brand-800 tracking-wide uppercase">
                   Live
                 </span>
               </div>
               <p className="text-[11px] font-medium text-slate-500 tracking-tight leading-none">
-                Smart Healthcare & Queue System
+                Nepal OPD Queue & Healthcare Ecosystem
               </p>
             </div>
           </div>
@@ -86,11 +88,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => setActiveTab(item.id)}
                   className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold transition-all duration-150 ${
                     isActive
-                      ? 'bg-emerald-50 text-emerald-700 font-bold shadow-xs'
+                      ? 'bg-brand-50 text-brand-700 font-bold shadow-xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-brand-600' : 'text-slate-400'}`} />
                   <span>{item.label}</span>
                 </button>
               )
@@ -102,17 +104,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Quick 10-Digit Code Tracker Button */}
             <button
               onClick={onOpenTrackerModal}
-              className="flex items-center space-x-1.5 px-3.5 py-2 text-sm font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-xl transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
+              className="flex items-center space-x-1.5 px-3.5 py-2 text-sm font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200/80 rounded-xl transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
               title="Track live token queue by 10-digit code"
             >
-              <Sparkles className="w-4 h-4 text-emerald-600 animate-pulse" />
+              <Sparkles className="w-4 h-4 text-brand-600 animate-pulse" />
               <span>Track 10-Digit Code</span>
             </button>
 
             {/* Notification Bell */}
             <button
               onClick={onOpenNotificationModal}
-              className="relative p-2.5 text-slate-600 hover:text-emerald-600 hover:bg-slate-100 rounded-xl transition-colors duration-150"
+              className="relative p-2.5 text-slate-600 hover:text-brand-600 hover:bg-slate-100 rounded-xl transition-colors duration-150 cursor-pointer"
               title="View clinic announcements & notifications"
             >
               <Bell className="w-5 h-5" />
@@ -128,7 +130,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setActiveTab('portal')}
-                  className="flex items-center space-x-2 px-4 py-2 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-600/20 transition-all duration-150 hover:scale-[1.02]"
+                  className="flex items-center space-x-2 px-4 py-2 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-md shadow-brand-600/20 transition-all duration-150 hover:scale-[1.02] cursor-pointer"
                 >
                   <Building2 className="w-4 h-4" />
                   <span>Clinic Desk</span>
@@ -136,7 +138,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {onLogout && (
                   <button
                     onClick={onLogout}
-                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-xs font-semibold"
+                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-xs font-semibold cursor-pointer"
                     title="Log Out"
                   >
                     Logout
@@ -146,7 +148,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             ) : (
               <button
                 onClick={() => setActiveTab('portal')}
-                className="flex items-center space-x-2 px-4 py-2.5 text-sm font-bold text-white bg-slate-900 hover:bg-emerald-600 rounded-xl shadow-md shadow-slate-900/10 hover:shadow-emerald-600/25 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                className="flex items-center space-x-2 px-4 py-2.5 text-sm font-bold text-white bg-slate-900 hover:bg-brand-600 rounded-xl shadow-md shadow-slate-900/10 hover:shadow-brand-600/25 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
               >
                 <LogIn className="w-4 h-4" />
                 <span>Clinic / Doctor Portal</span>
@@ -158,7 +160,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex md:hidden items-center space-x-2">
             <button
               onClick={onOpenTrackerModal}
-              className="p-2 text-emerald-700 bg-emerald-50 rounded-xl text-xs font-bold"
+              className="p-2 text-brand-700 bg-brand-50 rounded-xl text-xs font-bold"
             >
               Track
             </button>
@@ -186,11 +188,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }}
                   className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-semibold transition-colors ${
                     isActive
-                      ? 'bg-emerald-50 text-emerald-700'
+                      ? 'bg-brand-50 text-brand-700'
                       : 'text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  <Icon className="w-5 h-5 text-emerald-600" />
+                  <Icon className="w-5 h-5 text-brand-600" />
                   <span>{item.label}</span>
                 </button>
               )
@@ -202,7 +204,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onOpenReportModal()
                   setMobileMenuOpen(false)
                 }}
-                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-emerald-800 bg-emerald-50 border border-emerald-200"
+                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-brand-800 bg-brand-50 border border-brand-200"
               >
                 <FileText className="w-4 h-4" />
                 <span>Verify & View Lab Report</span>
@@ -213,7 +215,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   setActiveTab('portal')
                   setMobileMenuOpen(false)
                 }}
-                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-slate-900 hover:bg-emerald-600 transition-colors shadow-sm"
+                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-slate-900 hover:bg-brand-600 transition-colors shadow-sm"
               >
                 <Building2 className="w-4 h-4" />
                 <span>Clinic / Doctor Portal</span>

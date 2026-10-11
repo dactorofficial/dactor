@@ -8,6 +8,7 @@ import { LiveQueue } from './pages/LiveQueue'
 import { LabReports } from './pages/LabReports'
 import { AverageTime } from './pages/AverageTime'
 import { ClinicPortal } from './pages/ClinicPortal'
+import { PatientPortal } from './pages/PatientPortal'
 import { LiveTrackerModal } from './components/LiveTrackerModal'
 import { LabReportModal } from './components/LabReportModal'
 import { NotificationModal } from './components/NotificationModal'
@@ -15,6 +16,7 @@ import { NotificationModal } from './components/NotificationModal'
 // Helper to determine initial tab from URL hash or path
 const getTabFromUrl = (): string => {
   const hash = window.location.hash.toLowerCase().replace('#', '').replace('/', '')
+  if (hash === 'patient' || hash === 'patient-portal' || hash === 'my-health') return 'patient-portal'
   if (hash === 'portal' || hash === 'admin-portal' || hash === 'clinic-portal') return 'portal'
   if (hash === 'clinics' || hash === 'doctors') return 'clinics'
   if (hash === 'lab-reports' || hash === 'reports') return 'lab-reports'
@@ -23,6 +25,7 @@ const getTabFromUrl = (): string => {
   if (hash === 'home') return 'home'
 
   const path = window.location.pathname.toLowerCase()
+  if (path.includes('patient') || path.includes('my-health')) return 'patient-portal'
   if (path.includes('admin-portal') || path.includes('/portal')) return 'portal'
   if (path.includes('clinics')) return 'clinics'
   if (path.includes('lab-reports')) return 'lab-reports'
@@ -187,6 +190,14 @@ export const App: React.FC = () => {
         {activeTab === 'lab-reports' && <LabReports />}
 
         {activeTab === 'average-time' && <AverageTime />}
+
+        {activeTab === 'patient-portal' && (
+          <PatientPortal
+            onNavigateHome={() => handleNavigate('home')}
+            onOpenLiveQueue={handleOpenLiveQueue}
+            onOpenReportModal={handleOpenReportModal}
+          />
+        )}
 
         {activeTab === 'portal' && <ClinicPortal />}
       </main>

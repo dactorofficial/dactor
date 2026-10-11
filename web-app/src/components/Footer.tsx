@@ -1,6 +1,5 @@
 import React from 'react'
 import {
-  Activity,
   Phone,
   Mail,
   MapPin,
@@ -22,16 +21,18 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           {/* Brand Info */}
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
-                <Activity className="w-5 h-5 stroke-[2.5]" />
-              </div>
+              <img
+                src="./app_logo.png"
+                alt="Dactor Logo"
+                className="w-10 h-10 rounded-2xl object-contain shadow-md shadow-cyan-600/20 bg-white p-0.5 border border-slate-800"
+              />
               <span className="text-2xl font-black tracking-tight text-white">Dactor</span>
             </div>
             <p className="text-sm text-slate-400 leading-relaxed max-w-sm">
               Empowering healthcare facilities with real-time OPD queue transparency, seamless doctor consultations, and 3-stage diagnostic lab tracking with verified report delivery.
             </p>
             <div className="pt-2 flex items-center space-x-3 text-xs text-slate-400">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 font-medium">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-cyan-950/60 text-cyan-400 border border-cyan-800/60 font-medium">
                 <ShieldCheck className="w-3.5 h-3.5 mr-1" />
                 Verified Clinics & Doctors
               </span>
@@ -48,37 +49,37 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <ul className="space-y-2 text-sm">
               <li>
                 <button
-                  onClick={() => onNavigate('clinics')}
-                  className="hover:text-emerald-400 transition-colors flex items-center space-x-1"
+                  onClick={() => onNavigate('home')}
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Find Clinics & Doctors</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
+                  <span>OPD Schedule & Doctors</span>
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('clinics')}
-                  className="hover:text-emerald-400 transition-colors flex items-center space-x-1"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Book OPD Appointments</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
+                  <span>Find Clinics & OPD</span>
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('lab-reports')}
-                  className="hover:text-emerald-400 transition-colors flex items-center space-x-1"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-emerald-500" />
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Download Lab Reports</span>
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('average-time')}
-                  className="hover:text-emerald-400 transition-colors flex items-center space-x-1"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-emerald-500" />
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Live Wait Time Insights</span>
                 </button>
               </li>
@@ -92,36 +93,36 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               <li>
                 <button
                   onClick={() => onNavigate('portal')}
-                  className="hover:text-emerald-400 transition-colors flex items-center space-x-1"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-emerald-500" />
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Unified Clinic Portal</span>
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('portal')}
-                  className="hover:text-emerald-400 transition-colors flex items-center space-x-1"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-emerald-500" />
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Doctor Consultation Desk</span>
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('portal')}
-                  className="hover:text-emerald-400 transition-colors flex items-center space-x-1"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-emerald-500" />
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Lab Technicians & Rates</span>
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => onNavigate('portal')}
-                  className="hover:text-emerald-400 transition-colors flex items-center space-x-1"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-emerald-500" />
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Reception Walk-In Tokens</span>
                 </button>
               </li>
@@ -133,16 +134,16 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <h4 className="text-xs font-bold uppercase tracking-wider text-white">Contact</h4>
             <div className="space-y-2.5 text-sm text-slate-400">
               <div className="flex items-start space-x-2.5">
-                <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Kathmandu, Nepal & India Regional OPD Hubs</span>
+                <MapPin className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                <span>Kathmandu & All Nepal Medical Hubs</span>
               </div>
               <div className="flex items-center space-x-2.5">
-                <Mail className="w-4 h-4 text-emerald-400 shrink-0" />
+                <Mail className="w-4 h-4 text-cyan-400 shrink-0" />
                 <span>support@dactor.health</span>
               </div>
               <div className="flex items-center space-x-2.5">
-                <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>+977-9800000000 / OPD Desk</span>
+                <Phone className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span>OPD Support Desk / Hotline</span>
               </div>
             </div>
           </div>

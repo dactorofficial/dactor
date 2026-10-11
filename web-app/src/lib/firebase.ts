@@ -151,18 +151,53 @@ export async function firebaseSendPasswordReset(
   }
 }
 
-export async function signInWithFirebaseGoogle(): Promise<{ email: string; displayName?: string; uid?: string } | null> {
-  try {
-    const cached = localStorage.getItem('dactor_google_user')
-    if (cached) {
-      return JSON.parse(cached)
+async function getDactorFirebase(timeoutMs = 6000): Promise<any> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const f = (window as any).dactorFirebase
+    if (f && f.signInWithGoogle) {
+      return f
     }
+    await new Promise((r) => setTimeout(r, 150))
+  }
+  return (window as any).dactorFirebase || null
+}
+
+export async function signInWithFirebaseGoogle(): Promise<{
+  email: string
+  displayName?: string
+  uid?: string
+  photoURL?: string
+}> {
+  const firebaseSdk = await getDactorFirebase(6000)
+  if (!firebaseSdk || typeof firebaseSdk.signInWithGoogle !== 'function') {
+    throw new Error('Google Sign-In service is initializing. Please verify your connection and try again.')
+  }
+
+  const result = await firebaseSdk.signInWithGoogle()
+  if (!result || !result.user) {
+    throw new Error('Google Sign-In did not return valid credentials.')
+  }
+
+  const user = {
+    email: (result.user.email || '').toLowerCase().trim(),
+    displayName: result.user.displayName || result.user.email?.split('@')[0] || 'User',
+    uid: result.user.uid || '',
+    photoURL: result.user.photoURL || undefined,
+  }
+
+  try {
+    localStorage.setItem('dactor_google_user', JSON.stringify(user))
   } catch {}
-  return null
+
+  return user
 }
 
 export function firebaseSignOut(): void {
   try {
+    if ((window as any).dactorFirebase?.signOut) {
+      (window as any).dactorFirebase.signOut().catch(() => {})
+    }
     localStorage.removeItem('dactor_google_user')
     localStorage.removeItem('dactor_patient_session')
     localStorage.removeItem('dactor_auth_logged_in')
