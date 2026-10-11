@@ -20,6 +20,24 @@ export interface Clinic {
   isArchived?: boolean
   deletionScheduledAt?: string
   logoUrl?: string
+  isOnBreak?: boolean
+  breakUpdatedAt?: string
+  weeklyScheduleJson?: string
+  declaredHolidays?: string[]
+  avgConsultationTimeMinutes?: number
+  manualAvgConsultationTimeMinutes?: number
+  calculatedAvgConsultationTimeMinutes?: number
+  avgTimeMode?: string
+}
+
+export interface DayScheduleInfo {
+  day: string
+  isOpen: boolean
+  openTime: string
+  closeTime: string
+  hasBreak: boolean
+  breakStart: string
+  breakEnd: string
 }
 
 export interface Doctor {
@@ -140,4 +158,30 @@ export interface MedicalQualification {
   id: string
   degreeName: string
   fullTitle?: string
+}
+
+export interface BillingInvoice {
+  id: string
+  appointmentId: string
+  clinicId: string
+  totalAmount: number
+  paidAmount: number
+  balanceDue: number
+  paymentStatus: string // paid, partial, unpaid
+  paidAt?: string
+  remarks?: string
+  receiptUrl?: string
+  createdAt?: string
+}
+
+export interface QueueEntry {
+  id: string
+  appointmentId: string
+  clinicId: string
+  doctorId?: string
+  queuePosition: number
+  status: string // waiting, inside, completed, no_show
+  calledAt?: string
+  insideAt?: string
+  completedAt?: string
 }
