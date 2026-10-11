@@ -36,3 +36,4 @@ compare_icons.ps1
 extract_logo.ps1
 ascii_logo.ps1
 deploy_app_icons.ps1
+.deploy_site/
