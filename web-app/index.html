@@ -125,51 +125,49 @@
     </div>
 
     <!-- Firebase Web SDK (project: dactor-ea1e1) -->
-    <script type="module">
-      import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-      import {
-        getAuth,
-        GoogleAuthProvider,
-        signInWithPopup,
-        signOut,
-        onAuthStateChanged
-      } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-
-      const firebaseConfig = {
-        apiKey: "AIzaSyBymdhtyr58U3Ms7csIZ5DUBDJ9CLzZreE",
-        authDomain: "dactor-ea1e1.firebaseapp.com",
-        projectId: "dactor-ea1e1",
-        storageBucket: "dactor-ea1e1.firebasestorage.app",
-        messagingSenderId: "429529188002",
-        appId: "1:429529188002:web:cd7cf4e561779910ab79fb",
-        measurementId: "G-9SK7JVV6XM"
-      };
-
-      try {
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const googleProvider = new GoogleAuthProvider();
-        googleProvider.setCustomParameters({ prompt: 'select_account' });
-
-        window.dactorFirebase = {
-          app,
-          auth,
-          googleProvider,
-          initialized: true,
-          signInWithGoogle: async () => {
-            return await signInWithPopup(auth, googleProvider);
-          },
-          signOut: async () => {
-            return await signOut(auth);
-          },
-          onAuthStateChanged: (cb) => {
-            return onAuthStateChanged(auth, cb);
-          }
+    <!-- Firebase Web SDK (compat mode - preserved intact by Vite build) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script>
+      (function() {
+        var firebaseConfig = {
+          apiKey: "AIzaSyBymdhtyr58U3Ms7csIZ5DUBDJ9CLzZreE",
+          authDomain: "dactor-ea1e1.firebaseapp.com",
+          projectId: "dactor-ea1e1",
+          storageBucket: "dactor-ea1e1.firebasestorage.app",
+          messagingSenderId: "429529188002",
+          appId: "1:429529188002:web:cd7cf4e561779910ab79fb",
+          measurementId: "G-9SK7JVV6XM"
         };
-      } catch (err) {
-        console.warn('Firebase initialization notice:', err);
-        window.dactorFirebase = { initialized: false, error: String(err) };
-      }
+
+        try {
+          if (!window.firebase.apps.length) {
+            window.firebase.initializeApp(firebaseConfig);
+          }
+          var auth = window.firebase.auth();
+          var googleProvider = new window.firebase.auth.GoogleAuthProvider();
+          googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+          window.dactorFirebase = {
+            app: window.firebase.app(),
+            auth: auth,
+            googleProvider: googleProvider,
+            initialized: true,
+            signInWithGoogle: function() {
+              return auth.signInWithPopup(googleProvider);
+            },
+            signOut: function() {
+              return auth.signOut();
+            },
+            onAuthStateChanged: function(cb) {
+              return auth.onAuthStateChanged(cb);
+            }
+          };
+        } catch (err) {
+          console.warn('Firebase initialization notice:', err);
+          window.dactorFirebase = { initialized: false, error: String(err) };
+        }
+      })();
     </script>
 
     <script type="module" src="/src/main.tsx"></script>
