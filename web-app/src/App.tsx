@@ -12,6 +12,8 @@ import { PatientPortal } from './pages/PatientPortal'
 import { LiveTrackerModal } from './components/LiveTrackerModal'
 import { LabReportModal } from './components/LabReportModal'
 import { NotificationModal } from './components/NotificationModal'
+import { getPatientNotifications } from './services/db'
+import { supabase } from './lib/supabase'
 
 // Helper to determine initial tab from URL hash or path
 const getTabFromUrl = (): string => {
@@ -57,13 +59,34 @@ export const App: React.FC = () => {
     }
   })
 
+  // Live unread notification count from Supabase (never hardcoded)
+  const [unreadCount, setUnreadCount] = useState<number>(0)
+
   // Modals
   const [trackerModalOpen, setTrackerModalOpen] = useState(false)
   const [reportModalOpen, setReportModalOpen] = useState(false)
   const [notificationModalOpen, setNotificationModalOpen] = useState(false)
   const [reportModalInitialCode, setReportModalInitialCode] = useState('')
 
-  // Sync with browser URL hash
+  const refreshUnreadNotifications = async () => {
+    try {
+      let trackingCodes: string[] = []
+      let userId: string | undefined = undefined
+      try {
+        trackingCodes = JSON.parse(localStorage.getItem('dactor_patient_tracking_codes') || '[]')
+        const sessionRaw = localStorage.getItem('dactor_patient_session')
+        if (sessionRaw) {
+          const parsed = JSON.parse(sessionRaw)
+          if (parsed?.id) userId = parsed.id
+        }
+      } catch {}
+
+      const list = await getPatientNotifications({ userId, trackingCodes })
+      setUnreadCount(list.filter((n) => !n.isRead).length)
+    } catch {}
+  }
+
+  // Sync with browser URL hash & Supabase realtime notifications
   useEffect(() => {
     const handleHashChange = () => {
       const tab = getTabFromUrl()
@@ -74,8 +97,18 @@ export const App: React.FC = () => {
       try {
         setIsLoggedIn(localStorage.getItem('dactor_auth_logged_in') === 'true')
         setCurrentUserEmail(localStorage.getItem('dactor_auth_email') || null)
+        refreshUnreadNotifications()
       } catch {}
     }
+
+    refreshUnreadNotifications()
+
+    const channel = supabase
+      .channel('app-unread-notifications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+        refreshUnreadNotifications()
+      })
+      .subscribe()
 
     window.addEventListener('hashchange', handleHashChange)
     window.addEventListener('storage', syncAuth)
@@ -83,6 +116,7 @@ export const App: React.FC = () => {
     return () => {
       window.removeEventListener('hashchange', handleHashChange)
       window.removeEventListener('storage', syncAuth)
+      supabase.removeChannel(channel)
     }
   }, [])
 
@@ -136,14 +170,13 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-slate-800 font-sans selection:bg-brand-500 selection:text-white">
-      {/* Navbar with Aaransh360 brand Theme */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={(tab) => handleNavigate(tab)}
         onOpenTrackerModal={() => setTrackerModalOpen(true)}
         onOpenReportModal={() => handleOpenReportModal()}
         onOpenNotificationModal={() => setNotificationModalOpen(true)}
-        unreadNotificationsCount={2}
+        unreadNotificationsCount={unreadCount}
         isLoggedIn={isLoggedIn}
         currentUserEmail={currentUserEmail}
         onLogout={handleLogout}
@@ -189,7 +222,11 @@ export const App: React.FC = () => {
 
         {activeTab === 'lab-reports' && <LabReports />}
 
-        {activeTab === 'average-time' && <AverageTime />}
+        {activeTab === 'average-time' && (
+          <AverageTime
+            onSelectClinic={(clinicId) => handleNavigate('clinic-detail', { clinicId })}
+          />
+        )}
 
         {activeTab === 'patient-portal' && (
           <PatientPortal
@@ -202,7 +239,6 @@ export const App: React.FC = () => {
         {activeTab === 'portal' && <ClinicPortal />}
       </main>
 
-      {/* Modern Aaransh360-Style Footer */}
       <Footer onNavigate={handleNavigate} />
 
       {/* Global Interactive Modals */}
@@ -222,6 +258,7 @@ export const App: React.FC = () => {
         isOpen={notificationModalOpen}
         onClose={() => setNotificationModalOpen(false)}
         clinicId={selectedClinicId || 'global'}
+        onNotificationsChanged={(count) => setUnreadCount(count)}
       />
     </div>
   )

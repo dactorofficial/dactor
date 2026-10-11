@@ -54,7 +54,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
 
     if (filterType === 'all') return true
     if (filterType === 'diagnostic_lab') return c.type === 'diagnostic_lab'
-    if (filterType === 'polyclinic') return c.type === 'polyclinic' || c.type === 'opd_clinic'
+    if (filterType === 'polyclinic') return c.type !== 'diagnostic_lab'
     return true
   })
 
@@ -141,6 +141,21 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredClinics.map((clinic) => {
             const isLab = clinic.type === 'diagnostic_lab'
+            let hoursText = `Avg ~${clinic.avgConsultationTimeMinutes || 10} min / patient`
+            if (clinic.weeklyScheduleJson) {
+              try {
+                const parsed = JSON.parse(clinic.weeklyScheduleJson)
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  const openDays = parsed.filter((d: any) => d.isOpen !== false)
+                  if (openDays.length > 0) {
+                    const first = openDays[0]
+                    hoursText = `${first.openTime || '09:00 AM'} – ${first.closeTime || '05:00 PM'}${
+                      first.breakStart && first.breakEnd ? ` (Break: ${first.breakStart} – ${first.breakEnd})` : ''
+                    }`
+                  }
+                }
+              } catch {}
+            }
 
             return (
               <div
@@ -169,15 +184,22 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                         clinic.name.charAt(0)
                       )}
                     </div>
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                        isLab
-                          ? 'bg-teal-50 text-teal-800 border-teal-200'
-                          : 'bg-brand-50 text-brand-800 border-brand-200'
-                      }`}
-                    >
-                      {isLab ? 'Diagnostic Lab' : 'Polyclinic OPD'}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {clinic.isOnBreak && (
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                          On Break
+                        </span>
+                      )}
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                          isLab
+                            ? 'bg-teal-50 text-teal-800 border-teal-200'
+                            : 'bg-brand-50 text-brand-800 border-brand-200'
+                        }`}
+                      >
+                        {isLab ? 'Diagnostic Lab' : clinic.type === 'single_visit' ? 'Single-Visit OPD' : 'Multi-Visit OPD'}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Title & Address */}
@@ -187,31 +209,33 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
 
                   <div className="flex items-center space-x-1.5 text-xs text-slate-500 mt-1 line-clamp-1">
                     <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span>{clinic.addressText || 'Kathmandu, Central Valley'}</span>
+                    <span>{clinic.addressText || 'Nepal'}</span>
                   </div>
 
                   {/* Operational Hours Strip */}
                   <div className="mt-3.5 p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-600 flex items-center space-x-2">
                     <Clock className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-                    <span>08:00 AM – 07:30 PM (Break: 01:00 PM – 02:00 PM)</span>
+                    <span>{hoursText}</span>
                   </div>
 
                   {/* Specialties Pills */}
-                  <div className="mt-4 flex flex-wrap gap-1.5">
-                    {(clinic.specialties || ['General Physician', 'Pathology']).slice(0, 3).map((s, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold"
-                      >
-                        {s}
-                      </span>
-                    ))}
-                    {(clinic.specialties?.length || 0) > 3 && (
-                      <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500 text-[11px] font-medium">
-                        +{(clinic.specialties?.length || 0) - 3} more
-                      </span>
-                    )}
-                  </div>
+                  {clinic.specialties && clinic.specialties.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-1.5">
+                      {clinic.specialties.slice(0, 3).map((s, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold"
+                        >
+                          {s}
+                        </span>
+                      ))}
+                      {clinic.specialties.length > 3 && (
+                        <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500 text-[11px] font-medium">
+                          +{clinic.specialties.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Bottom CTA Button */}

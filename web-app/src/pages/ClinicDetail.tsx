@@ -1,24 +1,22 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   ArrowLeft,
-  Building2,
   MapPin,
   Phone,
-  Mail,
   Clock,
   Calendar,
   CheckCircle2,
   Stethoscope,
   FlaskConical,
   ShieldCheck,
-  User,
   AlertCircle,
   Sparkles,
   ChevronRight,
-  Info,
-  DollarSign,
+  CreditCard,
+  Download,
+  RefreshCw,
 } from 'lucide-react'
-import { Clinic, Doctor, ClinicService, Slot, Appointment } from '../types'
+import { Clinic, Doctor, ClinicService, Slot, Appointment, PaymentGatewaysConfig } from '../types'
 import {
   getClinicById,
   getDoctorsByClinic,
@@ -26,7 +24,12 @@ import {
   getSlots,
   createAppointment,
   generate10DigitTrackingCode,
+  isSlotTimeExpired,
+  getClinicPaymentConfig,
+  recordPaymentTransaction,
+  getPatientProfileByEmail,
 } from '../services/db'
+import { supabase } from '../lib/supabase'
 
 interface ClinicDetailProps {
   clinicId: string
@@ -43,6 +46,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [services, setServices] = useState<ClinicService[]>([])
   const [slots, setSlots] = useState<Slot[]>([])
+  const [slotsLoading, setSlotsLoading] = useState(false)
+  const [paymentConfig, setPaymentConfig] = useState<PaymentGatewaysConfig | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Active view tab: 'opd' or 'lab'
@@ -53,70 +58,261 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   )
-  const [selectedSlotTime, setSelectedSlotTime] = useState<string>('10:00 AM')
+  const [selectedSlotTime, setSelectedSlotTime] = useState<string>('')
+  const [selectedSlotId, setSelectedSlotId] = useState<string | undefined>(undefined)
 
   // Diagnostic Lab Selection
   const [selectedTests, setSelectedTests] = useState<{ [serviceId: string]: boolean }>({})
 
-  // Booking Form State
+  // Booking Modal & Step ('details' | 'payment')
   const [showBookingModal, setShowBookingModal] = useState(false)
+  const [bookingStep, setBookingStep] = useState<'details' | 'payment'>('details')
   const [patientName, setPatientName] = useState('')
   const [patientAge, setPatientAge] = useState('')
-  const [patientGender, setPatientGender] = useState('Male')
+  const [patientGender, setPatientGender] = useState('')
   const [patientMobile, setPatientMobile] = useState('')
   const [patientEmail, setPatientEmail] = useState('')
+  const [patientUserId, setPatientUserId] = useState<string | undefined>(undefined)
   const [patientNotes, setPatientNotes] = useState('')
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<
+    'esewa' | 'khalti' | 'fonepay' | 'bypass' | 'pay_at_clinic'
+  >('esewa')
+  const [paymentCountdown, setPaymentCountdown] = useState(300)
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({})
   const [submitting, setSubmitting] = useState(false)
 
+  // Saved profile option (only used if patient explicitly clicks "Use Saved Profile")
+  const [savedProfile, setSavedProfile] = useState<{
+    id?: string
+    fullName: string
+    age: number
+    gender: string
+    phone: string
+    email: string
+  } | null>(null)
+
   // Booking Success
   const [confirmedAppt, setConfirmedAppt] = useState<Appointment | null>(null)
+  const [confirmedTxnId, setConfirmedTxnId] = useState<string>('')
+  const [confirmedPayMethod, setConfirmedPayMethod] = useState<string>('')
+
+  // Load clinic, doctors, lab services, and payment config from Supabase
+  const loadClinicData = async () => {
+    try {
+      const [cData, dData, sData, payCfg] = await Promise.all([
+        getClinicById(clinicId),
+        getDoctorsByClinic(clinicId),
+        getClinicServices(clinicId),
+        getClinicPaymentConfig(clinicId),
+      ])
+
+      setClinic(cData)
+      setDoctors(dData)
+      // Strictly use real services from Supabase — NO demo tests
+      setServices(sData)
+      setPaymentConfig(payCfg)
+
+      if (cData?.type === 'diagnostic_lab') {
+        setActiveTab('lab')
+      } else {
+        setActiveTab('opd')
+      }
+
+      if (dData.length > 0 && !selectedDoctor) {
+        setSelectedDoctor(dData[0])
+      }
+    } catch (err) {
+      console.error('Failed to load clinic details:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    async function loadClinicData() {
-      setLoading(true)
+    setLoading(true)
+    loadClinicData()
+
+    // Check if logged-in patient has a verified profile in Supabase (to offer as a 1-tap chip, never auto-filled from Google)
+    try {
+      const sessionRaw = localStorage.getItem('dactor_patient_session')
+      if (sessionRaw) {
+        const parsed = JSON.parse(sessionRaw)
+        if (parsed?.email) {
+          getPatientProfileByEmail(parsed.email).then((prof) => {
+            if (prof && prof.fullName && prof.phone && prof.age && prof.gender) {
+              setSavedProfile({
+                id: prof.id,
+                fullName: prof.fullName,
+                age: Number(prof.age),
+                gender: prof.gender,
+                phone: prof.phone,
+                email: prof.email,
+              })
+            }
+          })
+        }
+      }
+    } catch {}
+
+    const channel = supabase
+      .channel(`clinic-detail-${clinicId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clinics', filter: `id=eq.${clinicId}` }, () => loadClinicData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'doctors' }, () => loadClinicData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clinic_services', filter: `clinic_id=eq.${clinicId}` }, () => loadClinicData())
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [clinicId])
+
+  // Load real slots from Supabase whenever clinicId or selectedDate changes
+  useEffect(() => {
+    let active = true
+    async function fetchSlotsForDate() {
+      setSlotsLoading(true)
       try {
-        const [cData, dData, sData] = await Promise.all([
-          getClinicById(clinicId),
-          getDoctorsByClinic(clinicId),
-          getClinicServices(clinicId),
-        ])
-
-        setClinic(cData)
-        setDoctors(dData)
-        setServices(sData)
-
-        if (cData?.type === 'diagnostic_lab') {
-          setActiveTab('lab')
-        } else {
-          setActiveTab('opd')
-        }
-
-        if (dData.length > 0) {
-          setSelectedDoctor(dData[0])
-        }
-
-        // Provide standard tests if none configured yet
-        if (sData.length === 0 && (cData?.type === 'diagnostic_lab' || cData?.type === 'polyclinic')) {
-          setServices([
-            { id: 't1', clinicId, serviceName: 'Complete Blood Count (CBC)', price: 450, category: 'Hematology', isAvailable: true },
-            { id: 't2', clinicId, serviceName: 'Lipid Profile (Cholesterol, HDL, LDL)', price: 850, category: 'Biochemistry', isAvailable: true },
-            { id: 't3', clinicId, serviceName: 'Thyroid Function Test (TFT - T3, T4, TSH)', price: 950, category: 'Hormones', isAvailable: true },
-            { id: 't4', clinicId, serviceName: 'Fasting Blood Sugar (FBS)', price: 150, category: 'Biochemistry', isAvailable: true },
-            { id: 't5', clinicId, serviceName: 'Liver Function Test (LFT)', price: 800, category: 'Biochemistry', isAvailable: true },
-            { id: 't6', clinicId, serviceName: 'Renal / Kidney Function Test (KFT / RFT)', price: 750, category: 'Biochemistry', isAvailable: true },
-            { id: 't7', clinicId, serviceName: 'Urine Routine & Microscopic Examination', price: 200, category: 'Clinical Pathology', isAvailable: true },
-            { id: 't8', clinicId, serviceName: 'Vitamin D (25-OH) Total', price: 1800, category: 'Immunoassay', isAvailable: true },
-          ])
-        }
+        const dbSlots = await getSlots(clinicId, selectedDate)
+        if (!active) return
+        setSlots(dbSlots)
       } catch (err) {
-        console.error('Failed to load clinic details:', err)
+        console.error('Error loading slots:', err)
       } finally {
-        setLoading(false)
+        if (active) setSlotsLoading(false)
       }
     }
-    loadClinicData()
-  }, [clinicId])
+    fetchSlotsForDate()
+    return () => {
+      active = false
+    }
+  }, [clinicId, selectedDate])
+
+  // 5-minute countdown timer when on payment step
+  useEffect(() => {
+    if (!showBookingModal || bookingStep !== 'payment') return
+    const timer = setInterval(() => {
+      setPaymentCountdown((prev) => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [showBookingModal, bookingStep])
+
+  // Parse clinic weekly schedule JSON from Supabase
+  const parsedSchedule = useMemo(() => {
+    if (!clinic?.weeklyScheduleJson) return []
+    try {
+      const parsed = JSON.parse(clinic.weeklyScheduleJson)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }, [clinic?.weeklyScheduleJson])
+
+  const scheduleSummary = useMemo(() => {
+    if (parsedSchedule.length === 0) {
+      return {
+        workingHours: '09:00 AM – 05:00 PM',
+        workingDaysNote: 'Standard OPD & Diagnostic Hours',
+        breakHours: clinic?.isOnBreak ? 'Currently on Active Break' : '01:00 PM – 02:00 PM',
+        breakNote: clinic?.isOnBreak ? 'Queue temporarily paused by clinic' : 'Scheduled Lunch & Sanitization Break',
+        weekendHours: `Avg ~${clinic?.avgConsultationTimeMinutes || 10} min / patient`,
+        weekendNote:
+          clinic?.declaredHolidays && clinic.declaredHolidays.length > 0
+            ? `Declared Holidays: ${clinic.declaredHolidays.join(', ')}`
+            : 'Real-time Queue & Walk-In Enabled',
+      }
+    }
+
+    const openDays = parsedSchedule.filter((d: any) => d.isOpen !== false)
+    const firstOpen = openDays[0] || parsedSchedule[0]
+    const weekendDay = parsedSchedule.find((d: any) =>
+      String(d.day || '').toLowerCase().startsWith('sun') ||
+      String(d.day || '').toLowerCase().startsWith('sat')
+    )
+
+    return {
+      workingHours: firstOpen
+        ? `${firstOpen.openTime || '09:00 AM'} – ${firstOpen.closeTime || '05:00 PM'}`
+        : '09:00 AM – 05:00 PM',
+      workingDaysNote:
+        openDays.length > 0
+          ? `Open ${openDays.map((d: any) => String(d.day || '').slice(0, 3)).join(', ')}`
+          : 'Configured by Clinic',
+      breakHours:
+        firstOpen?.breakStart && firstOpen?.breakEnd
+          ? `${firstOpen.breakStart} – ${firstOpen.breakEnd}`
+          : clinic?.isOnBreak
+          ? 'Currently on Active Break'
+          : 'No Fixed Break Configured',
+      breakNote: clinic?.isOnBreak
+        ? 'Clinic is currently on break right now'
+        : 'Official Clinic Break Window',
+      weekendHours:
+        weekendDay
+          ? weekendDay.isOpen === false
+            ? `${weekendDay.day}: Closed`
+            : `${weekendDay.day}: ${weekendDay.openTime || '09:00 AM'} – ${weekendDay.closeTime || '02:00 PM'}`
+          : `Avg ~${clinic?.avgConsultationTimeMinutes || 10} min / patient`,
+      weekendNote:
+        clinic?.declaredHolidays && clinic.declaredHolidays.length > 0
+          ? `Upcoming Holidays: ${clinic.declaredHolidays.slice(0, 3).join(', ')}`
+          : `Avg Consultation: ~${clinic?.avgConsultationTimeMinutes || 10} mins`,
+    }
+  }, [parsedSchedule, clinic])
+
+  const isSelectedDateHoliday = useMemo(() => {
+    return Boolean(clinic?.declaredHolidays && clinic.declaredHolidays.includes(selectedDate))
+  }, [clinic?.declaredHolidays, selectedDate])
+
+  // Build available time slots (strictly using Supabase slots if configured, or schedule-derived slots filtered by isSlotTimeExpired)
+  const displaySlots = useMemo(() => {
+    if (isSelectedDateHoliday) return []
+
+    const filteredDbSlots = slots.filter(
+      (s) => !selectedDoctor || !s.doctorId || s.doctorId === selectedDoctor.id
+    )
+
+    if (filteredDbSlots.length > 0) {
+      return filteredDbSlots.map((s) => {
+        const label = s.endTime ? `${s.startTime.slice(0, 5)} - ${s.endTime.slice(0, 5)}` : s.startTime
+        const expired = isSlotTimeExpired(selectedDate, s.endTime || s.startTime)
+        const full = (s.bookedCount || 0) >= (s.maxCapacity || 10)
+        return {
+          id: s.id,
+          timeLabel: label,
+          rawStart: s.startTime,
+          remaining: Math.max(0, (s.maxCapacity || 10) - (s.bookedCount || 0)),
+          disabled: expired || full || s.isAvailable === false,
+          reason: expired ? 'Expired' : full ? 'Full' : '',
+        }
+      })
+    }
+
+    // Derive from clinic's day schedule and filter out expired times via isSlotTimeExpired
+    const candidateTimes = ['09:30 AM', '10:30 AM', '11:30 AM', '12:30 PM', '02:00 PM', '03:30 PM', '04:30 PM', '05:30 PM']
+    return candidateTimes.map((t) => {
+      const expired = isSlotTimeExpired(selectedDate, t)
+      return {
+        id: undefined,
+        timeLabel: t,
+        rawStart: t,
+        remaining: 10,
+        disabled: expired,
+        reason: expired ? 'Passed' : '',
+      }
+    })
+  }, [slots, selectedDoctor, selectedDate, isSelectedDateHoliday])
+
+  // Auto-select first available non-disabled slot
+  useEffect(() => {
+    const firstAvailable = displaySlots.find((s) => !s.disabled)
+    if (firstAvailable) {
+      setSelectedSlotTime(firstAvailable.timeLabel)
+      setSelectedSlotId(firstAvailable.id)
+    } else {
+      setSelectedSlotTime('')
+      setSelectedSlotId(undefined)
+    }
+  }, [displaySlots])
 
   // Toggle selected test
   const toggleTest = (id: string) => {
@@ -129,58 +325,136 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   // Calculate total lab tests fee
   const selectedTestList = services.filter((s) => selectedTests[s.id])
   const calculatedLabFee = selectedTestList.reduce((acc, curr) => acc + curr.price, 0)
+  const totalBookingFee = activeTab === 'lab' ? calculatedLabFee : (selectedDoctor?.consultationFee || 500)
 
-  // Validation
-  const validateForm = () => {
+  // Live criteria validation helpers
+  const isNameValid = (val: string) => val.trim().length >= 2
+  const isAgeValid = (val: string) => {
+    const n = Number(val)
+    return val.trim() !== '' && Number.isInteger(n) && n >= 1 && n <= 120
+  }
+  const isGenderValid = (val: string) => ['Male', 'Female', 'Other'].includes(val)
+  const isMobileValid = (val: string) => /^9\d{9}$/.test(val.replace(/\D/g, ''))
+
+  // Validate form and scroll/focus first missing/invalid field
+  const validateDetailsForm = () => {
     const errors: { [key: string]: string } = {}
+    let firstInvalidId: string | null = null
 
-    if (!patientName.trim()) {
-      errors.name = 'Patient full name is strictly required.'
+    if (!isNameValid(patientName)) {
+      errors.name = 'Full name is required (minimum 2 characters).'
+      if (!firstInvalidId) firstInvalidId = 'field-patient-name'
     }
-    if (!patientMobile.trim() || patientMobile.replace(/\D/g, '').length < 8) {
-      errors.mobile = 'Valid contact mobile number is required.'
+    if (!isAgeValid(patientAge)) {
+      errors.age = 'Enter a valid whole number age between 1 and 120.'
+      if (!firstInvalidId) firstInvalidId = 'field-patient-age'
     }
-    if (!patientAge || isNaN(Number(patientAge)) || Number(patientAge) <= 0 || Number(patientAge) > 120) {
-      errors.age = 'Please enter a valid age between 1 and 120.'
+    if (!isGenderValid(patientGender)) {
+      errors.gender = 'Please select gender.'
+      if (!firstInvalidId) firstInvalidId = 'field-patient-gender'
+    }
+    if (!isMobileValid(patientMobile)) {
+      errors.mobile = 'Enter a valid 10-digit mobile number starting with 9 (e.g. 98XXXXXXXX).'
+      if (!firstInvalidId) firstInvalidId = 'field-patient-mobile'
     }
 
     setFormErrors(errors)
-    return Object.keys(errors).length === 0
+
+    if (firstInvalidId) {
+      const el = document.getElementById(firstInvalidId)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        ;(el as HTMLElement).focus?.()
+      }
+      return false
+    }
+    return true
   }
 
-  // Handle final appointment submission
-  const handleConfirmBooking = async (e: React.FormEvent) => {
+  const handleProceedToPaymentStep = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!validateForm()) return
+    if (!validateDetailsForm()) return
+    setPaymentCountdown(300)
+    setBookingStep('payment')
+  }
+
+  // Handle final appointment + payment submission to Supabase
+  const handleConfirmBookingAndPayment = async () => {
+    if (!validateDetailsForm()) {
+      setBookingStep('details')
+      return
+    }
 
     setSubmitting(true)
     try {
       const code10 = generate10DigitTrackingCode()
-      const totalFee = activeTab === 'lab' ? calculatedLabFee : (selectedDoctor?.consultationFee || 500)
       const testsSelectedNames = activeTab === 'lab' ? selectedTestList.map((t) => t.serviceName) : []
+      const cleanMobile = patientMobile.replace(/\D/g, '')
+      const isPaidNow = selectedPaymentMethod !== 'pay_at_clinic'
+      const payStatus = isPaidNow ? 'paid' : 'unpaid'
 
       const created = await createAppointment({
         clinicId,
         doctorId: activeTab === 'opd' ? selectedDoctor?.id : undefined,
+        userId: patientUserId,
+        slotId: selectedSlotId,
         trackingCode10Digit: code10,
         patientName: patientName.trim(),
         patientAge: Number(patientAge),
         patientGender,
-        patientMobile: patientMobile.trim(),
+        patientMobile: cleanMobile,
         patientEmail: patientEmail.trim() || undefined,
         appointmentDate: selectedDate,
-        appointmentTime: selectedSlotTime,
+        appointmentTime: selectedSlotTime || '10:00 AM',
         checkinStatus: 'waiting',
-        paymentStatus: 'unpaid',
-        feeAmount: totalFee,
+        paymentStatus: payStatus,
+        feeAmount: totalBookingFee,
         selectedTests: testsSelectedNames,
         notes: patientNotes.trim() || undefined,
       })
 
       if (created) {
-        setConfirmedAppt(created)
+        const txnId = `TXN-${code10}-${Date.now().toString().slice(-4)}`
+        const methodLabel =
+          selectedPaymentMethod === 'esewa'
+            ? 'eSewa Mobile Wallet'
+            : selectedPaymentMethod === 'khalti'
+            ? 'Khalti Digital Wallet'
+            : selectedPaymentMethod === 'fonepay'
+            ? 'Fonepay QR'
+            : selectedPaymentMethod === 'bypass'
+            ? 'Bypass Test Gateway'
+            : 'Pay at Clinic Counter'
+
+        await recordPaymentTransaction({
+          appointmentId: created.id,
+          trackingCode: code10,
+          clinicId,
+          doctorId: selectedDoctor?.id,
+          patientName: patientName.trim(),
+          appointmentDate: selectedDate,
+          appointmentTime: selectedSlotTime || '10:00 AM',
+          amount: totalBookingFee,
+          paymentMethod: methodLabel,
+          paymentStatus: payStatus,
+          transactionId: txnId,
+          notes: testsSelectedNames.length > 0 ? `Lab Tests: ${testsSelectedNames.join(', ')}` : 'OPD Consultation',
+        })
+
+        // Save 10-digit code to localStorage so Patient Portal & Notifications track it automatically
+        try {
+          const existingCodes = JSON.parse(localStorage.getItem('dactor_patient_tracking_codes') || '[]')
+          if (!existingCodes.includes(code10)) {
+            localStorage.setItem('dactor_patient_tracking_codes', JSON.stringify([code10, ...existingCodes]))
+          }
+        } catch {}
+
+        setConfirmedTxnId(txnId)
+        setConfirmedPayMethod(methodLabel)
+        setConfirmedAppt({ ...created, paymentStatus: payStatus })
+        setShowBookingModal(false)
       } else {
-        alert('Could not book appointment. Please check connection.')
+        alert('Could not create appointment in Supabase. Please check your internet connection.')
       }
     } catch (err) {
       console.error('Error creating booking:', err)
@@ -190,11 +464,69 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     }
   }
 
+  const handleDownloadInvoice = () => {
+    if (!confirmedAppt || !clinic) return
+    const win = window.open('', '_blank', 'width=800,height=700')
+    if (!win) return
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Dactor Invoice - ${confirmedAppt.trackingCode10Digit}</title>
+          <style>
+            body { font-family: 'Plus Jakarta Sans', Arial, sans-serif; padding: 36px; color: #0f172a; }
+            .box { max-width: 680px; margin: 0 auto; border: 2px solid #0284c7; border-radius: 16px; padding: 28px; }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 20px; }
+            .badge { background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 999px; font-weight: 800; font-size: 12px; }
+            .code { font-family: monospace; font-size: 28px; font-weight: 900; letter-spacing: 3px; color: #0284c7; margin: 12px 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+            th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+            th { color: #64748b; text-transform: uppercase; font-size: 11px; }
+            .total { font-size: 18px; font-weight: 900; color: #0f172a; }
+          </style>
+        </head>
+        <body>
+          <div class="box">
+            <div class="header">
+              <div>
+                <h2 style="margin:0;font-size:22px;">${clinic.name}</h2>
+                <p style="margin:4px 0 0;font-size:12px;color:#64748b;">${clinic.addressText || 'Nepal'} • ${clinic.contactPhone || ''}</p>
+              </div>
+              <span class="badge">${confirmedAppt.paymentStatus === 'paid' ? 'PAID RECEIPT' : 'PAY AT CLINIC'}</span>
+            </div>
+            <div>
+              <div style="font-size:11px;text-transform:uppercase;color:#64748b;font-weight:700;">10-Digit Universal Queue & Report Tracking Code</div>
+              <div class="code">${confirmedAppt.trackingCode10Digit}</div>
+            </div>
+            <table>
+              <tr><th>Patient Name</th><td><strong>${confirmedAppt.patientName}</strong> (${confirmedAppt.patientAge} yrs, ${confirmedAppt.patientGender})</td></tr>
+              <tr><th>Contact Mobile</th><td>${confirmedAppt.patientMobile}</td></tr>
+              <tr><th>Queue Token Number</th><td><strong>Token #${confirmedAppt.queueNumber || 1}</strong></td></tr>
+              <tr><th>Date & Slot</th><td>${confirmedAppt.appointmentDate} • ${confirmedAppt.appointmentTime}</td></tr>
+              <tr><th>Service / Doctor</th><td>${
+                confirmedAppt.selectedTests && confirmedAppt.selectedTests.length > 0
+                  ? `Diagnostic Lab: ${confirmedAppt.selectedTests.join(', ')}`
+                  : selectedDoctor?.fullName || 'OPD Doctor Consultation'
+              }</td></tr>
+              <tr><th>Payment Method & Txn ID</th><td>${confirmedPayMethod || 'Direct'} (${confirmedTxnId || 'N/A'})</td></tr>
+              <tr><th>Total Amount</th><td class="total">Rs. ${confirmedAppt.feeAmount}</td></tr>
+            </table>
+            <p style="margin-top:24px;font-size:11px;color:#64748b;text-align:center;">
+              Generated by Dactor Healthcare Platform • Present this 10-digit code at reception or track your live queue online.
+            </p>
+          </div>
+          <script>window.onload = function() { window.print(); }</script>
+        </body>
+      </html>
+    `)
+    win.document.close()
+  }
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
         <div className="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-slate-600 font-bold">Loading clinic profile...</p>
+        <p className="text-slate-600 font-bold">Loading live clinic profile from Supabase...</p>
       </div>
     )
   }
@@ -225,13 +557,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
-              Booking Confirmed
+              Booking & Queue Token Confirmed
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">
-              Appointment Token Generated!
+              Token #{confirmedAppt.queueNumber || 1} Generated!
             </h2>
             <p className="text-sm text-slate-500 mt-1">
-              Your appointment is registered with {clinic.name}.
+              Your appointment is registered in live queue at {clinic.name}.
             </p>
           </div>
 
@@ -244,14 +576,16 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               {confirmedAppt.trackingCode10Digit}
             </div>
             <p className="text-xs text-slate-600 font-medium pt-1">
-              Use this code to check your live queue position or unlock lab reports.
+              Use this code to check your live queue position or unlock name-verified lab reports.
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl text-left text-xs">
             <div>
               <span className="text-slate-400 font-medium">Patient</span>
-              <p className="font-bold text-slate-800 text-sm">{confirmedAppt.patientName}</p>
+              <p className="font-bold text-slate-800 text-sm">
+                {confirmedAppt.patientName} ({confirmedAppt.patientAge}y, {confirmedAppt.patientGender})
+              </p>
             </div>
             <div>
               <span className="text-slate-400 font-medium">Date & Time</span>
@@ -260,13 +594,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               </p>
             </div>
             <div>
-              <span className="text-slate-400 font-medium">Department / Type</span>
-              <p className="font-bold text-slate-800 text-sm">
-                {activeTab === 'lab' ? 'Diagnostic Pathology Lab' : 'OPD Doctor Consultation'}
+              <span className="text-slate-400 font-medium">Payment Status</span>
+              <p className="font-bold text-emerald-700 text-sm uppercase">
+                {confirmedAppt.paymentStatus} ({confirmedPayMethod})
               </p>
             </div>
             <div>
-              <span className="text-slate-400 font-medium">Total Fee Payable</span>
+              <span className="text-slate-400 font-medium">Total Fee</span>
               <p className="font-bold text-brand-700 text-sm">Rs. {confirmedAppt.feeAmount}</p>
             </div>
           </div>
@@ -274,14 +608,21 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               onClick={() => onOpenLiveQueue(confirmedAppt.trackingCode10Digit)}
-              className="flex-1 py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2"
+              className="flex-1 py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 cursor-pointer"
             >
               <Sparkles className="w-4 h-4" />
               <span>Track Live Queue Now</span>
             </button>
             <button
+              onClick={handleDownloadInvoice}
+              className="py-3.5 px-5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold rounded-2xl transition-colors text-xs flex items-center justify-center space-x-1.5 cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download Invoice</span>
+            </button>
+            <button
               onClick={onBack}
-              className="py-3.5 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition-colors text-sm"
+              className="py-3.5 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition-colors text-sm cursor-pointer"
             >
               Done
             </button>
@@ -296,14 +637,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       {/* Back Button */}
       <button
         onClick={onBack}
-        className="inline-flex items-center space-x-2 text-xs font-bold text-slate-600 hover:text-brand-700 transition-colors py-1"
+        className="inline-flex items-center space-x-2 text-xs font-bold text-slate-600 hover:text-brand-700 transition-colors py-1 cursor-pointer"
       >
         <ArrowLeft className="w-4 h-4" />
         <span>Back to Clinics Directory</span>
       </button>
 
       {/* ========================================================= */}
-      {/* CLINIC HERO BANNER & WORKING/BREAK HOURS (No Empty Space!) */}
+      {/* CLINIC HERO BANNER & WORKING/BREAK HOURS (Real Supabase)  */}
       {/* ========================================================= */}
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-sm space-y-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100">
@@ -329,12 +670,17 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   <ShieldCheck className="w-3.5 h-3.5 mr-1 text-brand-600" />
                   Verified Clinic
                 </span>
+                {clinic.isOnBreak && (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                    Currently on Break
+                  </span>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 font-medium">
                 <span className="flex items-center space-x-1">
                   <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{clinic.addressText || 'Kathmandu, Nepal'}</span>
+                  <span>{clinic.addressText || 'Nepal'}</span>
                 </span>
                 {clinic.contactPhone && (
                   <span className="flex items-center space-x-1">
@@ -343,25 +689,30 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   </span>
                 )}
               </div>
+              {clinic.description && (
+                <p className="text-xs text-slate-600 max-w-2xl pt-1">{clinic.description}</p>
+              )}
             </div>
           </div>
 
           {/* Quick Action Pills */}
           <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setActiveTab('opd')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 ${
-                activeTab === 'opd'
-                  ? 'bg-brand-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              <Stethoscope className="w-4 h-4" />
-              <span>OPD Doctor Desk</span>
-            </button>
+            {clinic.type !== 'diagnostic_lab' && (
+              <button
+                onClick={() => setActiveTab('opd')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
+                  activeTab === 'opd'
+                    ? 'bg-brand-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Stethoscope className="w-4 h-4" />
+                <span>OPD Doctor Desk ({doctors.length})</span>
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('lab')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
                 activeTab === 'lab'
                   ? 'bg-teal-600 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -374,7 +725,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         </div>
 
         {/* ========================================================= */}
-        {/* WORKING HOURS & BREAK HOURS STRIP (Replaces Empty Space!) */}
+        {/* WORKING HOURS & BREAK HOURS STRIP (From Clinic Schedule)  */}
         {/* ========================================================= */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Working Hours */}
@@ -384,12 +735,12 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             </div>
             <div>
               <span className="text-[11px] font-bold text-brand-800 uppercase tracking-wider block">
-                Daily Working Hours
+                Working Hours
               </span>
               <p className="text-sm font-black text-slate-900 mt-0.5">
-                08:00 AM – 07:30 PM
+                {scheduleSummary.workingHours}
               </p>
-              <p className="text-[11px] text-slate-500 font-medium">Monday to Saturday (Full OPD & Lab)</p>
+              <p className="text-[11px] text-slate-500 font-medium">{scheduleSummary.workingDaysNote}</p>
             </div>
           </div>
 
@@ -400,35 +751,35 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             </div>
             <div>
               <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider block">
-                Official Break Hours
+                Break Hours & Status
               </span>
               <p className="text-sm font-black text-slate-900 mt-0.5">
-                01:00 PM – 02:00 PM
+                {scheduleSummary.breakHours}
               </p>
-              <p className="text-[11px] text-slate-500 font-medium">Lunch & Doctor Sanitization Break</p>
+              <p className="text-[11px] text-slate-500 font-medium">{scheduleSummary.breakNote}</p>
             </div>
           </div>
 
-          {/* Sunday & Emergency Hours */}
+          {/* Average Consultation Time & Holidays */}
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-start space-x-3.5">
             <div className="p-2 bg-slate-200 text-slate-700 rounded-xl shrink-0 mt-0.5">
               <Calendar className="w-5 h-5" />
             </div>
             <div>
               <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
-                Sunday & Evening Schedule
+                Weekend & Queue Pace
               </span>
               <p className="text-sm font-black text-slate-900 mt-0.5">
-                09:00 AM – 02:00 PM
+                {scheduleSummary.weekendHours}
               </p>
-              <p className="text-[11px] text-slate-500 font-medium">Sunday OPD Half-Day & Walk-Ins</p>
+              <p className="text-[11px] text-slate-500 font-medium">{scheduleSummary.weekendNote}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* ========================================================= */}
-      {/* MAIN CONTENT: OPD CONSULTATION VS DIAGNOSTIC LAB TESTS */}
+      {/* MAIN CONTENT: OPD CONSULTATION VS DIAGNOSTIC LAB TESTS    */}
       {/* ========================================================= */}
       {activeTab === 'opd' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -442,9 +793,12 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             </div>
 
             {doctors.length === 0 ? (
-              <div className="p-8 bg-white rounded-3xl border border-slate-200 text-center text-slate-500">
+              <div className="p-8 bg-white rounded-3xl border border-slate-200 text-center text-slate-500 space-y-2">
                 <Stethoscope className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                <p className="font-bold">No registered doctors currently available.</p>
+                <p className="font-bold text-slate-800">No doctors registered under this clinic yet.</p>
+                <p className="text-xs text-slate-500">
+                  Once the clinic registers or links doctors in the Doctor/Clinic Portal, they appear here in real time.
+                </p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -477,15 +831,26 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         <div>
                           <div className="flex items-center space-x-2">
                             <h3 className="text-base font-black text-slate-900">{doc.fullName}</h3>
-                            {doc.isInClinic && (
-                              <span className="w-2.5 h-2.5 rounded-full bg-brand-500 animate-pulse" title="In Clinic Now" />
+                            {doc.isInClinic ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-ping" />
+                                In Clinic Now
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
+                                Away
+                              </span>
                             )}
                           </div>
                           <p className="text-xs font-bold text-brand-700">
                             {doc.specialty || 'Consultant Physician'}
                           </p>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            {doc.education || 'MBBS, MD'} • {doc.startingPracticingYear ? `Practicing since ${doc.startingPracticingYear}` : `${doc.experienceYears || 5}+ Years Exp`}
+                            {doc.education || 'MBBS'} •{' '}
+                            {doc.startingPracticingYear
+                              ? `Practicing since ${doc.startingPracticingYear}`
+                              : `${doc.experienceYears || 1}+ Years Exp`}
+                            {doc.nmcLicenseNumber ? ` • NMC: ${doc.nmcLicenseNumber}` : ''}
                           </p>
                         </div>
                       </div>
@@ -527,21 +892,29 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     const d = new Date()
                     d.setDate(d.getDate() + offset)
                     const iso = d.toISOString().split('T')[0]
-                    const label = offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : d.toLocaleDateString([], { weekday: 'short' })
+                    const label =
+                      offset === 0
+                        ? 'Today'
+                        : offset === 1
+                        ? 'Tomorrow'
+                        : d.toLocaleDateString([], { weekday: 'short' })
                     const isSelected = selectedDate === iso
 
                     return (
                       <button
                         key={iso}
+                        type="button"
                         onClick={() => setSelectedDate(iso)}
-                        className={`p-2.5 rounded-xl border font-bold transition-all ${
+                        className={`p-2.5 rounded-xl border font-bold transition-all cursor-pointer ${
                           isSelected
                             ? 'bg-brand-600 text-white border-brand-600 shadow-xs'
                             : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                         }`}
                       >
                         <span className="block text-[10px] opacity-80 uppercase">{label}</span>
-                        <span className="text-xs font-black">{d.getDate()} {d.toLocaleDateString([], { month: 'short' })}</span>
+                        <span className="text-xs font-black">
+                          {d.getDate()} {d.toLocaleDateString([], { month: 'short' })}
+                        </span>
                       </button>
                     )
                   })}
@@ -550,43 +923,83 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
               {/* Slot Time Picker */}
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 block">Select Time Slot</label>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {['09:30 AM', '10:30 AM', '11:30 AM', '02:30 PM', '04:00 PM', '05:30 PM'].map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setSelectedSlotTime(t)}
-                      className={`p-2.5 rounded-xl border font-bold transition-all ${
-                        selectedSlotTime === t
-                          ? 'bg-brand-600 text-white border-brand-600 shadow-xs'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 block">Select Time Slot</label>
+                  {slotsLoading && <RefreshCw className="w-3.5 h-3.5 text-brand-600 animate-spin" />}
                 </div>
+
+                {isSelectedDateHoliday ? (
+                  <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700">
+                    This clinic has declared {selectedDate} as an official holiday. Please pick another date.
+                  </div>
+                ) : displaySlots.length === 0 ? (
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
+                    No slots available for this date.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {displaySlots.map((slotItem) => {
+                      const isSelected = selectedSlotTime === slotItem.timeLabel && !slotItem.disabled
+                      return (
+                        <button
+                          key={slotItem.timeLabel}
+                          type="button"
+                          disabled={slotItem.disabled}
+                          onClick={() => {
+                            setSelectedSlotTime(slotItem.timeLabel)
+                            setSelectedSlotId(slotItem.id)
+                          }}
+                          className={`p-2.5 rounded-xl border font-bold transition-all text-center ${
+                            slotItem.disabled
+                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed line-through'
+                              : isSelected
+                              ? 'bg-brand-600 text-white border-brand-600 shadow-xs cursor-pointer'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 cursor-pointer'
+                          }`}
+                        >
+                          <span className="block">{slotItem.timeLabel}</span>
+                          {slotItem.reason && (
+                            <span className="text-[9px] uppercase font-semibold opacity-75">
+                              {slotItem.reason}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Summary */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-xs space-y-1.5">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Specialist:</span>
-                  <span className="font-bold text-slate-900">{selectedDoctor?.fullName || 'Assigned Doctor'}</span>
+                  <span className="font-bold text-slate-900">
+                    {selectedDoctor?.fullName || 'Clinic OPD Doctor'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Slot:</span>
-                  <span className="font-bold text-slate-900">{selectedDate} at {selectedSlotTime}</span>
+                  <span className="font-bold text-slate-900">
+                    {selectedDate} {selectedSlotTime ? `at ${selectedSlotTime}` : ''}
+                  </span>
                 </div>
                 <div className="flex justify-between pt-1 border-t border-slate-200 font-bold">
                   <span className="text-slate-700">Total Fee:</span>
-                  <span className="text-brand-700 text-sm">Rs. {selectedDoctor?.consultationFee || 500}</span>
+                  <span className="text-brand-700 text-sm">
+                    Rs. {selectedDoctor?.consultationFee || 500}
+                  </span>
                 </div>
               </div>
 
               <button
-                onClick={() => setShowBookingModal(true)}
-                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2"
+                type="button"
+                disabled={!selectedSlotTime || isSelectedDateHoliday}
+                onClick={() => {
+                  setBookingStep('details')
+                  setShowBookingModal(true)
+                }}
+                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 text-white font-black rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 cursor-pointer"
               >
                 <span>Proceed to Patient Details</span>
                 <ChevronRight className="w-4 h-4" />
@@ -596,7 +1009,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         </div>
       ) : (
         /* ========================================================= */
-        /* TAB B: DIAGNOSTIC LAB TESTS SELECTION (Live Calculated Fee) */
+        /* TAB B: DIAGNOSTIC LAB TESTS SELECTION (Strictly Supabase) */
         /* ========================================================= */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
@@ -604,7 +1017,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               <div>
                 <h2 className="text-xl font-black text-slate-900">Select Diagnostic Tests</h2>
                 <p className="text-xs text-slate-500 font-medium">
-                  Check individual tests to assemble your test profile. Prices are set directly by the clinic.
+                  Check individual tests to assemble your test profile. All prices are synced live from Supabase.
                 </p>
               </div>
               <span className="text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1 rounded-full">
@@ -612,48 +1025,59 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               </span>
             </div>
 
-            {/* Test List with Checkboxes */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {services.map((srv) => {
-                const isChecked = !!selectedTests[srv.id]
+            {services.length === 0 ? (
+              <div className="p-10 bg-white rounded-3xl border border-slate-200 text-center space-y-2">
+                <FlaskConical className="w-10 h-10 text-slate-300 mx-auto" />
+                <h3 className="text-sm font-bold text-slate-800">
+                  No diagnostic tests published by this clinic yet
+                </h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  When this clinic adds pathology or diagnostic test rates in the Clinic Portal, they will appear here automatically.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {services.map((srv) => {
+                  const isChecked = !!selectedTests[srv.id]
 
-                return (
-                  <div
-                    key={srv.id}
-                    onClick={() => toggleTest(srv.id)}
-                    className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
-                      isChecked
-                        ? 'bg-teal-50/60 border-teal-400 ring-2 ring-teal-400/30 shadow-xs'
-                        : 'bg-white border-slate-200/80 hover:border-teal-300'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div
-                        className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
-                          isChecked
-                            ? 'bg-teal-600 border-teal-600 text-white'
-                            : 'border-slate-300 bg-white'
-                        }`}
-                      >
-                        {isChecked && <CheckCircle2 className="w-3.5 h-3.5" />}
+                  return (
+                    <div
+                      key={srv.id}
+                      onClick={() => toggleTest(srv.id)}
+                      className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                        isChecked
+                          ? 'bg-teal-50/60 border-teal-400 ring-2 ring-teal-400/30 shadow-xs'
+                          : 'bg-white border-slate-200/80 hover:border-teal-300'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div
+                          className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
+                            isChecked
+                              ? 'bg-teal-600 border-teal-600 text-white'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        >
+                          {isChecked && <CheckCircle2 className="w-3.5 h-3.5" />}
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black text-slate-900 leading-tight">
+                            {srv.serviceName}
+                          </h4>
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            {srv.category || 'Diagnostic'}
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="text-xs font-black text-slate-900 leading-tight">
-                          {srv.serviceName}
-                        </h4>
-                        <span className="text-[10px] text-slate-400 font-medium">
-                          {srv.category || 'Diagnostic'}
-                        </span>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-xs font-black text-teal-700">Rs. {srv.price}</span>
                       </div>
                     </div>
-
-                    <div className="text-right shrink-0">
-                      <span className="text-xs font-black text-teal-700">Rs. {srv.price}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Right Column: Lab Checkout Summary */}
@@ -664,7 +1088,9 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               {/* Selected Tests List */}
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {selectedTestList.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No tests selected yet. Please select at least one test from the left.</p>
+                  <p className="text-xs text-slate-400 italic">
+                    No tests selected yet. Please select at least one test from the left.
+                  </p>
                 ) : (
                   selectedTestList.map((t) => (
                     <div key={t.id} className="flex justify-between text-xs py-1 border-b border-slate-100">
@@ -693,10 +1119,6 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   <span>Selected Tests ({selectedTestList.length}):</span>
                   <span>Rs. {calculatedLabFee}</span>
                 </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Sample Collection Fee:</span>
-                  <span className="text-brand-700 font-bold">FREE</span>
-                </div>
                 <div className="flex justify-between pt-2 border-t border-teal-200/80 font-black text-sm text-teal-900">
                   <span>Total Payable:</span>
                   <span>Rs. {calculatedLabFee}</span>
@@ -704,9 +1126,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               </div>
 
               <button
-                disabled={selectedTestList.length === 0}
-                onClick={() => setShowBookingModal(true)}
-                className="w-full py-3.5 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-black rounded-2xl shadow-md shadow-teal-600/20 transition-all flex items-center justify-center space-x-2"
+                type="button"
+                disabled={selectedTestList.length === 0 || isSelectedDateHoliday}
+                onClick={() => {
+                  setBookingStep('details')
+                  setShowBookingModal(true)
+                }}
+                className="w-full py-3.5 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-black rounded-2xl shadow-md shadow-teal-600/20 transition-all flex items-center justify-center space-x-2 cursor-pointer"
               >
                 <span>Proceed to Patient Details</span>
                 <ChevronRight className="w-4 h-4" />
@@ -717,140 +1143,321 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       )}
 
       {/* ========================================================= */}
-      {/* PATIENT BOOKING MODAL (No Demo Data, Strict Validation) */}
+      {/* PATIENT BOOKING & PAYMENT MODAL (Strict Criteria Checks)  */}
       {/* ========================================================= */}
       {showBookingModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-black text-slate-900 mb-1">
-              Confirm Patient Details
-            </h3>
-            <p className="text-xs text-slate-500 mb-6">
-              Enter the patient's verified details. These details are used to issue your 10-digit live token and verify lab reports.
-            </p>
+            {bookingStep === 'details' ? (
+              <>
+                <h3 className="text-xl font-black text-slate-900 mb-1">
+                  Enter Verified Patient Details
+                </h3>
+                <p className="text-xs text-slate-500 mb-4">
+                  All fields marked with <span className="text-rose-500 font-bold">*</span> are strictly required. Red indicators clear automatically once valid criteria are met.
+                </p>
 
-            <form onSubmit={handleConfirmBooking} className="space-y-4">
-              {/* Patient Full Name */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Patient Full Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={patientName}
-                  onChange={(e) => {
-                    setPatientName(e.target.value)
-                    if (formErrors.name) setFormErrors({ ...formErrors, name: '' })
-                  }}
-                  placeholder="e.g. Ramesh Sharma"
-                  className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    formErrors.name
-                      ? 'border-rose-500 bg-rose-50/50 focus:ring-rose-500'
-                      : 'border-slate-200 bg-slate-50 focus:bg-white focus:ring-brand-500'
-                  } focus:outline-none focus:ring-2`}
-                />
-                {formErrors.name && (
-                  <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.name}</p>
+                {/* Optional 1-Tap Fill from Verified Supabase Patient Profile */}
+                {savedProfile && (
+                  <div className="mb-4 p-3 rounded-2xl bg-brand-50 border border-brand-200 flex items-center justify-between">
+                    <div className="text-xs">
+                      <span className="font-bold text-brand-900 block">
+                        Saved Profile: {savedProfile.fullName}
+                      </span>
+                      <span className="text-brand-700 text-[11px]">
+                        {savedProfile.age} yrs • {savedProfile.gender} • {savedProfile.phone}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPatientUserId(savedProfile.id)
+                        setPatientName(savedProfile.fullName)
+                        setPatientAge(String(savedProfile.age))
+                        setPatientGender(savedProfile.gender)
+                        setPatientMobile(savedProfile.phone)
+                        setPatientEmail(savedProfile.email || '')
+                        setFormErrors({})
+                      }}
+                      className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-[11px] font-bold cursor-pointer"
+                    >
+                      Use Profile
+                    </button>
+                  </div>
                 )}
-              </div>
 
-              {/* Age and Gender Grid */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Age <span className="text-rose-500">*</span>
+                <form onSubmit={handleProceedToPaymentStep} className="space-y-4" noValidate>
+                  {/* Patient Full Name */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Patient Full Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      id="field-patient-name"
+                      type="text"
+                      value={patientName}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setPatientName(val)
+                        if (isNameValid(val) && formErrors.name) {
+                          setFormErrors((prev) => ({ ...prev, name: '' }))
+                        }
+                      }}
+                      placeholder="Enter patient's full legal name"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                        formErrors.name && !isNameValid(patientName)
+                          ? 'border-rose-500 bg-rose-50/60 ring-2 ring-rose-500/20'
+                          : 'border-slate-200 bg-slate-50 focus:bg-white focus:ring-brand-500'
+                      } focus:outline-none focus:ring-2`}
+                    />
+                    {formErrors.name && !isNameValid(patientName) && (
+                      <p className="text-[11px] text-rose-600 font-bold mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{formErrors.name}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Age and Gender Grid */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Age (1–120) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        id="field-patient-age"
+                        type="number"
+                        value={patientAge}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setPatientAge(val)
+                          if (isAgeValid(val) && formErrors.age) {
+                            setFormErrors((prev) => ({ ...prev, age: '' }))
+                          }
+                        }}
+                        placeholder="Years"
+                        min="1"
+                        max="120"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                          formErrors.age && !isAgeValid(patientAge)
+                            ? 'border-rose-500 bg-rose-50/60 ring-2 ring-rose-500/20'
+                            : 'border-slate-200 bg-slate-50'
+                        } focus:outline-none focus:ring-2 focus:ring-brand-500`}
+                      />
+                      {formErrors.age && !isAgeValid(patientAge) && (
+                        <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.age}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Gender <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        id="field-patient-gender"
+                        value={patientGender}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setPatientGender(val)
+                          if (isGenderValid(val) && formErrors.gender) {
+                            setFormErrors((prev) => ({ ...prev, gender: '' }))
+                          }
+                        }}
+                        className={`w-full px-3 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                          formErrors.gender && !isGenderValid(patientGender)
+                            ? 'border-rose-500 bg-rose-50/60 ring-2 ring-rose-500/20'
+                            : 'border-slate-200 bg-slate-50'
+                        } focus:outline-none focus:ring-2 focus:ring-brand-500`}
+                      >
+                        <option value="">Select Gender...</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      {formErrors.gender && !isGenderValid(patientGender) && (
+                        <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.gender}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Mobile Phone (Strict 10-digit criteria) */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      10-Digit Mobile Number <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      id="field-patient-mobile"
+                      type="tel"
+                      maxLength={10}
+                      value={patientMobile}
+                      onChange={(e) => {
+                        const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 10)
+                        setPatientMobile(digitsOnly)
+                        if (isMobileValid(digitsOnly) && formErrors.mobile) {
+                          setFormErrors((prev) => ({ ...prev, mobile: '' }))
+                        }
+                      }}
+                      placeholder="98XXXXXXXX (10 digits)"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                        formErrors.mobile && !isMobileValid(patientMobile)
+                          ? 'border-rose-500 bg-rose-50/60 ring-2 ring-rose-500/20'
+                          : 'border-slate-200 bg-slate-50'
+                      } focus:outline-none focus:ring-2 focus:ring-brand-500`}
+                    />
+                    {formErrors.mobile && !isMobileValid(patientMobile) && (
+                      <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.mobile}</p>
+                    )}
+                  </div>
+
+                  {/* Notes */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Medical Notes / Symptoms (Optional)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={patientNotes}
+                      onChange={(e) => setPatientNotes(e.target.value)}
+                      placeholder="Describe any symptoms or recent medical history..."
+                      className="w-full px-3.5 py-2 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center space-x-3 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowBookingModal(false)}
+                      className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20 cursor-pointer"
+                    >
+                      Continue to Payment (Rs. {totalBookingFee})
+                    </button>
+                  </div>
+                </form>
+              </>
+            ) : (
+              /* STEP 2: PAYMENT GATEWAY & INVOICE CONFIRMATION */
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900">Complete Payment</h3>
+                    <p className="text-xs text-slate-500">
+                      Select payment gateway to issue your live queue token
+                    </p>
+                  </div>
+                  <div className="px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-mono font-bold">
+                    {Math.floor(paymentCountdown / 60)}:
+                    {String(paymentCountdown % 60).padStart(2, '0')}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Patient:</span>
+                    <span className="font-bold text-slate-900">
+                      {patientName} ({patientAge}y, {patientGender})
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Mobile:</span>
+                    <span className="font-bold text-slate-900">{patientMobile}</span>
+                  </div>
+                  <div className="flex justify-between pt-1.5 border-t border-slate-200 text-sm font-black">
+                    <span className="text-slate-800">Amount Payable:</span>
+                    <span className="text-brand-700">Rs. {totalBookingFee}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Choose Payment Method
                   </label>
-                  <input
-                    type="number"
-                    value={patientAge}
-                    onChange={(e) => {
-                      setPatientAge(e.target.value)
-                      if (formErrors.age) setFormErrors({ ...formErrors, age: '' })
-                    }}
-                    placeholder="e.g. 32"
-                    min="1"
-                    max="120"
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                      formErrors.age
-                        ? 'border-rose-500 bg-rose-50/50'
-                        : 'border-slate-200 bg-slate-50'
-                    } focus:outline-none focus:ring-2 focus:ring-brand-500`}
-                  />
-                  {formErrors.age && (
-                    <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.age}</p>
-                  )}
+
+                  {[
+                    {
+                      id: 'esewa',
+                      title: paymentConfig?.esewa?.title || 'eSewa Mobile Wallet',
+                      sub: `Merchant ID: ${paymentConfig?.esewa?.merchantCode || 'EPAYTEST'}`,
+                    },
+                    {
+                      id: 'khalti',
+                      title: paymentConfig?.khalti?.title || 'Khalti Digital Wallet',
+                      sub: 'Instant Wallet / Banking Checkout',
+                    },
+                    {
+                      id: 'fonepay',
+                      title: paymentConfig?.fonepay?.title || 'Fonepay QR / Direct Banking',
+                      sub: 'Nepal Interbank QR Payment',
+                    },
+                    {
+                      id: 'bypass',
+                      title: 'Instant Bypass Test Payment (Mark Paid)',
+                      sub: 'Records immediate verified paid invoice in Supabase',
+                    },
+                    {
+                      id: 'pay_at_clinic',
+                      title: 'Pay at Clinic Reception Counter',
+                      sub: 'Book token now and pay cash/QR at reception',
+                    },
+                  ].map((opt) => (
+                    <div
+                      key={opt.id}
+                      onClick={() => setSelectedPaymentMethod(opt.id as any)}
+                      className={`p-3.5 rounded-2xl border cursor-pointer flex items-center justify-between transition-all ${
+                        selectedPaymentMethod === opt.id
+                          ? 'bg-brand-50/70 border-brand-500 ring-2 ring-brand-500/20'
+                          : 'bg-white border-slate-200 hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <CreditCard className="w-4 h-4 text-brand-600 shrink-0" />
+                        <div>
+                          <p className="text-xs font-black text-slate-900">{opt.title}</p>
+                          <p className="text-[10px] text-slate-500">{opt.sub}</p>
+                        </div>
+                      </div>
+                      <div
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                          selectedPaymentMethod === opt.id
+                            ? 'border-brand-600 bg-brand-600'
+                            : 'border-slate-300'
+                        }`}
+                      >
+                        {selectedPaymentMethod === opt.id && (
+                          <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Gender</label>
-                  <select
-                    value={patientGender}
-                    onChange={(e) => setPatientGender(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                <div className="flex items-center space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setBookingStep('details')}
+                    className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                   >
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    disabled={submitting || paymentCountdown === 0}
+                    onClick={handleConfirmBookingAndPayment}
+                    className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20 cursor-pointer"
+                  >
+                    {submitting
+                      ? 'Recording in Supabase...'
+                      : `Confirm & Issue Token (Rs. ${totalBookingFee})`}
+                  </button>
                 </div>
               </div>
-
-              {/* Mobile Phone */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Mobile Number <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  value={patientMobile}
-                  onChange={(e) => {
-                    setPatientMobile(e.target.value)
-                    if (formErrors.mobile) setFormErrors({ ...formErrors, mobile: '' })
-                  }}
-                  placeholder="e.g. 98XXXXXXXX"
-                  className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    formErrors.mobile
-                      ? 'border-rose-500 bg-rose-50/50'
-                      : 'border-slate-200 bg-slate-50'
-                  } focus:outline-none focus:ring-2 focus:ring-brand-500`}
-                />
-                {formErrors.mobile && (
-                  <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.mobile}</p>
-                )}
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Medical Notes / Symptoms (Optional)
-                </label>
-                <textarea
-                  rows={2}
-                  value={patientNotes}
-                  onChange={(e) => setPatientNotes(e.target.value)}
-                  placeholder="Describe any symptoms or recent medical history..."
-                  className="w-full px-3.5 py-2 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center space-x-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowBookingModal(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20"
-                >
-                  {submitting ? 'Confirming Token...' : 'Confirm & Generate Token'}
-                </button>
-              </div>
-            </form>
+            )}
           </div>
         </div>
       )}

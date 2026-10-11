@@ -2,26 +2,28 @@ import React, { useState, useEffect } from 'react'
 import {
   X,
   Bell,
-  Clock,
-  Building2,
-  AlertCircle,
-  Tag,
-  CheckCircle2,
+  CheckCheck,
   RefreshCw,
 } from 'lucide-react'
-import { getClinicNotifications } from '../services/db'
+import {
+  getPatientNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+} from '../services/db'
+import { supabase } from '../lib/supabase'
 import { DactorNotification } from '../types'
 
 interface NotificationModalProps {
   isOpen: boolean
   onClose: () => void
   clinicId?: string
+  onNotificationsChanged?: (unreadCount: number) => void
 }
 
 export const NotificationModal: React.FC<NotificationModalProps> = ({
   isOpen,
   onClose,
-  clinicId = 'global',
+  onNotificationsChanged,
 }) => {
   const [notifications, setNotifications] = useState<DactorNotification[]>([])
   const [loading, setLoading] = useState(false)
@@ -29,52 +31,69 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   const fetchNotes = async () => {
     setLoading(true)
     try {
-      const data = await getClinicNotifications(clinicId)
-      // Provide clean default notifications if empty
-      if (data.length === 0) {
-        setNotifications([
-          {
-            id: 'demo-1',
-            title: 'Live OPD Queue Engine Active',
-            message: 'All clinics have real-time 10-digit tracking active. Patients can monitor their token number from home.',
-            type: 'clinic_broadcast',
-            isRead: false,
-            createdAt: new Date().toISOString(),
-            leftLabel: 'Department',
-            leftValue: 'OPD Central',
-            rightLabel: 'Priority',
-            rightValue: 'High Alert',
-          },
-          {
-            id: 'demo-2',
-            title: 'Diagnostic Lab 3-Stage Pipeline Ready',
-            message: 'Lab clinics can collect samples, mark processing, and upload PDF reports with mandatory patient name verification.',
-            type: 'lab_report',
-            isRead: false,
-            createdAt: new Date(Date.now() - 3600000).toISOString(),
-            leftLabel: 'Service',
-            leftValue: 'Pathology Desk',
-            rightLabel: 'Security',
-            rightValue: 'Name-Verified',
-          },
-        ])
-      } else {
-        setNotifications(data)
+      let trackingCodes: string[] = []
+      let userId: string | undefined = undefined
+      try {
+        trackingCodes = JSON.parse(localStorage.getItem('dactor_patient_tracking_codes') || '[]')
+        const sessionRaw = localStorage.getItem('dactor_patient_session')
+        if (sessionRaw) {
+          const parsed = JSON.parse(sessionRaw)
+          if (parsed?.id) userId = parsed.id
+        }
+      } catch {}
+
+      const data = await getPatientNotifications({ userId, trackingCodes })
+      // Strictly use real notifications from Supabase — NO demo-1 or demo-2
+      setNotifications(data)
+      if (onNotificationsChanged) {
+        onNotificationsChanged(data.filter((n) => !n.isRead).length)
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    if (isOpen) {
-      fetchNotes()
+    fetchNotes()
+
+    const channel = supabase
+      .channel('patient-notifications-modal')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+        fetchNotes()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
     }
-  }, [isOpen, clinicId])
+  }, [isOpen])
+
+  const handleMarkOneRead = async (note: DactorNotification) => {
+    if (note.isRead) return
+    await markNotificationAsRead(note.id)
+    const updated = notifications.map((n) => (n.id === note.id ? { ...n, isRead: true } : n))
+    setNotifications(updated)
+    if (onNotificationsChanged) {
+      onNotificationsChanged(updated.filter((n) => !n.isRead).length)
+    }
+  }
+
+  const handleMarkAllRead = async () => {
+    const unreadIds = notifications.filter((n) => !n.isRead).map((n) => n.id)
+    if (unreadIds.length === 0) return
+    await markAllNotificationsAsRead(unreadIds)
+    const updated = notifications.map((n) => ({ ...n, isRead: true }))
+    setNotifications(updated)
+    if (onNotificationsChanged) {
+      onNotificationsChanged(0)
+    }
+  }
 
   if (!isOpen) return null
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -88,22 +107,32 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
             <div>
               <h3 className="text-lg font-black text-slate-900">Notifications & Alerts</h3>
               <p className="text-xs text-slate-500 font-medium">
-                Clinic announcements & real-time updates
+                Live queue alerts, appointment confirmations & clinic broadcasts
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5">
+            {unreadCount > 0 && (
+              <button
+                onClick={handleMarkAllRead}
+                className="px-2.5 py-1.5 text-[11px] font-bold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
+                title="Mark all as read"
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                <span>Mark Read</span>
+              </button>
+            )}
             <button
               onClick={fetchNotes}
-              className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-full transition-colors"
+              className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
               title="Refresh"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -112,60 +141,85 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
 
         {/* Notifications List */}
         <div className="flex-1 overflow-y-auto py-4 space-y-3.5 pr-1">
-          {notifications.map((note) => (
-            <div
-              key={note.id}
-              className="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 hover:bg-brand-50/20 transition-all space-y-2.5"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <h4 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-brand-500 shrink-0 inline-block" />
-                  <span>{note.title}</span>
-                </h4>
-                <span className="text-[10px] text-slate-400 whitespace-nowrap font-medium">
-                  {new Date(note.createdAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </span>
-              </div>
-
-              <p className="text-xs text-slate-600 leading-relaxed font-normal">
-                {note.message}
-              </p>
-
-              {/* Template Meta Grid (matching app template requirement) */}
-              {(note.leftLabel || note.rightLabel || note.trackingCode) && (
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-[11px]">
-                  {note.leftLabel && (
-                    <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-100">
-                      <span className="text-slate-400 block font-medium">{note.leftLabel}</span>
-                      <span className="font-bold text-slate-800">{note.leftValue || 'General'}</span>
-                    </div>
-                  )}
-
-                  {note.rightLabel && (
-                    <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-100">
-                      <span className="text-slate-400 block font-medium">{note.rightLabel}</span>
-                      <span className="font-bold text-brand-700">{note.rightValue || 'Alert'}</span>
-                    </div>
-                  )}
-
-                  {note.trackingCode && (
-                    <div className="col-span-2 bg-brand-50 px-2.5 py-1.5 rounded-lg border border-brand-200 text-brand-900 font-bold">
-                      Tracking Code: #{note.trackingCode}
-                    </div>
-                  )}
-                </div>
-              )}
+          {loading && notifications.length === 0 ? (
+            <div className="py-12 text-center text-xs text-slate-500 font-semibold">
+              Loading live notifications from Supabase...
             </div>
-          ))}
+          ) : notifications.length === 0 ? (
+            <div className="py-12 text-center space-y-2">
+              <Bell className="w-10 h-10 text-slate-300 mx-auto" />
+              <p className="text-sm font-bold text-slate-800">No Notifications Yet</p>
+              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                When you book an appointment, your queue token approaches, or a clinic broadcasts an alert, it will appear here in real time.
+              </p>
+            </div>
+          ) : (
+            notifications.map((note) => (
+              <div
+                key={note.id}
+                onClick={() => handleMarkOneRead(note)}
+                className={`p-4 rounded-2xl border transition-all space-y-2.5 cursor-pointer ${
+                  note.isRead
+                    ? 'border-slate-200/70 bg-white'
+                    : 'border-brand-300 bg-brand-50/40 shadow-xs'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <h4 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 inline-block ${
+                        note.isRead ? 'bg-slate-300' : 'bg-brand-600 animate-pulse'
+                      }`}
+                    />
+                    <span>{note.title}</span>
+                  </h4>
+                  <span className="text-[10px] text-slate-400 whitespace-nowrap font-medium">
+                    {new Date(note.createdAt).toLocaleString([], {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed font-normal">
+                  {note.message}
+                </p>
+
+                {/* Template Meta Grid */}
+                {(note.leftLabel || note.rightLabel || note.trackingCode) && (
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-[11px]">
+                    {note.leftLabel && (
+                      <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-100">
+                        <span className="text-slate-400 block font-medium">{note.leftLabel}</span>
+                        <span className="font-bold text-slate-800">{note.leftValue || 'General'}</span>
+                      </div>
+                    )}
+
+                    {note.rightLabel && (
+                      <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-100">
+                        <span className="text-slate-400 block font-medium">{note.rightLabel}</span>
+                        <span className="font-bold text-brand-700">{note.rightValue || 'Alert'}</span>
+                      </div>
+                    )}
+
+                    {note.trackingCode && (
+                      <div className="col-span-2 bg-brand-50 px-2.5 py-1.5 rounded-lg border border-brand-200 text-brand-900 font-bold">
+                        Tracking Code: #{note.trackingCode}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
 
         {/* Footer */}
         <div className="pt-3 border-t border-slate-100 text-center">
           <p className="text-[11px] text-slate-400">
-            Powered by Dactor Live Alert Transmission Engine
+            Powered by Dactor Live Supabase Alert Engine
           </p>
         </div>
       </div>

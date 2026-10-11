@@ -302,6 +302,34 @@ export const Home: React.FC<HomeProps> = ({
               <p className="text-sm sm:text-base text-slate-600 font-medium leading-relaxed">
                 Check whether your doctor is physically inside the clinic right now, book your slot, track real-time queue position with a 10-digit code, and unlock name-verified lab reports.
               </p>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => onNavigate('patient-portal')}
+                  className="px-5 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-lg shadow-brand-600/20 flex items-center space-x-2 transition-all cursor-pointer"
+                >
+                  <User className="w-4 h-4" />
+                  <span>Patient Portal & My Bookings</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('live-queue')}
+                  className="px-4 py-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-bold rounded-2xl text-xs sm:text-sm shadow-xs flex items-center space-x-2 transition-all cursor-pointer"
+                >
+                  <Activity className="w-4 h-4 text-brand-600" />
+                  <span>Live Queue Tracker</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('lab-reports')}
+                  className="px-4 py-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-bold rounded-2xl text-xs sm:text-sm shadow-xs flex items-center space-x-2 transition-all cursor-pointer"
+                >
+                  <FlaskConical className="w-4 h-4 text-emerald-600" />
+                  <span>3-Stage Lab Reports</span>
+                </button>
+              </div>
             </div>
 
             {/* Right: Authentic Logo Showcase & Quick Highlights */}
@@ -511,6 +539,23 @@ export const Home: React.FC<HomeProps> = ({
             {filteredClinics.map((clinic) => {
               const doc = clinic.primaryDoctor
               const isDocInClinic = clinic.hasDocInClinic || doc?.isInClinic
+              const selectedDayShort = dateList[selectedDateIndex]?.dayName || 'Mon'
+              let scheduleLabel = `Avg ~${clinic.avgConsultationTimeMinutes || 10} min / patient`
+              if (clinic.weeklyScheduleJson) {
+                try {
+                  const parsed = JSON.parse(clinic.weeklyScheduleJson)
+                  if (Array.isArray(parsed)) {
+                    const match = parsed.find((item: any) =>
+                      String(item.day || '').toLowerCase().startsWith(selectedDayShort.toLowerCase())
+                    )
+                    if (match) {
+                      scheduleLabel = match.isOpen === false
+                        ? 'Closed on selected day'
+                        : `${match.openTime || '09:00 AM'} – ${match.closeTime || '05:00 PM'}`
+                    }
+                  }
+                } catch {}
+              }
 
               return (
                 <div
@@ -526,18 +571,29 @@ export const Home: React.FC<HomeProps> = ({
                         </h3>
                         <p className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-1">
                           <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{clinic.addressText || 'Kathmandu, Nepal'}</span>
+                          <span>{clinic.addressText || 'Nepal'}</span>
                         </p>
                       </div>
 
                       <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
-                        {clinic.type === 'diagnostic_lab' ? 'Diagnostic Lab' : 'Multi-Visit'}
+                        {clinic.type === 'diagnostic_lab'
+                          ? 'Diagnostic Lab'
+                          : clinic.type === 'single_visit'
+                          ? 'Single-Visit'
+                          : 'Multi-Visit'}
                       </span>
                     </div>
 
-                    {/* LIVE DOCTOR PHYSICAL PRESENCE BANNER (The Signature Feature) */}
-                    <div className="mt-3.5">
-                      {isDocInClinic ? (
+                    {/* LIVE DOCTOR PHYSICAL PRESENCE & BREAK BANNER */}
+                    <div className="mt-3.5 space-y-1.5">
+                      {clinic.isOnBreak ? (
+                        <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center space-x-2 text-amber-800">
+                          <div className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
+                          <span className="text-xs font-bold">
+                            Clinic Currently on Short Break • Queue Paused
+                          </span>
+                        </div>
+                      ) : isDocInClinic ? (
                         <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center space-x-2 text-emerald-800">
                           <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 animate-ping" />
                           <span className="text-xs font-bold">
@@ -548,15 +604,17 @@ export const Home: React.FC<HomeProps> = ({
                         <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center space-x-2 text-slate-600">
                           <div className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
                           <span className="text-xs font-semibold">
-                            Doctor Away • Available for Next OPD Slot
+                            {clinic.type === 'diagnostic_lab'
+                              ? 'Lab Open for Sample Collection'
+                              : 'Doctor Away • Available for Next OPD Slot'}
                           </span>
                         </div>
                       )}
                     </div>
 
-                    {/* Doctor Info */}
-                    {doc && (
-                      <div className="mt-3.5 space-y-2">
+                    {/* Doctor & Schedule Info */}
+                    <div className="mt-3.5 space-y-2">
+                      {doc ? (
                         <div className="flex items-center space-x-2 text-xs font-bold text-slate-800">
                           <User className="w-4 h-4 text-brand-600 shrink-0" />
                           <span>{doc.fullName}</span>
@@ -566,24 +624,34 @@ export const Home: React.FC<HomeProps> = ({
                             </span>
                           )}
                         </div>
-
-                        {/* Available Today Time Slot */}
-                        <div className="flex items-center space-x-2 text-xs font-medium text-slate-600">
-                          <Clock className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
-                          <span>Available Today:</span>
-                          <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-800 font-mono font-bold text-[11px] border border-cyan-200">
-                            19:38:00
+                      ) : (
+                        <div className="flex items-center space-x-2 text-xs font-semibold text-slate-600">
+                          <Stethoscope className="w-4 h-4 text-brand-600 shrink-0" />
+                          <span>
+                            {clinic.specialties && clinic.specialties.length > 0
+                              ? clinic.specialties.slice(0, 2).join(' • ')
+                              : 'OPD & Diagnostic Services'}
                           </span>
                         </div>
+                      )}
+
+                      <div className="flex items-center space-x-2 text-xs font-medium text-slate-600">
+                        <Clock className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+                        <span>Schedule ({selectedDayShort}):</span>
+                        <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-800 font-mono font-bold text-[11px] border border-cyan-200">
+                          {scheduleLabel}
+                        </span>
                       </div>
-                    )}
+                    </div>
                   </div>
 
                   {/* Bottom: Fee & Book OPD Action */}
                   <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                     <div>
                       <span className="text-xs font-bold text-slate-800">
-                        Fee: Rs. {doc?.consultationFee || 500}
+                        {doc?.consultationFee
+                          ? `Fee: Rs. ${doc.consultationFee}`
+                          : `Avg Wait: ~${clinic.avgConsultationTimeMinutes || 10}m`}
                       </span>
                     </div>
 
@@ -592,7 +660,7 @@ export const Home: React.FC<HomeProps> = ({
                       onClick={() => onNavigate('clinic-detail', { clinicId: clinic.id })}
                       className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-brand-600/20 hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-1.5 cursor-pointer"
                     >
-                      <span>Book OPD</span>
+                      <span>{clinic.type === 'diagnostic_lab' ? 'Book Lab Test' : 'Book OPD'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>

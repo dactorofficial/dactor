@@ -131,7 +131,9 @@ import {
   isSlotTimeExpired,
   recordPaymentTransaction,
   getLabReportsByTrackingCode,
-  getClinicNotifications,
+  getPatientNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
 } from '../services/db'
 import {
   firebaseSignInWithEmail,
@@ -304,16 +306,20 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           if (profile) {
             setPatientUser(profile)
             initProfileFields(profile)
+            try {
+              localStorage.setItem('dactor_patient_session', JSON.stringify(profile))
+            } catch {}
           } else {
-            // Create fallback local profile
-            const fallback: PatientProfile = {
+            // Do NOT auto-fill name, gender, or age from email/Google
+            const partial: PatientProfile = {
               id: crypto.randomUUID(),
               email: storedEmail,
-              fullName: storedEmail.split('@')[0],
+              fullName: '',
               role: 'patient',
             }
-            setPatientUser(fallback)
-            initProfileFields(fallback)
+            setPatientUser(partial)
+            initProfileFields(partial)
+            setShowEditProfileModal(true)
           }
         }
         // Load clinics for booking
@@ -340,9 +346,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setBookPatientGender(profile.gender || 'Male')
   }
 
-  // Load patient data whenever patientUser changes
+  // Load patient data on mount and whenever patientUser changes
   useEffect(() => {
-    if (!patientUser) return
     loadAppointments()
     loadTransactions()
     loadNotifications()
@@ -352,21 +357,25 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // DATA LOADERS
   // ==========================================
   async function loadAppointments() {
-    if (!patientUser) return
     setIsLoadingAppointments(true)
     try {
       const storedCodes = getStoredTrackingCodes()
+      if (!patientUser && storedCodes.length === 0) {
+        setMyAppointments([])
+        setPatientLabReports([])
+        return
+      }
       const appts = await getAppointmentsByPatient({
-        userId: patientUser.id,
-        email: patientUser.email,
-        phone: patientUser.phone,
+        userId: patientUser?.id,
+        email: patientUser?.email,
+        phone: patientUser?.phone,
         trackingCodes: storedCodes,
       })
       setMyAppointments(appts)
 
       // Also fetch lab reports for all appointments
       const allReports: LabReport[] = []
-      for (const a of appts.slice(0, 10)) {
+      for (const a of appts.slice(0, 15)) {
         const repList = await getLabReportsByTrackingCode(a.trackingCode10Digit)
         allReports.push(...repList)
       }
@@ -379,14 +388,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   }
 
   async function loadTransactions() {
-    if (!patientUser) return
     setIsLoadingTransactions(true)
     try {
       const storedCodes = getStoredTrackingCodes()
+      if (!patientUser && storedCodes.length === 0) {
+        setTransactions([])
+        return
+      }
       const txns = await getPatientTransactions({
-        userId: patientUser.id,
-        email: patientUser.email,
-        phone: patientUser.phone,
+        userId: patientUser?.id,
+        email: patientUser?.email,
+        phone: patientUser?.phone,
         trackingCodes: storedCodes,
       })
       setTransactions(txns)
@@ -399,7 +411,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
   async function loadNotifications() {
     try {
-      const notifs = await getClinicNotifications('global')
+      const storedCodes = getStoredTrackingCodes()
+      const notifs = await getPatientNotifications({
+        userId: patientUser?.id,
+        trackingCodes: storedCodes,
+      })
       setNotifications(notifs)
       setUnreadCount(notifs.filter((n) => !n.isRead).length)
     } catch {}
@@ -713,6 +729,24 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     e.preventDefault()
     setAuthError(null)
     setAuthSuccess(null)
+
+    if (authMode === 'signup') {
+      if (authFullName.trim().length < 2) {
+        setAuthError('Please enter your full legal name (minimum 2 characters).')
+        return
+      }
+      const cleanPhone = authPhone.replace(/\D/g, '')
+      if (!/^9\d{9}$/.test(cleanPhone)) {
+        setAuthError('Please enter a valid 10-digit mobile number starting with 9 (e.g. 98XXXXXXXX).')
+        return
+      }
+      const ageNum = Number(authAge)
+      if (!authAge || !Number.isInteger(ageNum) || ageNum < 1 || ageNum > 120) {
+        setAuthError('Please enter a valid age between 1 and 120.')
+        return
+      }
+    }
+
     setAuthSubmitting(true)
 
     try {
@@ -723,26 +757,32 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           return
         }
 
-        // Fetch or create profile in Supabase
-        let profile = await getPatientProfileByEmail(res.user.email)
-        if (!profile) {
-          profile = await savePatientProfile({
-            email: res.user.email,
-            authUid: res.user.uid,
-            fullName: res.user.displayName || res.user.email.split('@')[0],
-            role: 'patient',
-          })
-        }
-
-        if (profile) {
+        const profile = await getPatientProfileByEmail(res.user.email)
+        if (profile && profile.fullName && profile.phone && profile.age && profile.gender) {
           setPatientUser(profile)
           initProfileFields(profile)
           localStorage.setItem('dactor_patient_email', profile.email)
+          localStorage.setItem('dactor_patient_session', JSON.stringify(profile))
           localStorage.setItem('dactor_auth_logged_in', 'true')
           setShowAuthModal(false)
+        } else {
+          // Do NOT auto-fill name, gender, or age — prompt user to complete profile
+          const partial: PatientProfile = profile || {
+            id: crypto.randomUUID(),
+            authUid: res.user.uid,
+            email: res.user.email,
+            fullName: '',
+            role: 'patient',
+          }
+          setPatientUser(partial)
+          initProfileFields(partial)
+          localStorage.setItem('dactor_patient_email', partial.email)
+          localStorage.setItem('dactor_auth_logged_in', 'true')
+          setShowAuthModal(false)
+          setShowEditProfileModal(true)
         }
       } else if (authMode === 'signup') {
-        const res = await firebaseSignUpWithEmail(authEmail, authPassword, authFullName)
+        const res = await firebaseSignUpWithEmail(authEmail, authPassword, authFullName.trim())
         if (!res.success || !res.user) {
           setAuthError(res.error || 'Signup failed')
           return
@@ -751,9 +791,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         const newProfile = await savePatientProfile({
           email: res.user.email,
           authUid: res.user.uid,
-          fullName: authFullName.trim() || res.user.email.split('@')[0],
-          phone: authPhone.trim(),
-          age: parseInt(authAge) || 25,
+          fullName: authFullName.trim(),
+          phone: authPhone.replace(/\D/g, ''),
+          age: parseInt(authAge, 10),
           gender: authGender,
           role: 'patient',
         })
@@ -762,6 +802,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           setPatientUser(newProfile)
           initProfileFields(newProfile)
           localStorage.setItem('dactor_patient_email', newProfile.email)
+          localStorage.setItem('dactor_patient_session', JSON.stringify(newProfile))
           localStorage.setItem('dactor_auth_logged_in', 'true')
           setShowAuthModal(false)
         }
@@ -780,7 +821,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
   }
 
-  // Real Google Sign-In linked to Supabase patient database
+  // Real Google Sign-In linked to Supabase patient database (strictly NO auto-fill of name/gender/age from Google)
   const handleGoogleSignIn = async () => {
     setAuthSubmitting(true)
     setAuthError(null)
@@ -788,24 +829,39 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       const gUser = await signInWithFirebaseGoogle()
       if (!gUser || !gUser.email) return
 
-      let profile = await getPatientProfileByEmail(gUser.email)
-      if (!profile) {
-        profile = await savePatientProfile({
-          email: gUser.email,
-          authUid: gUser.uid,
-          fullName: gUser.displayName || gUser.email.split('@')[0],
-          role: 'patient',
-        })
-      }
-
-      if (profile) {
+      const profile = await getPatientProfileByEmail(gUser.email)
+      if (profile && profile.fullName && profile.phone && profile.age && profile.gender) {
         setPatientUser(profile)
         initProfileFields(profile)
         localStorage.setItem('dactor_patient_email', profile.email)
+        localStorage.setItem('dactor_patient_session', JSON.stringify(profile))
         localStorage.setItem('dactor_auth_logged_in', 'true')
         localStorage.setItem('dactor_auth_email', profile.email)
         window.dispatchEvent(new Event('storage'))
         setShowAuthModal(false)
+      } else {
+        // New or incomplete Google user: strictly do NOT auto-fill name, gender, or age from Google account
+        const partial: PatientProfile = {
+          id: profile?.id || crypto.randomUUID(),
+          authUid: gUser.uid,
+          email: gUser.email,
+          fullName: profile?.fullName || '',
+          phone: profile?.phone || '',
+          age: profile?.age,
+          gender: profile?.gender || '',
+          role: 'patient',
+        }
+        setPatientUser(partial)
+        setEditName(partial.fullName || '')
+        setEditPhone(partial.phone || '')
+        setEditAge(partial.age ? String(partial.age) : '')
+        setEditGender(partial.gender || '')
+        localStorage.setItem('dactor_patient_email', partial.email)
+        localStorage.setItem('dactor_auth_logged_in', 'true')
+        localStorage.setItem('dactor_auth_email', partial.email)
+        window.dispatchEvent(new Event('storage'))
+        setShowAuthModal(false)
+        setShowEditProfileModal(true)
       }
     } catch (err: any) {
       console.warn('Patient Google Sign-In notice:', err)
@@ -822,28 +878,102 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
   }
 
-  // Save updated profile
+  // Save updated profile with strict criteria validation
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!patientUser) return
+    if (editName.trim().length < 2) {
+      alert('Please enter your full name (at least 2 characters).')
+      return
+    }
+    const cleanPhone = editPhone.replace(/\D/g, '')
+    if (!/^9\d{9}$/.test(cleanPhone)) {
+      alert('Please enter a valid 10-digit mobile number starting with 9 (e.g. 98XXXXXXXX).')
+      return
+    }
+    const ageNum = Number(editAge)
+    if (!editAge || !Number.isInteger(ageNum) || ageNum < 1 || ageNum > 120) {
+      alert('Please enter a valid age between 1 and 120.')
+      return
+    }
+    if (!['Male', 'Female', 'Other'].includes(editGender)) {
+      alert('Please select your gender.')
+      return
+    }
+
     setIsUpdatingProfile(true)
     try {
       const updated = await savePatientProfile({
         id: patientUser.id,
+        authUid: patientUser.authUid,
         email: patientUser.email,
         fullName: editName.trim(),
-        phone: editPhone.trim(),
-        age: parseInt(editAge) || undefined,
+        phone: cleanPhone,
+        age: ageNum,
         gender: editGender,
+        role: 'patient',
       })
       if (updated) {
         setPatientUser(updated)
         initProfileFields(updated)
+        localStorage.setItem('dactor_patient_session', JSON.stringify(updated))
         setShowEditProfileModal(false)
       }
     } finally {
       setIsUpdatingProfile(false)
     }
+  }
+
+  const handleDownloadTransactionReceipt = (tx: PatientTransactionRecord) => {
+    const win = window.open('', '_blank', 'width=800,height=700')
+    if (!win) return
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Dactor Receipt - ${tx.trackingCode}</title>
+          <style>
+            body { font-family: 'Plus Jakarta Sans', Arial, sans-serif; padding: 36px; color: #0f172a; }
+            .box { max-width: 680px; margin: 0 auto; border: 2px solid #0284c7; border-radius: 16px; padding: 28px; }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 20px; }
+            .badge { background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 999px; font-weight: 800; font-size: 12px; text-transform: uppercase; }
+            .code { font-family: monospace; font-size: 28px; font-weight: 900; letter-spacing: 3px; color: #0284c7; margin: 12px 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+            th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+            th { color: #64748b; text-transform: uppercase; font-size: 11px; }
+            .total { font-size: 18px; font-weight: 900; color: #0f172a; }
+          </style>
+        </head>
+        <body>
+          <div class="box">
+            <div class="header">
+              <div>
+                <h2 style="margin:0;font-size:22px;">${tx.clinicName}</h2>
+                <p style="margin:4px 0 0;font-size:12px;color:#64748b;">Official Payment & Appointment Invoice</p>
+              </div>
+              <span class="badge">${tx.paymentStatus}</span>
+            </div>
+            <div>
+              <div style="font-size:11px;text-transform:uppercase;color:#64748b;font-weight:700;">10-Digit Universal Tracking Code</div>
+              <div class="code">${tx.trackingCode}</div>
+            </div>
+            <table>
+              <tr><th>Transaction ID</th><td><strong>${tx.transactionId}</strong></td></tr>
+              <tr><th>Patient Name</th><td><strong>${tx.patientName}</strong></td></tr>
+              <tr><th>Doctor / Service</th><td>${tx.doctorName}</td></tr>
+              <tr><th>Appointment Date & Time</th><td>${tx.appointmentDate} • ${tx.appointmentTime}</td></tr>
+              <tr><th>Payment Method</th><td>${tx.paymentMethod}</td></tr>
+              <tr><th>Total Amount</th><td class="total">NPR ${tx.amount}</td></tr>
+            </table>
+            <p style="margin-top:24px;font-size:11px;color:#64748b;text-align:center;">
+              Synced from Supabase Billing Invoices • Dactor Healthcare Ecosystem
+            </p>
+          </div>
+          <script>window.onload = function() { window.print(); }</script>
+        </body>
+      </html>
+    `)
+    win.document.close()
   }
 
   const handleLogout = () => {
@@ -1827,6 +1957,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       <th className="pb-3">Amount</th>
                       <th className="pb-3">Method</th>
                       <th className="pb-3">Status</th>
+                      <th className="pb-3 text-right">Invoice</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
@@ -1859,6 +1990,16 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           >
                             {tx.paymentStatus}
                           </span>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadTransactionReceipt(tx)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-lg font-bold text-[11px] transition cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Receipt</span>
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -1960,8 +2101,31 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               <div>
                 <h3 className="text-lg font-black text-slate-900">Clinic Alerts & Queue Broadcasts</h3>
                 <p className="text-xs text-slate-500">
-                  Important announcements, holiday notices, and real-time queue alerts.
+                  Important announcements, holiday notices, and real-time queue alerts from Supabase.
                 </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ids = notifications.filter((n) => !n.isRead).map((n) => n.id)
+                      await markAllNotificationsAsRead(ids)
+                      loadNotifications()
+                    }}
+                    className="px-3 py-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                  >
+                    Mark All Read
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={loadNotifications}
+                  className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                  title="Refresh"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
@@ -1975,14 +2139,29 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 {notifications.map((notif) => (
                   <div
                     key={notif.id}
-                    className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 flex items-start space-x-3.5"
+                    onClick={async () => {
+                      if (!notif.isRead) {
+                        await markNotificationAsRead(notif.id)
+                        loadNotifications()
+                      }
+                    }}
+                    className={`p-4 rounded-2xl border flex items-start space-x-3.5 transition cursor-pointer ${
+                      notif.isRead
+                        ? 'border-slate-200 bg-white'
+                        : 'border-brand-300 bg-brand-50/40 shadow-xs'
+                    }`}
                   >
                     <div className="w-9 h-9 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center flex-shrink-0 mt-0.5">
                       <Bell className="w-4 h-4" />
                     </div>
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center justify-between">
-                        <h4 className="font-bold text-sm text-slate-900">{notif.title}</h4>
+                        <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                          {!notif.isRead && (
+                            <span className="w-2 h-2 rounded-full bg-brand-600 animate-pulse" />
+                          )}
+                          <span>{notif.title}</span>
+                        </h4>
                         <span className="text-[10px] text-slate-400 font-medium">
                           {notif.createdAt?.split('T')[0]}
                         </span>
