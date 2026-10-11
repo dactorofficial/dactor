@@ -119,12 +119,15 @@ fun LabWorkflowScreen(
         if (uri != null) {
             coroutineScope.launch {
                 try {
-                    val mime = context.contentResolver.getType(uri)?.lowercase() ?: ""
-                    val fallbackName = if (mime.contains("image")) "Lab_Report_Photo.jpg" else "Lab_Report.pdf"
+                    val resolvedName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
+                        context = context,
+                        uri = uri,
+                        defaultBaseName = "Lab_Report"
+                    )
                     val compressed = com.dactor.clinic.domain.util.FileCompressor.compressUri(
                         context = context,
                         uri = uri,
-                        fallbackFileName = fallbackName
+                        fallbackFileName = resolvedName
                     )
                     if (compressed != null) {
                         selectedFileBytes = compressed.bytes

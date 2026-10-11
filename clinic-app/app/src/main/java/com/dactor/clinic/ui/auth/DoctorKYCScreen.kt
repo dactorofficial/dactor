@@ -64,11 +64,16 @@ fun DoctorKYCScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             licenseUri = uri
+            val resolvedName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
+                context = context,
+                uri = uri,
+                defaultBaseName = "nmc_license"
+            )
             coroutineScope.launch {
                 val compressed = com.dactor.clinic.domain.util.FileCompressor.compressUri(
                     context = context,
                     uri = uri,
-                    fallbackFileName = "nmc_license.jpg"
+                    fallbackFileName = resolvedName
                 )
                 if (compressed != null) {
                     licenseFileName = compressed.fileName
@@ -85,11 +90,16 @@ fun DoctorKYCScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             certificateUri = uri
+            val resolvedName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
+                context = context,
+                uri = uri,
+                defaultBaseName = "medical_degree"
+            )
             coroutineScope.launch {
                 val compressed = com.dactor.clinic.domain.util.FileCompressor.compressUri(
                     context = context,
                     uri = uri,
-                    fallbackFileName = "medical_degree.jpg"
+                    fallbackFileName = resolvedName
                 )
                 if (compressed != null) {
                     certificateFileName = compressed.fileName

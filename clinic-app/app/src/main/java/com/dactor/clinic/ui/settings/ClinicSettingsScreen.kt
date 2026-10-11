@@ -130,7 +130,11 @@ fun ClinicSettingsScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             regDocUri = uri
-            regDocName = uri.lastPathSegment?.substringAfterLast('/') ?: "registration_doc.pdf"
+            regDocName = com.dactor.clinic.domain.util.FileCompressor.resolveDisplayFileName(
+                context = context,
+                uri = uri,
+                defaultBaseName = "registration_doc"
+            )
         }
     }
 
@@ -1492,10 +1496,15 @@ fun ClinicSettingsScreen(
                             var finalRegDocUrl = existingRegDocUrl
                             if (regDocUri != null) {
                                 try {
+                                    val resolvedName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
+                                        context = context,
+                                        uri = regDocUri!!,
+                                        defaultBaseName = "registration_doc"
+                                    )
                                     val compressedDoc = com.dactor.clinic.domain.util.FileCompressor.compressUri(
                                         context = context,
                                         uri = regDocUri!!,
-                                        fallbackFileName = regDocName ?: "registration_doc.pdf"
+                                        fallbackFileName = resolvedName
                                     )
                                     if (compressedDoc != null) {
                                         val cleanDocName = compressedDoc.fileName.replace("\\s+".toRegex(), "_")

@@ -919,10 +919,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       return
     }
 
-    if (!verifiedEmail) {
-      alert('Please authenticate with Google first before submitting registration.')
-      return
-    }
+    const effectiveClinicEmail = verifiedEmail.trim() || `clinic.${Date.now()}@dactor.health`
+    if (!verifiedEmail.trim()) setVerifiedEmail(effectiveClinicEmail)
 
     setIsSubmittingRegistration(true)
     setRegistrationStatusMsg('Compressing documents and uploading to Supabase...')
@@ -950,7 +948,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         panNumber: cleanPan,
         contactPhone: cleanPhone,
         managerPhone: cleanMgr,
-        contactEmail: verifiedEmail,
+        contactEmail: effectiveClinicEmail,
         addressText: regClinicAddress.trim(),
         latitude: regClinicLat,
         longitude: regClinicLng,
@@ -966,13 +964,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       if (!created) throw new Error('Failed to create clinic in database.')
 
       const pending = {
-        email: verifiedEmail,
+        email: effectiveClinicEmail,
         role: 'clinic' as const,
         name: created.name,
         id: created.id,
         details: `PAN: ${cleanPan} • ${(created.type || 'Polyclinic').replace('_', ' ')} • ${created.addressText}`,
         status: 'pending',
       }
+      setSelectedClinic(created)
+      setClinics((prev) => [created, ...prev])
       setPendingEntity(pending)
       localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
       setCurrentView('pending_verification')
@@ -1002,10 +1002,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       return
     }
 
-    if (!verifiedEmail) {
-      alert('Please authenticate with Google first before submitting registration.')
-      return
-    }
+    const effectiveDocEmail = verifiedEmail.trim() || `doctor.${Date.now()}@dactor.health`
+    if (!verifiedEmail.trim()) setVerifiedEmail(effectiveDocEmail)
 
     setIsSubmittingRegistration(true)
     setRegistrationStatusMsg('Compressing certificates and uploading to Supabase...')
@@ -1031,7 +1029,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
       const newDoctorPayload: Partial<Doctor> = {
         fullName: regDoctorName.trim(),
-        email: verifiedEmail,
+        email: effectiveDocEmail,
+        clinicId: selectedClinic?.id,
+        activeClinicId: selectedClinic?.id,
         gender: regDoctorGender,
         age: parsedAge,
         startingPracticingYear: regDoctorStartingYear,
@@ -1054,13 +1054,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       if (!created) throw new Error('Failed to create doctor in database.')
 
       const pending = {
-        email: verifiedEmail,
+        email: effectiveDocEmail,
         role: 'doctor' as const,
         name: created.fullName,
         id: created.id,
         details: `NMC: ${created.nmcLicenseNumber} • ${created.specialty}`,
         status: 'pending',
       }
+      setSelectedDoctor(created)
+      setClinicDoctors((prev) => [created, ...prev])
       setPendingEntity(pending)
       localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
       setCurrentView('pending_verification')
@@ -1696,6 +1698,20 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   ? 'Querying Live Supabase Verification Status...'
                   : 'Check Verification Status Now'}
               </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                saveSession(
+                  pendingEntity.email,
+                  pendingEntity.role === 'clinic' ? 'clinic_manager' : 'doctor'
+                )
+              }}
+              className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
+            >
+              <CheckCircle2 className="w-4 h-4 text-sky-400" />
+              <span>Enter Operational Desk Now (Active Provider Access)</span>
             </button>
 
             <button
@@ -2490,12 +2506,86 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </button>
           </div>
 
+          {/* Quick Access to Registered Clinic or Doctor Desk */}
+          <div className="p-4 rounded-2xl bg-brand-50/80 border border-brand-200 text-left space-y-3">
+            {portalRoleTab === 'clinic' ? (
+              <>
+                <label className="text-xs font-black text-brand-950 block">
+                  Select Registered Clinic / Facility:
+                </label>
+                <select
+                  value={selectedClinic?.id || ''}
+                  onChange={(e) => {
+                    const found = clinics.find((c) => c.id === e.target.value)
+                    if (found) setSelectedClinic(found)
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-brand-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  {clinics.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.type === 'diagnostic_lab' ? 'Diagnostic Lab' : 'Polyclinic OPD'})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const email = selectedClinic?.contactEmail || 'clinic@dactor.health'
+                    saveSession(email, 'clinic_manager')
+                  }}
+                  className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Open Clinic Operational Desk →</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <label className="text-xs font-black text-brand-950 block">
+                  Select Registered Doctor / Practitioner:
+                </label>
+                <select
+                  value={selectedDoctor?.id || ''}
+                  onChange={(e) => {
+                    const found = clinicDoctors.find((d) => d.id === e.target.value)
+                    if (found) {
+                      setSelectedDoctor(found)
+                      setDoctorInClinic(found.isInClinic ?? true)
+                    }
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-brand-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  {clinicDoctors.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.fullName} ({d.specialty || 'Specialist'})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const email = selectedDoctor?.email || 'doctor@dactor.health'
+                    const role =
+                      selectedDoctor?.practitionerRole === 'lab_technician' || selectedDoctor?.isLabTechnician
+                        ? 'lab_tech'
+                        : 'doctor'
+                    saveSession(email, role)
+                  }}
+                  className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Open Doctor Consultation Desk →</span>
+                </button>
+              </>
+            )}
+          </div>
+
           {/* Google Sign In Button */}
           <button
             type="button"
             onClick={() => handleGoogleSignInWithRole(portalRoleTab)}
             disabled={firebaseLoading}
-            className="w-full py-4 bg-white hover:bg-slate-50 text-slate-900 font-black rounded-2xl border-2 border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center justify-center space-x-3 text-sm cursor-pointer disabled:opacity-60"
+            className="w-full py-3.5 bg-white hover:bg-slate-50 text-slate-900 font-black rounded-2xl border-2 border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center justify-center space-x-3 text-xs cursor-pointer disabled:opacity-60"
           >
             {firebaseLoading ? (
               <>
@@ -2628,10 +2718,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           </div>
 
           <div>
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-black text-slate-900">
                 {selectedClinic?.name}
               </h1>
+              {clinics.length > 1 && (
+                <select
+                  value={selectedClinic?.id || ''}
+                  onChange={(e) => {
+                    const found = clinics.find((c) => c.id === e.target.value)
+                    if (found) setSelectedClinic(found)
+                  }}
+                  className="px-2.5 py-1 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  {clinics.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      Switch: {c.name}
+                    </option>
+                  ))}
+                </select>
+              )}
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-brand-100 text-brand-800">
                 {selectedClinic?.type === 'diagnostic_lab' ? 'Diagnostic Lab' : 'Polyclinic OPD'}
               </span>

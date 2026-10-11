@@ -133,11 +133,7 @@ export async function getDoctorsByClinic(clinicId: string): Promise<Doctor[]> {
       .order('full_name', { ascending: true })
 
     if (error) throw error
-    const mapped = (data || []).map(mapDoctor)
-    if (mapped.length > 0) return mapped
-
-    // Fallback: if no doctor is explicitly linked to this clinic ID yet, return available doctors
-    return await getDoctors()
+    return (data || []).map(mapDoctor)
   } catch (err) {
     console.error('Error fetching clinic doctors:', err)
     return []
@@ -306,25 +302,27 @@ export async function getAppointmentsByDoctor(doctorId: string, date?: string): 
   }
 }
 
-export async function createAppointment(appt: Partial<Appointment>): Promise<Appointment | null> {
+export async function createAppointment(appt: Partial<Appointment> & { slotId?: string }): Promise<Appointment | null> {
   try {
     const code10 = appt.trackingCode10Digit || generate10DigitTrackingCode()
     const apptId = appt.id || crypto.randomUUID()
     const isWalkin = appt.notes?.toLowerCase().includes('walk-in') || false
+    const apptDate = appt.appointmentDate || new Date().toISOString().split('T')[0]
+    const apptTime = formatTimeForPostgres(appt.appointmentTime)
 
     const dbPayload: any = {
       id: apptId,
       tracking_code_10_digit: code10,
-      user_id: appt.userId || null,
+      user_id: appt.userId && appt.userId.length === 36 ? appt.userId : null,
       clinic_id: appt.clinicId,
       doctor_id: appt.doctorId || null,
-      patient_name: appt.patientName || 'Walk-in Patient',
-      patient_age: Number(appt.patientAge) || 25,
-      patient_gender: appt.patientGender || 'Male',
-      patient_mobile: appt.patientMobile || '9800000000',
+      patient_name: appt.patientName || 'Patient',
+      patient_age: Number(appt.patientAge) || 1,
+      patient_gender: appt.patientGender || 'Other',
+      patient_mobile: appt.patientMobile || '',
       patient_email: appt.patientEmail || null,
-      appointment_date: appt.appointmentDate || new Date().toISOString().split('T')[0],
-      appointment_time: formatTimeForPostgres(appt.appointmentTime),
+      appointment_date: apptDate,
+      appointment_time: apptTime,
       checkin_status: 'checked_in',
       payment_status: normalizePaymentStatus(appt.paymentStatus),
       fee_amount: Number(appt.feeAmount) || 0,
@@ -344,6 +342,7 @@ export async function createAppointment(appt: Partial<Appointment>): Promise<App
     if (error) throw error
 
     // Enroll into live queue_entries automatically
+    let nextPos = 1
     try {
       const { data: existingQueue } = await supabase
         .from('queue_entries')
@@ -352,7 +351,7 @@ export async function createAppointment(appt: Partial<Appointment>): Promise<App
         .order('queue_position', { ascending: false })
         .limit(1)
 
-      const nextPos = ((existingQueue?.[0]?.queue_position as number) || 0) + 1
+      nextPos = ((existingQueue?.[0]?.queue_position as number) || 0) + 1
 
       await supabase.from('queue_entries').insert({
         id: crypto.randomUUID(),
@@ -366,7 +365,44 @@ export async function createAppointment(appt: Partial<Appointment>): Promise<App
       console.warn('Queue entry auto-enroll warning:', qErr)
     }
 
-    return data ? mapAppointment({ ...data, queue_entries: [{ status: 'waiting', queue_position: 1 }] }) : null
+    // Increment slot booked_count if applicable
+    try {
+      if (appt.slotId) {
+        const { data: slotRow } = await supabase.from('slots').select('booked_count').eq('id', appt.slotId).maybeSingle()
+        if (slotRow) {
+          await supabase.from('slots').update({ booked_count: (Number(slotRow.booked_count) || 0) + 1 }).eq('id', appt.slotId)
+        }
+      } else if (appt.clinicId) {
+        const { data: slotRow } = await supabase
+          .from('slots')
+          .select('id, booked_count')
+          .eq('clinic_id', appt.clinicId)
+          .eq('slot_date', apptDate)
+          .eq('start_time', apptTime)
+          .maybeSingle()
+        if (slotRow) {
+          await supabase.from('slots').update({ booked_count: (Number(slotRow.booked_count) || 0) + 1 }).eq('id', slotRow.id)
+        }
+      }
+    } catch {}
+
+    // Create automatic appointment confirmation notification in Supabase
+    try {
+      const clinicName = data?.clinic?.name || 'Clinic'
+      await supabase.from('notifications').insert({
+        id: crypto.randomUUID(),
+        appointment_id: apptId,
+        user_id: appt.userId && appt.userId.length === 36 ? appt.userId : null,
+        title: `Appointment Confirmed • Token #${nextPos}`,
+        message: `Your appointment at ${clinicName} on ${apptDate} (${appt.appointmentTime || apptTime}) is confirmed. 10-Digit Tracking Code: ${code10}`,
+        type: 'queue_alert',
+        target_audience: 'specific',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      })
+    } catch {}
+
+    return data ? mapAppointment({ ...data, queue_entries: [{ status: 'waiting', queue_position: nextPos }] }) : null
   } catch (err) {
     console.error('Error creating appointment:', err)
     return null
@@ -581,9 +617,10 @@ export async function getLabReportsByClinic(clinicId: string): Promise<LabReport
 
 export async function saveLabReport(report: Partial<LabReport>): Promise<LabReport | null> {
   try {
+    const rStatus = (report.status as string) || 'processing'
     let stage: 'sample_collected' | 'processing' | 'prepared' = 'processing'
-    if (report.status === 'sample_collected') stage = 'sample_collected'
-    else if (report.status === 'ready' || (report.status as string) === 'prepared') stage = 'prepared'
+    if (rStatus === 'sample_collected') stage = 'sample_collected'
+    else if (rStatus === 'ready' || rStatus === 'prepared' || rStatus === 'delivered') stage = 'prepared'
 
     const dbPayload: any = {
       id: report.id || crypto.randomUUID(),
@@ -676,6 +713,73 @@ export async function getClinicNotifications(_clinicId: string): Promise<DactorN
   } catch (err) {
     console.error('Error fetching notifications:', err)
     return []
+  }
+}
+
+export async function getPatientNotifications(criteria?: {
+  userId?: string
+  appointmentIds?: string[]
+  trackingCodes?: string[]
+}): Promise<DactorNotification[]> {
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (error) throw error
+    const rows = data || []
+    const userId = criteria?.userId?.trim()
+    const apptSet = new Set((criteria?.appointmentIds || []).filter(Boolean))
+    const codeSet = new Set((criteria?.trackingCodes || []).map((c) => c.trim()).filter(Boolean))
+    const hasPersonalFilter = Boolean(userId || apptSet.size > 0 || codeSet.size > 0)
+
+    const filtered = rows.filter((n: any) => {
+      if (n.target_audience === 'all_users' || n.type === 'clinic_broadcast') {
+        return true
+      }
+      if (!hasPersonalFilter) {
+        return true
+      }
+      if (userId && n.user_id === userId) return true
+      if (n.appointment_id && apptSet.has(n.appointment_id)) return true
+      const text = `${n.title || ''} ${n.message || ''} ${n.meta_json || ''}`
+      for (const code of codeSet) {
+        if (code && text.includes(code)) return true
+      }
+      return false
+    })
+
+    return filtered.map(mapNotification)
+  } catch (err) {
+    console.error('Error fetching patient notifications:', err)
+    return []
+  }
+}
+
+export async function markNotificationAsRead(notificationId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', notificationId)
+    return !error
+  } catch {
+    return false
+  }
+}
+
+export async function markAllNotificationsAsRead(notificationIds: string[]): Promise<boolean> {
+  try {
+    if (!notificationIds || notificationIds.length === 0) return true
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .in('id', notificationIds)
+    return !error
+  } catch {
+    return false
   }
 }
 
@@ -927,7 +1031,6 @@ export async function updateDoctor(doctorId: string, updates: Partial<Doctor>): 
     if (updates.nmcLicenseNumber !== undefined) payload.nmc_license_number = updates.nmcLicenseNumber
     if (updates.startingPracticingYear !== undefined) {
       payload.starting_practicing_year = updates.startingPracticingYear
-      payload.experience_years = 2026 - updates.startingPracticingYear
     }
     if (updates.consultationFee !== undefined) payload.consultation_fee = updates.consultationFee
     if (updates.isInClinic !== undefined) payload.is_in_clinic = updates.isInClinic
@@ -946,33 +1049,21 @@ export async function sendManualNotification(
   appointmentId: string,
   title: string,
   message: string,
-  estimatedTimeLeft?: string,
-  expectedTime?: string,
-  trackingCode?: string,
+  _estimatedTimeLeft?: string,
+  _expectedTime?: string,
+  _trackingCode?: string,
   userId?: string,
-  clinicId?: string
+  _clinicId?: string
 ): Promise<boolean> {
   try {
-    const metaObj = {
-      meta_version: 1,
-      audience: 'specific',
-      category: 'queue_alert',
-      left_label: 'Estimated Time Left',
-      left_value: estimatedTimeLeft || 'Soon, be ready',
-      right_label: 'Your Appointment Time',
-      right_value: expectedTime || 'Soon, be ready',
-      tracking_code: trackingCode || '',
-    }
-
     const { error } = await supabase.from('notifications').insert({
       id: crypto.randomUUID(),
-      appointment_id: appointmentId.length === 36 ? appointmentId : null,
-      user_id: userId || null,
-      clinic_id: clinicId || null,
+      appointment_id: appointmentId && appointmentId.length === 36 ? appointmentId : null,
+      user_id: userId && userId.length === 36 ? userId : null,
       title: title.trim(),
       message: message.trim(),
       type: 'queue_alert',
-      meta_json: JSON.stringify(metaObj),
+      target_audience: 'specific',
       is_read: false,
       created_at: new Date().toISOString(),
     })
@@ -989,7 +1080,7 @@ export async function searchPatientRecords(clinicId: string, searchQuery: string
 
     const { data, error } = await supabase
       .from('appointments')
-      .select('*, doctor:doctors(*)')
+      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
       .eq('clinic_id', clinicId)
       .or(`tracking_code_10_digit.ilike.%${q}%,patient_mobile.ilike.%${q}%,patient_name.ilike.%${q}%`)
       .order('appointment_date', { ascending: false })
@@ -1099,33 +1190,67 @@ function mapClinic(c: any): Clinic {
 }
 
 function mapDoctor(d: any): Doctor {
+  let certMeta: any = {}
+  if (d.certificates_doc_url && typeof d.certificates_doc_url === 'string' && d.certificates_doc_url.trim().startsWith('{')) {
+    try {
+      certMeta = JSON.parse(d.certificates_doc_url)
+    } catch {}
+  }
+
+  const startYear = d.starting_practicing_year || certMeta.starting_practicing_year || 2018
+  const role = d.practitioner_role || certMeta.practitioner_role || 'doctor'
+
   return {
     id: d.id,
     fullName: d.full_name,
     email: d.email,
     specialty: d.specialty,
-    specialties: d.specialties || (d.specialty ? [d.specialty] : []),
-    education: d.education,
+    specialties: d.specialties && d.specialties.length > 0 ? d.specialties : (d.specialty ? [d.specialty] : []),
+    education: d.education || certMeta.education || 'MBBS',
     nmcLicenseNumber: d.nmc_license_number,
-    experienceYears: d.experience_years,
-    startingPracticingYear: d.starting_practicing_year,
-    gender: d.gender,
-    age: d.age,
-    personalMobileNumber: d.personal_mobile_number,
-    publicMobileNumber: d.public_mobile_number,
-    consultationFee: d.consultation_fee,
-    isInClinic: d.is_in_clinic,
+    experienceYears: d.experience_years || Math.max(1, 2026 - startYear),
+    startingPracticingYear: startYear,
+    gender: d.gender || certMeta.gender || 'Male',
+    age: d.age || certMeta.age || 35,
+    personalMobileNumber: d.personal_mobile_number || certMeta.personal_mobile_number,
+    publicMobileNumber: d.public_mobile_number || certMeta.public_mobile_number,
+    consultationFee: Number(d.consultation_fee || 500),
+    isInClinic: d.is_in_clinic ?? true,
     clinicId: d.clinic_id,
-    activeClinicId: d.active_clinic_id,
+    activeClinicId: d.active_clinic_id || d.clinic_id,
     kycStatus: d.kyc_status,
-    profilePictureUrl: d.profile_picture_url,
-    description: d.description,
-    practitionerRole: d.practitioner_role,
-    isLabTechnician: d.practitioner_role === 'lab_technician' || (d.specialty && d.specialty.toLowerCase().includes('lab')),
+    profilePictureUrl: d.profile_picture_url || certMeta.profile_picture_url,
+    description: d.description || certMeta.description,
+    practitionerRole: role,
+    isLabTechnician: role === 'lab_technician' || (d.specialty && d.specialty.toLowerCase().includes('lab')),
   }
 }
 
 function mapAppointment(a: any): Appointment {
+  const qe = Array.isArray(a.queue_entries) ? a.queue_entries[0] : a.queue_entries
+  let derivedStatus = 'waiting'
+
+  if (qe?.status) {
+    if (qe.status === 'inside') derivedStatus = 'in_consultation'
+    else if (qe.status === 'done') derivedStatus = 'completed'
+    else if (qe.status === 'no_show') derivedStatus = 'cancelled'
+    else if (qe.status === 'sample_collected') derivedStatus = 'sample_collected'
+    else if (qe.status === 'processing') derivedStatus = 'processing'
+    else if (qe.status === 'report_prepared') derivedStatus = 'report_prepared'
+    else derivedStatus = 'waiting'
+  } else if (a.checkin_status && !['checked_in', 'not_checked_in'].includes(a.checkin_status)) {
+    derivedStatus = a.checkin_status
+  }
+
+  let parsedTests: string[] = []
+  if (Array.isArray(a.selected_tests)) {
+    parsedTests = a.selected_tests
+  } else if (typeof a.selected_lab_tests === 'string' && a.selected_lab_tests.trim().startsWith('[')) {
+    try {
+      parsedTests = JSON.parse(a.selected_lab_tests)
+    } catch {}
+  }
+
   return {
     id: a.id,
     trackingCode10Digit: a.tracking_code_10_digit,
@@ -1139,14 +1264,14 @@ function mapAppointment(a: any): Appointment {
     patientEmail: a.patient_email,
     appointmentDate: a.appointment_date,
     appointmentTime: a.appointment_time,
-    checkinStatus: a.checkin_status,
-    paymentStatus: a.payment_status,
+    checkinStatus: derivedStatus as any,
+    paymentStatus: a.payment_status === 'pending' ? 'unpaid' : (a.payment_status || 'unpaid'),
     feeAmount: Number(a.fee_amount || 0),
-    queueNumber: a.queue_number,
-    notes: a.notes,
+    queueNumber: qe?.queue_position || a.queue_number || 1,
+    notes: a.notes || (a.is_walkin ? 'Walk-In Reception Registration' : ''),
     createdAt: a.created_at,
-    updatedAt: a.updated_at,
-    selectedTests: a.selected_tests || [],
+    updatedAt: qe?.updated_at || a.updated_at,
+    selectedTests: parsedTests,
     clinic: a.clinic ? mapClinic(a.clinic) : undefined,
     doctor: a.doctor ? mapDoctor(a.doctor) : undefined,
   }
@@ -1172,27 +1297,37 @@ function mapService(s: any): ClinicService {
     clinicId: s.clinic_id,
     serviceName: s.service_name,
     price: Number(s.price || 0),
-    category: s.category,
+    category: s.category || s.description || 'Diagnostic Test',
     description: s.description,
     isAvailable: s.is_available ?? true,
   }
 }
 
 function mapLabReport(r: any): LabReport {
+  let mappedStatus: any = r.status || r.stage || 'processing'
+  if (mappedStatus === 'prepared') mappedStatus = 'ready'
+
   return {
     id: r.id,
     appointmentId: r.appointment_id,
-    trackingCode10Digit: r.tracking_code_10_digit,
-    patientName: r.patient_name,
+    trackingCode10Digit:
+      r.tracking_code_10_digit ||
+      r.appointment?.tracking_code_10_digit ||
+      '',
+    patientName:
+      r.patient_name ||
+      r.patient_name_verification ||
+      r.appointment?.patient_name ||
+      'Patient',
     clinicId: r.clinic_id,
     testName: r.test_name,
-    reportFileUrl: r.report_file_url,
-    reportFileType: r.report_file_type,
-    status: r.status,
-    uploadedAt: r.uploaded_at,
+    reportFileUrl: r.report_file_url || r.file_url,
+    reportFileType: r.report_file_type || r.file_type || 'pdf',
+    status: mappedStatus,
+    uploadedAt: r.uploaded_at || r.created_at,
     sampleCollectedAt: r.sample_collected_at,
     preparedAt: r.prepared_at,
-    technicianNotes: r.technician_notes,
+    technicianNotes: r.technician_notes || r.file_name,
   }
 }
 
@@ -1235,7 +1370,7 @@ function mapBillingInvoice(b: any): BillingInvoice {
     totalAmount: Number(b.total_amount || 0),
     paidAmount: Number(b.paid_amount || 0),
     balanceDue: Number(b.balance_due || 0),
-    paymentStatus: b.payment_status || 'unpaid',
+    paymentStatus: b.payment_status === 'pending' ? 'unpaid' : (b.payment_status || 'unpaid'),
     paidAt: b.paid_at,
     remarks: b.remarks,
     receiptUrl: b.receipt_url,
@@ -1454,7 +1589,7 @@ export async function getAppointmentsByPatient(criteria: {
 
     const { data, error } = await supabase
       .from('appointments')
-      .select('*, clinic:clinics(*), doctor:doctors(*)')
+      .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
       .or(filters.join(','))
       .order('appointment_date', { ascending: false })
       .order('created_at', { ascending: false })
@@ -1467,65 +1602,42 @@ export async function getAppointmentsByPatient(criteria: {
   }
 }
 
-export async function cancelAppointment(appointmentId: string, reason?: string): Promise<boolean> {
-  try {
-    const { error } = await supabase
-      .from('appointments')
-      .update({
-        checkinStatus: 'cancelled',
-        notes: reason ? `Cancelled by patient: ${reason}` : 'Cancelled by patient',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', appointmentId)
-
-    return !error
-  } catch {
-    return false
-  }
+export async function cancelAppointment(appointmentId: string, _reason?: string): Promise<boolean> {
+  return await updateAppointmentStatus(appointmentId, 'cancelled')
 }
 
 export async function getClinicPaymentConfig(clinicId: string): Promise<PaymentGatewaysConfig | null> {
   try {
     const { data, error } = await supabase
       .from('clinics')
-      .select('payment_gateways_config, esewa_merchant_code, khalti_public_key, fonepay_merchant_id')
+      .select('payment_gateway_provider, merchant_id, is_direct_payment_enabled')
       .eq('id', clinicId)
       .single()
 
     if (error || !data) return null
 
-    if (data.payment_gateways_config) {
-      try {
-        const parsed = typeof data.payment_gateways_config === 'string'
-          ? JSON.parse(data.payment_gateways_config)
-          : data.payment_gateways_config
-        return parsed
-      } catch {}
-    }
-
-    // Fallback: build config from legacy fields
     return {
       esewa: {
         id: 'esewa',
         title: 'eSewa Mobile Wallet',
-        accountIdentifier: data.esewa_merchant_code || 'EPAYTEST',
-        merchantCode: data.esewa_merchant_code || 'EPAYTEST',
+        accountIdentifier: data.merchant_id || 'EPAYTEST',
+        merchantCode: data.merchant_id || 'EPAYTEST',
         testBypassEnabled: true,
         isEnabled: true,
       },
       khalti: {
         id: 'khalti',
         title: 'Khalti Digital Wallet',
-        accountIdentifier: data.khalti_public_key || 'test_public_key',
-        merchantCode: data.khalti_public_key,
+        accountIdentifier: 'test_public_key',
+        merchantCode: 'test_public_key',
         testBypassEnabled: true,
         isEnabled: true,
       },
       fonepay: {
         id: 'fonepay',
         title: 'Fonepay QR / Direct Banking',
-        accountIdentifier: data.fonepay_merchant_id || 'FONEPAYTEST',
-        merchantCode: data.fonepay_merchant_id,
+        accountIdentifier: data.merchant_id || 'FONEPAYTEST',
+        merchantCode: data.merchant_id,
         testBypassEnabled: true,
         isEnabled: true,
       },
@@ -1553,12 +1665,13 @@ export async function recordPaymentTransaction(record: {
   try {
     const txnId = record.transactionId || `TXN-${record.trackingCode}-${Date.now().toString().slice(-4)}`
     const nowIso = new Date().toISOString()
+    const dbPayStatus = normalizePaymentStatus(record.paymentStatus)
 
     // 1. Update appointment payment status
     await supabase
       .from('appointments')
       .update({
-        payment_status: record.paymentStatus,
+        payment_status: dbPayStatus,
         updated_at: nowIso,
       })
       .eq('id', record.appointmentId)
@@ -1569,10 +1682,10 @@ export async function recordPaymentTransaction(record: {
       appointment_id: record.appointmentId,
       clinic_id: record.clinicId,
       total_amount: record.amount,
-      paid_amount: record.paymentStatus === 'paid' ? record.amount : 0,
-      balance_due: record.paymentStatus === 'paid' ? 0 : record.amount,
-      payment_status: record.paymentStatus,
-      paid_at: record.paymentStatus === 'paid' ? nowIso : null,
+      paid_amount: dbPayStatus === 'paid' ? record.amount : 0,
+      balance_due: dbPayStatus === 'paid' ? 0 : record.amount,
+      payment_status: dbPayStatus,
+      paid_at: dbPayStatus === 'paid' ? nowIso : null,
       remarks: `Method: ${record.paymentMethod} (Txn: ${txnId}) • ${record.notes || ''}`.trim(),
     }
 

@@ -10,6 +10,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -55,15 +56,19 @@ object FileCompressor {
     suspend fun compressUri(
         context: Context,
         uri: Uri,
-        fallbackFileName: String = "upload_${System.currentTimeMillis()}.jpg",
+        fallbackFileName: String = "upload_${System.currentTimeMillis()}",
         maxBytes: Int = MAX_FILE_SIZE_BYTES
     ): CompressedFileResult? = withContext(Dispatchers.IO) {
         try {
-            val resolvedName = queryDisplayName(context, uri)
-                ?: uri.lastPathSegment?.substringAfterLast('/')
-                ?: fallbackFileName
             val rawBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: return@withContext null
+            val baseFallback = if (fallbackFileName.contains('.')) fallbackFileName.substringBeforeLast('.') else fallbackFileName
+            val resolvedName = resolveRealFileName(
+                context = context,
+                uri = uri,
+                rawBytes = rawBytes,
+                defaultBaseName = baseFallback.ifBlank { "upload" }
+            )
             compressBytes(rawBytes, resolvedName, maxBytes)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -73,12 +78,38 @@ object FileCompressor {
 
     fun compressBytes(
         rawBytes: ByteArray,
-        fileName: String = "file.jpg",
+        fileName: String = "file",
         maxBytes: Int = MAX_FILE_SIZE_BYTES
     ): CompressedFileResult {
         val originalSize = rawBytes.size
         if (originalSize == 0) {
             return CompressedFileResult(rawBytes, fileName, 0, 0, false)
+        }
+
+        val magicExt = detectExtensionFromBytes(rawBytes)
+        val isPdf = magicExt == "pdf" || isPdfHeader(rawBytes) || fileName.endsWith(".pdf", ignoreCase = true)
+
+        if (isPdf) {
+            val normalizedPdfName = ensureExtension(fileName, "pdf")
+            if (rawBytes.size > maxBytes) {
+                val compressedPdf = compressPdfBytes(rawBytes, maxBytes)
+                if (compressedPdf != null && compressedPdf.size < rawBytes.size) {
+                    return CompressedFileResult(
+                        bytes = compressedPdf,
+                        fileName = normalizedPdfName,
+                        originalSizeBytes = originalSize,
+                        compressedSizeBytes = compressedPdf.size,
+                        wasCompressed = true
+                    )
+                }
+            }
+            return CompressedFileResult(
+                bytes = rawBytes,
+                fileName = normalizedPdfName,
+                originalSizeBytes = originalSize,
+                compressedSizeBytes = rawBytes.size,
+                wasCompressed = false
+            )
         }
 
         val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -95,7 +126,12 @@ object FileCompressor {
             if (compressedImage != null) {
                 val useCompressed = compressedImage.size < rawBytes.size || rawBytes.size > maxBytes
                 val chosenBytes = if (useCompressed) compressedImage else rawBytes
-                val normalizedName = if (useCompressed) ensureJpgExtension(fileName) else fileName
+                val normalizedName = if (useCompressed) {
+                    ensureExtension(fileName, "jpg")
+                } else {
+                    val realExt = magicExt ?: (if (fileName.contains('.')) fileName.substringAfterLast('.').lowercase(Locale.US) else "jpg")
+                    ensureExtension(fileName, realExt)
+                }
                 return CompressedFileResult(
                     bytes = chosenBytes,
                     fileName = normalizedName,
@@ -106,23 +142,11 @@ object FileCompressor {
             }
         }
 
-        val isPdf = fileName.endsWith(".pdf", ignoreCase = true) || isPdfHeader(rawBytes)
-        if (isPdf && rawBytes.size > maxBytes) {
-            val compressedPdf = compressPdfBytes(rawBytes, maxBytes)
-            if (compressedPdf != null && compressedPdf.size < rawBytes.size) {
-                return CompressedFileResult(
-                    bytes = compressedPdf,
-                    fileName = fileName,
-                    originalSizeBytes = originalSize,
-                    compressedSizeBytes = compressedPdf.size,
-                    wasCompressed = true
-                )
-            }
-        }
-
+        val finalExt = magicExt ?: (if (fileName.contains('.')) fileName.substringAfterLast('.').lowercase(Locale.US) else "bin")
+        val normalizedName = ensureExtension(fileName, finalExt)
         return CompressedFileResult(
             bytes = rawBytes,
-            fileName = fileName,
+            fileName = normalizedName,
             originalSizeBytes = originalSize,
             compressedSizeBytes = rawBytes.size,
             wasCompressed = false
@@ -275,18 +299,27 @@ object FileCompressor {
         return inSampleSize
     }
 
-    private fun ensureJpgExtension(fileName: String): String {
-        val clean = fileName.trim().ifBlank { "image.jpg" }
+    fun ensureExtension(fileName: String, targetExt: String): String {
+        val clean = fileName.trim().ifBlank { "file" }
+        val ext = targetExt.trim().lowercase(Locale.US).removePrefix(".")
         val dotIndex = clean.lastIndexOf('.')
-        return if (dotIndex > 0) {
-            val ext = clean.substring(dotIndex + 1).lowercase(Locale.US)
-            if (ext in listOf("jpg", "jpeg")) clean else "${clean.substring(0, dotIndex)}.jpg"
+        return if (dotIndex > 0 && (clean.length - dotIndex) <= 6 && !clean.substring(dotIndex + 1).contains(' ')) {
+            val currentExt = clean.substring(dotIndex + 1).lowercase(Locale.US)
+            if (currentExt == ext || (ext == "jpg" && currentExt == "jpeg")) {
+                clean
+            } else {
+                "${clean.substring(0, dotIndex)}.$ext"
+            }
         } else {
-            "$clean.jpg"
+            "$clean.$ext"
         }
     }
 
-    private fun isPdfHeader(bytes: ByteArray): Boolean {
+    private fun ensureJpgExtension(fileName: String): String {
+        return ensureExtension(fileName, "jpg")
+    }
+
+    fun isPdfHeader(bytes: ByteArray): Boolean {
         return bytes.size >= 4 &&
             bytes[0] == '%'.code.toByte() &&
             bytes[1] == 'P'.code.toByte() &&
@@ -294,14 +327,131 @@ object FileCompressor {
             bytes[3] == 'F'.code.toByte()
     }
 
-    private fun queryDisplayName(context: Context, uri: Uri): String? {
+    /**
+     * Inspects magic header bytes of raw data to determine the 100% true format.
+     */
+    fun detectExtensionFromBytes(bytes: ByteArray): String? {
+        if (bytes.size >= 4) {
+            // PDF: %PDF (0x25, 0x50, 0x44, 0x46)
+            if (bytes[0] == 0x25.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x44.toByte() && bytes[3] == 0x46.toByte()) {
+                return "pdf"
+            }
+            // PNG: 89 50 4E 47
+            if (bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()) {
+                return "png"
+            }
+            // JPEG: FF D8 FF
+            if (bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()) {
+                return "jpg"
+            }
+            // WEBP: RIFF....WEBP
+            if (bytes.size >= 12 &&
+                bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+                bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() && bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte()) {
+                return "webp"
+            }
+            // GIF: GIF87a or GIF89a
+            if (bytes.size >= 6 &&
+                bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte()) {
+                return "gif"
+            }
+        }
+        return null
+    }
+
+    fun getExtensionFromMime(context: Context, uri: Uri): String? {
         return try {
-            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+            val mime = context.contentResolver.getType(uri)
+            if (!mime.isNullOrBlank()) {
+                MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)?.lowercase(Locale.US)
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun queryDisplayName(context: Context, uri: Uri): String? {
+        return try {
+            if (uri.scheme == "content") {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+                }
+            } else if (uri.scheme == "file") {
+                uri.lastPathSegment
+            } else {
+                null
             }
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Resolves the real original filename with its authentic extension (.pdf, .jpg, .png, etc.),
+     * verifying Android OpenableColumns, MIME type, and binary magic bytes.
+     */
+    fun resolveRealFileName(
+        context: Context,
+        uri: Uri,
+        rawBytes: ByteArray? = null,
+        defaultBaseName: String = "document"
+    ): String {
+        val magicExt = rawBytes?.let { detectExtensionFromBytes(it) }
+        val mimeExt = getExtensionFromMime(context, uri)
+        val displayName = queryDisplayName(context, uri)?.trim()
+
+        val nameExt = if (!displayName.isNullOrBlank() && displayName.contains('.')) {
+            val lastDot = displayName.lastIndexOf('.')
+            if ((displayName.length - lastDot) <= 6 && !displayName.substring(lastDot + 1).contains(' ')) {
+                displayName.substring(lastDot + 1).lowercase(Locale.US)
+            } else null
+        } else null
+
+        val validExtensions = setOf("pdf", "jpg", "jpeg", "png", "webp", "gif", "bmp", "doc", "docx", "xls", "xlsx")
+
+        val realExt = when {
+            magicExt != null -> magicExt
+            !nameExt.isNullOrBlank() && validExtensions.contains(nameExt) -> nameExt
+            !mimeExt.isNullOrBlank() && validExtensions.contains(mimeExt) -> mimeExt
+            !mimeExt.isNullOrBlank() -> mimeExt
+            !nameExt.isNullOrBlank() -> nameExt
+            else -> {
+                val mime = try { context.contentResolver.getType(uri)?.lowercase(Locale.US) } catch (_: Exception) { null }
+                if (mime != null && mime.startsWith("image/")) "jpg" else "pdf"
+            }
+        }
+
+        val rawBase = when {
+            !displayName.isNullOrBlank() && displayName.contains('.') -> {
+                val lastDot = displayName.lastIndexOf('.')
+                if ((displayName.length - lastDot) <= 6 && !displayName.substring(lastDot + 1).contains(' ')) {
+                    displayName.substring(0, lastDot)
+                } else displayName
+            }
+            !displayName.isNullOrBlank() && !displayName.startsWith("image:") && !displayName.startsWith("raw:") && !displayName.startsWith("document:") -> displayName
+            else -> {
+                val lastSegment = uri.lastPathSegment?.substringAfterLast('/')?.trim()
+                if (!lastSegment.isNullOrBlank() && !lastSegment.startsWith("image:") && !lastSegment.startsWith("raw:") && !lastSegment.startsWith("document:")) {
+                    if (lastSegment.contains('.')) lastSegment.substringBeforeLast('.') else lastSegment
+                } else {
+                    defaultBaseName
+                }
+            }
+        }
+
+        val cleanBase = rawBase.replace("[^a-zA-Z0-9._-]".toRegex(), "_").trim('_').ifBlank { defaultBaseName }
+        return "$cleanBase.$realExt"
+    }
+
+    /**
+     * Resolves the human-readable display name and extension for UI presentation right after selection.
+     */
+    fun resolveDisplayFileName(
+        context: Context,
+        uri: Uri,
+        defaultBaseName: String = "document"
+    ): String {
+        return resolveRealFileName(context, uri, rawBytes = null, defaultBaseName = defaultBaseName)
     }
 }

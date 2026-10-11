@@ -90,7 +90,11 @@ fun DoctorDashboardScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             editPictureUri = uri
-            editPictureName = uri.lastPathSegment?.substringAfterLast('/') ?: "doctor_photo.jpg"
+            editPictureName = com.dactor.clinic.domain.util.FileCompressor.resolveDisplayFileName(
+                context = context,
+                uri = uri,
+                defaultBaseName = "doctor_photo"
+            )
         }
     }
 
@@ -1390,7 +1394,13 @@ fun DoctorDashboardScreen(
                                     try {
                                         val bytes = context.contentResolver.openInputStream(editPictureUri!!)?.use { it.readBytes() }
                                         if (bytes != null) {
-                                            val cleanPicName = (editPictureName ?: "profile.jpg").replace("\\s+".toRegex(), "_")
+                                            val resolvedName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
+                                                context = context,
+                                                uri = editPictureUri!!,
+                                                rawBytes = bytes,
+                                                defaultBaseName = "doctor_photo"
+                                            )
+                                            val cleanPicName = resolvedName.replace("\\s+".toRegex(), "_")
                                             val fileName = "doc_${targetDoc.id}_${System.currentTimeMillis()}_$cleanPicName"
                                             doctorRepository.uploadProfilePicture(fileName, bytes) ?: targetDoc.profilePictureUrl
                                         } else targetDoc.profilePictureUrl

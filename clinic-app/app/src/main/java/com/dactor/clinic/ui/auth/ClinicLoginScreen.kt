@@ -521,7 +521,11 @@ fun ClinicLoginScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             clinicRegDocUri = uri
-            clinicRegDocName = uri.lastPathSegment?.substringAfterLast('/') ?: "registration_doc.pdf"
+            clinicRegDocName = com.dactor.clinic.domain.util.FileCompressor.resolveDisplayFileName(
+                context = context,
+                uri = uri,
+                defaultBaseName = "registration_doc"
+            )
         }
     }
 
@@ -540,7 +544,11 @@ fun ClinicLoginScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             doctorPictureUri = uri
-            doctorPictureName = uri.lastPathSegment?.substringAfterLast('/') ?: "doctor_photo.jpg"
+            doctorPictureName = com.dactor.clinic.domain.util.FileCompressor.resolveDisplayFileName(
+                context = context,
+                uri = uri,
+                defaultBaseName = "doctor_photo"
+            )
         }
     }
 
@@ -883,7 +891,13 @@ fun ClinicLoginScreen(
                     try {
                         val bytes = context.contentResolver.openInputStream(clinicRegDocUri!!)?.use { it.readBytes() }
                         if (bytes != null) {
-                            val cleanDocName = (clinicRegDocName ?: "doc.pdf").replace("\\s+".toRegex(), "_")
+                            val resolvedDocName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
+                                context = context,
+                                uri = clinicRegDocUri!!,
+                                rawBytes = bytes,
+                                defaultBaseName = "registration_doc"
+                            )
+                            val cleanDocName = resolvedDocName.replace("\\s+".toRegex(), "_")
                             val fileName = "reg_${newId}_${System.currentTimeMillis()}_$cleanDocName"
                             uploadedRegDocUrl = clinicRepository?.uploadClinicFile(fileName, bytes)
                         }
@@ -1048,7 +1062,13 @@ fun ClinicLoginScreen(
                     try {
                         val bytes = context.contentResolver.openInputStream(doctorPictureUri!!)?.use { it.readBytes() }
                         if (bytes != null) {
-                            val cleanPicName = (doctorPictureName ?: "profile.jpg").replace("\\s+".toRegex(), "_")
+                            val resolvedPicName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
+                                context = context,
+                                uri = doctorPictureUri!!,
+                                rawBytes = bytes,
+                                defaultBaseName = "doctor_photo"
+                            )
+                            val cleanPicName = resolvedPicName.replace("\\s+".toRegex(), "_")
                             val fileName = "doc_${newId}_${System.currentTimeMillis()}_$cleanPicName"
                             uploadedProfilePicUrl = doctorRepository?.uploadProfilePicture(fileName, bytes)
                         }

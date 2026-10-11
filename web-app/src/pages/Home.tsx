@@ -111,85 +111,8 @@ export const Home: React.FC<HomeProps> = ({
     async function loadData() {
       try {
         const [cList, dList] = await Promise.all([getClinics(), getDoctors()])
-
-        // If clinics is empty or has only 1, provide rich sample data matching the Android app screenshots
-        let finalClinics = [...cList]
-        if (finalClinics.length === 0) {
-          finalClinics = [
-            {
-              id: 'c-demo-1',
-              name: 'Rajankota02 Clinic',
-              type: 'multi_visit',
-              verificationStatus: 'approved',
-              contactPhone: '9841203841',
-              addressText: 'Kathmandu (Bagbazar)',
-              description: 'Multi-visit specialized clinic with live queue OPD consultations and diagnostic facility.',
-              specialties: ['General Medicine', 'Dermatology', 'Ophthalmology', 'Dental Care'],
-            },
-            {
-              id: 'c-demo-2',
-              name: 'Kathmandu Central Polyclinic & Lab',
-              type: 'multi_visit',
-              verificationStatus: 'approved',
-              contactPhone: '9801234567',
-              addressText: 'Kathmandu (Putalisadak)',
-              description: 'Full-service polyclinic offering specialist OPD appointments and instant lab sample processing.',
-              specialties: ['Cardiology', 'Pediatrics', 'Orthopedics'],
-            },
-            {
-              id: 'c-demo-3',
-              name: 'Patan LifeCare Diagnostic Center',
-              type: 'diagnostic_lab',
-              verificationStatus: 'approved',
-              contactPhone: '9812345678',
-              addressText: 'Lalitpur (Jawalakhel)',
-              description: 'ISO-certified pathology center with 3-stage verified digital report access.',
-              specialties: ['Pathology', 'Biochemistry', 'Microbiology'],
-            },
-          ]
-        }
-
-        let finalDoctors = [...dList]
-        if (finalDoctors.length === 0) {
-          finalDoctors = [
-            {
-              id: 'd-demo-1',
-              fullName: 'Dr. Rajanpurbey55',
-              email: 'dr.rajan@dactor.health',
-              specialty: 'General Physician',
-              education: 'MBBS, MD',
-              consultationFee: 500,
-              isInClinic: true,
-              clinicId: finalClinics[0]?.id,
-              nmcLicenseNumber: 'NMC-18240',
-            },
-            {
-              id: 'd-demo-2',
-              fullName: 'Dr. Aarav Sharma',
-              email: 'dr.aarav@dactor.health',
-              specialty: 'Cardiologist',
-              education: 'MBBS, MD, DM',
-              consultationFee: 800,
-              isInClinic: true,
-              clinicId: finalClinics[1]?.id,
-              nmcLicenseNumber: 'NMC-12048',
-            },
-            {
-              id: 'd-demo-3',
-              fullName: 'Dr. Sunita Karki',
-              email: 'dr.sunita@dactor.health',
-              specialty: 'Dermatologist',
-              education: 'MBBS, MD (Dermatology)',
-              consultationFee: 600,
-              isInClinic: false,
-              clinicId: finalClinics[0]?.id,
-              nmcLicenseNumber: 'NMC-15923',
-            },
-          ]
-        }
-
-        setClinics(finalClinics)
-        setDoctors(finalDoctors)
+        setClinics(cList.filter((c) => !c.isArchived))
+        setDoctors(dList)
       } catch (err) {
         console.error('Failed to load clinics & doctors', err)
       } finally {
@@ -213,7 +136,7 @@ export const Home: React.FC<HomeProps> = ({
       const clinicDocs = doctors.filter(
         (d) => d.clinicId === c.id || (d as any).activeClinicId === c.id
       )
-      const primaryDoc = clinicDocs[0] || doctors[0] || null
+      const primaryDoc = clinicDocs[0] || null
       const hasDocInClinic = clinicDocs.some((d) => d.isInClinic)
 
       return {

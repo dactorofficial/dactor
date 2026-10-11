@@ -2,12 +2,13 @@
 // Connected with Firebase Project: dactor-ea1e1
 
 export const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyBymdhtyr58U3Ms7csIZ5DUBDJ9CLzZreE',
+  apiKey: 'AIzaSyCc1ho812HhFLO3-XeNcDT_1Y68BdpzObU',
   authDomain: 'dactor-ea1e1.firebaseapp.com',
   projectId: 'dactor-ea1e1',
   storageBucket: 'dactor-ea1e1.firebasestorage.app',
   messagingSenderId: '429529188002',
-  appId: '1:429529188002:web:dactor-patient-portal',
+  appId: '1:429529188002:web:cd7cf4e561779910ab79fb',
+  measurementId: 'G-9SK7JVV6XM',
 }
 
 export interface FirebaseAuthUser {
@@ -59,7 +60,7 @@ export async function firebaseSignInWithEmail(
     const user: FirebaseAuthUser = {
       uid: data.localId,
       email: data.email,
-      displayName: data.displayName || email.split('@')[0],
+      displayName: data.displayName || undefined,
       idToken: data.idToken,
       refreshToken: data.refreshToken,
     }
@@ -94,7 +95,7 @@ export async function firebaseSignUpWithEmail(
       return { success: false, error: formatFirebaseError(msg) }
     }
 
-    // Update display name if provided
+    // Update display name only if explicitly provided by user in form
     if (displayName && data.idToken) {
       try {
         const updateUrl = `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${FIREBASE_CONFIG.apiKey}`
@@ -113,7 +114,7 @@ export async function firebaseSignUpWithEmail(
     const user: FirebaseAuthUser = {
       uid: data.localId,
       email: data.email,
-      displayName: displayName || email.split('@')[0],
+      displayName: displayName ? displayName.trim() : undefined,
       idToken: data.idToken,
       refreshToken: data.refreshToken,
     }
@@ -179,9 +180,10 @@ export async function signInWithFirebaseGoogle(): Promise<{
     throw new Error('Google Sign-In did not return valid credentials.')
   }
 
+  // Strictly do NOT auto-fill name, gender, or age from Google account
   const user = {
     email: (result.user.email || '').toLowerCase().trim(),
-    displayName: result.user.displayName || result.user.email?.split('@')[0] || 'User',
+    displayName: undefined,
     uid: result.user.uid || '',
     photoURL: result.user.photoURL || undefined,
   }

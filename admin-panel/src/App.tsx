@@ -17,7 +17,6 @@ import {
   Edit,
   Bell,
   LogOut,
-  ShieldCheck,
   CreditCard,
   Stethoscope,
   Trash2,
@@ -29,6 +28,7 @@ import {
   AlertCircle,
   MapPin,
 } from 'lucide-react'
+import dactorLogo from './assets/logo.png'
 
 function App() {
   const [archivedCount, setArchivedCount] = useState<number>(0)
@@ -186,9 +186,11 @@ function App() {
       {/* Sidebar Navigation */}
       <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col">
         <div className="p-5 flex items-center gap-3 border-b border-slate-800">
-          <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/30">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
+          <img
+            src={dactorLogo}
+            alt="Dactor Logo"
+            className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 shadow-md shadow-indigo-600/30"
+          />
           <div className="min-w-0">
             <div className="font-bold text-base tracking-tight text-white">Dactor Console</div>
             <div className="text-xs text-indigo-400 font-medium truncate" title={adminEmail}>
