@@ -39,6 +39,8 @@ import {
   Sliders,
   AlertTriangle,
   Play,
+  Camera,
+  Lock,
 } from 'lucide-react'
 import {
   Clinic,
@@ -50,12 +52,15 @@ import {
   BillingInvoice,
   Slot,
   DayScheduleInfo,
+  MedicalSpecialty,
+  MedicalQualification,
 } from '../types'
 import {
   getClinics,
   getClinicById,
   getClinicByEmail,
   getDoctorByEmail,
+  getDoctorById,
   getDoctorsByClinic,
   getAppointmentsByClinic,
   updateAppointmentStatus,
@@ -67,7 +72,11 @@ import {
   uploadReportFile,
   getLabReportsByClinic,
   sendBroadcastNotification,
+  createClinic,
   createDoctor,
+  uploadClinicDocument,
+  getMedicalSpecialties,
+  getMedicalQualifications,
   generate10DigitTrackingCode,
   getBillingInvoicesByClinic,
   saveOrUpdateInvoicePayment,
@@ -343,6 +352,48 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null)
   const [clinicDoctors, setClinicDoctors] = useState<Doctor[]>([])
 
+  // Authentication & Verification State Machine
+  const [portalRoleTab, setPortalRoleTab] = useState<'clinic' | 'doctor'>('clinic')
+  const [currentView, setCurrentView] = useState<
+    'auth_choice' | 'register_form' | 'pending_verification' | 'operational_desk'
+  >(() => {
+    try {
+      if (localStorage.getItem('dactor_auth_logged_in') === 'true') {
+        return 'operational_desk'
+      }
+      if (localStorage.getItem('dactor_pending_verification')) {
+        return 'pending_verification'
+      }
+      return 'auth_choice'
+    } catch {
+      return 'auth_choice'
+    }
+  })
+
+  const [pendingEntity, setPendingEntity] = useState<{
+    email: string
+    role: 'clinic' | 'doctor'
+    name: string
+    id: string
+    details: string
+    status: string
+  } | null>(() => {
+    try {
+      const raw = localStorage.getItem('dactor_pending_verification')
+      return raw ? JSON.parse(raw) : null
+    } catch {
+      return null
+    }
+  })
+
+  const [verifiedEmail, setVerifiedEmail] = useState<string>(() => {
+    try {
+      return localStorage.getItem('dactor_auth_email') || ''
+    } catch {
+      return ''
+    }
+  })
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
       return localStorage.getItem('dactor_auth_logged_in') === 'true'
@@ -368,6 +419,55 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   // Google Sign-In Status
   const [firebaseLoading, setFirebaseLoading] = useState(false)
   const [firebaseError, setFirebaseError] = useState<string | null>(null)
+
+  // Taxonomy Lists from Supabase
+  const [medicalSpecialties, setMedicalSpecialties] = useState<MedicalSpecialty[]>([])
+  const [medicalQualifications, setMedicalQualifications] = useState<MedicalQualification[]>([])
+
+  // ==========================================
+  // CLINIC REGISTRATION FORM FIELDS
+  // ==========================================
+  const [regClinicName, setRegClinicName] = useState('')
+  const [regClinicType, setRegClinicType] = useState('opd_clinic')
+  const [regClinicPan, setRegClinicPan] = useState('')
+  const [regClinicPhone, setRegClinicPhone] = useState('')
+  const [regManagerPhone, setRegManagerPhone] = useState('')
+  const [regClinicAddress, setRegClinicAddress] = useState('')
+  const [regClinicLat, setRegClinicLat] = useState<number>(27.7052)
+  const [regClinicLng, setRegClinicLng] = useState<number>(85.3193)
+  const [regClinicSpecialties, setRegClinicSpecialties] = useState<string[]>([])
+  const [regClinicDocFile, setRegClinicDocFile] = useState<File | null>(null)
+  const [regClinicPictures, setRegClinicPictures] = useState<File[]>([])
+  const [regClinicDesc, setRegClinicDesc] = useState('')
+  const [regClinicTermsAccepted, setRegClinicTermsAccepted] = useState(false)
+  const [regClinicErrors, setRegClinicErrors] = useState<{ [key: string]: string }>({})
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false)
+
+  // ==========================================
+  // DOCTOR REGISTRATION & KYC FORM FIELDS
+  // ==========================================
+  const [regDoctorRole, setRegDoctorRole] = useState<'doctor' | 'lab_technician'>('doctor')
+  const [regDoctorName, setRegDoctorName] = useState('')
+  const [regDoctorGender, setRegDoctorGender] = useState('Male')
+  const [regDoctorAge, setRegDoctorAge] = useState('')
+  const [regDoctorStartingYear, setRegDoctorStartingYear] = useState<number>(2020)
+  const [regDoctorSpecialty, setRegDoctorSpecialty] = useState('General Physician')
+  const [regDoctorEducation, setRegDoctorEducation] = useState('MBBS, MD')
+  const [regDoctorNmc, setRegDoctorNmc] = useState('')
+  const [regDoctorPersonalPhone, setRegDoctorPersonalPhone] = useState('')
+  const [regDoctorPublicPhone, setRegDoctorPublicPhone] = useState('')
+  const [regDoctorPhotoFile, setRegDoctorPhotoFile] = useState<File | null>(null)
+  const [regDoctorLicenseFile, setRegDoctorLicenseFile] = useState<File | null>(null)
+  const [regDoctorDegreeFile, setRegDoctorDegreeFile] = useState<File | null>(null)
+  const [regDoctorDesc, setRegDoctorDesc] = useState('')
+  const [regDoctorTermsAccepted, setRegDoctorTermsAccepted] = useState(false)
+  const [regDoctorErrors, setRegDoctorErrors] = useState<{ [key: string]: string }>({})
+
+  // Form submission status & progress
+  const [isSubmittingRegistration, setIsSubmittingRegistration] = useState(false)
+  const [registrationStatusMsg, setRegistrationStatusMsg] = useState<string | null>(null)
+  const [checkingVerification, setCheckingVerification] = useState(false)
+  const [verificationCheckMsg, setVerificationCheckMsg] = useState<string | null>(null)
 
   // Operational desk tabs:
   // 'queue' | 'walkin' | 'future_appts' | 'working_hours' | 'doctors' | 'billing' | 'patients' | 'lab' | 'rates' | 'broadcast' | 'settings'
@@ -499,11 +599,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     practicingYears.push(y)
   }
 
-  // Load Clinics on mount
+  // Load Clinics and Taxonomy on mount
   useEffect(() => {
     async function init() {
-      const cList = await getClinics()
+      const [cList, specs, quals] = await Promise.all([
+        getClinics(),
+        getMedicalSpecialties(),
+        getMedicalQualifications(),
+      ])
       setClinics(cList)
+      setMedicalSpecialties(specs)
+      setMedicalQualifications(quals)
       if (cList.length > 0) {
         setSelectedClinic(cList[0])
         setClinicOnBreak(cList[0].isOnBreak ?? false)
@@ -582,29 +688,117 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setIsAuthenticated(true)
     setAuthEmail(email)
     setAuthRole(role)
+    setCurrentView('operational_desk')
     try {
       localStorage.setItem('dactor_auth_logged_in', 'true')
       localStorage.setItem('dactor_auth_email', email)
       localStorage.setItem('dactor_auth_role', role)
+      localStorage.removeItem('dactor_pending_verification')
       window.dispatchEvent(new Event('storage'))
     } catch {}
   }
 
-  const handleLogout = () => {
+  const resetToAuthChoice = () => {
     setIsAuthenticated(false)
     setAuthEmail(null)
+    setPendingEntity(null)
+    setCurrentView('auth_choice')
     try {
       localStorage.removeItem('dactor_auth_logged_in')
       localStorage.removeItem('dactor_auth_email')
       localStorage.removeItem('dactor_auth_role')
+      localStorage.removeItem('dactor_pending_verification')
       window.dispatchEvent(new Event('storage'))
       signOutFirebase().catch(() => {})
       supabase.auth.signOut().catch(() => {})
     } catch {}
   }
 
-  // Direct Google Sign-In linked to live Supabase database
-  const handleDirectGoogleSignIn = async () => {
+  const handleLogout = () => {
+    resetToAuthChoice()
+  }
+
+  // 1. Process Login & Verification for Email & Role Tab
+  const processLoginForEmail = async (email: string, roleTab: 'clinic' | 'doctor') => {
+    const trimmedEmail = email.trim().toLowerCase()
+    setFirebaseLoading(true)
+    setFirebaseError(null)
+    setVerifiedEmail(trimmedEmail)
+
+    try {
+      if (roleTab === 'clinic') {
+        const existingClinic = await getClinicByEmail(trimmedEmail)
+        if (existingClinic) {
+          const vStatus = (existingClinic.verificationStatus || 'approved').toLowerCase()
+          if (vStatus === 'approved') {
+            setSelectedClinic(existingClinic)
+            saveSession(trimmedEmail, 'clinic_manager')
+          } else {
+            const pending = {
+              email: trimmedEmail,
+              role: 'clinic' as const,
+              name: existingClinic.name,
+              id: existingClinic.id,
+              details: `${(existingClinic.type || 'Polyclinic').replace('_', ' ')} • PAN: ${existingClinic.panNumber || '9-Digit Record'} • ${existingClinic.addressText || 'Nepal'}`,
+              status: vStatus,
+            }
+            setPendingEntity(pending)
+            localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
+            setCurrentView('pending_verification')
+          }
+        } else {
+          // Unregistered clinic -> Open Clinic Registration Form!
+          setRegClinicName('')
+          setRegClinicErrors({})
+          setCurrentView('register_form')
+        }
+      } else {
+        // DOCTOR
+        const existingDoctor = await getDoctorByEmail(trimmedEmail)
+        if (existingDoctor) {
+          const kStatus = (existingDoctor.kycStatus || 'approved').toLowerCase()
+          if (kStatus === 'approved' || kStatus === 'verified') {
+            setSelectedDoctor(existingDoctor)
+            const clinicId = existingDoctor.clinicId || existingDoctor.activeClinicId
+            if (clinicId) {
+              const c = clinics.find((cl) => cl.id === clinicId) || (await getClinicById(clinicId))
+              if (c) setSelectedClinic(c)
+            }
+            const role =
+              existingDoctor.practitionerRole === 'lab_technician' || existingDoctor.isLabTechnician
+                ? 'lab_tech'
+                : 'doctor'
+            saveSession(trimmedEmail, role)
+          } else {
+            const pending = {
+              email: trimmedEmail,
+              role: 'doctor' as const,
+              name: existingDoctor.fullName,
+              id: existingDoctor.id,
+              details: `NMC: ${existingDoctor.nmcLicenseNumber || 'Registered'} • ${existingDoctor.specialty || 'General Physician'}`,
+              status: kStatus,
+            }
+            setPendingEntity(pending)
+            localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
+            setCurrentView('pending_verification')
+          }
+        } else {
+          // Unregistered doctor -> Open Doctor Registration & KYC Form!
+          setRegDoctorName('')
+          setRegDoctorErrors({})
+          setCurrentView('register_form')
+        }
+      }
+    } catch (err: any) {
+      console.error('Error verifying account:', err)
+      setFirebaseError(err.message || 'Error communicating with database')
+    } finally {
+      setFirebaseLoading(false)
+    }
+  }
+
+  // 2. Google OAuth Trigger linked to active Role Tab
+  const handleGoogleSignInWithRole = async (roleTab: 'clinic' | 'doctor') => {
     setFirebaseLoading(true)
     setFirebaseError(null)
     try {
@@ -612,46 +806,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       if (!googleUser || !googleUser.email) {
         throw new Error('Google sign-in did not return user credentials.')
       }
-
-      const email = googleUser.email.toLowerCase().trim()
-
-      // 1. Check if email matches a doctor in Supabase
-      const matchedDoctor = await getDoctorByEmail(email)
-      if (matchedDoctor) {
-        const clinicId = matchedDoctor.clinicId || matchedDoctor.activeClinicId
-        let clinic = clinics.find((c) => c.id === clinicId)
-        if (!clinic && clinicId) {
-          clinic = (await getClinicById(clinicId)) || undefined
-        }
-        if (clinic) {
-          setSelectedClinic(clinic)
-        }
-        setSelectedDoctor(matchedDoctor)
-        const role =
-          matchedDoctor.practitionerRole === 'lab_technician' || matchedDoctor.isLabTechnician
-            ? 'lab_tech'
-            : 'doctor'
-        saveSession(email, role)
-        if (role === 'lab_tech') {
-          setDeskTab('lab')
-        } else {
-          setDeskTab('queue')
-        }
-        return
-      }
-
-      // 2. Check if email matches a clinic in Supabase
-      const matchedClinic = await getClinicByEmail(email)
-      if (matchedClinic) {
-        setSelectedClinic(matchedClinic)
-        saveSession(email, 'clinic_manager')
-        setDeskTab('queue')
-        return
-      }
-
-      // 3. Fallback: Authenticated staff member for the currently selected clinic in dropdown
-      saveSession(email, 'clinic_manager')
-      setDeskTab('queue')
+      await processLoginForEmail(googleUser.email, roleTab)
     } catch (err: any) {
       console.warn('Google Sign-In notice:', err)
       const errCode = err?.code || ''
@@ -666,6 +821,254 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       }
     } finally {
       setFirebaseLoading(false)
+    }
+  }
+
+  // 3. Real-Time Status Verification Checker
+  const checkVerificationStatus = async () => {
+    if (!pendingEntity) return
+    setCheckingVerification(true)
+    setVerificationCheckMsg(null)
+    try {
+      if (pendingEntity.role === 'clinic') {
+        const refreshed = pendingEntity.id
+          ? await getClinicById(pendingEntity.id)
+          : await getClinicByEmail(pendingEntity.email)
+        if (refreshed) {
+          const st = (refreshed.verificationStatus || 'pending').toLowerCase()
+          if (st === 'approved') {
+            setSelectedClinic(refreshed)
+            saveSession(pendingEntity.email, 'clinic_manager')
+            return
+          } else {
+            setPendingEntity({ ...pendingEntity, status: st })
+            localStorage.setItem('dactor_pending_verification', JSON.stringify({ ...pendingEntity, status: st }))
+            setVerificationCheckMsg('Status checked: Registration is still under administrative review.')
+          }
+        }
+      } else {
+        const refreshed = pendingEntity.id
+          ? await getDoctorById(pendingEntity.id)
+          : await getDoctorByEmail(pendingEntity.email)
+        if (refreshed) {
+          const st = (refreshed.kycStatus || 'pending').toLowerCase()
+          if (st === 'approved' || st === 'verified') {
+            setSelectedDoctor(refreshed)
+            const clinicId = refreshed.clinicId || refreshed.activeClinicId
+            if (clinicId) {
+              const c = clinics.find((cl) => cl.id === clinicId) || (await getClinicById(clinicId))
+              if (c) setSelectedClinic(c)
+            }
+            const role =
+              refreshed.practitionerRole === 'lab_technician' || refreshed.isLabTechnician
+                ? 'lab_tech'
+                : 'doctor'
+            saveSession(pendingEntity.email, role)
+            return
+          } else {
+            setPendingEntity({ ...pendingEntity, status: st })
+            localStorage.setItem('dactor_pending_verification', JSON.stringify({ ...pendingEntity, status: st }))
+            setVerificationCheckMsg('Status checked: Medical KYC is still under regulatory review.')
+          }
+        }
+      }
+    } catch (err: any) {
+      setVerificationCheckMsg(err.message || 'Failed to check verification status')
+    } finally {
+      setCheckingVerification(false)
+    }
+  }
+
+  // 4. Browser Geolocation GPS Detector
+  const handleBrowserGPS = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser')
+      return
+    }
+    setIsDetectingLocation(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setRegClinicLat(pos.coords.latitude)
+        setRegClinicLng(pos.coords.longitude)
+        setIsDetectingLocation(false)
+      },
+      () => {
+        setIsDetectingLocation(false)
+        alert('Could not retrieve GPS coordinates automatically. You can enter them manually.')
+      },
+      { timeout: 10000 }
+    )
+  }
+
+  // 5. Submit Clinic Registration
+  const submitClinicRegistration = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const errors: { [key: string]: string } = {}
+    if (regClinicName.trim().length < 2) errors.name = 'Clinic name must be at least 2 characters.'
+    if (regClinicAddress.trim().length < 3) errors.address = 'Physical clinic address is required.'
+    const cleanPan = regClinicPan.replace(/\D/g, '')
+    if (cleanPan.length !== 9) errors.pan = 'PAN number must be exactly 9 digits.'
+    const cleanPhone = regClinicPhone.replace(/\D/g, '')
+    if (cleanPhone.length !== 10 || !cleanPhone.startsWith('9')) errors.phone = 'Clinic phone must be 10 digits starting with 9.'
+    const cleanMgr = regManagerPhone.replace(/\D/g, '')
+    if (cleanMgr.length !== 10 || !cleanMgr.startsWith('9')) errors.managerPhone = 'Manager phone must be 10 digits starting with 9.'
+    if (!regClinicTermsAccepted) errors.terms = 'You must accept the Regulatory Terms & Conditions to register.'
+
+    if (Object.keys(errors).length > 0) {
+      setRegClinicErrors(errors)
+      return
+    }
+
+    if (!verifiedEmail) {
+      alert('Please authenticate with Google first before submitting registration.')
+      return
+    }
+
+    setIsSubmittingRegistration(true)
+    setRegistrationStatusMsg('Compressing documents and uploading to Supabase...')
+
+    try {
+      let regDocUrl: string | undefined
+      if (regClinicDocFile) {
+        const compressed = await compressImage(regClinicDocFile, 500)
+        regDocUrl =
+          (await uploadClinicDocument(`reg_${regClinicDocFile.name}`, compressed, 'clinic_registration_docs')) ||
+          undefined
+      }
+
+      const picUrls: string[] = []
+      for (let i = 0; i < regClinicPictures.length; i++) {
+        const pic = regClinicPictures[i]
+        const compressed = await compressImage(pic, 500)
+        const u = await uploadClinicDocument(`pic_${i}_${pic.name}`, compressed, 'clinic_pictures')
+        if (u) picUrls.push(u)
+      }
+
+      const newClinicPayload: Partial<Clinic> = {
+        name: regClinicName.trim(),
+        type: regClinicType,
+        panNumber: cleanPan,
+        contactPhone: cleanPhone,
+        managerPhone: cleanMgr,
+        contactEmail: verifiedEmail,
+        addressText: regClinicAddress.trim(),
+        latitude: regClinicLat,
+        longitude: regClinicLng,
+        specialties: regClinicSpecialties,
+        description: regClinicDesc.trim(),
+        registrationDocUrl: regDocUrl,
+        pictures: picUrls,
+        verificationStatus: 'pending',
+      }
+
+      setRegistrationStatusMsg('Creating clinic record in Supabase...')
+      const created = await createClinic(newClinicPayload)
+      if (!created) throw new Error('Failed to create clinic in database.')
+
+      const pending = {
+        email: verifiedEmail,
+        role: 'clinic' as const,
+        name: created.name,
+        id: created.id,
+        details: `PAN: ${cleanPan} • ${(created.type || 'Polyclinic').replace('_', ' ')} • ${created.addressText}`,
+        status: 'pending',
+      }
+      setPendingEntity(pending)
+      localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
+      setCurrentView('pending_verification')
+    } catch (err: any) {
+      alert('Error registering clinic: ' + err.message)
+    } finally {
+      setIsSubmittingRegistration(false)
+      setRegistrationStatusMsg(null)
+    }
+  }
+
+  // 6. Submit Doctor Registration & KYC
+  const submitDoctorRegistration = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const errors: { [key: string]: string } = {}
+    if (regDoctorName.trim().length < 3) errors.name = 'Doctor full name must be at least 3 characters.'
+    const parsedAge = parseInt(regDoctorAge, 10)
+    if (isNaN(parsedAge) || parsedAge < 20 || parsedAge > 100) errors.age = 'Age must be between 20 and 100.'
+    if (regDoctorNmc.trim().length < 3) errors.nmc = 'NMC license number is required (min 3 chars).'
+    const cleanPersonal = regDoctorPersonalPhone.replace(/\D/g, '')
+    if (cleanPersonal.length !== 10 || !cleanPersonal.startsWith('9'))
+      errors.personalPhone = 'Personal mobile must be 10 digits starting with 9.'
+    if (!regDoctorTermsAccepted) errors.terms = 'You must accept the NMC Code of Ethics & Terms to register.'
+
+    if (Object.keys(errors).length > 0) {
+      setRegDoctorErrors(errors)
+      return
+    }
+
+    if (!verifiedEmail) {
+      alert('Please authenticate with Google first before submitting registration.')
+      return
+    }
+
+    setIsSubmittingRegistration(true)
+    setRegistrationStatusMsg('Compressing certificates and uploading to Supabase...')
+
+    try {
+      let photoUrl: string | undefined
+      if (regDoctorPhotoFile) {
+        const compressed = await compressImage(regDoctorPhotoFile, 400)
+        photoUrl =
+          (await uploadClinicDocument(`doc_photo_${regDoctorPhotoFile.name}`, compressed, 'doctor_photos')) ||
+          undefined
+      }
+
+      let licenseDocUrl: string | undefined
+      if (regDoctorLicenseFile) {
+        const compressed = await compressImage(regDoctorLicenseFile, 500)
+        licenseDocUrl =
+          (await uploadClinicDocument(`nmc_license_${regDoctorLicenseFile.name}`, compressed, 'doctor_kyc_docs')) ||
+          undefined
+      }
+
+      const cleanPublic = regDoctorPublicPhone.replace(/\D/g, '')
+
+      const newDoctorPayload: Partial<Doctor> = {
+        fullName: regDoctorName.trim(),
+        email: verifiedEmail,
+        gender: regDoctorGender,
+        age: parsedAge,
+        startingPracticingYear: regDoctorStartingYear,
+        specialty: regDoctorSpecialty,
+        specialties: [regDoctorSpecialty],
+        education: regDoctorEducation,
+        nmcLicenseNumber: regDoctorNmc.trim(),
+        personalMobileNumber: cleanPersonal,
+        publicMobileNumber: cleanPublic || undefined,
+        description: regDoctorDesc.trim() || undefined,
+        profilePictureUrl: photoUrl,
+        kycStatus: 'pending',
+        practitionerRole: regDoctorRole,
+        isLabTechnician: regDoctorRole === 'lab_technician',
+        isInClinic: true,
+      }
+
+      setRegistrationStatusMsg('Saving doctor profile and KYC to Supabase...')
+      const created = await createDoctor(newDoctorPayload)
+      if (!created) throw new Error('Failed to create doctor in database.')
+
+      const pending = {
+        email: verifiedEmail,
+        role: 'doctor' as const,
+        name: created.fullName,
+        id: created.id,
+        details: `NMC: ${created.nmcLicenseNumber} • ${created.specialty}`,
+        status: 'pending',
+      }
+      setPendingEntity(pending)
+      localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
+      setCurrentView('pending_verification')
+    } catch (err: any) {
+      alert('Error registering doctor: ' + err.message)
+    } finally {
+      setIsSubmittingRegistration(false)
+      setRegistrationStatusMsg(null)
     }
   }
 
@@ -1220,60 +1623,884 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   )
 
   // ==========================================
-  // VIEW: UNIFIED AUTH / LOGIN SCREEN
+  // VIEW 1: REGULATORY VERIFICATION PENDING SCREEN
   // ==========================================
-  if (!isAuthenticated) {
+  if (currentView === 'pending_verification' && pendingEntity) {
     return (
-      <div className="max-w-xl mx-auto px-4 py-16">
+      <div className="max-w-2xl mx-auto px-4 py-12">
+        <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-amber-200/80 space-y-6">
+          <div className="text-center space-y-3">
+            <div className="w-16 h-16 rounded-3xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+              <Clock className="w-8 h-8 stroke-[2.5]" />
+            </div>
+            <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Under Regulatory Review</span>
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+              Dactor Administration Verification
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-600 max-w-lg mx-auto leading-relaxed">
+              Your registration has been recorded in the Dactor National Healthcare Network. Our clinical oversight committee verifies PAN records, physical location, and Nepal Medical Council (NMC) credentials before activating operational desk access.
+            </p>
+          </div>
+
+          {/* Entity Details Card */}
+          <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-3 text-left">
+            <div className="flex items-center justify-between border-b border-slate-200/80 pb-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  {pendingEntity.role === 'clinic'
+                    ? 'Healthcare Facility Accreditation'
+                    : 'Medical Practitioner KYC'}
+                </span>
+                <h3 className="text-base font-black text-slate-900 mt-0.5">
+                  {pendingEntity.name}
+                </h3>
+              </div>
+              <span className="px-3 py-1 rounded-xl text-xs font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
+                {pendingEntity.status}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <span className="text-slate-400 font-semibold block">Registered Account Email</span>
+                <span className="font-bold text-slate-800">{pendingEntity.email}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-semibold block">Submitted Credentials</span>
+                <span className="font-bold text-slate-800">{pendingEntity.details}</span>
+              </div>
+            </div>
+          </div>
+
+          {verificationCheckMsg && (
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900 flex items-center space-x-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{verificationCheckMsg}</span>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="space-y-3 pt-2">
+            <button
+              type="button"
+              onClick={checkVerificationStatus}
+              disabled={checkingVerification}
+              className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-lg shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer disabled:opacity-60"
+            >
+              <RefreshCw className={`w-4 h-4 ${checkingVerification ? 'animate-spin' : ''}`} />
+              <span>
+                {checkingVerification
+                  ? 'Querying Live Supabase Verification Status...'
+                  : 'Check Verification Status Now'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={resetToAuthChoice}
+              className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition-all text-xs cursor-pointer"
+            >
+              Sign In with a Different Provider Account
+            </button>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 text-center">
+            <p className="text-[11px] text-slate-500">
+              Standard verification completes within 24–48 business hours. For urgent hospital or diagnostic lab onboarding, contact Dactor Regulatory Support at{' '}
+              <span className="font-bold text-slate-700">dactorofficial@gmail.com</span>.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ==========================================
+  // VIEW 2: CLINIC & DOCTOR REGISTRATION FORMS
+  // ==========================================
+  if (currentView === 'register_form') {
+    const defaultSpecialtyList =
+      medicalSpecialties.length > 0
+        ? medicalSpecialties.map((s) => s.name)
+        : [
+            'General Physician',
+            'Pediatrics',
+            'Orthopedics',
+            'Gynecology & Obstetrics',
+            'Dermatology',
+            'Cardiology',
+            'ENT',
+            'Dentistry',
+            'Ophthalmology',
+            'Pathology & Lab Diagnostics',
+            'Psychiatry',
+            'Neurology',
+          ]
+
+    const defaultQualificationList =
+      medicalQualifications.length > 0
+        ? medicalQualifications.map((q) => (q.fullTitle ? `${q.degreeName} (${q.fullTitle})` : q.degreeName))
+        : [
+            'MBBS',
+            'MBBS, MD (Internal Medicine)',
+            'MBBS, MS (General Surgery)',
+            'MBBS, MD (Pediatrics)',
+            'MBBS, MD (Dermatology)',
+            'MBBS, MD (Pathology)',
+            'BDS, MDS',
+            'BMLT / Medical Lab Technologist',
+          ]
+
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-10">
+        <div className="bg-white rounded-3xl p-6 sm:p-10 shadow-2xl border border-slate-200/90 space-y-6">
+          {/* Top Navigation Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <button
+              type="button"
+              onClick={resetToAuthChoice}
+              className="inline-flex items-center space-x-1.5 text-xs font-bold text-slate-500 hover:text-slate-900 cursor-pointer"
+            >
+              <span>← Back to Login Desk</span>
+            </button>
+
+            {/* Role Toggle Pills */}
+            <div className="inline-flex p-1 rounded-xl bg-slate-100 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setPortalRoleTab('clinic')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                  portalRoleTab === 'clinic'
+                    ? 'bg-white text-brand-700 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span>Clinic Registration</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPortalRoleTab('doctor')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                  portalRoleTab === 'doctor'
+                    ? 'bg-white text-brand-700 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Stethoscope className="w-3.5 h-3.5" />
+                <span>Doctor KYC Form</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Verified Email Input / Display */}
+          <div className="p-4 rounded-2xl bg-brand-50/70 border border-brand-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-brand-700 block">
+                Provider Account Email (Required)
+              </span>
+              <p className="text-xs text-slate-600">
+                Your registration and verification status will be bound to this Google email address.
+              </p>
+            </div>
+            <input
+              type="email"
+              value={verifiedEmail}
+              onChange={(e) => setVerifiedEmail(e.target.value)}
+              placeholder="doctor.or.clinic@gmail.com"
+              className="px-3.5 py-2 rounded-xl border border-brand-200 bg-white text-xs font-bold text-slate-800 sm:w-64 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+
+          {portalRoleTab === 'clinic' ? (
+            /* ==========================================
+               SUB-FORM A: CLINIC REGISTRATION FORM
+               ========================================== */
+            <form onSubmit={submitClinicRegistration} className="space-y-6 text-left">
+              <div>
+                <h2 className="text-2xl font-black text-slate-900">
+                  Register Healthcare Facility / Clinic
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Complete all statutory details matching your government registration and 9-digit PAN certificate.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Facility / Clinic Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={regClinicName}
+                    onChange={(e) => setRegClinicName(e.target.value)}
+                    placeholder="e.g. Kathmandu City Polyclinic & Lab"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                  {regClinicErrors.name && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regClinicErrors.name}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Healthcare Facility Type *
+                  </label>
+                  <select
+                    value={regClinicType}
+                    onChange={(e) => setRegClinicType(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    <option value="opd_clinic">OPD Polyclinic & Consultation Center</option>
+                    <option value="diagnostic_lab">Diagnostic Pathology Lab</option>
+                    <option value="polyclinic">Multi-Specialty Hospital / Polyclinic</option>
+                    <option value="dental">Dental Care Clinic</option>
+                    <option value="eye_care">Ophthalmology / Eye Care Center</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    9-Digit PAN Number *
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={9}
+                    value={regClinicPan}
+                    onChange={(e) => setRegClinicPan(e.target.value.replace(/\D/g, ''))}
+                    placeholder="e.g. 609812345"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                  {regClinicErrors.pan && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regClinicErrors.pan}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Clinic Reception Mobile (10 Digits) *
+                  </label>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    value={regClinicPhone}
+                    onChange={(e) => setRegClinicPhone(e.target.value.replace(/\D/g, ''))}
+                    placeholder="98XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                  {regClinicErrors.phone && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regClinicErrors.phone}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Clinic Manager Mobile (10 Digits) *
+                  </label>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    value={regManagerPhone}
+                    onChange={(e) => setRegManagerPhone(e.target.value.replace(/\D/g, ''))}
+                    placeholder="98XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                  {regClinicErrors.managerPhone && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                      {regClinicErrors.managerPhone}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Address & Live GPS */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Full Street Address & Landmark *
+                  </label>
+                  <input
+                    type="text"
+                    value={regClinicAddress}
+                    onChange={(e) => setRegClinicAddress(e.target.value)}
+                    placeholder="e.g. Maharajgunj Chakrapath, Near Teaching Hospital, Kathmandu"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                  {regClinicErrors.address && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                      {regClinicErrors.address}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                      GPS Latitude
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={regClinicLat}
+                      onChange={(e) => setRegClinicLat( parseFloat(e.target.value) || 27.7052 )}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                      GPS Longitude
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={regClinicLng}
+                      onChange={(e) => setRegClinicLng( parseFloat(e.target.value) || 85.3193 )}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleBrowserGPS}
+                    disabled={isDetectingLocation}
+                    className="py-2 px-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs flex items-center justify-center space-x-1.5 cursor-pointer transition-all"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>{isDetectingLocation ? 'Detecting GPS...' : 'Detect Live GPS'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Specialties Multi-Select */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Available Medical Specialties & Departments
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {defaultSpecialtyList.map((spec) => {
+                    const selected = regClinicSpecialties.includes(spec)
+                    return (
+                      <button
+                        key={spec}
+                        type="button"
+                        onClick={() => {
+                          if (selected) {
+                            setRegClinicSpecialties(regClinicSpecialties.filter((s) => s !== spec))
+                          } else {
+                            setRegClinicSpecialties([...regClinicSpecialties, spec])
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          selected
+                            ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {selected ? `✓ ${spec}` : `+ ${spec}`}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* File Uploads (Registration Doc & Facility Photos) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-2">
+                  <div className="flex items-center space-x-2 text-xs font-bold text-slate-800">
+                    <FileText className="w-4 h-4 text-brand-600" />
+                    <span>Government Registration / PAN Certificate</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Auto-compressed to &le;500 KB before uploading to Supabase storage.
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setRegClinicDocFile(e.target.files?.[0] || null)}
+                    className="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-100 file:text-brand-700 hover:file:bg-brand-200"
+                  />
+                  {regClinicDocFile && (
+                    <p className="text-[11px] text-emerald-700 font-bold">
+                      Selected: {regClinicDocFile.name} ({Math.round(regClinicDocFile.size / 1024)} KB)
+                    </p>
+                  )}
+                </div>
+
+                <div className="p-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-2">
+                  <div className="flex items-center space-x-2 text-xs font-bold text-slate-800">
+                    <Camera className="w-4 h-4 text-brand-600" />
+                    <span>Clinic Exterior / Reception Photos</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Displayed to patients in the Dactor app to help identify your building.
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) =>
+                      setRegClinicPictures(e.target.files ? Array.from(e.target.files) : [])
+                    }
+                    className="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-100 file:text-brand-700 hover:file:bg-brand-200"
+                  />
+                  {regClinicPictures.length > 0 && (
+                    <p className="text-[11px] text-emerald-700 font-bold">
+                      {regClinicPictures.length} photo(s) ready for compression & upload
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  About Facility & Patient Services
+                </label>
+                <textarea
+                  rows={2}
+                  value={regClinicDesc}
+                  onChange={(e) => setRegClinicDesc(e.target.value)}
+                  placeholder="Describe available diagnostic equipment, pharmacy, parking, or visiting hours..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+
+              {/* Terms Checkbox */}
+              <label className="flex items-start space-x-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={regClinicTermsAccepted}
+                  onChange={(e) => setRegClinicTermsAccepted(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                />
+                <span className="text-xs text-slate-700 leading-relaxed">
+                  I hereby declare that this healthcare facility holds a valid operating license in Nepal, that the 9-digit PAN number is authentic, and I agree to the{' '}
+                  <span className="font-bold text-slate-900">
+                    Dactor Healthcare Provider Regulatory Terms & Patient Data Protection Policy
+                  </span>
+                  .
+                </span>
+              </label>
+              {regClinicErrors.terms && (
+                <p className="text-[11px] text-rose-600 font-bold">{regClinicErrors.terms}</p>
+              )}
+
+              {registrationStatusMsg && (
+                <div className="p-3.5 rounded-2xl bg-brand-50 border border-brand-200 text-xs font-bold text-brand-800 flex items-center space-x-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-brand-600 shrink-0" />
+                  <span>{registrationStatusMsg}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSubmittingRegistration}
+                className="w-full py-4 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-lg shadow-brand-600/25 transition-all text-sm cursor-pointer disabled:opacity-60"
+              >
+                {isSubmittingRegistration
+                  ? 'Uploading Documents & Creating Clinic Record...'
+                  : 'Submit Clinic Registration for Verification'}
+              </button>
+            </form>
+          ) : (
+            /* ==========================================
+               SUB-FORM B: DOCTOR KYC REGISTRATION FORM
+               ========================================== */
+            <form onSubmit={submitDoctorRegistration} className="space-y-6 text-left">
+              <div>
+                <h2 className="text-2xl font-black text-slate-900">
+                  Doctor Practitioner & Medical KYC Registration
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Submit your Nepal Medical Council (NMC) or NHPC credentials to activate your verified practitioner profile.
+                </p>
+              </div>
+
+              {/* Practitioner Role Selector */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRegDoctorRole('doctor')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center space-x-3 ${
+                    regDoctorRole === 'doctor'
+                      ? 'bg-brand-50/80 border-brand-600 text-brand-900 shadow-sm'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Stethoscope className="w-5 h-5 text-brand-600 shrink-0" />
+                  <div>
+                    <div className="text-xs font-black">Medical Doctor (OPD)</div>
+                    <div className="text-[10px] text-slate-500">NMC Registered Consultant</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRegDoctorRole('lab_technician')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center space-x-3 ${
+                    regDoctorRole === 'lab_technician'
+                      ? 'bg-brand-50/80 border-brand-600 text-brand-900 shadow-sm'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <FlaskConical className="w-5 h-5 text-brand-600 shrink-0" />
+                  <div>
+                    <div className="text-xs font-black">Pathologist / Lab Specialist</div>
+                    <div className="text-[10px] text-slate-500">Diagnostic Lab Reporting</div>
+                  </div>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Full Name (with Title) *
+                  </label>
+                  <input
+                    type="text"
+                    value={regDoctorName}
+                    onChange={(e) => setRegDoctorName(e.target.value)}
+                    placeholder="e.g. Dr. Prabin Bikram Thapa"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                  {regDoctorErrors.name && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regDoctorErrors.name}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    NMC / Council License No. *
+                  </label>
+                  <input
+                    type="text"
+                    value={regDoctorNmc}
+                    onChange={(e) => setRegDoctorNmc(e.target.value)}
+                    placeholder="e.g. NMC-14820"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                  {regDoctorErrors.nmc && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regDoctorErrors.nmc}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Gender *</label>
+                  <select
+                    value={regDoctorGender}
+                    onChange={(e) => setRegDoctorGender(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Age (Years) *</label>
+                  <input
+                    type="number"
+                    min={20}
+                    max={100}
+                    value={regDoctorAge}
+                    onChange={(e) => setRegDoctorAge(e.target.value)}
+                    placeholder="e.g. 36"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold"
+                  />
+                  {regDoctorErrors.age && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regDoctorErrors.age}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Practicing Since (Year) *
+                  </label>
+                  <select
+                    value={regDoctorStartingYear}
+                    onChange={(e) => setRegDoctorStartingYear(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
+                  >
+                    {practicingYears.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr} ({Math.max(1, 2026 - yr)} yrs exp)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Primary Specialty *
+                  </label>
+                  <select
+                    value={regDoctorSpecialty}
+                    onChange={(e) => setRegDoctorSpecialty(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
+                  >
+                    {defaultSpecialtyList.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Medical Qualifications / Degrees *
+                  </label>
+                  <input
+                    type="text"
+                    list="qualification-options"
+                    value={regDoctorEducation}
+                    onChange={(e) => setRegDoctorEducation(e.target.value)}
+                    placeholder="e.g. MBBS, MD (Internal Medicine)"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
+                  />
+                  <datalist id="qualification-options">
+                    {defaultQualificationList.map((q) => (
+                      <option key={q} value={q} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Personal Mobile Number (10 Digits) *
+                  </label>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    value={regDoctorPersonalPhone}
+                    onChange={(e) => setRegDoctorPersonalPhone(e.target.value.replace(/\D/g, ''))}
+                    placeholder="98XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold"
+                  />
+                  {regDoctorErrors.personalPhone && (
+                    <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                      {regDoctorErrors.personalPhone}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Public / Patient Consultation Phone (Optional)
+                  </label>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    value={regDoctorPublicPhone}
+                    onChange={(e) => setRegDoctorPublicPhone(e.target.value.replace(/\D/g, ''))}
+                    placeholder="98XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              {/* KYC Certificate Uploads */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-3.5 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-1.5">
+                  <div className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <Camera className="w-4 h-4 text-brand-600" />
+                    <span>Doctor Profile Photo</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setRegDoctorPhotoFile(e.target.files?.[0] || null)}
+                    className="text-[11px] text-slate-600 w-full"
+                  />
+                  {regDoctorPhotoFile && (
+                    <p className="text-[10px] text-emerald-700 font-bold truncate">
+                      ✓ {regDoctorPhotoFile.name}
+                    </p>
+                  )}
+                </div>
+
+                <div className="p-3.5 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-1.5">
+                  <div className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <ShieldCheck className="w-4 h-4 text-brand-600" />
+                    <span>NMC License Certificate</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setRegDoctorLicenseFile(e.target.files?.[0] || null)}
+                    className="text-[11px] text-slate-600 w-full"
+                  />
+                  {regDoctorLicenseFile && (
+                    <p className="text-[10px] text-emerald-700 font-bold truncate">
+                      ✓ {regDoctorLicenseFile.name}
+                    </p>
+                  )}
+                </div>
+
+                <div className="p-3.5 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-1.5">
+                  <div className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <FileText className="w-4 h-4 text-brand-600" />
+                    <span>Medical Degree Scan</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setRegDoctorDegreeFile(e.target.files?.[0] || null)}
+                    className="text-[11px] text-slate-600 w-full"
+                  />
+                  {regDoctorDegreeFile && (
+                    <p className="text-[10px] text-emerald-700 font-bold truncate">
+                      ✓ {regDoctorDegreeFile.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Bio */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Clinical Biography & Areas of Expertise
+                </label>
+                <textarea
+                  rows={2}
+                  value={regDoctorDesc}
+                  onChange={(e) => setRegDoctorDesc(e.target.value)}
+                  placeholder="Highlight fellowships, hospital affiliations, or specialized procedures..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium"
+                />
+              </div>
+
+              {/* NMC Ethics Checkbox */}
+              <label className="flex items-start space-x-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={regDoctorTermsAccepted}
+                  onChange={(e) => setRegDoctorTermsAccepted(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                />
+                <span className="text-xs text-slate-700 leading-relaxed">
+                  I attest that my Nepal Medical Council (NMC) registration is active and in good standing, and I agree to abide by the{' '}
+                  <span className="font-bold text-slate-900">
+                    NMC Code of Medical Ethics & Dactor Verified Practitioner Guidelines
+                  </span>
+                  .
+                </span>
+              </label>
+              {regDoctorErrors.terms && (
+                <p className="text-[11px] text-rose-600 font-bold">{regDoctorErrors.terms}</p>
+              )}
+
+              {registrationStatusMsg && (
+                <div className="p-3.5 rounded-2xl bg-brand-50 border border-brand-200 text-xs font-bold text-brand-800 flex items-center space-x-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-brand-600 shrink-0" />
+                  <span>{registrationStatusMsg}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSubmittingRegistration}
+                className="w-full py-4 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-lg shadow-brand-600/25 transition-all text-sm cursor-pointer disabled:opacity-60"
+              >
+                {isSubmittingRegistration
+                  ? 'Uploading KYC Documents & Saving Profile...'
+                  : 'Submit Doctor KYC for Regulatory Verification'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ==========================================
+  // VIEW 3: DUAL-TAB PROVIDER AUTH / LOGIN DESK
+  // ==========================================
+  if (!isAuthenticated || currentView === 'auth_choice') {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-12">
         <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-slate-200/80 text-center space-y-6">
+          {/* Brand Icon */}
           <div className="w-16 h-16 rounded-3xl bg-brand-100 text-brand-700 flex items-center justify-center mx-auto shadow-inner">
-            <Building2 className="w-8 h-8 stroke-[2.5]" />
+            {portalRoleTab === 'clinic' ? (
+              <Building2 className="w-8 h-8 stroke-[2.5]" />
+            ) : (
+              <Stethoscope className="w-8 h-8 stroke-[2.5]" />
+            )}
           </div>
 
           <div className="space-y-1.5">
             <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
-              Provider Access Only
+              Official Dactor Provider Network
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-              Clinic & Doctor Portal
+              {portalRoleTab === 'clinic' ? 'Clinic Center Desk' : 'Doctor Practitioner Desk'}
             </h2>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Unified operational desk for OPD polyclinics, diagnostic pathology labs, doctors, and receptionists.
+            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+              {portalRoleTab === 'clinic'
+                ? 'Manage live OPD token queues, walk-in registrations, diagnostic pathology reports, and clinic billing.'
+                : 'Access your live consultation queue, toggle in-clinic presence, review patient history, and manage schedules.'}
             </p>
           </div>
 
-          {/* Clinic Selector */}
-          <div className="text-left space-y-2 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-            <label className="text-xs font-bold text-slate-700 block">
-              Select Your Clinic / Center:
-            </label>
-            <select
-              value={selectedClinic?.id}
-              onChange={(e) => {
-                const found = clinics.find((c) => c.id === e.target.value)
-                if (found) setSelectedClinic(found)
+          {/* Dual-Tab Switcher (Parity with clinic-app Tab 0 & Tab 1) */}
+          <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => {
+                setPortalRoleTab('clinic')
+                setFirebaseError(null)
               }}
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className={`py-3 px-4 rounded-xl font-black text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
+                portalRoleTab === 'clinic'
+                  ? 'bg-white text-brand-700 shadow-md border border-slate-200/60'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              {clinics.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.type === 'diagnostic_lab' ? 'Diagnostic Lab' : 'Polyclinic OPD'})
-                </option>
-              ))}
-            </select>
+              <Building2 className="w-4 h-4" />
+              <span>Clinic Center</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setPortalRoleTab('doctor')
+                setFirebaseError(null)
+              }}
+              className={`py-3 px-4 rounded-xl font-black text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
+                portalRoleTab === 'doctor'
+                  ? 'bg-white text-brand-700 shadow-md border border-slate-200/60'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Stethoscope className="w-4 h-4" />
+              <span>Doctor Desk</span>
+            </button>
           </div>
 
-          {/* Direct Google Sign In Button */}
+          {/* Google Sign In Button */}
           <button
             type="button"
-            onClick={handleDirectGoogleSignIn}
+            onClick={() => handleGoogleSignInWithRole(portalRoleTab)}
             disabled={firebaseLoading}
-            className="w-full py-3.5 bg-white hover:bg-slate-50 text-slate-800 font-bold rounded-2xl border border-slate-300 shadow-sm hover:shadow transition-all flex items-center justify-center space-x-3 text-sm cursor-pointer disabled:opacity-60"
+            className="w-full py-4 bg-white hover:bg-slate-50 text-slate-900 font-black rounded-2xl border-2 border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center justify-center space-x-3 text-sm cursor-pointer disabled:opacity-60"
           >
             {firebaseLoading ? (
               <>
                 <RefreshCw className="w-5 h-5 animate-spin text-brand-600" />
-                <span>Signing in with Google...</span>
+                <span>Verifying Google Account with Supabase...</span>
               </>
             ) : (
               <>
@@ -1295,10 +2522,46 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                   />
                 </svg>
-                <span>Continue with Google</span>
+                <span>
+                  Continue with Google ({portalRoleTab === 'clinic' ? 'Clinic Account' : 'Doctor Account'})
+                </span>
               </>
             )}
           </button>
+
+          {/* Direct Email Verification / Lookup */}
+          <div className="pt-2 border-t border-slate-100 space-y-2.5 text-left">
+            <label className="text-[11px] font-bold text-slate-500 block">
+              Or verify directly with your registered provider email:
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={verifiedEmail}
+                onChange={(e) => setVerifiedEmail(e.target.value)}
+                placeholder={
+                  portalRoleTab === 'clinic'
+                    ? 'Enter clinic email address...'
+                    : 'Enter doctor email address...'
+                }
+                className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!verifiedEmail.trim()) {
+                    setFirebaseError('Please enter your email address first.')
+                    return
+                  }
+                  processLoginForEmail(verifiedEmail, portalRoleTab)
+                }}
+                disabled={firebaseLoading}
+                className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs cursor-pointer transition-all shrink-0"
+              >
+                Verify Email
+              </button>
+            </div>
+          </div>
 
           {firebaseError && (
             <div className="p-3.5 bg-rose-50 rounded-2xl border border-rose-200 text-xs text-rose-700 font-medium text-left flex items-start space-x-2">
@@ -1307,19 +2570,38 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           )}
 
-          <div className="p-3.5 bg-brand-50/60 rounded-2xl border border-brand-100 text-left space-y-1">
-            <div className="flex items-center space-x-2 text-brand-800 font-bold text-xs">
-              <ShieldCheck className="w-4 h-4 text-brand-600" />
-              <span>Real Database Synchronization</span>
+          {/* Direct Registration Call-To-Action */}
+          <div className="p-4 rounded-2xl bg-brand-50/70 border border-brand-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+            <div>
+              <div className="text-xs font-black text-brand-900">
+                {portalRoleTab === 'clinic'
+                  ? 'New Healthcare Facility or Lab?'
+                  : 'New Medical Practitioner on Dactor?'}
+              </div>
+              <p className="text-[11px] text-slate-600">
+                {portalRoleTab === 'clinic'
+                  ? 'Submit your 9-digit PAN & facility license for accreditation.'
+                  : 'Complete your NMC license & degree KYC verification.'}
+              </p>
             </div>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
-              Sign in with your Google account. Your profile will link automatically with your clinic/doctor records from Dactor's real-time healthcare network.
-            </p>
+            <button
+              type="button"
+              onClick={() => setCurrentView('register_form')}
+              className="px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shrink-0 cursor-pointer shadow-sm transition-all"
+            >
+              {portalRoleTab === 'clinic' ? 'Register Clinic →' : 'Doctor KYC →'}
+            </button>
           </div>
 
-          <p className="text-[11px] text-slate-400">
-            Protected by Dactor Enterprise Healthcare Security.
-          </p>
+          <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-left space-y-1">
+            <div className="flex items-center space-x-2 text-slate-800 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-brand-600" />
+              <span>1:1 Mobile App & Cloud Synchronization</span>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Connected directly to Dactor's production Supabase tables. Unregistered accounts are guided to KYC onboarding, and unapproved accounts remain in regulatory review until verified.
+            </p>
+          </div>
         </div>
       </div>
     )
