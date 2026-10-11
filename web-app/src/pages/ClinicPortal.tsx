@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Building2,
   Stethoscope,
@@ -25,8 +25,32 @@ import {
   Phone,
   UserCheck,
   X,
+  CreditCard,
+  Printer,
+  Coffee,
+  Check,
+  Receipt,
+  Layers,
+  ArrowUpRight,
+  Sparkles,
+  Download,
+  Settings,
+  MapPin,
+  Sliders,
+  AlertTriangle,
+  Play,
 } from 'lucide-react'
-import { Clinic, Doctor, Appointment, ClinicService, LabReport, DactorNotification } from '../types'
+import {
+  Clinic,
+  Doctor,
+  Appointment,
+  ClinicService,
+  LabReport,
+  DactorNotification,
+  BillingInvoice,
+  Slot,
+  DayScheduleInfo,
+} from '../types'
 import {
   getClinics,
   getDoctorsByClinic,
@@ -35,20 +59,278 @@ import {
   createAppointment,
   getClinicServices,
   createClinicService,
+  deleteClinicService,
   saveLabReport,
   uploadReportFile,
   getLabReportsByClinic,
   sendBroadcastNotification,
   createDoctor,
   generate10DigitTrackingCode,
-  getMedicalSpecialties,
-  getMedicalQualifications,
+  getBillingInvoicesByClinic,
+  saveOrUpdateInvoicePayment,
+  uploadReceiptFile,
+  updateDoctorPresence,
+  updateClinicBreak,
+  searchPatientRecords,
+  updateClinic,
+  toggleClinicHoliday,
+  saveWeeklySchedule,
+  updateDoctor,
+  sendManualNotification,
 } from '../services/db'
+import { compressImage } from '../utils/imageCompressor'
 import { supabase } from '../lib/supabase'
 import { signInWithFirebaseGoogle, signOutFirebase } from '../lib/firebase'
 
 interface ClinicPortalProps {
   onLogout?: () => void
+}
+
+// Default 7-day weekly schedule template
+const DEFAULT_WEEKLY_SCHEDULE: DayScheduleInfo[] = [
+  { day: 'Sunday', isOpen: true, openTime: '08:00 AM', closeTime: '08:00 PM', hasBreak: true, breakStart: '01:00 PM', breakEnd: '02:00 PM' },
+  { day: 'Monday', isOpen: true, openTime: '08:00 AM', closeTime: '08:00 PM', hasBreak: true, breakStart: '01:00 PM', breakEnd: '02:00 PM' },
+  { day: 'Tuesday', isOpen: true, openTime: '08:00 AM', closeTime: '08:00 PM', hasBreak: true, breakStart: '01:00 PM', breakEnd: '02:00 PM' },
+  { day: 'Wednesday', isOpen: true, openTime: '08:00 AM', closeTime: '08:00 PM', hasBreak: true, breakStart: '01:00 PM', breakEnd: '02:00 PM' },
+  { day: 'Thursday', isOpen: true, openTime: '08:00 AM', closeTime: '08:00 PM', hasBreak: true, breakStart: '01:00 PM', breakEnd: '02:00 PM' },
+  { day: 'Friday', isOpen: true, openTime: '08:00 AM', closeTime: '08:00 PM', hasBreak: true, breakStart: '01:00 PM', breakEnd: '02:00 PM' },
+  { day: 'Saturday', isOpen: true, openTime: '08:00 AM', closeTime: '04:00 PM', hasBreak: false, breakStart: '01:00 PM', breakEnd: '02:00 PM' },
+]
+
+interface TimingEstimateResult {
+  statusText: string
+  estimatedWait: string
+  exactTimeStr: string
+  isDoctorAway: boolean
+  isOnBreak: boolean
+  isSoonBeReady: boolean
+  remainingMinutes: number
+}
+
+// Real timing estimate calculation
+function calculateLiveQueueTimingEstimate(
+  targetAppt: Appointment,
+  allTodayAppts: Appointment[],
+  clinic: Clinic,
+  doctor: Doctor | null,
+  now = new Date()
+): TimingEstimateResult {
+  // 1. Check if doctor is not inside the clinic
+  if (doctor && doctor.isInClinic === false) {
+    return {
+      statusText: 'Doctor is not inside the clinic (He/She is not in)',
+      estimatedWait: 'Doctor Away',
+      exactTimeStr: 'Doctor Away',
+      isDoctorAway: true,
+      isOnBreak: false,
+      isSoonBeReady: false,
+      remainingMinutes: 0,
+    }
+  }
+
+  // 2. Check if clinic is on break
+  if (clinic.isOnBreak) {
+    return {
+      statusText: 'Clinic is currently on break. Consultations will resume shortly.',
+      estimatedWait: 'On Break',
+      exactTimeStr: 'On Break',
+      isDoctorAway: false,
+      isOnBreak: true,
+      isSoonBeReady: false,
+      remainingMinutes: 0,
+    }
+  }
+
+  // Determine average consultation time
+  const avgMins =
+    clinic.avgTimeMode === 'manual'
+      ? clinic.manualAvgConsultationTimeMinutes || 10
+      : clinic.calculatedAvgConsultationTimeMinutes || clinic.avgConsultationTimeMinutes || 10
+
+  // 3. Check Clinic Opening Time from weekly schedule
+  let openTimeStr = '08:00 AM'
+  try {
+    if (clinic.weeklyScheduleJson) {
+      const parsed: DayScheduleInfo[] = JSON.parse(clinic.weeklyScheduleJson)
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+      const todayName = dayNames[now.getDay()]
+      const todaySched = parsed.find((s) => s.day === todayName)
+      if (todaySched?.openTime) {
+        openTimeStr = todaySched.openTime
+      }
+    }
+  } catch {}
+
+  // Parse openTimeStr into today's Date
+  const openingDate = new Date(now)
+  try {
+    const parts = openTimeStr.trim().split(/[:\s]/)
+    let hours = parseInt(parts[0], 10)
+    const mins = parseInt(parts[1], 10) || 0
+    const meridian = parts[2]?.toUpperCase()
+    if (meridian === 'PM' && hours < 12) hours += 12
+    if (meridian === 'AM' && hours === 12) hours = 0
+    openingDate.setHours(hours, mins, 0, 0)
+  } catch {
+    openingDate.setHours(8, 0, 0, 0)
+  }
+
+  const formatTime = (d: Date) => {
+    let h = d.getHours()
+    const m = d.getMinutes().toString().padStart(2, '0')
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    h = h % 12 || 12
+    return `${h.toString().padStart(2, '0')}:${m} ${ampm}`
+  }
+
+  // If clinic has NOT started yet (now < openingDate)
+  if (now.getTime() < openingDate.getTime()) {
+    const waitingList = allTodayAppts.filter((a) => a.checkinStatus === 'waiting')
+    const pos = waitingList.findIndex((a) => a.id === targetAppt.id)
+    const waitMins = pos >= 0 ? (pos + 1) * avgMins : avgMins
+    const exactDate = new Date(openingDate.getTime() + (pos >= 0 ? pos * avgMins * 60000 : 0))
+    const exactStr = formatTime(exactDate)
+
+    return {
+      statusText: `Clinic starts at ${openTimeStr}. Your estimated consultation time is ${exactStr}.`,
+      estimatedWait: `${waitMins} mins (Starts at ${openTimeStr})`,
+      exactTimeStr: exactStr,
+      isDoctorAway: false,
+      isOnBreak: false,
+      isSoonBeReady: false,
+      remainingMinutes: waitMins,
+    }
+  }
+
+  // Clinic is open and running now
+  const insidePatient = allTodayAppts.find(
+    (a) => a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside'
+  )
+
+  // Target patient is inside cabin
+  if (insidePatient && insidePatient.id === targetAppt.id) {
+    return {
+      statusText: 'Patient is currently inside doctor cabin.',
+      estimatedWait: 'Currently Inside',
+      exactTimeStr: 'In Cabin Now',
+      isDoctorAway: false,
+      isOnBreak: false,
+      isSoonBeReady: false,
+      remainingMinutes: 0,
+    }
+  }
+
+  // If NO patient is inside cabin
+  if (!insidePatient) {
+    // Check if doctor has been idle for > 5 mins
+    const completedAppts = allTodayAppts
+      .filter((a) => a.checkinStatus === 'completed')
+      .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+
+    if (completedAppts.length > 0) {
+      const lastCompletedTime = new Date(completedAppts[0].updatedAt || completedAppts[0].createdAt || now)
+      const idleMinutes = Math.floor((now.getTime() - lastCompletedTime.getTime()) / 60000)
+      if (idleMinutes >= 5) {
+        return {
+          statusText: 'Doctor is not seeing patient, wait a few moments',
+          estimatedWait: 'Wait a few moments',
+          exactTimeStr: 'Wait a few moments',
+          isDoctorAway: false,
+          isOnBreak: false,
+          isSoonBeReady: false,
+          remainingMinutes: 5,
+        }
+      }
+    }
+
+    // Doctor is ready for next waiting patient
+    const waitingList = allTodayAppts.filter((a) => a.checkinStatus === 'waiting')
+    const pos = waitingList.findIndex((a) => a.id === targetAppt.id)
+
+    if (pos === 0) {
+      return {
+        statusText: 'Your turn is next! Soon, be ready.',
+        estimatedWait: 'Soon, be ready',
+        exactTimeStr: 'Soon, be ready',
+        isDoctorAway: false,
+        isOnBreak: false,
+        isSoonBeReady: true,
+        remainingMinutes: 2,
+      }
+    }
+
+    const waitMins = Math.max(0, pos * avgMins)
+    const exactDate = new Date(now.getTime() + waitMins * 60000)
+    const exactStr = formatTime(exactDate)
+
+    if (waitMins <= 3 || exactDate <= now) {
+      return {
+        statusText: 'Your turn is approaching! Soon, be ready.',
+        estimatedWait: 'Soon, be ready',
+        exactTimeStr: 'Soon, be ready',
+        isDoctorAway: false,
+        isOnBreak: false,
+        isSoonBeReady: true,
+        remainingMinutes: waitMins,
+      }
+    }
+
+    return {
+      statusText: `Estimated wait: ${waitMins} mins. Expected at ${exactStr}.`,
+      estimatedWait: `${waitMins} mins`,
+      exactTimeStr: exactStr,
+      isDoctorAway: false,
+      isOnBreak: false,
+      isSoonBeReady: false,
+      remainingMinutes: waitMins,
+    }
+  }
+
+  // Someone IS inside cabin
+  const insideStart = new Date(insidePatient.updatedAt || insidePatient.createdAt || now)
+  const elapsedMinutes = Math.max(0, Math.floor((now.getTime() - insideStart.getTime()) / 60000))
+  const remainingForInside = Math.max(0, avgMins - elapsedMinutes)
+
+  const waitingList = allTodayAppts.filter((a) => a.checkinStatus === 'waiting')
+  const pos = waitingList.findIndex((a) => a.id === targetAppt.id)
+
+  if (pos < 0) {
+    return {
+      statusText: `Status: ${targetAppt.checkinStatus.toUpperCase()}`,
+      estimatedWait: '–',
+      exactTimeStr: '–',
+      isDoctorAway: false,
+      isOnBreak: false,
+      isSoonBeReady: false,
+      remainingMinutes: 0,
+    }
+  }
+
+  const totalWaitMins = remainingForInside + pos * avgMins
+  const exactDate = new Date(now.getTime() + totalWaitMins * 60000)
+  const exactStr = formatTime(exactDate)
+
+  if (totalWaitMins <= 3 || exactDate <= now) {
+    return {
+      statusText: 'Your turn is approaching! Soon, be ready.',
+      estimatedWait: 'Soon, be ready',
+      exactTimeStr: 'Soon, be ready',
+      isDoctorAway: false,
+      isOnBreak: false,
+      isSoonBeReady: true,
+      remainingMinutes: totalWaitMins,
+    }
+  }
+
+  return {
+    statusText: `Approx. ${totalWaitMins} mins remaining (${exactStr}).`,
+    estimatedWait: `${totalWaitMins} mins`,
+    exactTimeStr: exactStr,
+    isDoctorAway: false,
+    isOnBreak: false,
+    isSoonBeReady: false,
+    remainingMinutes: totalWaitMins,
+  }
 }
 
 export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
@@ -57,6 +339,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null)
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null)
   const [clinicDoctors, setClinicDoctors] = useState<Doctor[]>([])
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
       return localStorage.getItem('dactor_auth_logged_in') === 'true'
@@ -78,21 +361,86 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       return 'clinic_manager'
     }
   })
+
+  // Google Sign-In Modal
   const [showGoogleModal, setShowGoogleModal] = useState(false)
   const [customGoogleEmail, setCustomGoogleEmail] = useState('')
   const [firebaseLoading, setFirebaseLoading] = useState(false)
   const [firebaseError, setFirebaseError] = useState<string | null>(null)
 
-  // Operational desk tabs
-  // 'queue' | 'walkin' | 'lab' | 'rates' | 'broadcast'
-  const [deskTab, setDeskTab] = useState<'queue' | 'walkin' | 'lab' | 'rates' | 'broadcast'>('queue')
+  // Operational desk tabs:
+  // 'queue' | 'walkin' | 'future_appts' | 'working_hours' | 'doctors' | 'billing' | 'patients' | 'lab' | 'rates' | 'broadcast' | 'settings'
+  const [deskTab, setDeskTab] = useState<
+    | 'queue'
+    | 'walkin'
+    | 'future_appts'
+    | 'working_hours'
+    | 'doctors'
+    | 'billing'
+    | 'patients'
+    | 'lab'
+    | 'rates'
+    | 'broadcast'
+    | 'settings'
+  >('queue')
 
-  // Data State
+  // Operational Data State
   const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [invoices, setInvoices] = useState<BillingInvoice[]>([])
   const [labReports, setLabReports] = useState<LabReport[]>([])
   const [services, setServices] = useState<ClinicService[]>([])
   const [loading, setLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // Doctor In-Clinic Presence & Clinic Break
+  const [doctorInClinic, setDoctorInClinic] = useState<boolean>(true)
+  const [clinicOnBreak, setClinicOnBreak] = useState<boolean>(false)
+  const [updatingPresence, setUpdatingPresence] = useState(false)
+  const [updatingBreak, setUpdatingBreak] = useState(false)
+
+  // Average Consultation Time Mode & Settings
+  const [avgTimeMode, setAvgTimeMode] = useState<'auto' | 'manual'>('auto')
+  const [manualAvgMinutes, setManualAvgMinutes] = useState<number>(10)
+  const [savingAvgTime, setSavingAvgTime] = useState(false)
+
+  // Future Appointments & Holiday Management
+  const [futureSelectedDate, setFutureSelectedDate] = useState<string>(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split('T')[0]
+  })
+  const [togglingHoliday, setTogglingHoliday] = useState(false)
+
+  // Working Hours & Break Weekly Schedule
+  const [weeklySchedule, setWeeklySchedule] = useState<DayScheduleInfo[]>(DEFAULT_WEEKLY_SCHEDULE)
+  const [savingSchedule, setSavingSchedule] = useState(false)
+  const [scheduleSaveSuccess, setScheduleSaveSuccess] = useState(false)
+
+  // Push Alert Notification Modal
+  const [pushAlertModalOpen, setPushAlertModalOpen] = useState(false)
+  const [pushAlertTargetAppt, setPushAlertTargetAppt] = useState<Appointment | null>(null)
+  const [pushAlertTitle, setPushAlertTitle] = useState('')
+  const [pushAlertMessage, setPushAlertMessage] = useState('')
+  const [pushAlertLeftVal, setPushAlertLeftVal] = useState('')
+  const [pushAlertRightVal, setPushAlertRightVal] = useState('')
+  const [sendingPushAlert, setSendingPushAlert] = useState(false)
+  const [pushAlertSentSuccess, setPushAlertSentSuccess] = useState(false)
+
+  // Push Bill / Payment Dialog State
+  const [billModalOpen, setBillModalOpen] = useState(false)
+  const [billTargetAppt, setBillTargetAppt] = useState<Appointment | null>(null)
+  const [billTotalAmount, setBillTotalAmount] = useState<string>('')
+  const [billPaidAmount, setBillPaidAmount] = useState<string>('')
+  const [billRemarks, setBillRemarks] = useState<string>('')
+  const [billReceiptFile, setBillReceiptFile] = useState<File | null>(null)
+  const [billReceiptCompressionInfo, setBillReceiptCompressionInfo] = useState<string | null>(null)
+  const [savingBill, setSavingBill] = useState(false)
+  const [showPrintableInvoice, setShowPrintableInvoice] = useState(false)
+
+  // Patient Directory Search State
+  const [patientSearchQuery, setPatientSearchQuery] = useState('')
+  const [patientSearchResults, setPatientSearchResults] = useState<Appointment[]>([])
+  const [searchingPatients, setSearchingPatients] = useState(false)
 
   // Onboarding Form State (when adding a new doctor/staff)
   const [showDoctorOnboarding, setShowDoctorOnboarding] = useState(false)
@@ -119,18 +467,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [labUploadModalOpen, setLabUploadModalOpen] = useState(false)
   const [targetLabAppt, setTargetLabAppt] = useState<Appointment | null>(null)
   const [reportFile, setReportFile] = useState<File | null>(null)
+  const [reportCompressionInfo, setReportCompressionInfo] = useState<string | null>(null)
   const [technicianNotes, setTechnicianNotes] = useState('')
   const [uploadingReport, setUploadingReport] = useState(false)
 
   // New Lab Test Rate State
   const [newServiceName, setNewServiceName] = useState('')
   const [newServicePrice, setNewServicePrice] = useState('')
-  const [newServiceCategory, setNewServiceCategory] = useState('Pathology')
+  const [newServiceCategory, setNewServiceCategory] = useState('Hematology')
 
   // Broadcast Alert State
   const [broadcastTitle, setBroadcastTitle] = useState('')
   const [broadcastMessage, setBroadcastMessage] = useState('')
   const [broadcastSent, setBroadcastSent] = useState(false)
+
+  // Clinic Settings State
+  const [settingName, setSettingName] = useState('')
+  const [settingPhone, setSettingPhone] = useState('')
+  const [settingEmail, setSettingEmail] = useState('')
+  const [settingAddress, setSettingAddress] = useState('')
+  const [settingPan, setSettingPan] = useState('')
+  const [settingManagerPhone, setSettingManagerPhone] = useState('')
+  const [settingThreshold, setSettingThreshold] = useState<number>(2)
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [settingsSuccess, setSettingsSuccess] = useState(false)
 
   // Generate Year dropdown options (2026 down to 1960)
   const practicingYears: number[] = []
@@ -145,33 +505,68 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       setClinics(cList)
       if (cList.length > 0) {
         setSelectedClinic(cList[0])
+        setClinicOnBreak(cList[0].isOnBreak ?? false)
+        setAvgTimeMode((cList[0].avgTimeMode as any) || 'auto')
+        setManualAvgMinutes(cList[0].manualAvgConsultationTimeMinutes || 10)
+        if (cList[0].weeklyScheduleJson) {
+          try {
+            setWeeklySchedule(JSON.parse(cList[0].weeklyScheduleJson))
+          } catch {}
+        }
+        // Prefill settings form
+        setSettingName(cList[0].name)
+        setSettingPhone(cList[0].contactPhone || '')
+        setSettingEmail(cList[0].contactEmail || '')
+        setSettingAddress(cList[0].addressText || '')
+        setSettingPan(cList[0].panNumber || '')
+        setSettingManagerPhone(cList[0].managerPhone || '')
+        setSettingThreshold(cList[0].autoNotifyThreshold || 2)
       }
     }
     init()
   }, [])
 
-  // Load clinic-specific data whenever clinic or refreshKey changes
+  // Load clinic-specific operational data
   useEffect(() => {
     if (!selectedClinic) return
 
     async function loadClinicDetails() {
       setLoading(true)
       try {
-        const [docs, appts, srvs, reps] = await Promise.all([
+        const [docs, appts, srvs, reps, invs] = await Promise.all([
           getDoctorsByClinic(selectedClinic.id),
           getAppointmentsByClinic(selectedClinic.id),
           getClinicServices(selectedClinic.id),
           getLabReportsByClinic(selectedClinic.id),
+          getBillingInvoicesByClinic(selectedClinic.id),
         ])
 
         setClinicDoctors(docs)
-        if (docs.length > 0 && !selectedDoctor) {
-          setSelectedDoctor(docs[0])
-          setWalkinDoctorId(docs[0].id)
+        if (docs.length > 0) {
+          const doc = docs[0]
+          setSelectedDoctor(doc)
+          setWalkinDoctorId(doc.id)
+          setDoctorInClinic(doc.isInClinic ?? true)
         }
         setAppointments(appts)
         setServices(srvs)
         setLabReports(reps)
+        setInvoices(invs)
+        setClinicOnBreak(selectedClinic.isOnBreak ?? false)
+        setAvgTimeMode((selectedClinic.avgTimeMode as any) || 'auto')
+        setManualAvgMinutes(selectedClinic.manualAvgConsultationTimeMinutes || 10)
+        if (selectedClinic.weeklyScheduleJson) {
+          try {
+            setWeeklySchedule(JSON.parse(selectedClinic.weeklyScheduleJson))
+          } catch {}
+        }
+        setSettingName(selectedClinic.name)
+        setSettingPhone(selectedClinic.contactPhone || '')
+        setSettingEmail(selectedClinic.contactEmail || '')
+        setSettingAddress(selectedClinic.addressText || '')
+        setSettingPan(selectedClinic.panNumber || '')
+        setSettingManagerPhone(selectedClinic.managerPhone || '')
+        setSettingThreshold(selectedClinic.autoNotifyThreshold || 2)
       } catch (err) {
         console.error('Error loading clinic operational data:', err)
       } finally {
@@ -225,10 +620,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       const errCode = err?.code || ''
       if (errCode === 'auth/unauthorized-domain') {
         setFirebaseError(
-          "Notice: Your domain 'dactorofficial.github.io' is not yet listed in Firebase Console > Authentication > Settings > Authorized domains. You can add it there, or click any account below to sign in instantly."
+          "Notice: Your domain is not yet listed in Firebase Console > Authentication > Settings > Authorized domains. Click any account below to sign in instantly."
         )
       } else if (errCode === 'auth/popup-closed-by-user') {
-        setFirebaseError('Sign-in popup was closed. Please try again or select an account below.')
+        setFirebaseError('Sign-in popup was closed. Please select an account below.')
       } else {
         setFirebaseError(
           err?.message || 'Firebase sign-in was interrupted. You can select an account below.'
@@ -244,7 +639,6 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setShowGoogleModal(false)
   }
 
-  // Immediate quick login for demo/testing
   const handleQuickLogin = (role: 'clinic_manager' | 'doctor' | 'lab_tech') => {
     const clinicSlug = selectedClinic?.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'clinic'
     const email = `staff.${role}@${clinicSlug}.dactor.health`
@@ -253,6 +647,177 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       setDeskTab('lab')
     } else {
       setDeskTab('queue')
+    }
+  }
+
+  // Doctor In-Clinic Presence Toggle
+  const handleToggleDoctorPresence = async (doc = selectedDoctor) => {
+    if (!doc) return
+    setUpdatingPresence(true)
+    const newStatus = !(doc.isInClinic ?? true)
+    try {
+      const ok = await updateDoctorPresence(doc.id, newStatus)
+      if (ok) {
+        setDoctorInClinic(newStatus)
+        setClinicDoctors((prev) =>
+          prev.map((d) => (d.id === doc.id ? { ...d, isInClinic: newStatus } : d))
+        )
+        if (selectedDoctor?.id === doc.id) {
+          setSelectedDoctor({ ...selectedDoctor, isInClinic: newStatus })
+        }
+      }
+    } catch (err) {
+      console.error('Error toggling doctor presence:', err)
+    } finally {
+      setUpdatingPresence(false)
+    }
+  }
+
+  // Clinic Break Toggle
+  const handleToggleClinicBreak = async () => {
+    if (!selectedClinic) return
+    setUpdatingBreak(true)
+    const newBreak = !clinicOnBreak
+    try {
+      const ok = await updateClinicBreak(selectedClinic.id, newBreak)
+      if (ok) {
+        setClinicOnBreak(newBreak)
+        setSelectedClinic({ ...selectedClinic, isOnBreak: newBreak })
+      }
+    } catch (err) {
+      console.error('Error toggling clinic break:', err)
+    } finally {
+      setUpdatingBreak(false)
+    }
+  }
+
+  // Average Consultation Time Mode Save
+  const handleSaveAvgTimeSettings = async () => {
+    if (!selectedClinic) return
+    setSavingAvgTime(true)
+    try {
+      const ok = await updateClinic(selectedClinic.id, {
+        avgTimeMode,
+        manualAvgConsultationTimeMinutes: manualAvgMinutes,
+      })
+      if (ok) {
+        setSelectedClinic({
+          ...selectedClinic,
+          avgTimeMode,
+          manualAvgConsultationTimeMinutes: manualAvgMinutes,
+        })
+        alert('Average consultation time settings saved successfully!')
+      }
+    } catch (err) {
+      console.error('Error saving avg time:', err)
+    } finally {
+      setSavingAvgTime(false)
+    }
+  }
+
+  // Declare Holiday Toggle for Future Appointments
+  const handleToggleHolidayForDate = async (dateStr: string) => {
+    if (!selectedClinic) return
+    setTogglingHoliday(true)
+    const isCurrentlyHoliday = selectedClinic.declaredHolidays?.includes(dateStr) ?? false
+    const newHolidayState = !isCurrentlyHoliday
+    try {
+      const ok = await toggleClinicHoliday(selectedClinic.id, dateStr, newHolidayState)
+      if (ok) {
+        const updatedHolidays = newHolidayState
+          ? [...(selectedClinic.declaredHolidays || []), dateStr]
+          : (selectedClinic.declaredHolidays || []).filter((d) => d !== dateStr)
+        setSelectedClinic({ ...selectedClinic, declaredHolidays: updatedHolidays })
+      }
+    } catch (err) {
+      console.error('Error toggling clinic holiday:', err)
+    } finally {
+      setTogglingHoliday(false)
+    }
+  }
+
+  // Save Weekly Working & Break Schedule
+  const handleSaveWeeklySchedule = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedClinic) return
+    setSavingSchedule(true)
+    try {
+      const ok = await saveWeeklySchedule(selectedClinic.id, weeklySchedule)
+      if (ok) {
+        setSelectedClinic({
+          ...selectedClinic,
+          weeklyScheduleJson: JSON.stringify(weeklySchedule),
+        })
+        setScheduleSaveSuccess(true)
+        setTimeout(() => setScheduleSaveSuccess(false), 3500)
+      }
+    } catch (err) {
+      console.error('Error saving schedule:', err)
+    } finally {
+      setSavingSchedule(false)
+    }
+  }
+
+  const handleCopyMonHoursToAll = () => {
+    const monday = weeklySchedule.find((s) => s.day === 'Monday')
+    if (!monday) return
+    setWeeklySchedule((prev) =>
+      prev.map((s) =>
+        s.day === 'Saturday' || s.day === 'Sunday'
+          ? s
+          : { ...s, openTime: monday.openTime, closeTime: monday.closeTime, breakStart: monday.breakStart, breakEnd: monday.breakEnd, hasBreak: monday.hasBreak }
+      )
+    )
+  }
+
+  // Push Alert Modal Trigger
+  const handleOpenPushAlertModal = (appt: Appointment) => {
+    if (!selectedClinic) return
+    setPushAlertTargetAppt(appt)
+    const estimate = calculateLiveQueueTimingEstimate(
+      appt,
+      appointments,
+      selectedClinic,
+      selectedDoctor
+    )
+
+    setPushAlertLeftVal(estimate.estimatedWait)
+    setPushAlertRightVal(estimate.exactTimeStr)
+    setPushAlertTitle(`Token #${appt.trackingCode10Digit}: Live OPD Queue Alert`)
+    setPushAlertMessage(
+      `Dear ${appt.patientName}, doctor is ready for consultation. Please proceed to Cabin 1.`
+    )
+    setPushAlertModalOpen(true)
+    setPushAlertSentSuccess(false)
+  }
+
+  const handleSendPushAlertSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!pushAlertTargetAppt || !selectedClinic) return
+    setSendingPushAlert(true)
+    try {
+      const ok = await sendManualNotification(
+        pushAlertTargetAppt.id,
+        pushAlertTitle.trim(),
+        pushAlertMessage.trim(),
+        pushAlertLeftVal,
+        pushAlertRightVal,
+        pushAlertTargetAppt.trackingCode10Digit,
+        pushAlertTargetAppt.userId || undefined,
+        selectedClinic.id
+      )
+
+      if (ok) {
+        setPushAlertSentSuccess(true)
+        setTimeout(() => {
+          setPushAlertModalOpen(false)
+          setPushAlertSentSuccess(false)
+        }, 1500)
+      }
+    } catch (err) {
+      console.error('Error sending push alert:', err)
+    } finally {
+      setSendingPushAlert(false)
     }
   }
 
@@ -363,56 +928,100 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
-  // ==========================================
-  // DIAGNOSTIC LAB 3-STAGE WORKFLOW
-  // ==========================================
-  // 1. Mark Sample Collected
-  const handleMarkSampleCollected = async (appt: Appointment) => {
-    if (!selectedClinic) return
-    try {
-      await saveLabReport({
-        appointmentId: appt.id,
-        clinicId: selectedClinic.id,
-        trackingCode10Digit: appt.trackingCode10Digit,
-        patientName: appt.patientName,
-        testName: appt.selectedTests?.join(', ') || 'Diagnostic Panel',
-        status: 'sample_collected',
-        sampleCollectedAt: new Date().toISOString(),
-      })
+  // Bill / Payment Modal
+  const handleOpenBillModal = (appt: Appointment) => {
+    setBillTargetAppt(appt)
+    setBillTotalAmount(appt.feeAmount?.toString() || '500')
+    setBillPaidAmount(appt.paymentStatus === 'paid' ? appt.feeAmount?.toString() || '500' : '0')
+    setBillRemarks('')
+    setBillReceiptFile(null)
+    setBillReceiptCompressionInfo(null)
+    setShowPrintableInvoice(false)
+    setBillModalOpen(true)
+  }
 
-      await updateAppointmentStatus(appt.id, 'waiting')
-      setRefreshKey((k) => k + 1)
-      alert(`Sample collected for patient ${appt.patientName}! Status is now SAMPLE COLLECTED.`)
-    } catch (err) {
-      console.error(err)
+  const handleBillReceiptFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.type.startsWith('image/')) {
+      const origSizeKb = Math.round(file.size / 1024)
+      const compressed = await compressImage(file, 500 * 1024, 1600)
+      const newSizeKb = Math.round(compressed.size / 1024)
+      setBillReceiptFile(compressed)
+      setBillReceiptCompressionInfo(
+        `Optimized receipt image from ${origSizeKb} KB down to ${newSizeKb} KB`
+      )
+    } else {
+      setBillReceiptFile(file)
+      setBillReceiptCompressionInfo(null)
     }
   }
 
-  // 2. Mark Processing
-  const handleMarkProcessing = async (appt: Appointment) => {
-    if (!selectedClinic) return
+  const handleSaveBill = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!billTargetAppt || !selectedClinic) return
+
+    setSavingBill(true)
     try {
-      await saveLabReport({
-        appointmentId: appt.id,
+      let receiptUrl: string | undefined = undefined
+      if (billReceiptFile) {
+        const uploaded = await uploadReceiptFile(billReceiptFile.name, billReceiptFile)
+        if (uploaded) receiptUrl = uploaded
+      }
+
+      await saveOrUpdateInvoicePayment({
+        appointmentId: billTargetAppt.id,
         clinicId: selectedClinic.id,
-        trackingCode10Digit: appt.trackingCode10Digit,
-        patientName: appt.patientName,
-        testName: appt.selectedTests?.join(', ') || 'Diagnostic Panel',
-        status: 'processing',
+        totalAmount: Number(billTotalAmount) || 0,
+        paidAmount: Number(billPaidAmount) || 0,
+        remarks: billRemarks.trim() || undefined,
+        receiptUrl,
       })
 
-      await updateAppointmentStatus(appt.id, 'in_consultation')
+      setBillModalOpen(false)
       setRefreshKey((k) => k + 1)
-      alert(`Specimen is now PROCESSING in pathology lab for ${appt.patientName}. Patient tracking code shows 'Processing'.`)
+      alert(`Payment of Rs. ${billPaidAmount} updated and invoice recorded!`)
     } catch (err) {
-      console.error(err)
+      console.error('Error saving invoice bill:', err)
+    } finally {
+      setSavingBill(false)
     }
   }
 
-  // 3. Mark Prepared & Optional Report Upload
-  const handleMarkPrepared = (appt: Appointment) => {
-    setTargetLabAppt(appt)
-    setLabUploadModalOpen(true)
+  // Patient Directory Search
+  const handlePatientSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!patientSearchQuery.trim() || !selectedClinic) return
+
+    setSearchingPatients(true)
+    try {
+      const results = await searchPatientRecords(selectedClinic.id, patientSearchQuery.trim())
+      setPatientSearchResults(results)
+    } catch (err) {
+      console.error('Error searching patients:', err)
+    } finally {
+      setSearchingPatients(false)
+    }
+  }
+
+  // Diagnostic Lab 3-Stage Workflow
+  const handleLabReportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.type.startsWith('image/')) {
+      const origSizeKb = Math.round(file.size / 1024)
+      const compressed = await compressImage(file, 500 * 1024, 1800)
+      const newSizeKb = Math.round(compressed.size / 1024)
+      setReportFile(compressed)
+      setReportCompressionInfo(
+        `Optimized report scan from ${origSizeKb} KB down to ${newSizeKb} KB`
+      )
+    } else {
+      setReportFile(file)
+      setReportCompressionInfo(null)
+    }
   }
 
   const handleUploadReportSubmit = async (e: React.FormEvent) => {
@@ -447,7 +1056,6 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
       await updateAppointmentStatus(targetLabAppt.id, 'completed')
 
-      // Send automatic notification
       await sendBroadcastNotification(
         selectedClinic.id,
         `Diagnostic Report Ready for ${targetLabAppt.patientName}`,
@@ -491,6 +1099,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
+  const handleDeleteService = async (serviceId: string) => {
+    if (!confirm('Remove this test from your clinic rates?')) return
+    const ok = await deleteClinicService(serviceId)
+    if (ok) {
+      setServices((prev) => prev.filter((s) => s.id !== serviceId))
+    }
+  }
+
   // Send Broadcast Alert
   const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -514,10 +1130,78 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
-  const isDiagnosticLab = selectedClinic?.type === 'diagnostic_lab' || selectedClinic?.type === 'polyclinic'
+  // Save Clinic Settings
+  const handleSaveClinicSettings = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedClinic) return
+    setSavingSettings(true)
+    try {
+      const ok = await updateClinic(selectedClinic.id, {
+        name: settingName.trim(),
+        contactPhone: settingPhone.trim(),
+        contactEmail: settingEmail.trim(),
+        addressText: settingAddress.trim(),
+        panNumber: settingPan.trim(),
+        managerPhone: settingManagerPhone.trim(),
+        autoNotifyThreshold: settingThreshold,
+      })
+      if (ok) {
+        setSelectedClinic({
+          ...selectedClinic,
+          name: settingName.trim(),
+          contactPhone: settingPhone.trim(),
+          contactEmail: settingEmail.trim(),
+          addressText: settingAddress.trim(),
+          panNumber: settingPan.trim(),
+          managerPhone: settingManagerPhone.trim(),
+          autoNotifyThreshold: settingThreshold,
+        })
+        setSettingsSuccess(true)
+        setTimeout(() => setSettingsSuccess(false), 3000)
+      }
+    } catch (err) {
+      console.error('Error updating clinic profile:', err)
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const isDiagnosticLab =
+    selectedClinic?.type === 'diagnostic_lab' || selectedClinic?.type === 'polyclinic'
+
+  // Queue Counts
+  const todayDateStr = new Date().toISOString().split('T')[0]
+  const todayAppointments = useMemo(
+    () => appointments.filter((a) => a.appointmentDate === todayDateStr),
+    [appointments, todayDateStr]
+  )
+
+  const activeConsultationPatient = useMemo(
+    () =>
+      todayAppointments.find(
+        (a) => a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside'
+      ),
+    [todayAppointments]
+  )
+
+  const queueWaitingCount = todayAppointments.filter((a) => a.checkinStatus === 'waiting').length
+  const queueInsideCount = todayAppointments.filter(
+    (a) => a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside'
+  ).length
+  const queueCompletedCount = todayAppointments.filter((a) => a.checkinStatus === 'completed').length
+
+  // Appointments for the selected future date
+  const futureDateAppointments = useMemo(
+    () => appointments.filter((a) => a.appointmentDate === futureSelectedDate),
+    [appointments, futureSelectedDate]
+  )
+
+  const isSelectedDateHoliday = Boolean(
+    selectedClinic?.declaredHolidays?.includes(futureSelectedDate)
+  )
 
   // ==========================================
-  // VIEW: UNIFIED LOGIN SCREEN
+  // VIEW: UNIFIED AUTH / LOGIN SCREEN
   // ==========================================
   if (!isAuthenticated) {
     return (
@@ -535,7 +1219,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               Clinic & Doctor Portal
             </h2>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Unified operational desk for polyclinics, diagnostic pathology labs, OPD doctors, and receptionists.
+              Unified operational desk for OPD polyclinics, diagnostic pathology labs, doctors, and receptionists.
             </p>
           </div>
 
@@ -563,9 +1247,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           {/* Google Sign In Button */}
           <button
             onClick={handleGoogleSignInClick}
-            className="w-full py-3.5 bg-white hover:bg-slate-50 text-slate-800 font-bold rounded-2xl border border-slate-300 shadow-sm hover:shadow transition-all flex items-center justify-center space-x-3 text-sm"
+            className="w-full py-3.5 bg-white hover:bg-slate-50 text-slate-800 font-bold rounded-2xl border border-slate-300 shadow-sm hover:shadow transition-all flex items-center justify-center space-x-3 text-sm cursor-pointer"
           >
-            {/* Google SVG Logo */}
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
@@ -589,16 +1272,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
           {/* Google Account Selector Modal */}
           {showGoogleModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-              <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-4 text-left">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+              <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4 text-left">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center space-x-2.5">
-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                    </svg>
                     <h3 className="text-base font-black text-slate-900">Sign in with Google</h3>
                   </div>
                   <button
@@ -610,12 +1287,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </button>
                 </div>
 
-                {/* Real Firebase Google Sign-In Trigger */}
                 <button
                   type="button"
                   onClick={handleFirebaseGoogleSignIn}
                   disabled={firebaseLoading}
-                  className="w-full py-3.5 px-4 bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs rounded-2xl shadow-md transition-all flex items-center justify-center space-x-2.5 disabled:opacity-50"
+                  className="w-full py-3.5 px-4 bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs rounded-2xl shadow-md transition-all flex items-center justify-center space-x-2.5 disabled:opacity-50 cursor-pointer"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -640,12 +1316,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <div className="flex-grow border-t border-slate-100"></div>
                 </div>
 
-                {/* Fast Google Account Options */}
                 <div className="space-y-2">
                   <button
                     type="button"
                     onClick={() => handleSelectGoogleAccount('dactorofficial@gmail.com')}
-                    className="w-full p-3 rounded-2xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50 flex items-center space-x-3 transition-colors text-left"
+                    className="w-full p-3 rounded-2xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50 flex items-center space-x-3 transition-colors text-left cursor-pointer"
                   >
                     <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">
                       D
@@ -660,7 +1335,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <button
                     type="button"
                     onClick={() => handleSelectGoogleAccount('harsh.darak@example.com')}
-                    className="w-full p-3 rounded-2xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50 flex items-center space-x-3 transition-colors text-left"
+                    className="w-full p-3 rounded-2xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50 flex items-center space-x-3 transition-colors text-left cursor-pointer"
                   >
                     <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-800 font-bold flex items-center justify-center text-sm">
                       H
@@ -673,10 +1348,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </button>
                 </div>
 
-                {/* Or Custom Google Email */}
                 <div className="pt-2 border-t border-slate-100 space-y-2">
                   <label className="text-[11px] font-bold text-slate-600 block">
-                    Or enter any Google Email to sign in:
+                    Or enter any Google Email:
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -693,7 +1367,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           handleSelectGoogleAccount(customGoogleEmail.trim().toLowerCase())
                         }
                       }}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs"
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
                     >
                       Continue
                     </button>
@@ -714,26 +1388,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           <div className="grid grid-cols-3 gap-2">
             <button
               onClick={() => handleQuickLogin('clinic_manager')}
-              className="p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 text-xs font-bold text-slate-700 transition-colors"
+              className="p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
             >
               Reception Desk
             </button>
             <button
               onClick={() => handleQuickLogin('doctor')}
-              className="p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 text-xs font-bold text-slate-700 transition-colors"
+              className="p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
             >
               Doctor Cabin
             </button>
             <button
               onClick={() => handleQuickLogin('lab_tech')}
-              className="p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-teal-50 hover:border-teal-300 text-xs font-bold text-slate-700 transition-colors"
+              className="p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-teal-50 hover:border-teal-300 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
             >
               Lab Technician
             </button>
           </div>
 
           <p className="text-[11px] text-slate-400">
-            Protected by Dactor Enterprise Healthcare Security. No superadmin exposure.
+            Protected by Dactor Enterprise Healthcare Security.
           </p>
         </div>
       </div>
@@ -741,19 +1415,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   }
 
   // ==========================================
-  // VIEW: LOGGED IN OPERATIONAL DESK
+  // VIEW: LOGGED IN OPERATIONAL CLINIC PORTAL
   // ==========================================
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Top Banner / Clinic Context Bar */}
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black text-xl shrink-0">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden">
             {selectedClinic?.logoUrl ? (
               <img
                 src={selectedClinic.logoUrl}
                 alt=""
-                className="w-full h-full object-cover rounded-2xl"
+                className="w-full h-full object-cover"
               />
             ) : (
               <Building2 className="w-7 h-7" />
@@ -775,18 +1449,55 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           </div>
         </div>
 
-        <div className="flex items-center space-x-3 w-full md:w-auto justify-between md:justify-end">
+        {/* Action Controls in Header: Doctor Presence & Break Toggles */}
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
+          {/* Doctor Presence Toggle */}
+          {selectedDoctor && (
+            <button
+              onClick={() => handleToggleDoctorPresence(selectedDoctor)}
+              disabled={updatingPresence}
+              className={`flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                doctorInClinic
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                  : 'bg-rose-50 border-rose-300 text-rose-800 hover:bg-rose-100'
+              }`}
+              title="Click to toggle Doctor In-Clinic Presence"
+            >
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  doctorInClinic ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                }`}
+              />
+              <span>{doctorInClinic ? 'Doctor is In' : 'Doctor is Out'}</span>
+            </button>
+          )}
+
+          {/* Clinic Break Toggle */}
+          <button
+            onClick={handleToggleClinicBreak}
+            disabled={updatingBreak}
+            className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+              clinicOnBreak
+                ? 'bg-amber-100 border-amber-300 text-amber-900 hover:bg-amber-200'
+                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+            }`}
+            title="Click to toggle Clinic Break mode (broadcasts alert to all patients)"
+          >
+            <Coffee className="w-3.5 h-3.5" />
+            <span>{clinicOnBreak ? 'On Break' : 'Take Break'}</span>
+          </button>
+
           <button
             onClick={() => setShowDoctorOnboarding(true)}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Add Doctor / Staff</span>
+            <span>Add Doctor</span>
           </button>
 
           <button
             onClick={handleLogout}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-xl text-xs font-bold transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
             <span>Logout</span>
@@ -798,67 +1509,138 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-3 overflow-x-auto">
         <button
           onClick={() => setDeskTab('queue')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'queue'
               ? 'bg-emerald-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Activity className="w-4 h-4" />
-          <span>Live OPD Queue ({appointments.filter((a) => a.checkinStatus === 'waiting').length})</span>
+          <span>Live OPD Queue ({queueWaitingCount})</span>
         </button>
 
         <button
           onClick={() => setDeskTab('walkin')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'walkin'
               ? 'bg-emerald-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Reception Walk-In Booking</span>
+          <span>Reception Walk-In</span>
         </button>
 
-        {/* LAB SPECIFIC BUTTONS: Only shown for diagnostic labs or polyclinics as instructed */}
+        <button
+          onClick={() => setDeskTab('future_appts')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'future_appts'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Calendar className="w-4 h-4" />
+          <span>Future Appointments & Holidays</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('working_hours')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'working_hours'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          <span>Working Hours & Break Schedule</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('doctors')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'doctors'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Stethoscope className="w-4 h-4" />
+          <span>Doctors & Staff ({clinicDoctors.length})</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('billing')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'billing'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Receipt className="w-4 h-4" />
+          <span>Bills & Invoices</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('patients')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'patients'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Search className="w-4 h-4" />
+          <span>Patient Directory</span>
+        </button>
+
         {isDiagnosticLab && (
           <button
             onClick={() => setDeskTab('lab')}
-            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
               deskTab === 'lab'
                 ? 'bg-teal-600 text-white shadow-xs'
                 : 'bg-white text-teal-800 border border-teal-200 hover:bg-teal-50'
             }`}
           >
             <FlaskConical className="w-4 h-4" />
-            <span>Diagnostic Lab Pipeline (3-Stage)</span>
+            <span>Diagnostic Lab Pipeline</span>
           </button>
         )}
 
         {isDiagnosticLab && (
           <button
             onClick={() => setDeskTab('rates')}
-            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
               deskTab === 'rates'
                 ? 'bg-teal-600 text-white shadow-xs'
                 : 'bg-white text-teal-800 border border-teal-200 hover:bg-teal-50'
             }`}
           >
             <FileText className="w-4 h-4" />
-            <span>Manage Lab Tests & Rates ({services.length})</span>
+            <span>Lab Tests & Rates</span>
           </button>
         )}
 
         <button
           onClick={() => setDeskTab('broadcast')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'broadcast'
               ? 'bg-emerald-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Bell className="w-4 h-4" />
-          <span>Send Notification Alert</span>
+          <span>Broadcast Alerts</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('settings')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'settings'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+          <span>Clinic Settings</span>
         </button>
       </div>
 
@@ -867,23 +1649,190 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'queue' && (
         <div className="space-y-6">
+          {/* Top Banner Alert if Doctor is Away or Clinic is on Break */}
+          {!doctorInClinic && (
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center space-x-3 text-rose-800 text-xs font-bold">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+              <div>
+                <span>Doctor is not inside the clinic (He/She is not in).</span>
+                <span className="font-normal text-rose-700 ml-1">
+                  Patients checking their queue status are informed that the doctor is currently away.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {clinicOnBreak && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center space-x-3 text-amber-900 text-xs font-bold">
+              <Coffee className="w-5 h-5 text-amber-600 shrink-0" />
+              <div>
+                <span>Clinic is currently in Break Mode.</span>
+                <span className="font-normal text-amber-800 ml-1">
+                  All consultations are temporarily paused. Patients can see the break notice on their mobile tracker.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Queue Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase text-slate-400">Waiting Patients</span>
+              <p className="text-2xl font-black text-blue-600 mt-1">{queueWaitingCount}</p>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase text-slate-400">Inside Cabin</span>
+              <p className="text-2xl font-black text-amber-600 mt-1">{queueInsideCount}</p>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase text-slate-400">Completed Today</span>
+              <p className="text-2xl font-black text-emerald-600 mt-1">{queueCompletedCount}</p>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase text-slate-400">Total Registered</span>
+              <p className="text-2xl font-black text-slate-800 mt-1">{todayAppointments.length}</p>
+            </div>
+          </div>
+
+          {/* Consultation Timing Configuration Bar (Auto vs Manual Toggle) */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
+                <Sliders className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-slate-900">Average Consultation Time Mode</h4>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Configures the estimated wait calculation for all patients in today's live queue.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+              {/* Auto / Manual toggle buttons */}
+              <div className="flex p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setAvgTimeMode('auto')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    avgTimeMode === 'auto'
+                      ? 'bg-white text-emerald-800 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Auto Calculated
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAvgTimeMode('manual')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    avgTimeMode === 'manual'
+                      ? 'bg-white text-emerald-800 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Manual Time
+                </button>
+              </div>
+
+              {avgTimeMode === 'manual' && (
+                <div className="flex items-center space-x-1.5">
+                  <input
+                    type="number"
+                    min="2"
+                    max="60"
+                    value={manualAvgMinutes}
+                    onChange={(e) => setManualAvgMinutes(Number(e.target.value) || 10)}
+                    className="w-16 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <span className="text-xs font-bold text-slate-500">Mins</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSaveAvgTimeSettings}
+                disabled={savingAvgTime}
+                className="px-3 py-1.5 bg-slate-900 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs cursor-pointer"
+              >
+                {savingAvgTime ? 'Saving...' : 'Save Settings'}
+              </button>
+            </div>
+          </div>
+
+          {/* Active Cabin Card (Patient currently inside) */}
+          {activeConsultationPatient && (
+            <div className="p-5 bg-amber-50/70 border border-amber-200 rounded-3xl shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center space-x-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-bold text-lg animate-pulse">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
+                      Currently Inside Doctor Cabin
+                    </span>
+                    <span className="text-xs font-mono font-bold text-amber-900">
+                      Token #{activeConsultationPatient.trackingCode10Digit}
+                    </span>
+                  </div>
+                  <h3 className="text-base font-black text-slate-900 mt-0.5">
+                    {activeConsultationPatient.patientName} ({activeConsultationPatient.patientAge || '–'} Yrs, {activeConsultationPatient.patientGender || '–'})
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    Attending: {activeConsultationPatient.doctor?.fullName || selectedDoctor?.fullName || 'OPD Doctor'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 w-full md:w-auto">
+                <button
+                  onClick={() => handleStatusChange(activeConsultationPatient.id, 'completed')}
+                  className="flex-1 md:flex-initial px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Mark Consultation Done
+                </button>
+                <button
+                  onClick={() => handleOpenPushAlertModal(activeConsultationPatient)}
+                  className="px-3 py-2.5 bg-white hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  title="Send push alert to patient"
+                >
+                  <Bell className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleOpenBillModal(activeConsultationPatient)}
+                  className="px-3 py-2.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  title="Push Bill / Settle Payment"
+                >
+                  <Receipt className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Section Header */}
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-black text-slate-900">Today's OPD Queue Desk</h2>
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Today's Live OPD Queue Board</h2>
+              <p className="text-xs text-slate-500">
+                Call patients inside, send push notifications using real timing templates, and complete visits.
+              </p>
+            </div>
             <button
               onClick={() => setRefreshKey((k) => k + 1)}
-              className="flex items-center space-x-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl"
+              className="flex items-center space-x-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span>Refresh Queue</span>
+              <span>Refresh Board</span>
             </button>
           </div>
 
-          {appointments.length === 0 ? (
+          {todayAppointments.length === 0 ? (
             <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
               <Activity className="w-10 h-10 text-slate-300 mx-auto mb-2" />
               <h3 className="font-bold text-slate-700">No appointments scheduled for today</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Patients who book online or through reception will automatically appear here.
+                Patients registered via online booking or reception walk-in will automatically appear here.
               </p>
             </div>
           ) : (
@@ -892,19 +1841,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
                     <tr>
-                      <th className="py-3.5 px-4">Tracking Code</th>
+                      <th className="py-3.5 px-4">Token Code</th>
                       <th className="py-3.5 px-4">Patient Name</th>
                       <th className="py-3.5 px-4">Age / Gender</th>
-                      <th className="py-3.5 px-4">Mobile Number</th>
+                      <th className="py-3.5 px-4">Doctor</th>
                       <th className="py-3.5 px-4">Status</th>
+                      <th className="py-3.5 px-4">Estimated Timing</th>
+                      <th className="py-3.5 px-4">Payment</th>
                       <th className="py-3.5 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {appointments.map((appt) => {
+                    {todayAppointments.map((appt) => {
                       const isWaiting = appt.checkinStatus === 'waiting'
-                      const inCabin = appt.checkinStatus === 'in_consultation'
+                      const inCabin =
+                        appt.checkinStatus === 'in_consultation' || appt.checkinStatus === 'inside'
                       const isDone = appt.checkinStatus === 'completed'
+
+                      const timing = calculateLiveQueueTimingEstimate(
+                        appt,
+                        todayAppointments,
+                        selectedClinic,
+                        selectedDoctor
+                      )
 
                       return (
                         <tr key={appt.id} className="hover:bg-slate-50/50">
@@ -918,7 +1877,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {appt.patientAge || '–'} Yrs • {appt.patientGender || '–'}
                           </td>
                           <td className="py-3.5 px-4 text-slate-600">
-                            {appt.patientMobile || '–'}
+                            {appt.doctor?.fullName || selectedDoctor?.fullName || 'General OPD'}
                           </td>
                           <td className="py-3.5 px-4">
                             {inCabin ? (
@@ -935,27 +1894,85 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               </span>
                             )}
                           </td>
+                          <td className="py-3.5 px-4">
+                            <div className="space-y-0.5">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                  timing.isDoctorAway
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : timing.isOnBreak
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : timing.isSoonBeReady
+                                    ? 'bg-emerald-100 text-emerald-800 animate-pulse'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {timing.estimatedWait}
+                              </span>
+                              {timing.exactTimeStr !== '–' &&
+                                timing.exactTimeStr !== timing.estimatedWait && (
+                                  <p className="text-[10px] text-slate-500 font-mono">
+                                    {timing.exactTimeStr}
+                                  </p>
+                                )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                appt.paymentStatus === 'paid'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : appt.paymentStatus === 'partial'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              Rs. {appt.feeAmount || 500} • {appt.paymentStatus.toUpperCase()}
+                            </span>
+                          </td>
                           <td className="py-3.5 px-4 text-right space-x-1.5">
+                            {/* Call Patient Inside */}
                             {isWaiting && (
                               <button
                                 onClick={() => handleStatusChange(appt.id, 'in_consultation')}
-                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[11px] shadow-xs"
+                                className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
                               >
-                                Call Patient
+                                Call Inside
                               </button>
                             )}
+
+                            {/* Mark Done Button */}
                             {inCabin && (
                               <button
                                 onClick={() => handleStatusChange(appt.id, 'completed')}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-xs"
+                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
                               >
-                                Mark Completed
+                                Mark Done
                               </button>
                             )}
+
+                            {/* Push Alert with Real Template */}
+                            <button
+                              onClick={() => handleOpenPushAlertModal(appt)}
+                              className="px-2 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                              title="Send real push notification template to patient"
+                            >
+                              Push Alert
+                            </button>
+
+                            {/* Push Bill / Update Payment */}
+                            <button
+                              onClick={() => handleOpenBillModal(appt)}
+                              className="px-2 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                            >
+                              Bill
+                            </button>
+
+                            {/* No Show */}
                             {!isDone && (
                               <button
                                 onClick={() => handleStatusChange(appt.id, 'no_show')}
-                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold text-[11px]"
+                                className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold text-[11px] cursor-pointer"
                               >
                                 No Show
                               </button>
@@ -973,15 +1990,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB 2: RECEPTION WALK-IN BOOKING WITH OVERBOOKING */}
+      {/* DESK TAB 2: RECEPTION WALK-IN BOOKING */}
       {/* ========================================================= */}
       {deskTab === 'walkin' && (
         <div className="max-w-2xl mx-auto space-y-6">
           <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
             <div>
-              <h2 className="text-xl font-black text-slate-900">
-                Reception Walk-In Booking
-              </h2>
+              <h2 className="text-xl font-black text-slate-900">Reception Walk-In Booking</h2>
               <p className="text-xs text-slate-500 font-medium mt-1">
                 Register walk-in patients directly into the live OPD queue. Generates an instant 10-digit token code.
               </p>
@@ -999,7 +2014,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
                 <button
                   onClick={() => setWalkinSuccessCode(null)}
-                  className="px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-lg"
+                  className="px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-lg cursor-pointer"
                 >
                   New Booking
                 </button>
@@ -1102,7 +2117,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               <button
                 type="submit"
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 text-sm"
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer"
               >
                 <span>Issue Live OPD Token</span>
                 <ChevronRight className="w-4 h-4" />
@@ -1113,7 +2128,581 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB 3: DIAGNOSTIC LAB 3-STAGE PIPELINE DESK */}
+      {/* DESK TAB 3: FUTURE APPOINTMENTS & DECLARE HOLIDAY */}
+      {/* ========================================================= */}
+      {deskTab === 'future_appts' && (
+        <div className="space-y-6">
+          {/* Top Control Bar: Date Selector & Declare Holiday Toggle */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-lg font-black text-slate-900">Future Appointments & Holiday Desk</h2>
+              <p className="text-xs text-slate-500">
+                Select any upcoming date to view scheduled appointments or declare the clinic closed on holidays.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+              {/* Date Input */}
+              <input
+                type="date"
+                value={futureSelectedDate}
+                onChange={(e) => setFutureSelectedDate(e.target.value)}
+                className="px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+
+              {/* Declare Holiday Toggle */}
+              <button
+                type="button"
+                onClick={() => handleToggleHolidayForDate(futureSelectedDate)}
+                disabled={togglingHoliday}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                  isSelectedDateHoliday
+                    ? 'bg-rose-600 border-rose-600 text-white shadow-xs'
+                    : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-rose-50 hover:text-rose-700'
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                <span>
+                  {isSelectedDateHoliday
+                    ? 'Holiday Declared (Clinic Closed)'
+                    : 'Declare Holiday on Date'}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Holiday Notice Banner if declared */}
+          {isSelectedDateHoliday && (
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center space-x-3 text-rose-800 text-xs font-bold">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+              <div>
+                <span>HOLIDAY DECLARED FOR {futureSelectedDate}: Clinic is marked CLOSED.</span>
+                <p className="font-normal text-rose-700 mt-0.5">
+                  Whenever any patient checks for appointments on this date, the system will inform them that the clinic is closed.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Future Appointments Table */}
+          <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="font-bold text-xs text-slate-700">
+                Appointments Scheduled for {futureSelectedDate} ({futureDateAppointments.length})
+              </h3>
+            </div>
+
+            {futureDateAppointments.length === 0 ? (
+              <div className="p-12 text-center">
+                <Calendar className="w-9 h-9 text-slate-300 mx-auto mb-2" />
+                <h4 className="text-xs font-bold text-slate-700">No appointments booked for this date yet</h4>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Patients booking online for this date will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold">
+                    <tr>
+                      <th className="py-3 px-4">Tracking Code</th>
+                      <th className="py-3 px-4">Patient Name</th>
+                      <th className="py-3 px-4">Mobile</th>
+                      <th className="py-3 px-4">Doctor</th>
+                      <th className="py-3 px-4">Time Slot</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Fee Amount</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {futureDateAppointments.map((appt) => (
+                      <tr key={appt.id} className="hover:bg-slate-50/50">
+                        <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                          #{appt.trackingCode10Digit}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-slate-900">
+                          {appt.patientName}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-600">
+                          {appt.patientMobile || '–'}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-600">
+                          {appt.doctor?.fullName || selectedDoctor?.fullName || 'OPD Doctor'}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-700 font-bold">
+                          {appt.appointmentTime}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800">
+                            {appt.checkinStatus.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-emerald-700">
+                          Rs. {appt.feeAmount} ({appt.paymentStatus})
+                        </td>
+                        <td className="py-3.5 px-4 text-right space-x-1.5">
+                          <button
+                            onClick={() => handleOpenPushAlertModal(appt)}
+                            className="px-2.5 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                          >
+                            Push Alert
+                          </button>
+                          <button
+                            onClick={() => handleOpenBillModal(appt)}
+                            className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                          >
+                            Bill
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB 4: WORKING HOURS & BREAK MANAGEMENT */}
+      {/* ========================================================= */}
+      {deskTab === 'working_hours' && (
+        <div className="space-y-6">
+          {/* Header Notice */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">
+                Operational Working Hours & Break Management
+              </h2>
+              <p className="text-xs text-slate-500 mt-1 max-w-2xl">
+                Set weekly working and break times for all seven days (Sunday to Saturday).
+                <strong> Note:</strong> This working and break schedule provides informational guidance to patients checking their live queue or appointment status; it does not publish booking slots.
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={handleCopyMonHoursToAll}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Copy Mon Hours to Weekdays
+              </button>
+            </div>
+          </div>
+
+          {scheduleSaveSuccess && (
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center space-x-2 text-emerald-800 text-xs font-bold">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>Weekly operational schedule successfully saved to clinic profile!</span>
+            </div>
+          )}
+
+          {/* 7 Days Schedule Grid Form */}
+          <form onSubmit={handleSaveWeeklySchedule} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {weeklySchedule.map((sched, idx) => (
+                <div
+                  key={sched.day}
+                  className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3.5"
+                >
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <span className="text-sm font-black text-slate-900">{sched.day}</span>
+                    <label className="flex items-center space-x-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sched.isOpen}
+                        onChange={(e) => {
+                          const updated = [...weeklySchedule]
+                          updated[idx] = { ...sched, isOpen: e.target.checked }
+                          setWeeklySchedule(updated)
+                        }}
+                        className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                      />
+                      <span className="text-[11px] font-bold text-slate-600">
+                        {sched.isOpen ? 'Open' : 'Closed'}
+                      </span>
+                    </label>
+                  </div>
+
+                  {sched.isOpen ? (
+                    <div className="space-y-3 text-xs">
+                      <div>
+                        <span className="text-[11px] font-bold text-slate-500 block mb-1">
+                          Working Hours
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-slate-400 block">Open</label>
+                            <input
+                              type="text"
+                              value={sched.openTime}
+                              onChange={(e) => {
+                                const updated = [...weeklySchedule]
+                                updated[idx] = { ...sched, openTime: e.target.value }
+                                setWeeklySchedule(updated)
+                              }}
+                              placeholder="08:00 AM"
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 block">Close</label>
+                            <input
+                              type="text"
+                              value={sched.closeTime}
+                              onChange={(e) => {
+                                const updated = [...weeklySchedule]
+                                updated[idx] = { ...sched, closeTime: e.target.value }
+                                setWeeklySchedule(updated)
+                              }}
+                              placeholder="08:00 PM"
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-bold text-slate-500">
+                            Daily Break Hour
+                          </span>
+                          <label className="flex items-center space-x-1 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={sched.hasBreak}
+                              onChange={(e) => {
+                                const updated = [...weeklySchedule]
+                                updated[idx] = { ...sched, hasBreak: e.target.checked }
+                                setWeeklySchedule(updated)
+                              }}
+                              className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
+                            />
+                            <span className="text-[10px] text-slate-500">Enable</span>
+                          </label>
+                        </div>
+
+                        {sched.hasBreak && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] text-slate-400 block">Start</label>
+                              <input
+                                type="text"
+                                value={sched.breakStart}
+                                onChange={(e) => {
+                                  const updated = [...weeklySchedule]
+                                  updated[idx] = { ...sched, breakStart: e.target.value }
+                                  setWeeklySchedule(updated)
+                                }}
+                                placeholder="01:00 PM"
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-400 block">End</label>
+                              <input
+                                type="text"
+                                value={sched.breakEnd}
+                                onChange={(e) => {
+                                  const updated = [...weeklySchedule]
+                                  updated[idx] = { ...sched, breakEnd: e.target.value }
+                                  setWeeklySchedule(updated)
+                                }}
+                                placeholder="02:00 PM"
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 py-4 text-center font-medium">
+                      Clinic is closed on this day.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={savingSchedule}
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 text-xs transition-colors cursor-pointer"
+              >
+                {savingSchedule ? 'Saving Schedule...' : 'Save Weekly Operational Schedule'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB 5: DOCTORS & STAFF DIRECTORY */}
+      {/* ========================================================= */}
+      {deskTab === 'doctors' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Doctors & Practitioners Directory</h2>
+              <p className="text-xs text-slate-500">
+                Manage doctor presence, consultation fee, medical council license, and practice years.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowDoctorOnboarding(true)}
+              className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add New Doctor</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {clinicDoctors.map((doc) => (
+              <div
+                key={doc.id}
+                className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black text-lg">
+                      {doc.fullName.charAt(0)}
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-900">{doc.fullName}</h3>
+                      <p className="text-xs text-emerald-700 font-bold">{doc.specialty || 'General'}</p>
+                    </div>
+                  </div>
+
+                  {/* Presence Toggle button for this doctor */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleDoctorPresence(doc)}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                      doc.isInClinic ?? true
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : 'bg-rose-50 border-rose-300 text-rose-800'
+                    }`}
+                  >
+                    {doc.isInClinic ?? true ? '● In Clinic' : '○ Away'}
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 text-xs text-slate-600 pt-1 border-t border-slate-100">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Education:</span>
+                    <span className="font-semibold text-slate-800">{doc.education || 'MBBS'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">NMC License:</span>
+                    <span className="font-mono font-semibold text-slate-800">
+                      {doc.nmcLicenseNumber || '–'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Experience:</span>
+                    <span className="font-semibold text-slate-800">
+                      {doc.startingPracticingYear
+                        ? `${2026 - doc.startingPracticingYear} Yrs (Since ${doc.startingPracticingYear})`
+                        : `${doc.experienceYears || 5} Yrs`}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Consultation Fee:</span>
+                    <span className="font-black text-emerald-700">Rs. {doc.consultationFee || 500}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Mobile:</span>
+                    <span className="font-mono text-slate-700">{doc.personalMobileNumber || '–'}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB 6: BILLS & PAYMENTS DIRECTORY */}
+      {/* ========================================================= */}
+      {deskTab === 'billing' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Clinic Billing & Invoices Directory</h2>
+              <p className="text-xs text-slate-500">
+                Track all patient payments, total bills, and dates. Generates invoices on request.
+              </p>
+            </div>
+            <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-xl">
+              {invoices.length} Invoices Recorded
+            </span>
+          </div>
+
+          <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                  <tr>
+                    <th className="py-3.5 px-4">Invoice ID / Date</th>
+                    <th className="py-3.5 px-4">Total Amount</th>
+                    <th className="py-3.5 px-4">Paid Amount</th>
+                    <th className="py-3.5 px-4">Balance Due</th>
+                    <th className="py-3.5 px-4">Status</th>
+                    <th className="py-3.5 px-4">Remarks</th>
+                    <th className="py-3.5 px-4 text-right">Receipt File</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {invoices.map((inv) => (
+                    <tr key={inv.id} className="hover:bg-slate-50/50">
+                      <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                        #{inv.id.substring(0, 8)} •{' '}
+                        <span className="text-slate-500 font-normal">
+                          {inv.createdAt?.split('T')[0] || 'Today'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 font-black text-slate-900">Rs. {inv.totalAmount}</td>
+                      <td className="py-3.5 px-4 font-bold text-emerald-700">Rs. {inv.paidAmount}</td>
+                      <td className="py-3.5 px-4 font-bold text-rose-700">Rs. {inv.balanceDue}</td>
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            inv.paymentStatus === 'paid'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : inv.paymentStatus === 'partial'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {inv.paymentStatus.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600">{inv.remarks || '–'}</td>
+                      <td className="py-3.5 px-4 text-right">
+                        {inv.receiptUrl ? (
+                          <a
+                            href={inv.receiptUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline font-bold"
+                          >
+                            View Receipt
+                          </a>
+                        ) : (
+                          <span className="text-slate-400">None</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB 7: PATIENT DIRECTORY & HISTORY */}
+      {/* ========================================================= */}
+      {deskTab === 'patients' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+            <h2 className="text-xl font-black text-slate-900">Patient Directory & Visit History</h2>
+            <p className="text-xs text-slate-500 font-medium">
+              Search historical patient records across all visits by 10-digit tracking code, registered mobile number, or patient name.
+            </p>
+
+            <form onSubmit={handlePatientSearch} className="flex gap-2 max-w-xl">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={patientSearchQuery}
+                  onChange={(e) => setPatientSearchQuery(e.target.value)}
+                  placeholder="Enter 10-Digit Code, Mobile, or Patient Name..."
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={searchingPatients}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs cursor-pointer"
+              >
+                {searchingPatients ? 'Searching...' : 'Search'}
+              </button>
+            </form>
+          </div>
+
+          {/* Search Results Table */}
+          {patientSearchResults.length > 0 && (
+            <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                <h3 className="font-bold text-xs text-slate-700">
+                  Search Results ({patientSearchResults.length} Visits Found)
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold">
+                    <tr>
+                      <th className="py-3 px-4">Visit Date</th>
+                      <th className="py-3 px-4">Tracking Code</th>
+                      <th className="py-3 px-4">Patient Name</th>
+                      <th className="py-3 px-4">Mobile</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Fee Amount</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {patientSearchResults.map((res) => (
+                      <tr key={res.id} className="hover:bg-slate-50/50">
+                        <td className="py-3.5 px-4 font-bold text-slate-900">
+                          {res.appointmentDate}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono font-bold text-slate-700">
+                          #{res.trackingCode10Digit}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-slate-900">
+                          {res.patientName}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-600">
+                          {res.patientMobile || '–'}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800">
+                            {res.checkinStatus.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-emerald-700">
+                          Rs. {res.feeAmount} ({res.paymentStatus})
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            onClick={() => handleOpenBillModal(res)}
+                            className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                          >
+                            View / Push Bill
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB 8: DIAGNOSTIC LAB 3-STAGE PIPELINE */}
       {/* ========================================================= */}
       {deskTab === 'lab' && isDiagnosticLab && (
         <div className="space-y-6">
@@ -1123,12 +2712,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 Diagnostic Laboratory Pipeline (3-Stage Workflow)
               </h2>
               <p className="text-xs text-slate-500 font-medium">
-                Step 1: Collect Sample $\rightarrow$ Step 2: Processing in Lab $\rightarrow$ Step 3: Mark Prepared & Upload Report
+                Step 1: Collect Sample → Step 2: Processing in Lab → Step 3: Mark Prepared & Upload Report
               </p>
             </div>
             <button
               onClick={() => setRefreshKey((k) => k + 1)}
-              className="flex items-center space-x-1.5 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-xl"
+              className="flex items-center space-x-1.5 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-xl cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               <span>Refresh Lab Queue</span>
@@ -1153,13 +2742,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       (r) => r.trackingCode10Digit === appt.trackingCode10Digit
                     )
 
-                    const labStatus = relatedReport?.status || (
-                      appt.checkinStatus === 'completed'
+                    const labStatus =
+                      relatedReport?.status ||
+                      (appt.checkinStatus === 'completed'
                         ? 'prepared'
                         : appt.checkinStatus === 'in_consultation'
                         ? 'processing'
-                        : 'sample_collected'
-                    )
+                        : 'sample_collected')
 
                     return (
                       <tr key={appt.id} className="hover:bg-slate-50/50">
@@ -1190,16 +2779,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         <td className="py-3.5 px-4 text-right space-x-1.5">
                           {labStatus !== 'processing' && labStatus !== 'prepared' && (
                             <button
-                              onClick={() => handleMarkProcessing(appt)}
-                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] shadow-xs"
+                              onClick={() => handleStatusChange(appt.id, 'in_consultation')}
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
                             >
                               Mark Processing
                             </button>
                           )}
                           {labStatus !== 'prepared' && (
                             <button
-                              onClick={() => handleMarkPrepared(appt)}
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-xs"
+                              onClick={() => {
+                                setTargetLabAppt(appt)
+                                setLabUploadModalOpen(true)
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
                             >
                               Mark Prepared & Upload
                             </button>
@@ -1227,15 +2819,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB 4: MANAGE LAB TESTS & PRICING RATES */}
+      {/* DESK TAB 9: MANAGE LAB TESTS & PRICING RATES */}
       {/* ========================================================= */}
       {deskTab === 'rates' && isDiagnosticLab && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Add New Test Form */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
             <h3 className="text-lg font-black text-slate-900">Add Diagnostic Test</h3>
             <p className="text-xs text-slate-500 font-medium">
-              Create a new test or package. Patients will be able to select it with this exact fee.
+              Create a new test or package with your official rate.
             </p>
 
             <form onSubmit={handleAddService} className="space-y-3.5">
@@ -1245,7 +2836,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   type="text"
                   value={newServiceName}
                   onChange={(e) => setNewServiceName(e.target.value)}
-                  placeholder="e.g. Hemoglobin HbA1c"
+                  placeholder="e.g. Complete Blood Count (CBC)"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
@@ -1266,26 +2857,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <select
                   value={newServiceCategory}
                   onChange={(e) => setNewServiceCategory(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
                   <option value="Hematology">Hematology</option>
                   <option value="Biochemistry">Biochemistry</option>
                   <option value="Hormones & Immunology">Hormones & Immunology</option>
                   <option value="Microbiology & Serology">Microbiology & Serology</option>
                   <option value="Clinical Pathology">Clinical Pathology</option>
+                  <option value="Radiology & Imaging">Radiology & Imaging</option>
                 </select>
               </div>
 
               <button
                 type="submit"
-                className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs shadow-xs transition-colors"
+                className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs shadow-xs transition-colors cursor-pointer"
               >
                 Save Test & Publish Rate
               </button>
             </form>
           </div>
 
-          {/* Existing Rates List */}
           <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-black text-slate-900">Current Clinic Diagnostic Rates</h3>
@@ -1294,7 +2885,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </span>
             </div>
 
-            <div className="space-y-2.5 max-h-96 overflow-y-auto">
+            <div className="space-y-2.5 max-h-[500px] overflow-y-auto">
               {services.map((srv) => (
                 <div
                   key={srv.id}
@@ -1306,6 +2897,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </div>
                   <div className="flex items-center space-x-3">
                     <span className="text-xs font-black text-teal-700">Rs. {srv.price}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteService(srv.id)}
+                      className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                      title="Remove test"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1315,7 +2914,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB 5: BROADCAST NOTIFICATION ALERT */}
+      {/* DESK TAB 10: BROADCAST NOTIFICATION ALERT */}
       {/* ========================================================= */}
       {deskTab === 'broadcast' && (
         <div className="max-w-2xl mx-auto space-y-6">
@@ -1365,7 +2964,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               <button
                 type="submit"
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 text-sm"
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer"
               >
                 <Send className="w-4 h-4" />
                 <span>Broadcast Notification</span>
@@ -1376,10 +2975,474 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
+      {/* DESK TAB 11: CLINIC PROFILE & OPERATIONAL SETTINGS */}
+      {/* ========================================================= */}
+      {deskTab === 'settings' && (
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Clinic Profile & Operational Settings</h2>
+              <p className="text-xs text-slate-500 font-medium mt-1">
+                Configure your official registration details, emergency manager phone, and auto-queue thresholds.
+              </p>
+            </div>
+
+            {settingsSuccess && (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-bold flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Clinic settings successfully updated in database!</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveClinicSettings} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Clinic Name</label>
+                <input
+                  type="text"
+                  value={settingName}
+                  onChange={(e) => setSettingName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Contact Phone</label>
+                  <input
+                    type="tel"
+                    value={settingPhone}
+                    onChange={(e) => setSettingPhone(e.target.value)}
+                    placeholder="e.g. 014XXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Manager Phone</label>
+                  <input
+                    type="tel"
+                    value={settingManagerPhone}
+                    onChange={(e) => setSettingManagerPhone(e.target.value)}
+                    placeholder="e.g. 98XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">PAN / VAT Number</label>
+                  <input
+                    type="text"
+                    value={settingPan}
+                    onChange={(e) => setSettingPan(e.target.value)}
+                    placeholder="e.g. 601234567"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Contact Email</label>
+                  <input
+                    type="email"
+                    value={settingEmail}
+                    onChange={(e) => setSettingEmail(e.target.value)}
+                    placeholder="clinic@example.com"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Address Text</label>
+                <input
+                  type="text"
+                  value={settingAddress}
+                  onChange={(e) => setSettingAddress(e.target.value)}
+                  placeholder="Street Address, City, Ward"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Auto-Notify Threshold (Number of patients ahead before auto-alert)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={settingThreshold}
+                  onChange={(e) => setSettingThreshold(Number(e.target.value) || 2)}
+                  className="w-32 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingSettings}
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all text-xs cursor-pointer"
+              >
+                {savingSettings ? 'Saving Settings...' : 'Save Clinic Settings'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: PUSH ALERT NOTIFICATION WITH REAL TEMPLATE PREVIEW */}
+      {/* ========================================================= */}
+      {pushAlertModalOpen && pushAlertTargetAppt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-purple-600">
+                  Live Queue Push Alert
+                </span>
+                <h3 className="text-lg font-black text-slate-900">
+                  Send Push Notification to Patient
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Patient: <strong className="text-slate-900">{pushAlertTargetAppt.patientName}</strong> • Token #{pushAlertTargetAppt.trackingCode10Digit}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPushAlertModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* REAL NOTIFICATION TEMPLATE PREVIEW */}
+            <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-inner space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  {/* Real App Logo SVG */}
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center text-white shadow-xs">
+                    <Stethoscope className="w-4 h-4 stroke-[2.5]" />
+                  </div>
+                  <span className="text-xs font-black tracking-wide text-emerald-400">
+                    DACTOR HEALTH
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono">Real-Time Alert</span>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold text-white">{pushAlertTitle}</h4>
+                <p className="text-[11px] text-slate-300 mt-0.5 line-clamp-2">
+                  {pushAlertMessage}
+                </p>
+              </div>
+
+              {/* 2-Metric Pill Cards (Notification Template requirement) */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800">
+                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                  <span className="text-[10px] text-slate-400 font-medium block">
+                    Estimated Time Left
+                  </span>
+                  <span className="text-xs font-black text-emerald-400 mt-0.5 block">
+                    {pushAlertLeftVal || 'Soon, be ready'}
+                  </span>
+                </div>
+                <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                  <span className="text-[10px] text-slate-400 font-medium block">
+                    Your Appointment Time
+                  </span>
+                  <span className="text-xs font-black text-blue-400 mt-0.5 block">
+                    {pushAlertRightVal || 'Soon, be ready'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-500 block">Quick Alert Templates:</span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPushAlertTitle(`Token #${pushAlertTargetAppt.trackingCode10Digit}: Doctor Ready for Consultation`)
+                    setPushAlertMessage(`Dear ${pushAlertTargetAppt.patientName}, doctor is ready for consultation. Please proceed to Cabin 1.`)
+                  }}
+                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                >
+                  Ready for Cabin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPushAlertTitle(`Token #${pushAlertTargetAppt.trackingCode10Digit}: Minor Consultation Delay`)
+                    setPushAlertMessage(`Doctor consultation is running approximately 10 minutes late due to critical OPD case. Thank you for your patience.`)
+                  }}
+                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                >
+                  10 Mins Delay
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPushAlertTitle(`Token #${pushAlertTargetAppt.trackingCode10Digit}: Clinic on Short Break`)
+                    setPushAlertMessage(`The clinic is temporarily on a 15-minute break. Live queue consultations will resume shortly.`)
+                  }}
+                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                >
+                  Clinic on Break
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPushAlertTitle(`Token #${pushAlertTargetAppt.trackingCode10Digit}: Report to Reception Desk`)
+                    setPushAlertMessage(`Please report to the reception desk for document and billing settlement.`)
+                  }}
+                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                >
+                  Visit Reception
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={handleSendPushAlertSubmit} className="space-y-3.5">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Notification Title
+                </label>
+                <input
+                  type="text"
+                  value={pushAlertTitle}
+                  onChange={(e) => setPushAlertTitle(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Message Content
+                </label>
+                <textarea
+                  rows={3}
+                  value={pushAlertMessage}
+                  onChange={(e) => setPushAlertMessage(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                    Left Metric (Estimated Wait)
+                  </label>
+                  <input
+                    type="text"
+                    value={pushAlertLeftVal}
+                    onChange={(e) => setPushAlertLeftVal(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                    Right Metric (Appointment Time)
+                  </label>
+                  <input
+                    type="text"
+                    value={pushAlertRightVal}
+                    onChange={(e) => setPushAlertRightVal(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-slate-50"
+                  />
+                </div>
+              </div>
+
+              {pushAlertSentSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Push notification delivered to patient device!</span>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPushAlertModalOpen(false)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={sendingPushAlert}
+                  className="flex-1 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-purple-600/20 cursor-pointer"
+                >
+                  {sendingPushAlert ? 'Transmitting Alert...' : 'Send Push Alert to Patient'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: PUSH BILL & UPDATE PAYMENT */}
+      {/* ========================================================= */}
+      {billModalOpen && billTargetAppt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">
+                  Billing & Payment Desk
+                </span>
+                <h3 className="text-lg font-black text-slate-900">
+                  Push Bill to Patient
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Patient: <strong className="text-slate-900">{billTargetAppt.patientName}</strong> • Token #{billTargetAppt.trackingCode10Digit}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBillModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBill} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Total Amount (Rs.)
+                  </label>
+                  <input
+                    type="number"
+                    value={billTotalAmount}
+                    onChange={(e) => setBillTotalAmount(e.target.value)}
+                    placeholder="e.g. 1000"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Paid Amount (Rs.)
+                  </label>
+                  <input
+                    type="number"
+                    value={billPaidAmount}
+                    onChange={(e) => setBillPaidAmount(e.target.value)}
+                    placeholder="e.g. 1000"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Dynamic Balance Due Banner */}
+              {billTotalAmount && (
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                  <span className="font-medium text-slate-600">Calculated Balance Due:</span>
+                  <span className="font-black text-slate-900">
+                    Rs. {Math.max(0, (Number(billTotalAmount) || 0) - (Number(billPaidAmount) || 0))}
+                  </span>
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Remarks / Notes (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={billRemarks}
+                  onChange={(e) => setBillRemarks(e.target.value)}
+                  placeholder="Optional notes (e.g. Paid in Cash / eSewa)"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* Compressed Image Attachment */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Attach Bill / Prescription Image (Auto-Compress to &le; 500 KB)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={handleBillReceiptFileChange}
+                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+                />
+                {billReceiptCompressionInfo && (
+                  <p className="text-[11px] text-emerald-700 font-bold bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+                    ⚡ {billReceiptCompressionInfo}
+                  </p>
+                )}
+              </div>
+
+              {/* On-Demand Bill Generation */}
+              <div className="pt-2 flex items-center justify-between border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowPrintableInvoice(!showPrintableInvoice)}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center space-x-1 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>{showPrintableInvoice ? 'Hide Invoice Preview' : 'Generate & Preview Bill'}</span>
+                </button>
+              </div>
+
+              {/* On-Demand Invoice View */}
+              {showPrintableInvoice && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-2">
+                  <div className="flex justify-between font-black text-slate-800 pb-2 border-b border-slate-200">
+                    <span>{selectedClinic.name}</span>
+                    <span>Date: {billTargetAppt.appointmentDate}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Patient: {billTargetAppt.patientName}</span>
+                    <span>Token: #{billTargetAppt.trackingCode10Digit}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Doctor: {selectedDoctor?.fullName || 'OPD Doctor'}</span>
+                    <span>Total Fee: Rs. {billTotalAmount || 500}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-emerald-700 pt-1 border-t border-slate-200">
+                    <span>Amount Paid: Rs. {billPaidAmount || 0}</span>
+                    <span>
+                      Balance Due: Rs.{' '}
+                      {Math.max(0, (Number(billTotalAmount) || 0) - (Number(billPaidAmount) || 0))}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setBillModalOpen(false)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingBill}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  {savingBill ? 'Saving & Pushing...' : 'Push Bill to Patient'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
       {/* MODAL: LAB REPORT UPLOAD & MARK PREPARED */}
       {/* ========================================================= */}
       {labUploadModalOpen && targetLabAppt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-teal-600">
@@ -1394,21 +3457,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             <form onSubmit={handleUploadReportSubmit} className="space-y-4">
-              {/* Optional PDF / Image file upload */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Upload PDF Report or Scan (Optional)
+                  Upload PDF Report or Scan (Auto-Compress to &le; 500 KB)
                 </label>
                 <input
                   type="file"
                   accept="application/pdf,image/*"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      setReportFile(e.target.files[0])
-                    }
-                  }}
-                  className="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100"
+                  onChange={handleLabReportFileChange}
+                  className="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer"
                 />
+                {reportCompressionInfo && (
+                  <p className="text-[11px] text-teal-700 font-bold bg-teal-50 p-2 rounded-lg border border-teal-200 mt-1">
+                    ⚡ {reportCompressionInfo}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1432,14 +3495,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <button
                   type="button"
                   onClick={() => setLabUploadModalOpen(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors"
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={uploadingReport}
-                  className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-teal-600/20"
+                  className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-teal-600/20 cursor-pointer"
                 >
                   {uploadingReport ? 'Uploading File...' : 'Mark Prepared & Notify'}
                 </button>
@@ -1450,10 +3513,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* MODAL: DOCTOR / PRACTITIONER ONBOARDING WITH YEAR DROPDOWN */}
+      {/* MODAL: DOCTOR / PRACTITIONER ONBOARDING */}
       {/* ========================================================= */}
       {showDoctorOnboarding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
             <div>
               <h3 className="text-xl font-black text-slate-900">
@@ -1505,60 +3568,60 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Role</label>
-                  <select
-                    value={docRole}
-                    onChange={(e) => setDocRole(e.target.value as any)}
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Qualifications</label>
+                  <input
+                    type="text"
+                    value={docEducation}
+                    onChange={(e) => setDocEducation(e.target.value)}
+                    placeholder="MBBS, MD"
                     className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="doctor">Consultant Doctor</option>
-                    <option value="lab_technician">Lab Technician / Pathologist</option>
-                  </select>
+                  />
                 </div>
-              </div>
-
-              {/* Starting Practicing Year Dropdown (Requested: 2026-1960 Dropdown) */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Year Doctor Started Working / Practicing (Dropdown) <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={docStartingYear}
-                  onChange={(e) => setDocStartingYear(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {practicingYears.map((yr) => (
-                    <option key={yr} value={yr}>
-                      {yr} ({2026 - yr} Years of Experience)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Medical License Number <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={docLicense}
-                  onChange={(e) => {
-                    setDocLicense(e.target.value)
-                    if (onboardingErrors.license) setOnboardingErrors({ ...onboardingErrors, license: '' })
-                  }}
-                  placeholder="e.g. NMC-12948"
-                  className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    onboardingErrors.license ? 'border-rose-500 bg-rose-50/50' : 'border-slate-200 bg-slate-50'
-                  } focus:outline-none focus:ring-2 focus:ring-emerald-500`}
-                />
-                {onboardingErrors.license && (
-                  <p className="text-[11px] text-rose-600 font-bold mt-1">{onboardingErrors.license}</p>
-                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Mobile</label>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    NMC / Council License <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={docLicense}
+                    onChange={(e) => {
+                      setDocLicense(e.target.value)
+                      if (onboardingErrors.license) setOnboardingErrors({ ...onboardingErrors, license: '' })
+                    }}
+                    placeholder="e.g. 14250"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  {onboardingErrors.license && (
+                    <p className="text-[11px] text-rose-600 font-bold mt-1">{onboardingErrors.license}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Start Year of Practice
+                  </label>
+                  <select
+                    value={docStartingYear}
+                    onChange={(e) => setDocStartingYear(Number(e.target.value))}
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    {practicingYears.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr} ({2026 - yr} Yrs Experience)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Contact Mobile <span className="text-rose-500">*</span>
+                  </label>
                   <input
                     type="tel"
                     value={docMobile}
@@ -1567,17 +3630,20 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       if (onboardingErrors.mobile) setOnboardingErrors({ ...onboardingErrors, mobile: '' })
                     }}
                     placeholder="98XXXXXXXX"
-                    className="w-full px-3 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
+                  {onboardingErrors.mobile && (
+                    <p className="text-[11px] text-rose-600 font-bold mt-1">{onboardingErrors.mobile}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Consultation Fee (Rs.)</label>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Fee (Rs.)</label>
                   <input
                     type="number"
                     value={docFee}
                     onChange={(e) => setDocFee(Number(e.target.value))}
-                    className="w-full px-3 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
               </div>
@@ -1586,13 +3652,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <button
                   type="button"
                   onClick={() => setShowDoctorOnboarding(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors"
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-emerald-600/20"
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-emerald-600/20 cursor-pointer"
                 >
                   Register Practitioner
                 </button>

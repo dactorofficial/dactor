@@ -11,6 +11,9 @@ import {
   MedicalQualification,
   BillingInvoice,
   QueueEntry,
+  PatientProfile,
+  PatientTransactionRecord,
+  PaymentGatewaysConfig,
 } from '../types'
 
 // ==========================================
@@ -414,6 +417,15 @@ export async function createClinicService(service: Partial<ClinicService>): Prom
     return data ? mapService(data) : null
   } catch {
     return null
+  }
+}
+
+export async function deleteClinicService(id: string): Promise<boolean> {
+  try {
+    const { error } = await supabase.from('clinic_services').delete().eq('id', id)
+    return !error
+  } catch {
+    return false
   }
 }
 
@@ -1115,3 +1127,397 @@ export function generate10DigitTrackingCode(): string {
   const rest = Math.floor(Math.random() * 1000000000).toString().padStart(9, '0')
   return `${first}${rest}`
 }
+
+// ==========================================
+// PATIENT PORTAL API & WORKFLOW HELPERS
+// ==========================================
+
+export function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0
+  const clean = timeStr.trim().toUpperCase()
+  const isPM = clean.includes('PM')
+  const isAM = clean.includes('AM')
+  const timeOnly = clean.replace(/AM|PM/g, '').trim()
+  const parts = timeOnly.split(':')
+  let hours = parseInt(parts[0] || '0', 10)
+  const minutes = parseInt(parts[1] || '0', 10)
+
+  if (isPM && hours < 12) hours += 12
+  if (isAM && hours === 12) hours = 0
+
+  return hours * 60 + minutes
+}
+
+export function isSlotTimeExpired(slotDate: string, endTimeStr: string): boolean {
+  if (!slotDate || !endTimeStr) return false
+  const now = new Date()
+  const todayStr = now.toISOString().split('T')[0]
+
+  // Compare dates: YYYY-MM-DD
+  if (slotDate < todayStr) return true
+  if (slotDate > todayStr) return false
+
+  // If slot is today, check if slot end time has passed
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+  const endMinutes = parseTimeToMinutes(endTimeStr)
+
+  return currentMinutes >= endMinutes
+}
+
+export async function getPatientProfileByEmail(email: string): Promise<PatientProfile | null> {
+  try {
+    const cleanEmail = email.trim().toLowerCase()
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .ilike('email', cleanEmail)
+      .limit(1)
+
+    if (error || !data || data.length === 0) return null
+    const p = data[0]
+    return {
+      id: p.id,
+      authUid: p.auth_uid,
+      email: p.email,
+      fullName: p.full_name,
+      role: p.role || 'patient',
+      phone: p.phone,
+      gender: p.gender,
+      age: p.age,
+      isArchived: p.is_archived ?? false,
+      archivedAt: p.archived_at,
+      deletionScheduledAt: p.deletion_scheduled_at,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at,
+    }
+  } catch (err) {
+    console.error('Error fetching patient profile:', err)
+    return null
+  }
+}
+
+export async function getPatientProfileById(id: string): Promise<PatientProfile | null> {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .or(`id.eq.${id},auth_uid.eq.${id}`)
+      .limit(1)
+
+    if (error || !data || data.length === 0) return null
+    const p = data[0]
+    return {
+      id: p.id,
+      authUid: p.auth_uid,
+      email: p.email,
+      fullName: p.full_name,
+      role: p.role || 'patient',
+      phone: p.phone,
+      gender: p.gender,
+      age: p.age,
+      isArchived: p.is_archived ?? false,
+      archivedAt: p.archived_at,
+      deletionScheduledAt: p.deletion_scheduled_at,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function savePatientProfile(profile: Partial<PatientProfile>): Promise<PatientProfile | null> {
+  try {
+    const email = profile.email?.trim().toLowerCase()
+    if (!email) return null
+
+    const payload: any = {
+      email,
+      updated_at: new Date().toISOString(),
+    }
+    if (profile.fullName !== undefined) payload.full_name = profile.fullName.trim()
+    if (profile.phone !== undefined) payload.phone = profile.phone.trim()
+    if (profile.gender !== undefined) payload.gender = profile.gender
+    if (profile.age !== undefined) payload.age = profile.age
+    if (profile.role !== undefined) payload.role = profile.role
+    if (profile.authUid !== undefined) payload.auth_uid = profile.authUid
+
+    // Check if exists
+    const existing = await getPatientProfileByEmail(email)
+    let resData: any
+
+    if (existing) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', existing.id)
+        .select()
+        .single()
+      if (error) throw error
+      resData = data
+    } else {
+      payload.id = profile.id || crypto.randomUUID()
+      payload.created_at = new Date().toISOString()
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert(payload)
+        .select()
+        .single()
+      if (error) throw error
+      resData = data
+    }
+
+    return {
+      id: resData.id,
+      authUid: resData.auth_uid,
+      email: resData.email,
+      fullName: resData.full_name,
+      role: resData.role,
+      phone: resData.phone,
+      gender: resData.gender,
+      age: resData.age,
+      isArchived: resData.is_archived,
+      createdAt: resData.created_at,
+      updatedAt: resData.updated_at,
+    }
+  } catch (err) {
+    console.error('Error saving patient profile:', err)
+    return null
+  }
+}
+
+export async function getAppointmentsByPatient(criteria: {
+  email?: string
+  phone?: string
+  userId?: string
+  trackingCodes?: string[]
+}): Promise<Appointment[]> {
+  try {
+    const filters: string[] = []
+
+    if (criteria.userId) {
+      filters.push(`user_id.eq.${criteria.userId}`)
+    }
+    if (criteria.email) {
+      filters.push(`patient_email.ilike.${criteria.email.trim().toLowerCase()}`)
+    }
+    if (criteria.phone) {
+      const cleanPhone = criteria.phone.trim()
+      if (cleanPhone.length >= 6) {
+        filters.push(`patient_mobile.eq.${cleanPhone}`)
+      }
+    }
+    if (criteria.trackingCodes && criteria.trackingCodes.length > 0) {
+      const codes = criteria.trackingCodes.map((c) => c.trim()).filter(Boolean)
+      if (codes.length > 0) {
+        filters.push(`tracking_code_10_digit.in.(${codes.join(',')})`)
+      }
+    }
+
+    if (filters.length === 0) return []
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*, clinic:clinics(*), doctor:doctors(*)')
+      .or(filters.join(','))
+      .order('appointment_date', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    return (data || []).map(mapAppointment)
+  } catch (err) {
+    console.error('Error fetching patient appointments:', err)
+    return []
+  }
+}
+
+export async function cancelAppointment(appointmentId: string, reason?: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('appointments')
+      .update({
+        checkinStatus: 'cancelled',
+        notes: reason ? `Cancelled by patient: ${reason}` : 'Cancelled by patient',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', appointmentId)
+
+    return !error
+  } catch {
+    return false
+  }
+}
+
+export async function getClinicPaymentConfig(clinicId: string): Promise<PaymentGatewaysConfig | null> {
+  try {
+    const { data, error } = await supabase
+      .from('clinics')
+      .select('payment_gateways_config, esewa_merchant_code, khalti_public_key, fonepay_merchant_id')
+      .eq('id', clinicId)
+      .single()
+
+    if (error || !data) return null
+
+    if (data.payment_gateways_config) {
+      try {
+        const parsed = typeof data.payment_gateways_config === 'string'
+          ? JSON.parse(data.payment_gateways_config)
+          : data.payment_gateways_config
+        return parsed
+      } catch {}
+    }
+
+    // Fallback: build config from legacy fields
+    return {
+      esewa: {
+        id: 'esewa',
+        title: 'eSewa Mobile Wallet',
+        accountIdentifier: data.esewa_merchant_code || 'EPAYTEST',
+        merchantCode: data.esewa_merchant_code || 'EPAYTEST',
+        testBypassEnabled: true,
+        isEnabled: true,
+      },
+      khalti: {
+        id: 'khalti',
+        title: 'Khalti Digital Wallet',
+        accountIdentifier: data.khalti_public_key || 'test_public_key',
+        merchantCode: data.khalti_public_key,
+        testBypassEnabled: true,
+        isEnabled: true,
+      },
+      fonepay: {
+        id: 'fonepay',
+        title: 'Fonepay QR / Direct Banking',
+        accountIdentifier: data.fonepay_merchant_id || 'FONEPAYTEST',
+        merchantCode: data.fonepay_merchant_id,
+        testBypassEnabled: true,
+        isEnabled: true,
+      },
+      testBypassAllowed: true,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function recordPaymentTransaction(record: {
+  appointmentId: string
+  trackingCode: string
+  clinicId: string
+  doctorId?: string
+  patientName: string
+  appointmentDate: string
+  appointmentTime: string
+  amount: number
+  paymentMethod: string
+  paymentStatus: string
+  transactionId?: string
+  notes?: string
+}): Promise<boolean> {
+  try {
+    const txnId = record.transactionId || `TXN-${record.trackingCode}-${Date.now().toString().slice(-4)}`
+    const nowIso = new Date().toISOString()
+
+    // 1. Update appointment payment status
+    await supabase
+      .from('appointments')
+      .update({
+        payment_status: record.paymentStatus,
+        updated_at: nowIso,
+      })
+      .eq('id', record.appointmentId)
+
+    // 2. Create or update billing invoice in Supabase
+    const invoicePayload = {
+      id: crypto.randomUUID(),
+      appointment_id: record.appointmentId,
+      clinic_id: record.clinicId,
+      total_amount: record.amount,
+      paid_amount: record.paymentStatus === 'paid' ? record.amount : 0,
+      balance_due: record.paymentStatus === 'paid' ? 0 : record.amount,
+      payment_status: record.paymentStatus,
+      paid_at: record.paymentStatus === 'paid' ? nowIso : null,
+      remarks: `Method: ${record.paymentMethod} (Txn: ${txnId}) • ${record.notes || ''}`.trim(),
+    }
+
+    const { error: invError } = await supabase
+      .from('billing_invoices')
+      .upsert(invoicePayload, { onConflict: 'appointment_id' })
+
+    return !invError
+  } catch (err) {
+    console.error('Error recording payment transaction:', err)
+    return false
+  }
+}
+
+export async function getPatientTransactions(criteria: {
+  email?: string
+  phone?: string
+  userId?: string
+  trackingCodes?: string[]
+}): Promise<PatientTransactionRecord[]> {
+  try {
+    const appts = await getAppointmentsByPatient(criteria)
+    if (appts.length === 0) return []
+
+    // Fetch invoices for these appointments
+    const apptIds = appts.map((a) => a.id)
+    const { data: invData } = await supabase
+      .from('billing_invoices')
+      .select('*')
+      .in('appointment_id', apptIds)
+
+    const invoicesMap = new Map<string, any>()
+    ;(invData || []).forEach((inv: any) => {
+      invoicesMap.set(inv.appointment_id, inv)
+    })
+
+    return appts.map((appt) => {
+      const inv = invoicesMap.get(appt.id)
+      const amt = (inv?.paid_amount && inv.paid_amount > 0)
+        ? inv.paid_amount
+        : (inv?.total_amount && inv.total_amount > 0)
+          ? inv.total_amount
+          : appt.feeAmount || 0
+
+      let status = appt.paymentStatus || 'unpaid'
+      if (inv?.payment_status) status = inv.payment_status
+
+      let method = 'eSewa'
+      if (inv?.remarks) {
+        const rem = inv.remarks.toLowerCase()
+        if (rem.includes('bypass')) method = 'Bypass Test'
+        else if (rem.includes('khalti')) method = 'Khalti'
+        else if (rem.includes('fonepay')) method = 'Fonepay'
+        else if (rem.includes('connectips')) method = 'ConnectIPS'
+        else if (rem.includes('cash')) method = 'Cash'
+      }
+
+      let txnId = `TXN-${appt.trackingCode10Digit}`
+      if (inv?.remarks && inv.remarks.includes('Txn:')) {
+        txnId = inv.remarks.split('Txn:')[1].split(')')[0].trim()
+      }
+
+      return {
+        id: inv?.id || appt.id,
+        appointmentId: appt.id,
+        trackingCode: appt.trackingCode10Digit,
+        clinicName: appt.clinic?.name || 'Clinic & OPD Center',
+        doctorName: appt.doctor?.fullName || 'Consulting Doctor',
+        patientName: appt.patientName,
+        appointmentDate: appt.appointmentDate,
+        appointmentTime: appt.appointmentTime,
+        amount: amt,
+        paymentStatus: status,
+        paymentMethod: method,
+        transactionId: txnId,
+        createdAt: appt.createdAt || new Date().toISOString(),
+      }
+    })
+  } catch (err) {
+    console.error('Error fetching patient transactions:', err)
+    return []
+  }
+}
+

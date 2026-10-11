@@ -185,3 +185,54 @@ export interface QueueEntry {
   insideAt?: string
   completedAt?: string
 }
+
+export interface PatientProfile {
+  id: string
+  authUid?: string
+  email: string
+  fullName?: string
+  role?: string
+  phone?: string
+  gender?: string
+  age?: number
+  isArchived?: boolean
+  archivedAt?: string
+  deletionScheduledAt?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface PatientTransactionRecord {
+  id: string
+  appointmentId: string
+  trackingCode: string
+  clinicName: string
+  doctorName: string
+  patientName: string
+  appointmentDate: string
+  appointmentTime: string
+  amount: number
+  paymentStatus: string // "paid", "failed", "pending", "bypassed", "free"
+  paymentMethod: string // "esewa", "khalti", "fonepay", "connectips", "bypass", "cash"
+  transactionId: string
+  createdAt: string
+}
+
+export interface GatewayCredentialItem {
+  id: string
+  title: string
+  accountIdentifier: string
+  merchantCode?: string
+  qrImageUrl?: string
+  testBypassEnabled?: boolean
+  isEnabled: boolean
+}
+
+export interface PaymentGatewaysConfig {
+  esewa?: GatewayCredentialItem
+  khalti?: GatewayCredentialItem
+  fonepay?: GatewayCredentialItem
+  connectips?: GatewayCredentialItem
+  directBank?: GatewayCredentialItem
+  testBypassAllowed?: boolean
+}
