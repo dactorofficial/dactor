@@ -96,20 +96,22 @@ class MainActivity : ComponentActivity() {
                         .navigationBarsPadding(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    com.dactor.clinic.ui.components.NotificationPermissionEnforcer()
-                    DactorClinicNavHost(
-                        authRepository = authRepository,
-                        clinicRepository = clinicRepository,
-                        doctorRepository = doctorRepository,
-                        appointmentRepository = appointmentRepository,
-                        queueRepository = queueRepository,
-                        billingRepository = billingRepository,
-                        labReportRepository = labReportRepository,
-                        slotRepository = slotRepository,
-                        invitationRepository = invitationRepository,
-                        draftManager = draftManager,
-                        sessionManager = sessionManager
-                    )
+                    com.dactor.clinic.ui.components.NetworkConnectivityGate {
+                        com.dactor.clinic.ui.components.NotificationPermissionEnforcer()
+                        DactorClinicNavHost(
+                            authRepository = authRepository,
+                            clinicRepository = clinicRepository,
+                            doctorRepository = doctorRepository,
+                            appointmentRepository = appointmentRepository,
+                            queueRepository = queueRepository,
+                            billingRepository = billingRepository,
+                            labReportRepository = labReportRepository,
+                            slotRepository = slotRepository,
+                            invitationRepository = invitationRepository,
+                            draftManager = draftManager,
+                            sessionManager = sessionManager
+                        )
+                    }
                 }
             }
         }

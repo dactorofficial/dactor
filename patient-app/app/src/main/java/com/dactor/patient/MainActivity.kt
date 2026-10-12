@@ -166,19 +166,21 @@ class MainActivity : ComponentActivity() {
                         .navigationBarsPadding(),
                     color = androidx.compose.material3.MaterialTheme.colorScheme.background
                 ) {
-                    com.dactor.patient.ui.components.NotificationPermissionEnforcer()
-                    DactorNavHost(
-                        authRepository = authRepository,
-                        clinicRepository = clinicRepository,
-                        doctorRepository = doctorRepository,
-                        appointmentRepository = appointmentRepository,
-                        queueRepository = queueRepository,
-                        slotRepository = slotRepository,
-                        labReportRepository = labReportRepository,
-                        notificationRepository = notificationRepository,
-                        draftManager = draftManager,
-                        sessionManager = sessionManager
-                    )
+                    com.dactor.patient.ui.components.NetworkConnectivityGate {
+                        com.dactor.patient.ui.components.NotificationPermissionEnforcer()
+                        DactorNavHost(
+                            authRepository = authRepository,
+                            clinicRepository = clinicRepository,
+                            doctorRepository = doctorRepository,
+                            appointmentRepository = appointmentRepository,
+                            queueRepository = queueRepository,
+                            slotRepository = slotRepository,
+                            labReportRepository = labReportRepository,
+                            notificationRepository = notificationRepository,
+                            draftManager = draftManager,
+                            sessionManager = sessionManager
+                        )
+                    }
                 }
             }
         }
