@@ -8,7 +8,6 @@ plugins {
     id("com.google.gms.google-services")
 }
 
-layout.buildDirectory.set(file("build"))
 
 android {
     namespace = "com.dactor.clinic"
@@ -18,8 +17,8 @@ android {
         applicationId = "com.dactor.clinic"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.0.8"
+        versionCode = 13
+        versionName = "1.0.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

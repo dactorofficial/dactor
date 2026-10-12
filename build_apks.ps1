@@ -77,17 +77,16 @@ function Bump-App {
     $updatedContent = $updatedContent -replace 'versionName\s*=\s*"[^"]+"', "versionName = `"$newName`""
     Set-Content -Path $gradlePath -Value $updatedContent -NoNewline
 
-    # Run Gradle build
-    Push-Location $AppDir
+    # Sync source files to local SSD workspace to bypass cloud drive locks & KSP path issues
+    $localWorkDir = Join-Path $env:TEMP "dactor_build_src_$($AppName -replace '\s','_')"
+    Write-Host "Syncing source files to local SSD at $localWorkDir..." -ForegroundColor Yellow
+    robocopy $AppDir $localWorkDir /XD build* .gradle .idea /E /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+
+    # Run Gradle build on local SSD
+    Push-Location $localWorkDir
     try {
-        Write-Host "Running Gradle assembleDebug in $AppDir..." -ForegroundColor Yellow
-        $initScript = "C:\Users\Harsh Darak\.gemini\antigravity\brain\704233db-21ec-4cc5-a8c5-42ae9e0f941c\scratch\local-build.init.gradle"
-        $cacheDir = "C:\Users\Harsh Darak\AppData\Local\Temp\dactor_gradle_cache_$($AppName -replace '\s','_')"
-        if (Test-Path $initScript) {
-            & .\gradlew.bat assembleDebug --console=plain --init-script $initScript --project-cache-dir $cacheDir
-        } else {
-            & .\gradlew.bat assembleDebug --console=plain
-        }
+        Write-Host "Running Gradle assembleDebug in $localWorkDir..." -ForegroundColor Yellow
+        & .\gradlew.bat assembleDebug --console=plain --no-daemon
         if ($LASTEXITCODE -ne 0) {
             throw "Gradle build failed with exit code $LASTEXITCODE"
         }
@@ -95,35 +94,19 @@ function Bump-App {
         Pop-Location
     }
 
-    # Locate generated APK
-    $possibleApks = @(
-        (Join-Path $AppDir "app\build_gen_apk\outputs\apk\debug\app-debug.apk"),
-        (Join-Path $AppDir "app\build_verify_fresh\outputs\apk\debug\app-debug.apk"),
-        (Join-Path $AppDir "app\build2\outputs\apk\debug\app-debug.apk"),
-        (Join-Path $AppDir "app\build\outputs\apk\debug\app-debug.apk"),
-        (Join-Path $AppDir "app\build_gen_apk\outputs\apk\debug\*-debug.apk"),
-        (Join-Path $AppDir "app\build_verify_fresh\outputs\apk\debug\*-debug.apk"),
-        (Join-Path $AppDir "app\build2\outputs\apk\debug\*-debug.apk"),
-        (Join-Path $AppDir "app\build\outputs\apk\debug\*-debug.apk")
-    )
-    $builtApk = $null
-    foreach ($candidate in $possibleApks) {
-        $resolved = Get-Item $candidate -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($resolved) {
-            $builtApk = $resolved.FullName
-            break
-        }
-    }
+    # Locate freshest generated APK across local SSD work dir and AppDir
+    $searchLocations = @(
+        (Join-Path $localWorkDir "app"),
+        (Join-Path $AppDir "app")
+    ) | Where-Object { Test-Path $_ }
 
-    if (-not $builtApk) {
-        $found = Get-ChildItem -Path (Join-Path $AppDir "app") -Filter "*.apk" -Recurse -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($found) { $builtApk = $found.FullName }
-    }
+    $found = Get-ChildItem -Path $searchLocations -Filter "*.apk" -Recurse -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-    if (-not $builtApk) {
-        throw "Could not find built APK in $AppDir"
+    if (-not $found) {
+        throw "Could not find built APK in $searchLocations"
     }
+    $builtApk = $found.FullName
 
     # Destination versioned APK
     $destVersionedName = "$OutputPrefix-v$newName.apk"
