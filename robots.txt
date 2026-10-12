@@ -1,0 +1,15 @@
+# Robots.txt for Dactor Healthcare Platform
+User-agent: *
+Allow: /
+
+# Googlebot specific directives
+User-agent: Googlebot
+Allow: /
+Allow: /assets/
+Allow: /*.png
+Allow: /*.jpg
+Allow: /*.svg
+
+# Sitemaps
+Sitemap: https://dactorofficial.github.io/sitemap.xml
+Sitemap: https://dactor.health/sitemap.xml
