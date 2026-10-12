@@ -27,7 +27,12 @@ export async function getClinics(): Promise<Clinic[]> {
       .order('name', { ascending: true })
 
     if (error) throw error
-    return (data || []).map(mapClinic)
+    return (data || [])
+      .map(mapClinic)
+      .filter((c) => {
+        const isVerified = c.verificationStatus === 'approved' || c.verificationStatus === 'verified'
+        return isVerified && !c.isArchived
+      })
   } catch (err) {
     console.error('Error fetching clinics:', err)
     return []
@@ -42,8 +47,11 @@ export async function getClinicById(id: string): Promise<Clinic | null> {
       .eq('id', id)
       .single()
 
-    if (error) return null
-    return data ? mapClinic(data) : null
+    if (error || !data) return null
+    const mapped = mapClinic(data)
+    const isVerified = mapped.verificationStatus === 'approved' || mapped.verificationStatus === 'verified'
+    if (!isVerified || mapped.isArchived) return null
+    return mapped
   } catch {
     return null
   }
@@ -306,21 +314,79 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
   try {
     const code10 = appt.trackingCode10Digit || generate10DigitTrackingCode()
     const apptId = appt.id || crypto.randomUUID()
-    const isWalkin = appt.notes?.toLowerCase().includes('walk-in') || false
+    const isWalkin = appt.isWalkin ?? (appt.notes?.toLowerCase().includes('walk-in') || false)
     const apptDate = appt.appointmentDate || new Date().toISOString().split('T')[0]
     const apptTime = formatTimeForPostgres(appt.appointmentTime)
+
+    // 1. Resolve or register patient in profiles directory
+    let resolvedUserId = appt.userId && appt.userId.length === 36 ? appt.userId : null
+    const cleanEmail = appt.patientEmail?.trim().toLowerCase() || null
+    const cleanMobile = appt.patientMobile?.trim().replace(/\D/g, '') || ''
+    const patientNameClean = appt.patientName?.trim() || 'Patient'
+
+    try {
+      let existingProf: any = null
+      if (cleanEmail) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .ilike('email', cleanEmail)
+          .maybeSingle()
+        if (data) existingProf = data
+      }
+      if (!existingProf && cleanMobile) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('phone', cleanMobile)
+          .maybeSingle()
+        if (data) existingProf = data
+      }
+
+      if (existingProf) {
+        resolvedUserId = existingProf.id
+        const updatePayload: any = {}
+        if (!existingProf.full_name && patientNameClean) updatePayload.full_name = patientNameClean
+        if (!existingProf.phone && cleanMobile) updatePayload.phone = cleanMobile
+        if (!existingProf.age && appt.patientAge) updatePayload.age = Number(appt.patientAge)
+        if (!existingProf.gender && appt.patientGender) updatePayload.gender = appt.patientGender
+        if (Object.keys(updatePayload).length > 0) {
+          updatePayload.updated_at = new Date().toISOString()
+          await supabase.from('profiles').update(updatePayload).eq('id', existingProf.id)
+        }
+      } else {
+        const newProfId = resolvedUserId || crypto.randomUUID()
+        const newProfile: any = {
+          id: newProfId,
+          full_name: patientNameClean,
+          email: cleanEmail,
+          phone: cleanMobile,
+          age: Number(appt.patientAge) || null,
+          gender: appt.patientGender || null,
+          role: 'patient',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+        const { data: createdProf, error: profErr } = await supabase.from('profiles').insert(newProfile).select().single()
+        if (!profErr && createdProf) {
+          resolvedUserId = createdProf.id
+        }
+      }
+    } catch (profErr) {
+      console.warn('Patient directory profile link note:', profErr)
+    }
 
     const dbPayload: any = {
       id: apptId,
       tracking_code_10_digit: code10,
-      user_id: appt.userId && appt.userId.length === 36 ? appt.userId : null,
+      user_id: resolvedUserId,
       clinic_id: appt.clinicId,
       doctor_id: appt.doctorId || null,
-      patient_name: appt.patientName || 'Patient',
+      patient_name: patientNameClean,
       patient_age: Number(appt.patientAge) || 1,
       patient_gender: appt.patientGender || 'Other',
-      patient_mobile: appt.patientMobile || '',
-      patient_email: appt.patientEmail || null,
+      patient_mobile: cleanMobile,
+      patient_email: cleanEmail,
       appointment_date: apptDate,
       appointment_time: apptTime,
       checkin_status: 'checked_in',
@@ -520,6 +586,183 @@ export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
     return data ? mapSlot(data) : null
   } catch {
     return null
+  }
+}
+
+export async function getSlotsByDoctorAndDate(doctorId: string, date: string): Promise<Slot[]> {
+  try {
+    const { data, error } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('doctor_id', doctorId)
+      .eq('slot_date', date)
+      .order('start_time', { ascending: true })
+
+    if (error) throw error
+    return (data || []).map(mapSlot)
+  } catch (err) {
+    console.error('Error fetching slots by doctor and date:', err)
+    return []
+  }
+}
+
+export async function deleteSlot(slotId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase.from('slots').delete().eq('id', slotId)
+    return !error
+  } catch (err) {
+    console.error('Error deleting slot:', err)
+    return false
+  }
+}
+
+export async function reorderQueuePosition(
+  clinicId: string,
+  appointmentId: string,
+  direction: 'up' | 'down'
+): Promise<{ success: boolean; message?: string }> {
+  try {
+    // 1. Fetch all waiting queue entries for this clinic ordered by position
+    const { data: entries, error } = await supabase
+      .from('queue_entries')
+      .select('id, appointment_id, queue_position, status')
+      .eq('clinic_id', clinicId)
+      .eq('status', 'waiting')
+      .order('queue_position', { ascending: true })
+
+    if (error || !entries || entries.length <= 1) {
+      return { success: false, message: 'Not enough waiting queue entries to slide.' }
+    }
+
+    const currentIndex = entries.findIndex((e) => e.appointment_id === appointmentId)
+    if (currentIndex === -1) {
+      return { success: false, message: 'Patient not currently in waiting queue.' }
+    }
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (targetIndex < 0 || targetIndex >= entries.length) {
+      return {
+        success: false,
+        message: direction === 'up' ? 'Already at the top of the waiting queue.' : 'Already at the end of the waiting queue.',
+      }
+    }
+
+    const currentEntry = entries[currentIndex]
+    const targetEntry = entries[targetIndex]
+
+    // Swap their queue positions safely
+    const posA = currentEntry.queue_position
+    const posB = targetEntry.queue_position
+
+    // Temporarily set negative position to prevent duplicate index violation if unique constraint exists
+    await supabase
+      .from('queue_entries')
+      .update({ queue_position: -999999, updated_at: new Date().toISOString() })
+      .eq('id', currentEntry.id)
+
+    await supabase
+      .from('queue_entries')
+      .update({ queue_position: posA, updated_at: new Date().toISOString() })
+      .eq('id', targetEntry.id)
+
+    await supabase
+      .from('queue_entries')
+      .update({ queue_position: posB, updated_at: new Date().toISOString() })
+      .eq('id', currentEntry.id)
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Error reordering queue position:', err)
+    return { success: false, message: err?.message || 'Failed to reorder queue position' }
+  }
+}
+
+export async function shiftAppointmentDate(
+  appointmentId: string,
+  newDate: string,
+  newTime?: string,
+  reason?: string
+): Promise<boolean> {
+  try {
+    const updatePayload: any = {
+      appointment_date: newDate,
+      updated_at: new Date().toISOString(),
+    }
+    if (newTime) {
+      updatePayload.appointment_time = newTime
+    }
+
+    const { data: updatedAppt, error } = await supabase
+      .from('appointments')
+      .update(updatePayload)
+      .eq('id', appointmentId)
+      .select('*, clinic:clinics(*)')
+      .single()
+
+    if (error) throw error
+
+    // Create reschedule alert notification for the patient
+    try {
+      const clinicName = updatedAppt?.clinic?.name || 'Clinic'
+      await supabase.from('notifications').insert({
+        id: crypto.randomUUID(),
+        appointment_id: appointmentId,
+        user_id: updatedAppt?.user_id && updatedAppt.user_id.length === 36 ? updatedAppt.user_id : null,
+        title: `Appointment Rescheduled • ${newDate}`,
+        message: `Your appointment at ${clinicName} has been shifted to ${newDate} (${newTime || updatedAppt?.appointment_time || 'Scheduled'}). Reason: ${reason || 'Schedule adjustment by clinic.'}`,
+        type: 'queue_alert',
+        target_audience: 'specific',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      })
+    } catch {}
+
+    return true
+  } catch (err) {
+    console.error('Error shifting appointment date:', err)
+    return false
+  }
+}
+
+export async function checkAndNotifyApproachingPatients(
+  clinicId: string,
+  threshold = 3
+): Promise<void> {
+  try {
+    const { data: waitingEntries } = await supabase
+      .from('queue_entries')
+      .select('id, appointment_id, queue_position, appointments(patient_name, user_id, clinic_id, clinics(name))')
+      .eq('clinic_id', clinicId)
+      .eq('status', 'waiting')
+      .order('queue_position', { ascending: true })
+
+    if (!waitingEntries) return
+
+    for (const entry of waitingEntries) {
+      const pos = Number(entry.queue_position)
+      if (pos > 0 && pos <= threshold) {
+        const appt: any = entry.appointments
+        const clinicName = appt?.clinics?.name || 'Clinic'
+        const patientsAhead = Math.max(0, pos - 1)
+        const msg = patientsAhead === 0
+          ? `You are next in line at ${clinicName}! Please prepare to enter the doctor's cabin.`
+          : `Your turn is approaching! Only ${patientsAhead} ${patientsAhead === 1 ? 'patient' : 'patients'} ahead of you at ${clinicName}. Please proceed to the clinic waiting area.`
+
+        await supabase.from('notifications').insert({
+          id: crypto.randomUUID(),
+          appointment_id: entry.appointment_id,
+          user_id: appt?.user_id && appt.user_id.length === 36 ? appt.user_id : null,
+          title: `Your Turn is Approaching! Token #${pos}`,
+          message: msg,
+          type: 'queue_alert',
+          target_audience: 'specific',
+          is_read: false,
+          created_at: new Date().toISOString(),
+        })
+      }
+    }
+  } catch (err) {
+    console.warn('Error checking approaching patients notification:', err)
   }
 }
 
@@ -1156,6 +1399,20 @@ function mapClinic(c: any): Clinic {
     } catch {}
   }
 
+  // Parse pictures robustly
+  let pics: string[] = []
+  const rawPics = c.pictures || meta.pictures
+  if (Array.isArray(rawPics)) {
+    pics = rawPics.filter((p: any) => typeof p === 'string' && p.trim().length > 0)
+  } else if (typeof rawPics === 'string' && rawPics.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(rawPics)
+      if (Array.isArray(parsed)) pics = parsed.filter(Boolean)
+    } catch {
+      pics = rawPics.replace(/[{}]/g, '').split(',').map((s: string) => s.trim().replace(/^"|"$/g, '')).filter(Boolean)
+    }
+  }
+
   return {
     id: c.id,
     name: c.name,
@@ -1171,13 +1428,13 @@ function mapClinic(c: any): Clinic {
     panNumber: c.pan_number || meta.pan_number,
     managerPhone: c.manager_phone || meta.manager_phone,
     registrationDocUrl: c.registration_doc_url || meta.registration_doc_url,
-    pictures: c.pictures || meta.pictures || [],
+    pictures: pics,
     specialties: c.specialties || meta.specialties || [],
     createdAt: c.created_at,
     updatedAt: c.updated_at,
     isArchived: c.is_archived ?? meta.is_archived,
     deletionScheduledAt: c.deletion_scheduled_at || meta.deletion_scheduled_at,
-    logoUrl: c.logo_url,
+    logoUrl: c.logo_url || (pics.length > 0 ? pics[0] : null),
     isOnBreak: c.is_on_break ?? meta.is_on_break ?? false,
     breakUpdatedAt: c.break_updated_at || meta.break_updated_at,
     weeklyScheduleJson: c.weekly_schedule_json || meta.weekly_schedule_json,
@@ -1553,16 +1810,29 @@ export async function checkEmailPortalAssociation(
           email: cleanEmail,
         }
       }
-      if (
-        role === 'patient' &&
-        (Boolean(existingProfile.fullName?.trim()) || Boolean(existingProfile.phone?.trim()))
-      ) {
+      if (role === 'patient') {
         return {
           portal: 'patient',
           portalLabel: 'Patient Portal',
           entityName: existingProfile.fullName || '',
           email: cleanEmail,
         }
+      }
+    }
+
+    // 4. Check appointments table (patient_email)
+    const { data: patientAppts } = await supabase
+      .from('appointments')
+      .select('patient_name')
+      .ilike('patient_email', cleanEmail)
+      .limit(1)
+
+    if (patientAppts && patientAppts.length > 0) {
+      return {
+        portal: 'patient',
+        portalLabel: 'Patient Portal',
+        entityName: patientAppts[0].patient_name || 'Patient',
+        email: cleanEmail,
       }
     }
   } catch (err) {
@@ -1844,4 +2114,142 @@ export async function getPatientTransactions(criteria: {
     return []
   }
 }
+// ==========================================
+// DOCTOR AFFILIATED CLINICS & DIRECTORY HELPERS
+// ==========================================
+export async function getAffiliatedClinicsForDoctor(
+  doctorId: string,
+  doctorEmail?: string
+): Promise<Clinic[]> {
+  try {
+    const clinicIdSet = new Set<string>()
 
+    // Check doctor record directly
+    if (doctorId) {
+      const doc = await getDoctorById(doctorId)
+      if (doc?.clinicId) clinicIdSet.add(doc.clinicId)
+      if (doc?.activeClinicId) clinicIdSet.add(doc.activeClinicId)
+    }
+
+    // Check clinic invitations for this doctor email or doctorId
+    if (doctorEmail) {
+      const { data: invites } = await supabase
+        .from('clinic_invitations')
+        .select('clinic_id, status')
+        .or(`doctor_email.ilike.${doctorEmail.trim().toLowerCase()},doctor_id.eq.${doctorId}`)
+        .eq('status', 'accepted')
+
+      if (invites) {
+        invites.forEach((inv) => {
+          if (inv.clinic_id) clinicIdSet.add(inv.clinic_id)
+        })
+      }
+    }
+
+    if (clinicIdSet.size === 0) {
+      // Fallback: return all approved clinics
+      return await getClinics()
+    }
+
+    const clinicIds = Array.from(clinicIdSet)
+    const { data: clinicsData, error } = await supabase
+      .from('clinics')
+      .select('*')
+      .in('id', clinicIds)
+
+    if (error || !clinicsData || clinicsData.length === 0) {
+      return await getClinics()
+    }
+
+    return clinicsData.map(mapClinic)
+  } catch (err) {
+    console.error('Error fetching affiliated clinics for doctor:', err)
+    return await getClinics()
+  }
+}
+
+export async function getDoctorAppointments(
+  doctorId: string,
+  date?: string
+): Promise<Appointment[]> {
+  try {
+    let query = supabase
+      .from('appointments')
+      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+      .eq('doctor_id', doctorId)
+
+    if (date) {
+      query = query.eq('appointment_date', date)
+    }
+
+    const { data, error } = await query.order('appointment_time', { ascending: true })
+    if (error) throw error
+    return (data || []).map(mapAppointment)
+  } catch (err) {
+    console.error('Error fetching doctor appointments:', err)
+    return []
+  }
+}
+
+export async function getClinicPatientDirectory(clinicId: string): Promise<{
+  id: string
+  fullName: string
+  phone: string
+  gender: string
+  age: number
+  email?: string
+  lastVisitDate?: string
+  visitCount: number
+  trackingCodes: string[]
+}[]> {
+  try {
+    // 1. Get all appointments for this clinic
+    const { data: appts } = await supabase
+      .from('appointments')
+      .select('id, user_id, patient_name, patient_mobile, patient_gender, patient_age, patient_email, appointment_date, tracking_code_10_digit')
+      .eq('clinic_id', clinicId)
+      .order('appointment_date', { ascending: false })
+
+    const patientMap = new Map<string, {
+      id: string
+      fullName: string
+      phone: string
+      gender: string
+      age: number
+      email?: string
+      lastVisitDate?: string
+      visitCount: number
+      trackingCodes: string[]
+    }>()
+
+    if (appts) {
+      for (const a of appts) {
+        const key = a.patient_mobile ? a.patient_mobile.trim() : (a.user_id || a.patient_name.toLowerCase())
+        if (!patientMap.has(key)) {
+          patientMap.set(key, {
+            id: a.user_id || a.id,
+            fullName: a.patient_name,
+            phone: a.patient_mobile || 'N/A',
+            gender: a.patient_gender || 'Other',
+            age: Number(a.patient_age) || 0,
+            email: a.patient_email || undefined,
+            lastVisitDate: a.appointment_date,
+            visitCount: 1,
+            trackingCodes: a.tracking_code_10_digit ? [a.tracking_code_10_digit] : [],
+          })
+        } else {
+          const item = patientMap.get(key)!
+          item.visitCount += 1
+          if (a.tracking_code_10_digit && !item.trackingCodes.includes(a.tracking_code_10_digit)) {
+            item.trackingCodes.push(a.tracking_code_10_digit)
+          }
+        }
+      }
+    }
+
+    return Array.from(patientMap.values())
+  } catch (err) {
+    console.error('Error fetching clinic patient directory:', err)
+    return []
+  }
+}

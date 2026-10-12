@@ -140,35 +140,44 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
-            {/* Clinic & Doctor Unified Portal CTA */}
-            {isLoggedIn ? (
-              <div className="flex items-center space-x-1.5">
-                <button
-                  onClick={() => setActiveTab('portal')}
-                  className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-md shadow-brand-600/20 transition-all duration-150 hover:scale-[1.02] cursor-pointer"
-                >
-                  <Building2 className="w-3.5 h-3.5" />
-                  <span>Clinic Desk</span>
-                </button>
-                {onLogout && (
-                  <button
-                    onClick={onLogout}
-                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-xs font-semibold cursor-pointer"
-                    title="Log Out"
-                  >
-                    Logout
-                  </button>
-                )}
-              </div>
-            ) : (
+            {/* Dedicated Doctor & Clinic Portal CTAs */}
+            <div className="flex items-center space-x-1.5">
+              <button
+                onClick={() => setActiveTab('doctor-portal')}
+                className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
+                  activeTab === 'doctor-portal'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                    : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
+                }`}
+                title="Open Doctor Consultation Desk"
+              >
+                <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Doctor Desk</span>
+              </button>
+
               <button
                 onClick={() => setActiveTab('portal')}
-                className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-brand-600 rounded-xl shadow-md shadow-slate-900/10 hover:shadow-brand-600/25 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
+                  activeTab === 'portal'
+                    ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                    : 'bg-white text-slate-800 border-slate-200 hover:bg-brand-50 hover:text-brand-700'
+                }`}
+                title="Open Clinic & Diagnostic Facility Portal"
               >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>Clinic / Doctor</span>
+                <Building2 className="w-3.5 h-3.5 text-brand-600" />
+                <span>Clinic Center</span>
               </button>
-            )}
+
+              {isLoggedIn && onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-xs font-semibold cursor-pointer"
+                  title="Log Out"
+                >
+                  Logout
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Mobile menu button & top-right notification icon */}
@@ -239,13 +248,24 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <button
                 onClick={() => {
+                  setActiveTab('doctor-portal')
+                  setMobileMenuOpen(false)
+                }}
+                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm"
+              >
+                <Stethoscope className="w-4 h-4" />
+                <span>Doctor Consultation Desk</span>
+              </button>
+
+              <button
+                onClick={() => {
                   setActiveTab('portal')
                   setMobileMenuOpen(false)
                 }}
                 className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-slate-900 hover:bg-brand-600 transition-colors shadow-sm"
               >
                 <Building2 className="w-4 h-4" />
-                <span>Clinic / Doctor Portal</span>
+                <span>Clinic & Lab Management Portal</span>
               </button>
             </div>
           </div>

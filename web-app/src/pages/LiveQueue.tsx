@@ -209,22 +209,33 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               </div>
             </div>
 
-            {/* Column 2: Patients Ahead & Estimated Time */}
-            <div className="text-center p-6 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Position in Line
-              </span>
-              <div className="text-4xl font-black text-brand-600">
-                {appointment.checkinStatus === 'completed'
-                  ? '0'
-                  : `${patientsAhead} Ahead`}
+            {/* Column 2: Patients Ahead & Estimated Time (Hidden when completed) */}
+            {appointment.checkinStatus !== 'completed' ? (
+              <div className="text-center p-6 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Position in Line
+                </span>
+                <div className="text-4xl font-black text-brand-600">
+                  {`${patientsAhead} Ahead`}
+                </div>
+                <p className="text-xs text-slate-500 font-medium pt-1">
+                  {`Estimated wait: ~${estimatedMinutes} mins`}
+                </p>
               </div>
-              <p className="text-xs text-slate-500 font-medium pt-1">
-                {appointment.checkinStatus === 'completed'
-                  ? 'Session finished'
-                  : `Estimated wait: ~${estimatedMinutes} mins`}
-              </p>
-            </div>
+            ) : (
+              <div className="text-center p-6 bg-emerald-50 rounded-2xl border border-emerald-100 space-y-1">
+                <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider">
+                  Consultancy Status
+                </span>
+                <div className="text-xl sm:text-2xl font-black text-emerald-700 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <span>Completed</span>
+                </div>
+                <p className="text-xs text-emerald-600 font-medium pt-1">
+                  Consultation finished • Bill & prescription ready
+                </p>
+              </div>
+            )}
 
             {/* Column 3: Patient & Clinic Details */}
             <div className="space-y-3 text-xs border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6">

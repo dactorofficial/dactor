@@ -41,6 +41,12 @@ import {
   Play,
   Camera,
   Lock,
+  ArrowUp,
+  ArrowDown,
+  CalendarClock,
+  Tag,
+  ReceiptText,
+  ListPlus,
 } from 'lucide-react'
 import {
   Clinic,
@@ -90,6 +96,13 @@ import {
   updateDoctor,
   sendManualNotification,
   checkEmailPortalAssociation,
+  getClinicPatientDirectory,
+  createSlot,
+  getSlotsByDoctorAndDate,
+  deleteSlot,
+  reorderQueuePosition,
+  shiftAppointmentDate,
+  checkAndNotifyApproachingPatients,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { supabase } from '../lib/supabase'
@@ -471,10 +484,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [verificationCheckMsg, setVerificationCheckMsg] = useState<string | null>(null)
 
   // Operational desk tabs:
-  // 'queue' | 'walkin' | 'future_appts' | 'working_hours' | 'doctors' | 'billing' | 'patients' | 'lab' | 'rates' | 'broadcast' | 'settings'
+  // 'queue' | 'walkin' | 'slots' | 'future_appts' | 'working_hours' | 'doctors' | 'billing' | 'patients' | 'lab' | 'rates' | 'broadcast' | 'settings'
   const [deskTab, setDeskTab] = useState<
     | 'queue'
     | 'walkin'
+    | 'slots'
     | 'future_appts'
     | 'working_hours'
     | 'doctors'
@@ -528,6 +542,38 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [sendingPushAlert, setSendingPushAlert] = useState(false)
   const [pushAlertSentSuccess, setPushAlertSentSuccess] = useState(false)
 
+  // Timed Slots Publisher State
+  const [slotDoctorId, setSlotDoctorId] = useState<string>('')
+  const [slotDate, setSlotDate] = useState<string>(() => new Date().toISOString().split('T')[0])
+  const [slotStartTime, setSlotStartTime] = useState<string>('09:00 AM')
+  const [slotEndTime, setSlotEndTime] = useState<string>('09:15 AM')
+  const [slotCapacity, setSlotCapacity] = useState<number>(5)
+  const [publishedSlots, setPublishedSlots] = useState<Slot[]>([])
+  const [loadingSlots, setLoadingSlots] = useState(false)
+  const [publishingSlot, setPublishingSlot] = useState(false)
+
+  // Shift / Reschedule Appointment Modal State
+  const [shiftModalOpen, setShiftModalOpen] = useState(false)
+  const [shiftTargetAppt, setShiftTargetAppt] = useState<Appointment | null>(null)
+  const [shiftNewDate, setShiftNewDate] = useState<string>(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split('T')[0]
+  })
+  const [shiftNewTime, setShiftNewTime] = useState<string>('09:00 AM')
+  const [shiftReason, setShiftReason] = useState<string>('')
+  const [shiftingAppointment, setShiftingAppointment] = useState(false)
+
+  // Walk-in optional email & Print Token Slip
+  const [walkinEmail, setWalkinEmail] = useState('')
+  const [printSlipAppt, setPrintSlipAppt] = useState<Appointment | null>(null)
+  const [showPrintTokenSlip, setShowPrintTokenSlip] = useState(false)
+
+  // Billing Line Items & Catalog Quick Selection
+  const [billItems, setBillItems] = useState<{ id: string; name: string; price: number; quantity: number }[]>([])
+  const [customBillItemName, setCustomBillItemName] = useState('')
+  const [customBillItemPrice, setCustomBillItemPrice] = useState('')
+
   // Push Bill / Payment Dialog State
   const [billModalOpen, setBillModalOpen] = useState(false)
   const [billTargetAppt, setBillTargetAppt] = useState<Appointment | null>(null)
@@ -539,10 +585,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [savingBill, setSavingBill] = useState(false)
   const [showPrintableInvoice, setShowPrintableInvoice] = useState(false)
 
-  // Patient Directory Search State
+  // Patient Directory State
   const [patientSearchQuery, setPatientSearchQuery] = useState('')
   const [patientSearchResults, setPatientSearchResults] = useState<Appointment[]>([])
   const [searchingPatients, setSearchingPatients] = useState(false)
+  const [patientDirectory, setPatientDirectory] = useState<any[]>([])
+  const [loadingDirectory, setLoadingDirectory] = useState(false)
 
   // Onboarding Form State (when adding a new doctor/staff)
   const [showDoctorOnboarding, setShowDoctorOnboarding] = useState(false)
@@ -641,12 +689,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     async function loadClinicDetails() {
       setLoading(true)
       try {
-        const [docs, appts, srvs, reps, invs] = await Promise.all([
+        const [docs, appts, srvs, reps, invs, directory] = await Promise.all([
           getDoctorsByClinic(selectedClinic.id),
           getAppointmentsByClinic(selectedClinic.id),
           getClinicServices(selectedClinic.id),
           getLabReportsByClinic(selectedClinic.id),
           getBillingInvoicesByClinic(selectedClinic.id),
+          getClinicPatientDirectory(selectedClinic.id),
         ])
 
         setClinicDoctors(docs)
@@ -654,12 +703,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           const doc = docs[0]
           setSelectedDoctor(doc)
           setWalkinDoctorId(doc.id)
+          setSlotDoctorId(doc.id)
           setDoctorInClinic(doc.isInClinic ?? true)
         }
         setAppointments(appts)
         setServices(srvs)
         setLabReports(reps)
         setInvoices(invs)
+        setPatientDirectory(directory)
         setClinicOnBreak(selectedClinic.isOnBreak ?? false)
         setAvgTimeMode((selectedClinic.avgTimeMode as any) || 'auto')
         setManualAvgMinutes(selectedClinic.manualAvgConsultationTimeMinutes || 10)
@@ -684,6 +735,31 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
     loadClinicDetails()
   }, [selectedClinic, refreshKey])
+
+  // Load published slots for selected doctor & date
+  useEffect(() => {
+    if (!slotDoctorId || !slotDate) return
+    async function loadSlots() {
+      setLoadingSlots(true)
+      try {
+        const slots = await getSlotsByDoctorAndDate(slotDoctorId, slotDate)
+        setPublishedSlots(slots)
+      } catch (err) {
+        console.error('Error loading slots:', err)
+      } finally {
+        setLoadingSlots(false)
+      }
+    }
+    loadSlots()
+  }, [slotDoctorId, slotDate, refreshKey])
+
+  // Recalculate bill total amount when line items change
+  useEffect(() => {
+    if (billItems.length > 0) {
+      const sum = billItems.reduce((acc, it) => acc + (it.price || 0) * (it.quantity || 1), 0)
+      setBillTotalAmount(String(sum))
+    }
+  }, [billItems])
 
   const saveSession = (email: string, role: 'clinic_manager' | 'doctor' | 'lab_tech') => {
     setIsAuthenticated(true)
@@ -1345,6 +1421,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         patientAge: Number(walkinAge),
         patientGender: walkinGender,
         patientMobile: walkinMobile.trim(),
+        patientEmail: walkinEmail.trim() || undefined,
         appointmentDate: new Date().toISOString().split('T')[0],
         appointmentTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         checkinStatus: 'waiting',
@@ -1355,9 +1432,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
       if (created) {
         setWalkinSuccessCode(code10)
+        setPrintSlipAppt(created)
         setWalkinName('')
         setWalkinAge('')
         setWalkinMobile('')
+        setWalkinEmail('')
         setRefreshKey((k) => k + 1)
       }
     } catch (err) {
@@ -1370,6 +1449,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     try {
       const ok = await updateAppointmentStatus(appointmentId, newStatus)
       if (ok) {
+        if (selectedClinic && (newStatus === 'in_consultation' || newStatus === 'completed')) {
+          checkAndNotifyApproachingPatients(selectedClinic.id, settingThreshold || 2)
+        }
         setRefreshKey((k) => k + 1)
       }
     } catch (err) {
@@ -1377,12 +1459,201 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
+  // Queue Sliding (Reordering / ranking)
+  const handleQueueReorder = async (apptId: string, direction: 'up' | 'down') => {
+    if (!selectedClinic) return
+    const res = await reorderQueuePosition(selectedClinic.id, apptId, direction)
+    if (res.success) {
+      setRefreshKey((k) => k + 1)
+    } else {
+      alert(res.message || 'Unable to reorder queue position')
+    }
+  }
+
+  // Shift Appointment Modal Handlers
+  const handleOpenShiftModal = (appt: Appointment) => {
+    setShiftTargetAppt(appt)
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    setShiftNewDate(d.toISOString().split('T')[0])
+    setShiftNewTime(appt.appointmentTime || '09:00 AM')
+    setShiftReason('')
+    setShiftModalOpen(true)
+  }
+
+  const handleShiftAppointmentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!shiftTargetAppt) return
+    setShiftingAppointment(true)
+    try {
+      const ok = await shiftAppointmentDate(
+        shiftTargetAppt.id,
+        shiftNewDate,
+        shiftNewTime,
+        shiftReason
+      )
+      if (ok) {
+        setShiftModalOpen(false)
+        setRefreshKey((k) => k + 1)
+        alert(`Appointment for ${shiftTargetAppt.patientName} has been shifted to ${shiftNewDate} (${shiftNewTime})!`)
+      } else {
+        alert('Failed to shift appointment date.')
+      }
+    } catch (err) {
+      console.error('Error shifting appointment:', err)
+    } finally {
+      setShiftingAppointment(false)
+    }
+  }
+
+  // Auto-Notify Threshold Alert Trigger
+  const handleTriggerAutoNotify = async () => {
+    if (!selectedClinic) return
+    await checkAndNotifyApproachingPatients(selectedClinic.id, settingThreshold || 2)
+    alert(`Auto-notification alerts dispatched to waiting patients who have ≤ ${settingThreshold || 2} people ahead in line!`)
+  }
+
+  // Open Printable Token Slip
+  const handleOpenPrintSlip = (appt: Appointment) => {
+    setPrintSlipAppt(appt)
+    setShowPrintTokenSlip(true)
+  }
+
+  // Slot Publishing Handlers
+  const handlePublishSlot = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedClinic || !slotDoctorId || !slotDate || !slotStartTime) {
+      alert('Please select doctor, date, and start time')
+      return
+    }
+    setPublishingSlot(true)
+    try {
+      const newSlot = await createSlot({
+        clinicId: selectedClinic.id,
+        doctorId: slotDoctorId,
+        slotDate: slotDate,
+        startTime: slotStartTime,
+        endTime: slotEndTime || slotStartTime,
+        maxCapacity: Number(slotCapacity) || 5,
+        bookedCount: 0,
+      })
+      if (newSlot) {
+        setPublishedSlots((prev) => [...prev, newSlot])
+        setRefreshKey((k) => k + 1)
+        alert(`Slot ${slotStartTime} - ${slotEndTime} published successfully!`)
+      } else {
+        alert('Failed to publish slot.')
+      }
+    } catch (err) {
+      console.error('Error publishing slot:', err)
+    } finally {
+      setPublishingSlot(false)
+    }
+  }
+
+  const handleDeleteSlot = async (slotId: string) => {
+    if (!confirm('Are you sure you want to delete this time slot?')) return
+    const ok = await deleteSlot(slotId)
+    if (ok) {
+      setPublishedSlots((prev) => prev.filter((s) => s.id !== slotId))
+      setRefreshKey((k) => k + 1)
+    } else {
+      alert('Failed to delete slot.')
+    }
+  }
+
+  const handleGenerateBulkSlots = async (startH: number, endH: number, intervalMinutes: number) => {
+    if (!selectedClinic || !slotDoctorId || !slotDate) {
+      alert('Please select doctor and date first')
+      return
+    }
+    setPublishingSlot(true)
+    try {
+      let createdCount = 0
+      for (let h = startH; h < endH; h++) {
+        for (let m = 0; m < 60; m += intervalMinutes) {
+          const sH12 = h > 12 ? h - 12 : (h === 0 ? 12 : h)
+          const sAmpm = h >= 12 ? 'PM' : 'AM'
+          const sTime = `${String(sH12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${sAmpm}`
+
+          let nextM = m + intervalMinutes
+          let nextH = h
+          if (nextM >= 60) {
+            nextM -= 60
+            nextH += 1
+          }
+          const eH12 = nextH > 12 ? nextH - 12 : (nextH === 0 ? 12 : nextH)
+          const eAmpm = nextH >= 12 ? 'PM' : 'AM'
+          const eTime = `${String(eH12).padStart(2, '0')}:${String(nextM).padStart(2, '0')} ${eAmpm}`
+
+          await createSlot({
+            clinicId: selectedClinic.id,
+            doctorId: slotDoctorId,
+            slotDate: slotDate,
+            startTime: sTime,
+            endTime: eTime,
+            maxCapacity: Number(slotCapacity) || 5,
+            bookedCount: 0,
+          })
+          createdCount++
+        }
+      }
+      setRefreshKey((k) => k + 1)
+      alert(`Published ${createdCount} slots for ${slotDate}!`)
+    } catch (err) {
+      console.error('Error generating bulk slots:', err)
+    } finally {
+      setPublishingSlot(false)
+    }
+  }
+
+  // Billing Item Catalog Handlers
+  const handleAddCatalogItemToBill = (item: { serviceName: string; price: number }) => {
+    setBillItems((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        name: item.serviceName,
+        price: item.price,
+        quantity: 1,
+      },
+    ])
+  }
+
+  const handleRemoveBillItem = (id: string) => {
+    setBillItems((prev) => prev.filter((it) => it.id !== id))
+  }
+
+  const handleAddCustomBillItem = () => {
+    if (!customBillItemName.trim() || !customBillItemPrice) return
+    setBillItems((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        name: customBillItemName.trim(),
+        price: Number(customBillItemPrice) || 0,
+        quantity: 1,
+      },
+    ])
+    setCustomBillItemName('')
+    setCustomBillItemPrice('')
+  }
+
   // Bill / Payment Modal
   const handleOpenBillModal = (appt: Appointment) => {
     setBillTargetAppt(appt)
-    setBillTotalAmount(appt.feeAmount?.toString() || '500')
-    setBillPaidAmount(appt.paymentStatus === 'paid' ? appt.feeAmount?.toString() || '500' : '0')
-    setBillRemarks('')
+    const initialFee = Number(appt.feeAmount) || 500
+    setBillItems([
+      {
+        id: 'initial_consult',
+        name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+        price: initialFee,
+        quantity: 1,
+      },
+    ])
+    setBillTotalAmount(String(initialFee))
+    setBillPaidAmount(appt.paymentStatus === 'paid' ? String(initialFee) : '0')
+    setBillRemarks(appt.notes || '')
     setBillReceiptFile(null)
     setBillReceiptCompressionInfo(null)
     setShowPrintableInvoice(false)
@@ -1811,34 +2082,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             >
               <span>← Back to Login Desk</span>
             </button>
-
-            {/* Role Toggle Pills */}
-            <div className="inline-flex p-1 rounded-xl bg-slate-100 border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setPortalRoleTab('clinic')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
-                  portalRoleTab === 'clinic'
-                    ? 'bg-white text-brand-700 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Clinic Registration</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPortalRoleTab('doctor')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
-                  portalRoleTab === 'doctor'
-                    ? 'bg-white text-brand-700 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Stethoscope className="w-3.5 h-3.5" />
-                <span>Doctor KYC Form</span>
-              </button>
-            </div>
+            <span className="text-xs font-bold px-3 py-1 bg-brand-50 text-brand-700 border border-brand-200 rounded-full flex items-center space-x-1">
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Healthcare Facility Registration</span>
+            </span>
           </div>
 
           {/* Verified Email Input / Display */}
@@ -1869,11 +2116,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           </div>
 
-          {portalRoleTab === 'clinic' ? (
-            /* ==========================================
-               SUB-FORM A: CLINIC REGISTRATION FORM
-               ========================================== */
-            <form onSubmit={submitClinicRegistration} className="space-y-6 text-left">
+          {/* CLINIC REGISTRATION FORM */}
+          <form onSubmit={submitClinicRegistration} className="space-y-6 text-left">
               <div>
                 <h2 className="text-2xl font-black text-slate-900">
                   Register Healthcare Facility / Clinic
@@ -2161,474 +2405,69 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   : 'Submit Clinic Registration for Verification'}
               </button>
             </form>
-          ) : (
-            /* ==========================================
-               SUB-FORM B: DOCTOR KYC REGISTRATION FORM
-               ========================================== */
-            <form onSubmit={submitDoctorRegistration} className="space-y-6 text-left">
-              <div>
-                <h2 className="text-2xl font-black text-slate-900">
-                  Doctor Practitioner & Medical KYC Registration
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Submit your Nepal Medical Council (NMC) or NHPC credentials to activate your verified practitioner profile.
-                </p>
-              </div>
-
-              {/* Practitioner Role Selector */}
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setRegDoctorRole('doctor')}
-                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center space-x-3 ${
-                    regDoctorRole === 'doctor'
-                      ? 'bg-brand-50/80 border-brand-600 text-brand-900 shadow-sm'
-                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <Stethoscope className="w-5 h-5 text-brand-600 shrink-0" />
-                  <div>
-                    <div className="text-xs font-black">Medical Doctor (OPD)</div>
-                    <div className="text-[10px] text-slate-500">NMC Registered Consultant</div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setRegDoctorRole('lab_technician')}
-                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center space-x-3 ${
-                    regDoctorRole === 'lab_technician'
-                      ? 'bg-brand-50/80 border-brand-600 text-brand-900 shadow-sm'
-                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <FlaskConical className="w-5 h-5 text-brand-600 shrink-0" />
-                  <div>
-                    <div className="text-xs font-black">Pathologist / Lab Specialist</div>
-                    <div className="text-[10px] text-slate-500">Diagnostic Lab Reporting</div>
-                  </div>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Full Name (with Title) *
-                  </label>
-                  <input
-                    type="text"
-                    value={regDoctorName}
-                    onChange={(e) => setRegDoctorName(e.target.value)}
-                    placeholder="e.g. Dr. Prabin Bikram Thapa"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  />
-                  {regDoctorErrors.name && (
-                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regDoctorErrors.name}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    NMC / Council License No. *
-                  </label>
-                  <input
-                    type="text"
-                    value={regDoctorNmc}
-                    onChange={(e) => setRegDoctorNmc(e.target.value)}
-                    placeholder="e.g. NMC-14820"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  />
-                  {regDoctorErrors.nmc && (
-                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regDoctorErrors.nmc}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Gender *</label>
-                  <select
-                    value={regDoctorGender}
-                    onChange={(e) => setRegDoctorGender(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
-                  >
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Age (Years) *</label>
-                  <input
-                    type="number"
-                    min={20}
-                    max={100}
-                    value={regDoctorAge}
-                    onChange={(e) => setRegDoctorAge(e.target.value)}
-                    placeholder="e.g. 36"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold"
-                  />
-                  {regDoctorErrors.age && (
-                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regDoctorErrors.age}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Practicing Since (Year) *
-                  </label>
-                  <select
-                    value={regDoctorStartingYear}
-                    onChange={(e) => setRegDoctorStartingYear(Number(e.target.value))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
-                  >
-                    {practicingYears.map((yr) => (
-                      <option key={yr} value={yr}>
-                        {yr} ({Math.max(1, 2026 - yr)} yrs exp)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Primary Specialty *
-                  </label>
-                  <select
-                    value={regDoctorSpecialty}
-                    onChange={(e) => setRegDoctorSpecialty(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
-                  >
-                    {defaultSpecialtyList.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Medical Qualifications / Degrees *
-                  </label>
-                  <input
-                    type="text"
-                    list="qualification-options"
-                    value={regDoctorEducation}
-                    onChange={(e) => setRegDoctorEducation(e.target.value)}
-                    placeholder="e.g. MBBS, MD (Internal Medicine)"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
-                  />
-                  <datalist id="qualification-options">
-                    {defaultQualificationList.map((q) => (
-                      <option key={q} value={q} />
-                    ))}
-                  </datalist>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Personal Mobile Number (10 Digits) *
-                  </label>
-                  <input
-                    type="tel"
-                    maxLength={10}
-                    value={regDoctorPersonalPhone}
-                    onChange={(e) => setRegDoctorPersonalPhone(e.target.value.replace(/\D/g, ''))}
-                    placeholder="98XXXXXXXX"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold"
-                  />
-                  {regDoctorErrors.personalPhone && (
-                    <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                      {regDoctorErrors.personalPhone}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Public / Patient Consultation Phone (Optional)
-                  </label>
-                  <input
-                    type="tel"
-                    maxLength={10}
-                    value={regDoctorPublicPhone}
-                    onChange={(e) => setRegDoctorPublicPhone(e.target.value.replace(/\D/g, ''))}
-                    placeholder="98XXXXXXXX"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold"
-                  />
-                </div>
-              </div>
-
-              {/* KYC Certificate Uploads */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-3.5 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-1.5">
-                  <div className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                    <Camera className="w-4 h-4 text-brand-600" />
-                    <span>Doctor Profile Photo</span>
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setRegDoctorPhotoFile(e.target.files?.[0] || null)}
-                    className="text-[11px] text-slate-600 w-full"
-                  />
-                  {regDoctorPhotoFile && (
-                    <p className="text-[10px] text-emerald-700 font-bold truncate">
-                      ✓ {regDoctorPhotoFile.name}
-                    </p>
-                  )}
-                </div>
-
-                <div className="p-3.5 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-1.5">
-                  <div className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                    <ShieldCheck className="w-4 h-4 text-brand-600" />
-                    <span>NMC License Certificate</span>
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) => setRegDoctorLicenseFile(e.target.files?.[0] || null)}
-                    className="text-[11px] text-slate-600 w-full"
-                  />
-                  {regDoctorLicenseFile && (
-                    <p className="text-[10px] text-emerald-700 font-bold truncate">
-                      ✓ {regDoctorLicenseFile.name}
-                    </p>
-                  )}
-                </div>
-
-                <div className="p-3.5 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-1.5">
-                  <div className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                    <FileText className="w-4 h-4 text-brand-600" />
-                    <span>Medical Degree Scan</span>
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) => setRegDoctorDegreeFile(e.target.files?.[0] || null)}
-                    className="text-[11px] text-slate-600 w-full"
-                  />
-                  {regDoctorDegreeFile && (
-                    <p className="text-[10px] text-emerald-700 font-bold truncate">
-                      ✓ {regDoctorDegreeFile.name}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Bio */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Clinical Biography & Areas of Expertise
-                </label>
-                <textarea
-                  rows={2}
-                  value={regDoctorDesc}
-                  onChange={(e) => setRegDoctorDesc(e.target.value)}
-                  placeholder="Highlight fellowships, hospital affiliations, or specialized procedures..."
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium"
-                />
-              </div>
-
-              {/* NMC Ethics Checkbox */}
-              <label className="flex items-start space-x-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={regDoctorTermsAccepted}
-                  onChange={(e) => setRegDoctorTermsAccepted(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                />
-                <span className="text-xs text-slate-700 leading-relaxed">
-                  I attest that my Nepal Medical Council (NMC) registration is active and in good standing, and I agree to abide by the{' '}
-                  <span className="font-bold text-slate-900">
-                    NMC Code of Medical Ethics & Dactor Verified Practitioner Guidelines
-                  </span>
-                  .
-                </span>
-              </label>
-              {regDoctorErrors.terms && (
-                <p className="text-[11px] text-rose-600 font-bold">{regDoctorErrors.terms}</p>
-              )}
-
-              {registrationStatusMsg && (
-                <div className="p-3.5 rounded-2xl bg-brand-50 border border-brand-200 text-xs font-bold text-brand-800 flex items-center space-x-2">
-                  <RefreshCw className="w-4 h-4 animate-spin text-brand-600 shrink-0" />
-                  <span>{registrationStatusMsg}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isSubmittingRegistration}
-                className="w-full py-4 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-lg shadow-brand-600/25 transition-all text-sm cursor-pointer disabled:opacity-60"
-              >
-                {isSubmittingRegistration
-                  ? 'Uploading KYC Documents & Saving Profile...'
-                  : 'Submit Doctor KYC for Regulatory Verification'}
-              </button>
-            </form>
-          )}
+          
         </div>
       </div>
     )
   }
 
   // ==========================================
-  // VIEW 3: DUAL-TAB PROVIDER AUTH / LOGIN DESK
+  // VIEW 3: CLINIC MANAGER AUTH / GOOGLE LOGIN DESK
   // ==========================================
   if (!isAuthenticated || currentView === 'auth_choice') {
     return (
-      <div className="max-w-xl mx-auto px-4 py-12">
+      <div className="max-w-xl mx-auto px-4 py-16">
         <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-slate-200/80 text-center space-y-6">
           {/* Brand Icon */}
           <div className="w-16 h-16 rounded-3xl bg-brand-100 text-brand-700 flex items-center justify-center mx-auto shadow-inner">
-            {portalRoleTab === 'clinic' ? (
-              <Building2 className="w-8 h-8 stroke-[2.5]" />
-            ) : (
-              <Stethoscope className="w-8 h-8 stroke-[2.5]" />
-            )}
+            <Building2 className="w-8 h-8 stroke-[2.5]" />
           </div>
 
           <div className="space-y-1.5">
             <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
-              Official Dactor Provider Network
+              Official Dactor Facility Network
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-              {portalRoleTab === 'clinic' ? 'Clinic Center Desk' : 'Doctor Practitioner Desk'}
+              Clinic & Diagnostic Facility Portal
             </h2>
             <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-              {portalRoleTab === 'clinic'
-                ? 'Manage live OPD token queues, walk-in registrations, diagnostic pathology reports, and clinic billing.'
-                : 'Access your live consultation queue, toggle in-clinic presence, review patient history, and manage schedules.'}
+              Manage live OPD reception tokens, walk-in registrations, doctor schedules, diagnostic pathology reports, and facility billing.
             </p>
           </div>
 
-          {/* Dual-Tab Switcher (Parity with clinic-app Tab 0 & Tab 1) */}
-          <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
-            <button
-              type="button"
-              onClick={() => {
-                setPortalRoleTab('clinic')
-                setFirebaseError(null)
-              }}
-              className={`py-3 px-4 rounded-xl font-black text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
-                portalRoleTab === 'clinic'
-                  ? 'bg-white text-brand-700 shadow-md border border-slate-200/60'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Building2 className="w-4 h-4" />
-              <span>Clinic Center</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setPortalRoleTab('doctor')
-                setFirebaseError(null)
-              }}
-              className={`py-3 px-4 rounded-xl font-black text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
-                portalRoleTab === 'doctor'
-                  ? 'bg-white text-brand-700 shadow-md border border-slate-200/60'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Stethoscope className="w-4 h-4" />
-              <span>Doctor Desk</span>
-            </button>
+          {/* Account Exclusivity Security Notice */}
+          <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200 text-left space-y-1">
+            <div className="flex items-center space-x-2 text-amber-900 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Strict Single-Role Account Security</span>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              Your Google account is exclusively bound to your Clinic Manager profile. In accordance with Dactor security rules, an account cannot be used across Doctor or Patient portals.
+            </p>
           </div>
 
-          {/* Quick Access to Registered Clinic or Doctor Desk */}
-          <div className="p-4 rounded-2xl bg-brand-50/80 border border-brand-200 text-left space-y-3">
-            {portalRoleTab === 'clinic' ? (
-              <>
-                <label className="text-xs font-black text-brand-950 block">
-                  Select Registered Clinic / Facility:
-                </label>
-                <select
-                  value={selectedClinic?.id || ''}
-                  onChange={(e) => {
-                    const found = clinics.find((c) => c.id === e.target.value)
-                    if (found) setSelectedClinic(found)
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-brand-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  {clinics.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.type === 'diagnostic_lab' ? 'Diagnostic Lab' : 'Polyclinic OPD'})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const email = selectedClinic?.contactEmail || 'clinic@dactor.health'
-                    saveSession(email, 'clinic_manager')
-                  }}
-                  className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
-                >
-                  <LogIn className="w-4 h-4" />
-                  <span>Open Clinic Operational Desk →</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <label className="text-xs font-black text-brand-950 block">
-                  Select Registered Doctor / Practitioner:
-                </label>
-                <select
-                  value={selectedDoctor?.id || ''}
-                  onChange={(e) => {
-                    const found = clinicDoctors.find((d) => d.id === e.target.value)
-                    if (found) {
-                      setSelectedDoctor(found)
-                      setDoctorInClinic(found.isInClinic ?? true)
-                    }
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-brand-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  {clinicDoctors.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.fullName} ({d.specialty || 'Specialist'})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const email = selectedDoctor?.email || 'doctor@dactor.health'
-                    const role =
-                      selectedDoctor?.practitionerRole === 'lab_technician' || selectedDoctor?.isLabTechnician
-                        ? 'lab_tech'
-                        : 'doctor'
-                    saveSession(email, role)
-                  }}
-                  className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
-                >
-                  <LogIn className="w-4 h-4" />
-                  <span>Open Doctor Consultation Desk →</span>
-                </button>
-              </>
-            )}
-          </div>
+          {/* Error Banner */}
+          {firebaseError && (
+            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium text-left flex items-start space-x-2.5">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <span className="font-bold block">Access Restricted</span>
+                <p className="leading-relaxed">{firebaseError}</p>
+              </div>
+            </div>
+          )}
 
           {/* Google Sign In Button */}
           <button
             type="button"
-            onClick={() => handleGoogleSignInWithRole(portalRoleTab)}
+            onClick={() => handleGoogleSignInWithRole('clinic')}
             disabled={firebaseLoading}
-            className="w-full py-3.5 bg-white hover:bg-slate-50 text-slate-900 font-black rounded-2xl border-2 border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center justify-center space-x-3 text-xs cursor-pointer disabled:opacity-60"
+            className="w-full py-4 bg-white hover:bg-slate-50 text-slate-900 font-black rounded-2xl border-2 border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center justify-center space-x-3 text-xs cursor-pointer disabled:opacity-60"
           >
             {firebaseLoading ? (
               <>
                 <RefreshCw className="w-5 h-5 animate-spin text-brand-600" />
-                <span>Verifying Google Account with Supabase...</span>
+                <span>Verifying Clinic Account with Supabase...</span>
               </>
             ) : (
               <>
@@ -2650,89 +2489,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                   />
                 </svg>
-                <span>
-                  Continue with Google ({portalRoleTab === 'clinic' ? 'Clinic Account' : 'Doctor Account'})
-                </span>
+                <span>Continue with Google (Clinic Manager Account)</span>
               </>
             )}
           </button>
 
-          {/* Direct Email Verification / Lookup */}
-          <div className="pt-2 border-t border-slate-100 space-y-2.5 text-left">
-            <label className="text-[11px] font-bold text-slate-500 block">
-              Or verify directly with your registered provider email:
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="email"
-                value={verifiedEmail}
-                onChange={(e) => setVerifiedEmail(e.target.value)}
-                placeholder={
-                  portalRoleTab === 'clinic'
-                    ? 'Enter clinic email address...'
-                    : 'Enter doctor email address...'
-                }
-                className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (!verifiedEmail.trim()) {
-                    setFirebaseError('Please enter your email address first.')
-                    return
-                  }
-                  processLoginForEmail(verifiedEmail, portalRoleTab)
-                }}
-                disabled={firebaseLoading}
-                className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs cursor-pointer transition-all shrink-0"
-              >
-                Verify Email
-              </button>
-            </div>
-          </div>
-
-          {firebaseError && (
-            <div className="p-3.5 bg-rose-50 rounded-2xl border border-rose-200 text-xs text-rose-700 font-medium text-left space-y-2.5">
-              <div className="flex items-start space-x-2">
-                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                <span>{firebaseError}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setFirebaseError(null)
-                  setVerifiedEmail('')
-                  handleGoogleSignInWithRole(portalRoleTab)
-                }}
-                disabled={firebaseLoading}
-                className="w-full py-2 px-3 rounded-xl bg-white hover:bg-rose-100/60 border border-rose-300 text-rose-800 font-bold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Change Account</span>
-              </button>
-            </div>
-          )}
-
-          {/* Direct Registration Call-To-Action */}
+          {/* New Healthcare Facility Registration CTA */}
           <div className="p-4 rounded-2xl bg-brand-50/70 border border-brand-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
             <div>
               <div className="text-xs font-black text-brand-900">
-                {portalRoleTab === 'clinic'
-                  ? 'New Healthcare Facility or Lab?'
-                  : 'New Medical Practitioner on Dactor?'}
+                New Healthcare Facility or Diagnostic Lab?
               </div>
               <p className="text-[11px] text-slate-600">
-                {portalRoleTab === 'clinic'
-                  ? 'Submit your 9-digit PAN & facility license for accreditation.'
-                  : 'Complete your NMC license & degree KYC verification.'}
+                Submit your 9-digit PAN & facility details for official accreditation.
               </p>
             </div>
             <button
               type="button"
-              onClick={() => setCurrentView('register_form')}
+              onClick={() => {
+                setPortalRoleTab('clinic')
+                setCurrentView('register_form')
+              }}
               className="px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shrink-0 cursor-pointer shadow-sm transition-all"
             >
-              {portalRoleTab === 'clinic' ? 'Register Clinic →' : 'Doctor KYC →'}
+              Register Facility →
             </button>
           </div>
 
@@ -2742,7 +2522,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <span>1:1 Mobile App & Cloud Synchronization</span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              Connected directly to Dactor's production Supabase tables. Unregistered accounts are guided to KYC onboarding, and unapproved accounts remain in regulatory review until verified.
+              Directly connected to Dactor's production database. Live walk-in tokens, doctor schedules, and diagnostic reports sync in real time across the entire Dactor ecosystem.
             </p>
           </div>
         </div>
@@ -2881,6 +2661,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         >
           <Users className="w-4 h-4" />
           <span>Reception Walk-In</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('slots')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'slots'
+              ? 'bg-brand-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <CalendarClock className="w-4 h-4" />
+          <span>Timed Slots Publisher</span>
         </button>
 
         <button
@@ -3167,16 +2959,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <div>
               <h2 className="text-xl font-black text-slate-900">Today's Live OPD Queue Board</h2>
               <p className="text-xs text-slate-500">
-                Call patients inside, send push notifications using real timing templates, and complete visits.
+                Call patients inside, slide rankings up/down, shift dates, and complete visits.
               </p>
             </div>
-            <button
-              onClick={() => setRefreshKey((k) => k + 1)}
-              className="flex items-center space-x-1.5 text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1.5 rounded-xl cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span>Refresh Board</span>
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleTriggerAutoNotify}
+                className="flex items-center space-x-1.5 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
+                title={`Notify patients who are ≤ ${settingThreshold} spots away from consultation cabin`}
+              >
+                <Bell className="w-3.5 h-3.5" />
+                <span>Auto-Notify (Threshold: &le; {settingThreshold})</span>
+              </button>
+              <button
+                onClick={() => setRefreshKey((k) => k + 1)}
+                className="flex items-center space-x-1.5 text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1.5 rounded-xl cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>Refresh Board</span>
+              </button>
+            </div>
           </div>
 
           {todayAppointments.length === 0 ? (
@@ -3282,7 +3084,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               Rs. {appt.feeAmount || 500} • {appt.paymentStatus.toUpperCase()}
                             </span>
                           </td>
-                          <td className="py-3.5 px-4 text-right space-x-1.5">
+                          <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                            {/* Queue Sliding Up / Down for Waiting Patients */}
+                            {isWaiting && (
+                              <span className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 mr-1 align-middle">
+                                <button
+                                  type="button"
+                                  onClick={() => handleQueueReorder(appt.id, 'up')}
+                                  className="p-1 hover:bg-white text-slate-600 hover:text-brand-600 rounded cursor-pointer"
+                                  title="Slide Up (Move higher in waiting ranking)"
+                                >
+                                  <ArrowUp className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQueueReorder(appt.id, 'down')}
+                                  className="p-1 hover:bg-white text-slate-600 hover:text-brand-600 rounded cursor-pointer"
+                                  title="Slide Down (Move lower in waiting ranking)"
+                                >
+                                  <ArrowDown className="w-3 h-3" />
+                                </button>
+                              </span>
+                            )}
+
                             {/* Call Patient Inside */}
                             {isWaiting && (
                               <button
@@ -3302,6 +3126,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 Mark Done
                               </button>
                             )}
+
+                            {/* Shift Appointment Date */}
+                            <button
+                              onClick={() => handleOpenShiftModal(appt)}
+                              className="px-2 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-lg font-bold text-[11px] cursor-pointer"
+                              title="Shift appointment to another date"
+                            >
+                              Shift Date
+                            </button>
+
+                            {/* Print Token Slip */}
+                            <button
+                              onClick={() => handleOpenPrintSlip(appt)}
+                              className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                              title="Print thermal token slip"
+                            >
+                              <Printer className="w-3.5 h-3.5 inline" />
+                            </button>
 
                             {/* Push Alert with Real Template */}
                             <button
@@ -3364,12 +3206,28 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     Code: #{walkinSuccessCode}
                   </span>
                 </div>
-                <button
-                  onClick={() => setWalkinSuccessCode(null)}
-                  className="px-3 py-1 bg-brand-600 text-white text-xs font-bold rounded-lg cursor-pointer"
-                >
-                  New Booking
-                </button>
+                <div className="flex items-center space-x-2">
+                  {printSlipAppt && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPrintTokenSlip(true)}
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg flex items-center space-x-1 cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Print Token Slip</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWalkinSuccessCode(null)
+                      setPrintSlipAppt(null)
+                    }}
+                    className="px-3 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-lg cursor-pointer"
+                  >
+                    New Booking
+                  </button>
+                </div>
               </div>
             )}
 
@@ -3453,6 +3311,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
 
               <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Email Address <span className="text-slate-400 font-normal">(Optional - auto-links to patient Google account)</span>
+                </label>
+                <input
+                  type="email"
+                  value={walkinEmail}
+                  onChange={(e) => setWalkinEmail(e.target.value)}
+                  placeholder="e.g. patient@gmail.com"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+
+              <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">Attending Doctor</label>
                 <select
                   value={walkinDoctorId}
@@ -3475,6 +3346,235 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <ChevronRight className="w-4 h-4" />
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB: TIMED SLOTS PUBLISHER */}
+      {/* ========================================================= */}
+      {deskTab === 'slots' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Doctor Timed Slots Publisher</h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                Publish timed consultation slots (e.g. 09:00 - 09:15, with patient capacity limit). Available slots appear live on the patient booking app.
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-bold text-brand-800 bg-brand-50 px-3 py-1.5 rounded-xl border border-brand-200">
+                {publishedSlots.length} Slots Published on {slotDate}
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Doctor & Date Selector Bar */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">
+                Select Attending Doctor <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={slotDoctorId}
+                onChange={(e) => setSlotDoctorId(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                {clinicDoctors.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.fullName} ({d.specialty || 'General'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">
+                Slot Date <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={slotDate}
+                onChange={(e) => setSlotDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+                className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column: Publish Single Slot or Quick Presets */}
+            <div className="space-y-6">
+              {/* Manual Slot Creator */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+                <div className="flex items-center space-x-2 text-brand-700 font-black text-sm pb-2 border-b border-slate-100">
+                  <CalendarClock className="w-4 h-4" />
+                  <span>Create Individual Timed Slot</span>
+                </div>
+
+                <form onSubmit={handlePublishSlot} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Start Time</label>
+                      <input
+                        type="text"
+                        value={slotStartTime}
+                        onChange={(e) => setSlotStartTime(e.target.value)}
+                        placeholder="09:00 AM"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">End Time</label>
+                      <input
+                        type="text"
+                        value={slotEndTime}
+                        onChange={(e) => setSlotEndTime(e.target.value)}
+                        placeholder="09:15 AM"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Max Patients Allowed (Capacity)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={slotCapacity}
+                      onChange={(e) => setSlotCapacity(Number(e.target.value) || 1)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={publishingSlot}
+                    className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-sm cursor-pointer"
+                  >
+                    {publishingSlot ? 'Publishing...' : 'Publish Timed Slot'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Quick Preset Generators */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-3">
+                <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
+                  ⚡ 1-Click Slot Generators (15-min Intervals)
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Quickly publish complete session schedules without manual entry:
+                </p>
+
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={publishingSlot}
+                    onClick={() => handleGenerateBulkSlots(9, 12, 15)}
+                    className="w-full py-2.5 px-3 bg-slate-50 hover:bg-brand-50 hover:text-brand-700 border border-slate-200 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between"
+                  >
+                    <span>Morning: 09:00 AM – 12:00 PM</span>
+                    <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={publishingSlot}
+                    onClick={() => handleGenerateBulkSlots(13, 16, 15)}
+                    className="w-full py-2.5 px-3 bg-slate-50 hover:bg-brand-50 hover:text-brand-700 border border-slate-200 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between"
+                  >
+                    <span>Afternoon: 01:00 PM – 04:00 PM</span>
+                    <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={publishingSlot}
+                    onClick={() => handleGenerateBulkSlots(16, 19, 15)}
+                    className="w-full py-2.5 px-3 bg-slate-50 hover:bg-brand-50 hover:text-brand-700 border border-slate-200 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between"
+                  >
+                    <span>Evening: 04:00 PM – 07:00 PM</span>
+                    <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column (2 cols): Published Slots Grid */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
+                    Published Slots on {slotDate} ({publishedSlots.length})
+                  </h3>
+                  <button
+                    onClick={() => setRefreshKey((k) => k + 1)}
+                    className="text-xs text-brand-700 hover:underline font-bold flex items-center space-x-1 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${loadingSlots ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+
+                {loadingSlots ? (
+                  <div className="p-8 text-center text-xs text-slate-400">Loading published slots...</div>
+                ) : publishedSlots.length === 0 ? (
+                  <div className="p-12 text-center">
+                    <CalendarClock className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                    <p className="text-xs font-bold text-slate-700">No time slots published for this date</p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Use the creator on the left or the 1-click generators to publish time slots.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto pr-1">
+                    {publishedSlots.map((slot) => {
+                      const isFull = (slot.bookedCount || 0) >= (slot.maxCapacity || 1)
+                      return (
+                        <div
+                          key={slot.id}
+                          className="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-200 flex items-center justify-between transition-colors"
+                        >
+                          <div className="space-y-0.5">
+                            <span className="text-xs font-black text-slate-900 font-mono">
+                              {slot.startTime} – {slot.endTime}
+                            </span>
+                            <div className="flex items-center space-x-2">
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  isFull
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : 'bg-brand-100 text-brand-800'
+                                }`}
+                              >
+                                {isFull ? 'Full' : 'Available'}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                Booked: {slot.bookedCount || 0} / {slot.maxCapacity || 5}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSlot(slot.id)}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                            title="Delete this time slot"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -3593,14 +3693,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         <td className="py-3.5 px-4 font-bold text-brand-700">
                           Rs. {appt.feeAmount} ({appt.paymentStatus})
                         </td>
-                        <td className="py-3.5 px-4 text-right space-x-1.5">
+                        <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
                           <button
+                            type="button"
+                            onClick={() => handleOpenShiftModal(appt)}
+                            className="px-2.5 py-1 bg-teal-50 text-teal-800 hover:bg-teal-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                            title="Shift appointment to another date"
+                          >
+                            Shift Date
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleOpenPushAlertModal(appt)}
                             className="px-2.5 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg text-[11px] font-bold cursor-pointer"
                           >
                             Push Alert
                           </button>
                           <button
+                            type="button"
                             onClick={() => handleOpenBillModal(appt)}
                             className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold cursor-pointer"
                           >
@@ -3956,6 +4066,95 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </table>
             </div>
           </div>
+
+          {/* Clinic Direct Billing Catalog Manager */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
+                  <Tag className="w-4 h-4 text-brand-600" />
+                  <span>Clinic Billing Item Catalog</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Configure direct items for 1-click billing. Clicking any catalog item adds it instantly to patient invoices.
+                </p>
+              </div>
+              <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
+                {services.length} Catalog Items
+              </span>
+            </div>
+
+            {/* Form to add item to catalog */}
+            <form onSubmit={handleAddService} className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+              <div className="sm:col-span-2">
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">Item / Service Name</label>
+                <input
+                  type="text"
+                  value={newServiceName}
+                  onChange={(e) => setNewServiceName(e.target.value)}
+                  placeholder="e.g. ECG Test, Blood Sugar, Dressing"
+                  className="w-full px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">Price (Rs.)</label>
+                <input
+                  type="number"
+                  value={newServicePrice}
+                  onChange={(e) => setNewServicePrice(e.target.value)}
+                  placeholder="e.g. 500"
+                  className="w-full px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  required
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  className="w-full py-2 px-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center space-x-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add to Catalog</span>
+                </button>
+              </div>
+            </form>
+
+            {/* List of Catalog Items */}
+            {services.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-400">
+                No custom catalog items yet. Add consultation or procedure items above to enable 1-click billing chips.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {services.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 flex items-center justify-between transition-colors"
+                  >
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 block">{item.serviceName}</span>
+                      <span className="text-xs font-black text-brand-700">Rs. {item.price}</span>
+                      {item.category && (
+                        <span className="text-[10px] text-slate-500 ml-1.5 font-medium">({item.category})</span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (confirm(`Remove "${item.serviceName}" from catalog?`)) {
+                          await deleteClinicService(item.id)
+                          setServices((prev) => prev.filter((s) => s.id !== item.id))
+                        }
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -4050,7 +4249,87 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
             </div>
           )}
-        </div>
+        
+          {/* Patient Directory Table */}
+          <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="font-bold text-xs text-slate-700">
+                Registered Patients Directory ({patientDirectory.length} Total Patients)
+              </h3>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (selectedClinic) {
+                    const refreshed = await getClinicPatientDirectory(selectedClinic.id)
+                    setPatientDirectory(refreshed)
+                  }
+                }}
+                className="flex items-center space-x-1 text-[11px] font-bold text-brand-700 hover:text-brand-800 cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Refresh Directory</span>
+              </button>
+            </div>
+            {patientDirectory.length === 0 ? (
+              <div className="p-10 text-center text-slate-500 text-xs">
+                No patient records found yet. Walk-in and online bookings will automatically populate this directory.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold">
+                    <tr>
+                      <th className="py-3 px-4">Patient Name</th>
+                      <th className="py-3 px-4">Mobile</th>
+                      <th className="py-3 px-4">Gender & Age</th>
+                      <th className="py-3 px-4">Total Visits</th>
+                      <th className="py-3 px-4">Last Visit</th>
+                      <th className="py-3 px-4">Tracking Code(s)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {patientDirectory.map((pat) => (
+                      <tr key={pat.id} className="hover:bg-slate-50/50">
+                        <td className="py-3.5 px-4 font-bold text-slate-900">
+                          {pat.fullName}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-700">
+                          {pat.phone}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-600">
+                          {pat.gender} {pat.age ? `• ${pat.age} yrs` : ''}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-brand-700">
+                          {pat.visitCount} {pat.visitCount === 1 ? 'visit' : 'visits'}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-600">
+                          {pat.lastVisitDate || '–'}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex flex-wrap gap-1">
+                            {pat.trackingCodes.slice(0, 2).map((code) => (
+                              <span
+                                key={code}
+                                className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-mono text-[10px] font-bold"
+                              >
+                                #{code}
+                              </span>
+                            ))}
+                            {pat.trackingCodes.length > 2 && (
+                              <span className="text-[10px] text-slate-500 font-bold">
+                                +{pat.trackingCodes.length - 2} more
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+</div>
       )}
 
       {/* ========================================================= */}
@@ -4636,18 +4915,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* MODAL: PUSH BILL & UPDATE PAYMENT */}
+      {/* MODAL: PUSH BILL & UPDATE PAYMENT (WITH DIRECT CATALOG) */}
       {/* ========================================================= */}
       {billModalOpen && billTargetAppt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 max-h-[92vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-brand-600">
                   Billing & Payment Desk
                 </span>
                 <h3 className="text-lg font-black text-slate-900">
-                  Push Bill to Patient
+                  Push Bill & Invoice to Patient
                 </h3>
                 <p className="text-xs text-slate-500">
                   Patient: <strong className="text-slate-900">{billTargetAppt.patientName}</strong> • Token #{billTargetAppt.trackingCode10Digit}
@@ -4663,6 +4942,93 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             <form onSubmit={handleSaveBill} className="space-y-4">
+              {/* Direct Catalog 1-Click Quick Chips */}
+              <div className="space-y-2 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                <span className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
+                  <Tag className="w-3.5 h-3.5 text-brand-600" />
+                  <span>Click to Add from Clinic Catalog:</span>
+                </span>
+                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pt-1">
+                  {/* Default standard items */}
+                  {[
+                    { serviceName: 'OPD Consultation', price: Number(selectedDoctor?.consultationFee) || 500 },
+                    { serviceName: 'Blood Glucose Test', price: 150 },
+                    { serviceName: 'CBC Blood Count', price: 400 },
+                    { serviceName: 'ECG Recording', price: 800 },
+                    { serviceName: 'Wound Dressing', price: 250 },
+                    { serviceName: 'Nebulization', price: 300 },
+                    ...services,
+                  ].map((catItem, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleAddCatalogItemToBill(catItem)}
+                      className="px-2.5 py-1 bg-white hover:bg-brand-50 hover:text-brand-800 text-slate-700 text-[11px] font-bold rounded-lg border border-slate-200 hover:border-brand-300 transition-colors cursor-pointer shadow-2xs flex items-center space-x-1"
+                    >
+                      <span>+ {catItem.serviceName}</span>
+                      <span className="text-brand-600 font-mono font-black">(Rs. {catItem.price})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom Line Item Input */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  value={customBillItemName}
+                  onChange={(e) => setCustomBillItemName(e.target.value)}
+                  placeholder="Custom Item Name (e.g. Suture, Injection)"
+                  className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <input
+                  type="number"
+                  value={customBillItemPrice}
+                  onChange={(e) => setCustomBillItemPrice(e.target.value)}
+                  placeholder="Price (Rs.)"
+                  className="w-24 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomBillItem}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  + Add
+                </button>
+              </div>
+
+              {/* Itemized Line Items Table */}
+              {billItems.length > 0 && (
+                <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                  <div className="bg-slate-100 p-2 font-bold text-slate-700 flex justify-between">
+                    <span>Invoice Line Items</span>
+                    <span>Subtotal</span>
+                  </div>
+                  <div className="divide-y divide-slate-100 max-h-36 overflow-y-auto bg-white">
+                    {billItems.map((it) => (
+                      <div key={it.id} className="p-2.5 flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveBillItem(it.id)}
+                            className="text-slate-300 hover:text-rose-600 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="font-bold text-slate-800">{it.name}</span>
+                          <span className="text-slate-500 font-mono text-[10px]">
+                            @ Rs. {it.price}
+                          </span>
+                        </div>
+                        <span className="font-mono font-bold text-slate-900">
+                          Rs. {it.price * (it.quantity || 1)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">
@@ -4695,7 +5061,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               {billTotalAmount && (
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
                   <span className="font-medium text-slate-600">Calculated Balance Due:</span>
-                  <span className="font-black text-slate-900">
+                  <span className="font-black text-slate-900 font-mono">
                     Rs. {Math.max(0, (Number(billTotalAmount) || 0) - (Number(billPaidAmount) || 0))}
                   </span>
                 </div>
@@ -4703,13 +5069,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Remarks / Notes (Optional)
+                  Remarks / Reception Notes (Optional)
                 </label>
                 <input
                   type="text"
                   value={billRemarks}
                   onChange={(e) => setBillRemarks(e.target.value)}
-                  placeholder="Optional notes (e.g. Paid in Cash / eSewa)"
+                  placeholder="Optional notes (e.g. Paid in Cash / eSewa, Follow-up next week)"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
@@ -4732,40 +5098,97 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 )}
               </div>
 
-              {/* On-Demand Bill Generation */}
+              {/* On-Demand Bill Generation & Thermal Print */}
               <div className="pt-2 flex items-center justify-between border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowPrintableInvoice(!showPrintableInvoice)}
-                  className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center space-x-1 cursor-pointer"
+                  className="text-xs font-bold text-brand-700 hover:text-brand-900 flex items-center space-x-1 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>{showPrintableInvoice ? 'Hide Invoice Preview' : 'Generate & Preview Bill'}</span>
+                  <span>{showPrintableInvoice ? 'Hide Invoice Preview' : 'Generate & Preview Invoice'}</span>
                 </button>
               </div>
 
-              {/* On-Demand Invoice View */}
+              {/* Printable Invoice View */}
               {showPrintableInvoice && (
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-2">
-                  <div className="flex justify-between font-black text-slate-800 pb-2 border-b border-slate-200">
-                    <span>{selectedClinic.name}</span>
-                    <span>Date: {billTargetAppt.appointmentDate}</span>
+                <div id="dactor-printable-invoice" className="p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-300 text-xs space-y-3 font-mono">
+                  <div className="flex justify-between font-black text-slate-800 pb-2 border-b border-slate-300">
+                    <div>
+                      <span className="text-sm uppercase block font-black">{selectedClinic?.name}</span>
+                      <span className="text-[10px] text-slate-500">{selectedClinic?.addressText}</span>
+                      {selectedClinic?.panNumber && (
+                        <span className="text-[10px] text-slate-500 block">PAN: {selectedClinic.panNumber}</span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-500 block">INVOICE</span>
+                      <span className="font-bold text-slate-700">{new Date().toISOString().split('T')[0]}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>Patient: {billTargetAppt.patientName}</span>
-                    <span>Token: #{billTargetAppt.trackingCode10Digit}</span>
+
+                  <div className="flex justify-between text-slate-700 text-[11px]">
+                    <span>Patient: <strong>{billTargetAppt.patientName}</strong></span>
+                    <span>Token: <strong>#{billTargetAppt.trackingCode10Digit}</strong></span>
                   </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>Doctor: {selectedDoctor?.fullName || 'OPD Doctor'}</span>
-                    <span>Total Fee: Rs. {billTotalAmount || 500}</span>
+
+                  {/* Itemized Table */}
+                  <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-slate-100 border-b border-slate-200 text-slate-600">
+                        <tr>
+                          <th className="p-1.5">Description</th>
+                          <th className="p-1.5 text-right">Amount (Rs.)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {billItems.length > 0 ? (
+                          billItems.map((it) => (
+                            <tr key={it.id}>
+                              <td className="p-1.5 font-medium">{it.name}</td>
+                              <td className="p-1.5 text-right font-mono font-bold">Rs. {it.price * (it.quantity || 1)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td className="p-1.5">Consultation & Services</td>
+                            <td className="p-1.5 text-right font-mono font-bold">Rs. {billTotalAmount || 500}</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-                  <div className="flex justify-between font-bold text-brand-700 pt-1 border-t border-slate-200">
-                    <span>Amount Paid: Rs. {billPaidAmount || 0}</span>
-                    <span>
-                      Balance Due: Rs.{' '}
-                      {Math.max(0, (Number(billTotalAmount) || 0) - (Number(billPaidAmount) || 0))}
-                    </span>
+
+                  <div className="space-y-1 pt-1 border-t border-slate-300 text-[11px]">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Total Bill:</span>
+                      <span className="font-bold">Rs. {billTotalAmount || 500}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-brand-700">
+                      <span>Amount Paid:</span>
+                      <span>Rs. {billPaidAmount || 0}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-rose-700">
+                      <span>Balance Due:</span>
+                      <span>
+                        Rs. {Math.max(0, (Number(billTotalAmount) || 0) - (Number(billPaidAmount) || 0))}
+                      </span>
+                    </div>
+                    {billRemarks && (
+                      <div className="text-[10px] text-slate-500 pt-1">
+                        Remarks: {billRemarks}
+                      </div>
+                    )}
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Invoice / Thermal Receipt</span>
+                  </button>
                 </div>
               )}
 
@@ -4782,10 +5205,197 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   disabled={savingBill}
                   className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20 cursor-pointer"
                 >
-                  {savingBill ? 'Saving & Pushing...' : 'Push Bill to Patient'}
+                  {savingBill ? 'Saving & Recording...' : 'Push Bill to Patient'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: SHIFT APPOINTMENT DATE / RESCHEDULE */}
+      {/* ========================================================= */}
+      {shiftModalOpen && shiftTargetAppt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-teal-600">
+                  Reschedule / Shift Appointment
+                </span>
+                <h3 className="text-lg font-black text-slate-900">
+                  Shift Appointment Date
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Patient: <strong className="text-slate-900">{shiftTargetAppt.patientName}</strong> • #{shiftTargetAppt.trackingCode10Digit}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShiftModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+              <p className="text-slate-600">
+                Current Scheduled Date: <strong className="text-slate-900">{shiftTargetAppt.appointmentDate}</strong>
+              </p>
+              <p className="text-slate-600">
+                Current Time: <strong className="text-slate-900">{shiftTargetAppt.appointmentTime}</strong>
+              </p>
+            </div>
+
+            <form onSubmit={handleShiftAppointmentSubmit} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  New Appointment Date <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={shiftNewDate}
+                  onChange={(e) => setShiftNewDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  New Time Slot
+                </label>
+                <input
+                  type="text"
+                  value={shiftNewTime}
+                  onChange={(e) => setShiftNewTime(e.target.value)}
+                  placeholder="e.g. 10:00 AM"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Reason for Rescheduling
+                </label>
+                <input
+                  type="text"
+                  value={shiftReason}
+                  onChange={(e) => setShiftReason(e.target.value)}
+                  placeholder="e.g. Patient requested, Doctor schedule adjusted"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <p className="text-[11px] text-teal-800 bg-teal-50 p-2.5 rounded-xl border border-teal-200 font-medium leading-relaxed">
+                🔔 The patient will automatically receive a real-time notification alert informing them that their appointment has been rescheduled.
+              </p>
+
+              <div className="flex items-center space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShiftModalOpen(false)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={shiftingAppointment}
+                  className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-teal-600/20 cursor-pointer"
+                >
+                  {shiftingAppointment ? 'Shifting...' : 'Confirm Reschedule'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: PRINTABLE RECEPTION TOKEN SLIP */}
+      {/* ========================================================= */}
+      {showPrintTokenSlip && printSlipAppt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-black text-slate-900">
+                Reception Walk-In Token Slip
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowPrintTokenSlip(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Thermal printable card container */}
+            <div id="dactor-token-receipt" className="p-4 bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl font-mono text-xs space-y-3 text-slate-800">
+              <div className="text-center border-b border-slate-300 pb-2">
+                <h2 className="text-base font-black uppercase text-slate-900">{selectedClinic?.name}</h2>
+                <p className="text-[10px] text-slate-600">{selectedClinic?.addressText || 'Kathmandu, Nepal'}</p>
+                <p className="text-[10px] text-slate-600">Tel: {selectedClinic?.contactPhone || '+9779800000000'}</p>
+                <p className="text-[10px] text-brand-700 font-bold mt-1">DACTOR LIVE OPD TOKEN</p>
+              </div>
+
+              <div className="text-center py-2 bg-white rounded-xl border border-slate-200">
+                <p className="text-[10px] uppercase font-bold text-slate-500">Universal 10-Digit Live Code</p>
+                <p className="text-xl font-black tracking-widest text-brand-800 my-1">
+                  {printSlipAppt.trackingCode10Digit}
+                </p>
+                <p className="text-[10px] text-slate-500">Live Status: dactor.health</p>
+              </div>
+
+              <div className="space-y-1 text-[11px] pt-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Patient:</span>
+                  <span className="font-bold">{printSlipAppt.patientName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Age / Gender:</span>
+                  <span>{printSlipAppt.patientAge} Yrs / {printSlipAppt.patientGender}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Doctor:</span>
+                  <span className="font-bold">{printSlipAppt.doctor?.fullName || selectedDoctor?.fullName || 'General OPD Doctor'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Date:</span>
+                  <span>{printSlipAppt.appointmentDate} ({printSlipAppt.appointmentTime})</span>
+                </div>
+                <div className="flex justify-between border-t border-slate-200 pt-1 font-bold">
+                  <span>Consultation Fee:</span>
+                  <span>Rs. {printSlipAppt.feeAmount || 500}</span>
+                </div>
+              </div>
+
+              <div className="text-center text-[9px] text-slate-500 border-t border-slate-300 pt-2 leading-relaxed">
+                * Track your live token queue position in real time on any smartphone without downloading any app using your 10-digit code.
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowPrintTokenSlip(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-brand-600/20 cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Slip</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

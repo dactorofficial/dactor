@@ -9,6 +9,7 @@ import { LabReports } from './pages/LabReports'
 import { AverageTime } from './pages/AverageTime'
 import { ClinicPortal } from './pages/ClinicPortal'
 import { PatientPortal } from './pages/PatientPortal'
+import { DoctorPortal } from './pages/DoctorPortal'
 import { LiveTrackerModal } from './components/LiveTrackerModal'
 import { LabReportModal } from './components/LabReportModal'
 import { NotificationModal } from './components/NotificationModal'
@@ -19,8 +20,9 @@ import { supabase } from './lib/supabase'
 const getTabFromUrl = (): string => {
   const hash = window.location.hash.toLowerCase().replace('#', '').replace('/', '')
   if (hash === 'patient' || hash === 'patient-portal' || hash === 'my-health') return 'patient-portal'
-  if (hash === 'portal' || hash === 'admin-portal' || hash === 'clinic-portal') return 'portal'
-  if (hash === 'clinics' || hash === 'doctors') return 'clinics'
+  if (hash === 'doctor' || hash === 'doctor-portal' || hash === 'practitioner') return 'doctor-portal'
+  if (hash === 'portal' || hash === 'admin-portal' || hash === 'clinic-portal' || hash === 'clinic') return 'portal'
+  if (hash === 'clinics') return 'clinics'
   if (hash === 'lab-reports' || hash === 'reports') return 'lab-reports'
   if (hash === 'average-time' || hash === 'wait-time') return 'average-time'
   if (hash === 'live-queue' || hash === 'queue') return 'live-queue'
@@ -28,7 +30,8 @@ const getTabFromUrl = (): string => {
 
   const path = window.location.pathname.toLowerCase()
   if (path.includes('patient') || path.includes('my-health')) return 'patient-portal'
-  if (path.includes('admin-portal') || path.includes('/portal')) return 'portal'
+  if (path.includes('doctor') || path.includes('practitioner')) return 'doctor-portal'
+  if (path.includes('admin-portal') || path.includes('/portal') || path.includes('clinic-portal')) return 'portal'
   if (path.includes('clinics')) return 'clinics'
   if (path.includes('lab-reports')) return 'lab-reports'
   if (path.includes('average-time')) return 'average-time'
@@ -235,6 +238,8 @@ export const App: React.FC = () => {
             onOpenReportModal={handleOpenReportModal}
           />
         )}
+
+        {activeTab === 'doctor-portal' && <DoctorPortal />}
 
         {activeTab === 'portal' && <ClinicPortal />}
       </main>

@@ -50,6 +50,15 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <ul className="space-y-2 text-sm">
               <li>
                 <button
+                  onClick={() => onNavigate('patient-portal')}
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left text-cyan-400 font-bold"
+                >
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Patient Portal (My Health)</span>
+                </button>
+              </li>
+              <li>
+                <button
                   onClick={() => onNavigate('home')}
                   className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
@@ -97,12 +106,12 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
                   <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
-                  <span>Unified Clinic Portal</span>
+                  <span>Clinic & Lab Center</span>
                 </button>
               </li>
               <li>
                 <button
-                  onClick={() => onNavigate('portal')}
+                  onClick={() => onNavigate('doctor-portal')}
                   className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
                   <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />

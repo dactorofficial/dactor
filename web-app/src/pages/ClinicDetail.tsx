@@ -15,6 +15,7 @@ import {
   CreditCard,
   Download,
   RefreshCw,
+  Building2,
 } from 'lucide-react'
 import { Clinic, Doctor, ClinicService, Slot, Appointment, PaymentGatewaysConfig } from '../types'
 import {
@@ -52,6 +53,19 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
   // Active view tab: 'opd' or 'lab'
   const [activeTab, setActiveTab] = useState<'opd' | 'lab'>('opd')
+
+  // Photo Carousel State (Parity with Mobile App ClinicDetailScreen)
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0)
+
+  // Auto-advance photo carousel every 3.5 seconds if multiple photos exist
+  useEffect(() => {
+    if (clinic?.pictures && clinic.pictures.length > 1) {
+      const interval = setInterval(() => {
+        setSelectedPhotoIndex((prev) => (prev + 1) % clinic.pictures.length)
+      }, 3500)
+      return () => clearInterval(interval)
+    }
+  }, [clinic?.pictures])
 
   // OPD Selection
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null)
@@ -644,7 +658,96 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       </button>
 
       {/* ========================================================= */}
-      {/* CLINIC HERO BANNER & WORKING/BREAK HOURS (Real Supabase)  */}
+      {/* 1. CLINIC HERO PHOTO CAROUSEL (Real Supabase Pictures)   */}
+      {/* ========================================================= */}
+      {(() => {
+        const photos =
+          clinic.pictures && clinic.pictures.length > 0
+            ? clinic.pictures
+            : clinic.logoUrl
+            ? [clinic.logoUrl]
+            : []
+        const activePhoto = photos[selectedPhotoIndex] || photos[0]
+
+        return (
+          <div className="relative w-full h-64 sm:h-80 md:h-96 rounded-3xl overflow-hidden bg-slate-900 border border-slate-200/80 shadow-md">
+            {activePhoto ? (
+              <img
+                src={activePhoto}
+                alt={clinic.name}
+                className="w-full h-full object-cover transition-all duration-500"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none'
+                }}
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-tr from-brand-700 via-brand-600 to-teal-600 flex items-center justify-center text-white">
+                <div className="text-center space-y-2 p-6">
+                  <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center mx-auto border border-white/20">
+                    <Building2 className="w-8 h-8 text-white" />
+                  </div>
+                  <h2 className="text-2xl font-black">{clinic.name}</h2>
+                  <p className="text-xs text-white/80 font-medium">Dactor Certified Healthcare Center • Nepal</p>
+                </div>
+              </div>
+            )}
+
+            {/* Gradient Overlay for Legibility */}
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-black/20 to-black/30 pointer-events-none" />
+
+            {/* Top Overlay Badges */}
+            <div className="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-auto">
+              <span className="px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider bg-white/90 text-brand-900 backdrop-blur-md shadow-sm">
+                {clinic.type === 'diagnostic_lab' ? 'Diagnostic Pathology Lab' : clinic.type === 'single_visit' ? 'Single-Visit OPD' : 'Multi-Visit Polyclinic'}
+              </span>
+
+              <div className="flex items-center space-x-2">
+                {clinic.isOnBreak && (
+                  <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-amber-500 text-white shadow-md">
+                    Currently on Break
+                  </span>
+                )}
+                <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-bold bg-emerald-500 text-white shadow-md">
+                  <ShieldCheck className="w-4 h-4 mr-1.5" />
+                  Verified Clinic
+                </span>
+              </div>
+            </div>
+
+            {/* Bottom Caption & Interactive Photo Navigation Dots */}
+            <div className="absolute bottom-4 left-4 right-4 flex flex-col sm:flex-row sm:items-end justify-between gap-3 pointer-events-auto">
+              <div className="text-white drop-shadow-md">
+                <h2 className="text-xl sm:text-2xl font-black">{clinic.name}</h2>
+                <p className="text-xs text-slate-200 flex items-center space-x-1.5 mt-0.5">
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>{clinic.addressText || 'Nepal'}</span>
+                </p>
+              </div>
+
+              {photos.length > 1 && (
+                <div className="flex items-center space-x-2 bg-black/60 backdrop-blur-md p-1.5 rounded-2xl border border-white/20 self-start sm:self-auto">
+                  {photos.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedPhotoIndex(idx)}
+                      className={`h-2.5 rounded-full transition-all cursor-pointer ${
+                        idx === selectedPhotoIndex ? 'w-7 bg-brand-400' : 'w-2.5 bg-white/50 hover:bg-white'
+                      }`}
+                      title={`Photo ${idx + 1}`}
+                    />
+                  ))}
+                  <span className="text-[10px] font-bold text-white/90 px-1">
+                    {selectedPhotoIndex + 1}/{photos.length}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ========================================================= */}
+      {/* 2. CLINIC IDENTITY & WORKING/BREAK HOURS (Real Supabase)  */}
       {/* ========================================================= */}
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-sm space-y-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100">

@@ -157,60 +157,82 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
               } catch {}
             }
 
+            const coverPhoto = (clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures[0] : null) || clinic.logoUrl
+
             return (
               <div
                 key={clinic.id}
-                className="group bg-white rounded-3xl border border-slate-200/80 hover:border-brand-300 p-6 shadow-sm hover:shadow-xl hover:shadow-brand-500/10 transition-all duration-200 flex flex-col justify-between"
+                className="group bg-white rounded-3xl border border-slate-200/80 hover:border-brand-300 shadow-sm hover:shadow-xl hover:shadow-brand-500/10 transition-all duration-200 flex flex-col justify-between overflow-hidden"
               >
                 <div>
-                  {/* Top Header */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div
-                      className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg ${
-                        isLab
-                          ? 'bg-teal-100 text-teal-700'
-                          : 'bg-brand-100 text-brand-700'
-                      }`}
-                    >
-                      {clinic.logoUrl ? (
-                        <img
-                          src={clinic.logoUrl}
-                          alt={clinic.name}
-                          className="w-full h-full object-cover rounded-2xl"
-                        />
-                      ) : isLab ? (
-                        <FlaskConical className="w-6 h-6" />
-                      ) : (
-                        clinic.name.charAt(0)
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {clinic.isOnBreak && (
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                          On Break
-                        </span>
-                      )}
+                  {/* Clinic Photo Banner */}
+                  <div className="relative w-full h-44 bg-slate-100 overflow-hidden">
+                    {coverPhoto ? (
+                      <img
+                        src={coverPhoto}
+                        alt={clinic.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                          // Fallback to placeholder if broken image
+                          (e.target as HTMLElement).style.display = 'none'
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-tr from-brand-600 via-brand-500 to-teal-500 flex items-center justify-center text-white">
+                        <div className="text-center space-y-1">
+                          <Building2 className="w-10 h-10 mx-auto opacity-80" />
+                          <span className="text-xs font-bold tracking-wider uppercase opacity-90">Dactor Certified Clinic</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Gradient Overlay for Legibility */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-transparent to-black/20" />
+
+                    {/* Top Overlay Badges */}
+                    <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
                       <span
-                        className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                        className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider backdrop-blur-md shadow-sm ${
                           isLab
-                            ? 'bg-teal-50 text-teal-800 border-teal-200'
-                            : 'bg-brand-50 text-brand-800 border-brand-200'
+                            ? 'bg-teal-500/90 text-white'
+                            : 'bg-brand-600/90 text-white'
                         }`}
                       >
                         {isLab ? 'Diagnostic Lab' : clinic.type === 'single_visit' ? 'Single-Visit OPD' : 'Multi-Visit OPD'}
                       </span>
+
+                      <div className="flex items-center space-x-1.5">
+                        {clinic.isOnBreak && (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500 text-white shadow-sm">
+                            On Break
+                          </span>
+                        )}
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500 text-white shadow-sm">
+                          <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+                          Verified
+                        </span>
+                      </div>
                     </div>
+
+                    {/* Bottom Left Photo Count Indicator */}
+                    {clinic.pictures && clinic.pictures.length > 1 && (
+                      <div className="absolute bottom-2.5 right-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-sm text-[10px] font-bold text-white flex items-center space-x-1">
+                        <span>📷 {clinic.pictures.length} Photos</span>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Title & Address */}
-                  <h3 className="text-xl font-black text-slate-900 group-hover:text-brand-700 transition-colors line-clamp-1">
-                    {clinic.name}
-                  </h3>
+                  {/* Card Content Padding */}
+                  <div className="p-6">
+                    {/* Title & Address */}
+                    <h3 className="text-xl font-black text-slate-900 group-hover:text-brand-700 transition-colors line-clamp-1">
+                      {clinic.name}
+                    </h3>
 
-                  <div className="flex items-center space-x-1.5 text-xs text-slate-500 mt-1 line-clamp-1">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span>{clinic.addressText || 'Nepal'}</span>
-                  </div>
+                    <div className="flex items-center space-x-1.5 text-xs text-slate-500 mt-1 line-clamp-1">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>{clinic.addressText || 'Nepal'}</span>
+                    </div>
 
                   {/* Operational Hours Strip */}
                   <div className="mt-3.5 p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-600 flex items-center space-x-2">
@@ -237,6 +259,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
 
                 {/* Bottom CTA Button */}
                 <div className="pt-6 mt-6 border-t border-slate-100">

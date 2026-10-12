@@ -105,6 +105,7 @@ export interface Appointment {
   feeAmount: number
   queueNumber?: number
   notes?: string
+  isWalkin?: boolean
   createdAt?: string
   updatedAt?: string
   selectedTests?: string[]

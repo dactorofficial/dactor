@@ -818,26 +818,139 @@ export const Home: React.FC<HomeProps> = ({
       </section>
 
       {/* ========================================================= */}
-      {/* CLINIC ONBOARDING CTA BANNER (Unified Google Login) */}
+      {/* DEDICATED HEALTHCARE PORTALS SECTION */}
+      {/* ========================================================= */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+        <div className="text-center max-w-2xl mx-auto space-y-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-brand-600 bg-brand-50 px-3 py-1 rounded-full border border-brand-200">
+            Dedicated Role Desks
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+            Dactor Healthcare Portals
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500 font-medium">
+            Separate, secure portals for patients, licensed medical doctors, and healthcare facilities. Strict single-role account exclusivity guaranteed.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* 1. Patient Portal Card */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-6 group">
+            <div className="space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-700 flex items-center justify-center font-bold shadow-xs group-hover:scale-105 transition-transform">
+                <User className="w-7 h-7" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
+                  Patients & Citizens
+                </span>
+                <h3 className="text-xl font-black text-slate-900 mt-1">
+                  Patient Health Portal
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Track live OPD queue tokens in real time, view appointment schedules, manage family health profiles, and download name-verified diagnostic lab reports.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('patient-portal')}
+              className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+            >
+              <span>Enter Patient Portal</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* 2. Doctor Portal Card */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-6 group">
+            <div className="space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold shadow-xs group-hover:scale-105 transition-transform">
+                <Stethoscope className="w-7 h-7" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">
+                  Medical Practitioners
+                </span>
+                <h3 className="text-xl font-black text-slate-900 mt-1">
+                  Doctor Consultation Desk
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Live in-cabin physical presence toggle, calling waiting patients, token queue status updates, push alerts, and direct consultation records with NMC credentials.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('doctor-portal')}
+              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+            >
+              <span>Enter Doctor Desk</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* 3. Clinic & Lab Portal Card */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-6 group">
+            <div className="space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold shadow-xs group-hover:scale-105 transition-transform">
+                <Building2 className="w-7 h-7" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                  Clinics, Hospitals & Labs
+                </span>
+                <h3 className="text-xl font-black text-slate-900 mt-1">
+                  Clinic & Lab Center
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Reception walk-in token generation with 10-digit codes, doctor rosters, patient directories, 3-stage pathology pipelines, and billing invoice printing.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('portal')}
+              className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+            >
+              <span>Enter Clinic Center</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ========================================================= */}
+      {/* PROVIDER ONBOARDING CTA BANNER */}
       {/* ========================================================= */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-r from-brand-900 via-brand-800 to-cyan-900 text-white rounded-3xl p-8 sm:p-12 shadow-xl flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="space-y-3 max-w-xl">
+        <div className="bg-gradient-to-r from-brand-900 via-brand-800 to-cyan-900 text-white rounded-3xl p-8 sm:p-12 shadow-xl flex flex-col lg:flex-row items-center justify-between gap-8">
+          <div className="space-y-3 max-w-xl text-left">
             <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
-              Are you a Clinic Owner or Doctor?
+              Empower Your Medical Practice with Dactor
             </h2>
             <p className="text-sm text-cyan-100 font-medium leading-relaxed">
-              Join the unified Dactor portal. Manage OPD walk-in tokens, set consultation fees, publish slots, and manage diagnostic tests with simple Google authentication.
+              Connect your clinic or join as an accredited doctor. Real-time token synchronization, zero waiting room clutter, and name-verified lab delivery with pure Google authentication.
             </p>
           </div>
 
-          <button
-            onClick={() => onNavigate('portal')}
-            className="px-8 py-4 bg-white text-brand-900 hover:bg-slate-50 font-black rounded-2xl shadow-lg transition-transform hover:scale-105 active:scale-95 shrink-0 flex items-center space-x-2 text-sm cursor-pointer"
-          >
-            <span>Open Clinic / Doctor Portal</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => onNavigate('doctor-portal')}
+              className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center space-x-2 text-xs cursor-pointer"
+            >
+              <Stethoscope className="w-4 h-4" />
+              <span>Doctor Portal</span>
+            </button>
+
+            <button
+              onClick={() => onNavigate('portal')}
+              className="px-6 py-3.5 bg-white text-brand-900 hover:bg-slate-100 font-black rounded-2xl shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center space-x-2 text-xs cursor-pointer"
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Clinic Portal</span>
+            </button>
+          </div>
         </div>
       </section>
     </div>
