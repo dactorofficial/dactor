@@ -125,6 +125,7 @@ fun ClinicMapView(
                                 <head>
                                   <meta charset="utf-8" />
                                   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                                  <meta name="referrer" content="no-referrer" />
                                   <style>
                                     * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
                                     html, body {
@@ -233,9 +234,12 @@ fun ClinicMapView(
                                       function getTileUrls(z, x, y) {
                                         var maxTile = Math.pow(2, z);
                                         var wrappedX = ((x % maxTile) + maxTile) % maxTile;
+                                        var sub = ['a', 'b', 'c', 'd'][Math.abs(wrappedX + y) % 4];
                                         return [
-                                          'https://mt1.google.com/vt/lyrs=m&x=' + wrappedX + '&y=' + y + '&z=' + z,
-                                          'https://a.basemaps.cartocdn.com/rastertiles/voyager/' + z + '/' + wrappedX + '/' + y + '.png',
+                                          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/' + z + '/' + y + '/' + wrappedX,
+                                          'https://' + sub + '.basemaps.cartocdn.com/rastertiles/voyager/' + z + '/' + wrappedX + '/' + y + '.png',
+                                          'https://tile.openstreetmap.fr/hot/' + z + '/' + wrappedX + '/' + y + '.png',
+                                          'https://' + sub + '.basemaps.cartocdn.com/light_all/' + z + '/' + wrappedX + '/' + y + '.png',
                                           'https://tile.openstreetmap.org/' + z + '/' + wrappedX + '/' + y + '.png'
                                         ];
                                       }
@@ -285,17 +289,19 @@ fun ClinicMapView(
                                               img.className = 'map-tile';
                                               img.alt = '';
                                               img.referrerPolicy = 'no-referrer';
+                                              img.crossOrigin = 'anonymous';
                                               var urls = getTileUrls(zoom, tx, ty);
-                                              img.dataset.urlIdx = '0';
-                                              img.urls = urls;
+                                              var urlIdx = 0;
                                               img.onerror = function() {
-                                                var idx = parseInt(this.dataset.urlIdx || '0', 10) + 1;
-                                                if (this.urls && idx < this.urls.length) {
-                                                  this.dataset.urlIdx = String(idx);
-                                                  this.src = this.urls[idx];
+                                                urlIdx++;
+                                                if (urlIdx < urls.length) {
+                                                  this.src = urls[urlIdx];
                                                 } else {
-                                                  this.style.display = 'none';
+                                                  this.style.opacity = '0';
                                                 }
+                                              };
+                                              img.onload = function() {
+                                                this.style.opacity = '1';
                                               };
                                               img.src = urls[0];
                                               tileLayer.appendChild(img);
@@ -357,14 +363,52 @@ fun ClinicMapView(
                                       window.addEventListener('mousemove', function(e) { onMove(e.clientX, e.clientY); });
                                       window.addEventListener('mouseup', onEnd);
 
+                                      var pinchDist = 0;
+                                      var lastTap = 0;
                                       viewport.addEventListener('touchstart', function(e) {
                                         if (e.target.tagName === 'BUTTON') return;
-                                        if (e.touches.length === 1) onStart(e.touches[0].clientX, e.touches[0].clientY);
+                                        if (e.touches.length === 1) {
+                                          pinchDist = 0;
+                                          onStart(e.touches[0].clientX, e.touches[0].clientY);
+                                        } else if (e.touches.length === 2) {
+                                          isDragging = false;
+                                          var dx = e.touches[0].clientX - e.touches[1].clientX;
+                                          var dy = e.touches[0].clientY - e.touches[1].clientY;
+                                          pinchDist = Math.sqrt(dx * dx + dy * dy);
+                                        }
                                       }, { passive: true });
                                       viewport.addEventListener('touchmove', function(e) {
-                                        if (e.touches.length === 1) onMove(e.touches[0].clientX, e.touches[0].clientY);
+                                        if (e.touches.length === 1 && !pinchDist) {
+                                          onMove(e.touches[0].clientX, e.touches[0].clientY);
+                                        } else if (e.touches.length === 2) {
+                                          var dx = e.touches[0].clientX - e.touches[1].clientX;
+                                          var dy = e.touches[0].clientY - e.touches[1].clientY;
+                                          var d = Math.sqrt(dx * dx + dy * dy);
+                                          if (pinchDist > 0) {
+                                            if (d - pinchDist > 40 && zoom < 19) {
+                                              zoom++;
+                                              pinchDist = d;
+                                              render();
+                                            } else if (pinchDist - d > 40 && zoom > 4) {
+                                              zoom--;
+                                              pinchDist = d;
+                                              render();
+                                            }
+                                          } else {
+                                            pinchDist = d;
+                                          }
+                                        }
                                       }, { passive: true });
-                                      viewport.addEventListener('touchend', onEnd, { passive: true });
+                                      viewport.addEventListener('touchend', function(e) {
+                                        pinchDist = 0;
+                                        var now = Date.now();
+                                        if (now - lastTap < 300 && zoom < 19) {
+                                          zoom++;
+                                          render();
+                                        }
+                                        lastTap = now;
+                                        onEnd();
+                                      }, { passive: true });
 
                                       document.getElementById('btnZoomIn').addEventListener('click', function(e) {
                                         e.stopPropagation();
@@ -387,6 +431,7 @@ fun ClinicMapView(
                                       setTimeout(render, 50);
                                       setTimeout(render, 250);
                                       setTimeout(render, 600);
+                                      setTimeout(render, 1200);
                                       render();
                                     })();
                                   </script>
@@ -394,7 +439,7 @@ fun ClinicMapView(
                                 </html>
                             """.trimIndent()
 
-                            loadDataWithBaseURL("https://maps.google.com", html, "text/html", "UTF-8", null)
+                            loadDataWithBaseURL("https://www.openstreetmap.org", html, "text/html", "UTF-8", null)
                         }
                     },
                     update = { view ->

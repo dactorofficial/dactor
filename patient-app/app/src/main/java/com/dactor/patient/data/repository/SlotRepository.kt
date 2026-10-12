@@ -62,7 +62,7 @@ class SlotRepository @Inject constructor(
 
     private fun filterActiveSlotsForDate(slots: List<Slot>, date: String): List<Slot> {
         return slots.filter { slot ->
-            !isSlotEndTimeOver(slot.endTime, date.ifBlank { slot.slotDate }, slot.startTime)
+            slot.isPublished && !isSlotEndTimeOver(slot.endTime, date.ifBlank { slot.slotDate }, slot.startTime)
         }
     }
 
@@ -134,9 +134,15 @@ class SlotRepository @Inject constructor(
         grouped
     }
 
-    suspend fun getAvailableSlots(clinicId: String, date: String): List<Slot> = coroutineScope {
-        cachedSlotsByDate[date]?.get(clinicId)?.let {
-            return@coroutineScope filterActiveSlotsForDate(it, date)
+    fun clearCache() {
+        cachedSlotsByDate.clear()
+    }
+
+    suspend fun getAvailableSlots(clinicId: String, date: String, forceRefresh: Boolean = false): List<Slot> = coroutineScope {
+        if (!forceRefresh) {
+            cachedSlotsByDate[date]?.get(clinicId)?.let {
+                return@coroutineScope filterActiveSlotsForDate(it, date)
+            }
         }
 
         val slotsDeferred = async {

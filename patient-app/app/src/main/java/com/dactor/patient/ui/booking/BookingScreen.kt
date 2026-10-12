@@ -197,10 +197,10 @@ fun BookingScreen(
     val activeDoctor = selectedDoctor ?: doctors.firstOrNull()
     val consultationFee = activeDoctor?.consultationFee ?: 500.0
     val selectedSlot = slots.firstOrNull { it.id == selectedSlotId }
-    val canBookSelectedSlot = !isClinicClosedOnSelectedDate && ((selectedSlot != null &&
+    val canBookSelectedSlot = !isClinicClosedOnSelectedDate && (selectedSlot != null &&
+        selectedSlot.isPublished &&
         (selectedSlot.maxCapacity - selectedSlot.bookedCount) > 0 &&
-        !SlotRepository.isSlotEndTimeOver(selectedSlot.endTime, selectedDate, selectedSlot.startTime)) ||
-        (isLabClinic && slots.isEmpty()))
+        !SlotRepository.isSlotEndTimeOver(selectedSlot.endTime, selectedDate, selectedSlot.startTime))
 
     fun redirectToLoginSavingPosition(slotIdToSave: String?) {
         val currentRoute = NavRoutes.Booking.createRoute(clinicId, activeDoctor?.id)

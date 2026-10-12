@@ -79,6 +79,12 @@ fun BookingFormScreen(
     val savedPatientId = if (isUserLoggedIn) (sessionManager?.getSavedPatientId()?.ifBlank { null }
         ?: try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid } catch (e: Exception) { null }) else null
 
+    var savedProfileName by remember { mutableStateOf(savedName ?: "") }
+    var savedProfilePhone by remember { mutableStateOf(savedPhone ?: "") }
+    var savedProfileAge by remember { mutableStateOf(savedAge ?: "") }
+    var savedProfileGender by remember { mutableStateOf(savedGender ?: "") }
+    var savedProfileEmail by remember { mutableStateOf(savedEmail ?: "") }
+
     LaunchedEffect(isUserLoggedIn) {
         if (!isUserLoggedIn) {
             Toast.makeText(context, "Please sign in with Google to book an appointment", Toast.LENGTH_SHORT).show()
@@ -92,11 +98,11 @@ fun BookingFormScreen(
     var retainedAppointment by remember { mutableStateOf<Appointment?>(null) }
     var isLookingUpCode by remember { mutableStateOf(false) }
 
-    var fullName by remember { mutableStateOf(savedName ?: "") }
-    var age by remember { mutableStateOf(savedAge ?: "") }
-    var selectedGender by remember { mutableStateOf(savedGender ?: "") }
-    var mobile by remember { mutableStateOf(savedPhone ?: "") }
-    var email by remember { mutableStateOf(savedEmail ?: "") }
+    var fullName by remember { mutableStateOf("") }
+    var age by remember { mutableStateOf("") }
+    var selectedGender by remember { mutableStateOf("") }
+    var mobile by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
     var visitNotes by remember { mutableStateOf("") }
 
     var validationTriggered by remember { mutableStateOf(false) }
@@ -120,6 +126,39 @@ fun BookingFormScreen(
     var isSubmitting by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+
+    fun fillFromSavedProfile() {
+        val nameToFill = savedProfileName.ifBlank { sessionManager?.getSavedName().orEmpty() }
+        val phoneToFill = savedProfilePhone.ifBlank { sessionManager?.getSavedPhone().orEmpty() }
+        val ageToFill = savedProfileAge.ifBlank { sessionManager?.getSavedAge()?.toString().orEmpty() }
+        val genderToFill = savedProfileGender.ifBlank { sessionManager?.getSavedGender().orEmpty() }
+        val emailToFill = savedProfileEmail.ifBlank { sessionManager?.getSavedEmail().orEmpty() }
+
+        if (nameToFill.isBlank() && phoneToFill.isBlank() && emailToFill.isBlank()) {
+            Toast.makeText(context, "No saved profile details found for this account. Please enter manually.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        if (nameToFill.isNotBlank()) fullName = nameToFill
+        if (phoneToFill.isNotBlank()) {
+            val digits = phoneToFill.filter { it.isDigit() }
+            mobile = if (digits.startsWith("977") && digits.length == 13) digits.drop(3) else digits
+        }
+        if (ageToFill.isNotBlank()) age = ageToFill
+        if (genderToFill.isNotBlank()) selectedGender = genderToFill
+        if (emailToFill.isNotBlank()) email = emailToFill
+
+        if (errorMessage != null) errorMessage = null
+        val filledDisplayName = nameToFill.ifBlank { "your account" }
+        Toast.makeText(context, "Filled details from saved profile: $filledDisplayName", Toast.LENGTH_SHORT).show()
+    }
+
+    val defaultBookingTime = remember {
+        val plus5 = java.time.LocalTime.now().plusMinutes(5)
+        val formatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US)
+        plus5.format(formatter)
+    }
+    var appointmentTime by remember { mutableStateOf(defaultBookingTime) }
 
     var loadedSlot by remember { mutableStateOf<Slot?>(null) }
     var slotDoctorName by remember { mutableStateOf<String?>(null) }
@@ -277,41 +316,32 @@ fun BookingFormScreen(
         }
 
         if (isUserLoggedIn) {
-            if (fullName.isBlank() && !savedName.isNullOrBlank()) {
-                fullName = savedName
-            }
-            if (email.isBlank() && !savedEmail.isNullOrBlank()) {
-                email = savedEmail
-            }
-            if (mobile.isBlank() && !savedPhone.isNullOrBlank()) {
-                mobile = savedPhone
-            }
-            if (age.isBlank() && !savedAge.isNullOrBlank()) {
-                age = savedAge
-            }
-            if (!savedGender.isNullOrBlank()) {
-                selectedGender = savedGender
-            }
-
             val queryEmail = savedEmail ?: authRepository?.getCurrentUserEmail()
             if (!queryEmail.isNullOrBlank() && authRepository != null) {
                 try {
                     val profile = authRepository.getProfileByEmail(queryEmail)
                     if (profile != null) {
-                        if (fullName.isBlank() && !profile.fullName.isNullOrBlank()) {
-                            fullName = profile.fullName
+                        if (!profile.fullName.isNullOrBlank()) {
+                            savedProfileName = profile.fullName
                         }
-                        if (mobile.isBlank() && !profile.phone.isNullOrBlank()) {
-                            mobile = profile.phone
+                        if (!profile.phone.isNullOrBlank()) {
+                            savedProfilePhone = profile.phone
                         }
-                        if (age.isBlank() && profile.age != null && profile.age > 0) {
-                            age = profile.age.toString()
+                        if (profile.age != null && profile.age > 0) {
+                            savedProfileAge = profile.age.toString()
                         }
                         if (!profile.gender.isNullOrBlank()) {
-                            selectedGender = profile.gender
+                            savedProfileGender = profile.gender
+                        }
+                        if (!profile.email.isNullOrBlank()) {
+                            savedProfileEmail = profile.email
                         }
                     }
                 } catch (ignored: Exception) {}
+            }
+            if (savedProfileName.isBlank()) {
+                val fbName = try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.displayName } catch (e: Exception) { null }
+                if (!fbName.isNullOrBlank()) savedProfileName = fbName
             }
         }
     }
@@ -464,7 +494,7 @@ fun BookingFormScreen(
                                     var resolvedClinicId = clinicId.ifBlank { null }
                                     var resolvedDoctorId: String? = null
                                     var resolvedDate = java.time.LocalDate.now().toString()
-                                    var resolvedTime = "09:30"
+                                    var resolvedTime = com.dactor.patient.data.repository.AppointmentRepository.normalizeTimeForPostgres(appointmentTime)
 
                                     val isSyntheticSlot = slotId.startsWith("synth__") || slotId.startsWith("slot_") || slotId == "slot_1"
                                     val s = loadedSlot ?: (if (slotId.isNotBlank() && !isSyntheticSlot && slotRepository != null) slotRepository.getSlotById(slotId) else null)
@@ -481,7 +511,7 @@ fun BookingFormScreen(
                                             resolvedDoctorId = s.doctorId
                                         }
                                         resolvedDate = s.slotDate
-                                        resolvedTime = com.dactor.patient.data.repository.AppointmentRepository.normalizeTimeForPostgres(s.startTime)
+                                        resolvedTime = com.dactor.patient.data.repository.AppointmentRepository.normalizeTimeForPostgres(appointmentTime)
                                     }
 
                                     if (resolvedClinicId == null && clinicRepository != null) {
@@ -766,6 +796,93 @@ fun BookingFormScreen(
                             )
                         }
                     }
+
+                    HorizontalDivider(color = FormTeal.copy(alpha = 0.14f))
+
+                    // ── Editable Appointment Time (Auto-set +5 min of current, editable) ──
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = FormTeal.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, FormTeal.copy(alpha = 0.25f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                com.dactor.patient.domain.util.DateTimePickers.showClockTimePicker(context, appointmentTime) { picked ->
+                                    val parsed = com.dactor.patient.data.repository.SlotRepository.parseTimeToMinutes(picked)
+                                    if (parsed != null) {
+                                        val h = parsed / 60
+                                        val m = parsed % 60
+                                        val isPm = h >= 12
+                                        val displayH = when {
+                                            h == 0 -> 12
+                                            h > 12 -> h - 12
+                                            else -> h
+                                        }
+                                        appointmentTime = String.format(java.util.Locale.US, "%02d:%02d %s", displayH, m, if (isPm) "PM" else "AM")
+                                    } else {
+                                        appointmentTime = picked
+                                    }
+                                }
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.AccessTime,
+                                    contentDescription = null,
+                                    tint = FormTeal,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "Appointment Time (Auto +5m)",
+                                        fontSize = 11.sp,
+                                        color = SlateMuted,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = appointmentTime,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = FormTealDark
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = FormTeal.copy(alpha = 0.18f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = null,
+                                        tint = FormTeal,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = "Change Time",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = FormTealDark
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -798,7 +915,7 @@ fun BookingFormScreen(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Booking as ${fullName.ifBlank { savedName ?: "Verified Patient" }}",
+                                text = "Booking as ${fullName.ifBlank { savedProfileName.ifBlank { savedName ?: "Verified Patient" } }}",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
                                 color = Color(0xFF065F46)
@@ -1440,39 +1557,155 @@ fun BookingFormScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = FormTealLight,
-                                modifier = Modifier.size(38.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.AssignmentInd,
-                                        contentDescription = null,
-                                        tint = FormTeal,
-                                        modifier = Modifier.size(20.dp)
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = FormTealLight,
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.AssignmentInd,
+                                            contentDescription = null,
+                                            tint = FormTeal,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Column {
+                                    Text(
+                                        "Patient Details",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 15.sp,
+                                        color = SlateDark
+                                    )
+                                    Text(
+                                        "Used for your OPD queue token & prescription slip",
+                                        fontSize = 11.sp,
+                                        color = SlateMuted
                                     )
                                 }
                             }
-                            Column {
-                                Text(
-                                    "Patient Details",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 15.sp,
-                                    color = SlateDark
+
+                            // Quick Fill Button in header
+                            OutlinedButton(
+                                onClick = { fillFromSavedProfile() },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.2.dp, FormTeal),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = FormTealLight.copy(alpha = 0.5f),
+                                    contentColor = FormTealDark
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = FormTeal,
+                                    modifier = Modifier.size(15.dp)
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    "Used for your OPD queue token & medical prescription slip",
-                                    fontSize = 11.sp,
-                                    color = SlateMuted
+                                    "Use Profile",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = FormTealDark
                                 )
                             }
                         }
 
                         HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                        // ── "USE SAVED PROFILE" QUICK-ACTION CARD ─────────────
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFFF0FDF4),
+                            border = BorderStroke(1.2.dp, Color(0xFF86EFAC)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { fillFromSavedProfile() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFF16A34A),
+                                        modifier = Modifier.size(34.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.AccountCircle,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Use Saved Profile",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.5.sp,
+                                            color = Color(0xFF14532D)
+                                        )
+                                        val profileSummary = if (savedProfileName.isNotBlank()) {
+                                            "Auto-fill details for $savedProfileName" + if (savedProfilePhone.isNotBlank()) " ($savedProfilePhone)" else ""
+                                        } else {
+                                            "Click to auto-fill details associated with this account"
+                                        }
+                                        Text(
+                                            text = profileSummary,
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF166534),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF16A34A)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Text(
+                                            text = "Auto-Fill",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.5.sp,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
                         AnimatedVisibility(visible = errorMessage != null) {
                             Surface(

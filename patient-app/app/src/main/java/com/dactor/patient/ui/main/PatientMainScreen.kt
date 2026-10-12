@@ -754,7 +754,7 @@ fun HomeTab(
                         c.id == doc.activeClinicId ||
                         c.id == doc.primaryClinicId ||
                         cachedRosterMap[c.id]?.any { d -> d.id == doc.id } == true
-                }.ifEmpty { cachedClinics }
+                }
                 OpenRouteSpatialEngine.indexDoctor(doc, linked)
                 DoctorHomeItem(doctor = doc, practicingClinics = linked)
             }
@@ -820,7 +820,7 @@ fun HomeTab(
                                         c.id == doc.activeClinicId ||
                                         c.id == doc.primaryClinicId ||
                                         rosterByClinic[c.id]?.any { d -> d.id == doc.id } == true
-                                }.ifEmpty { remoteClinics }
+                                }
                                 OpenRouteSpatialEngine.indexDoctor(doc, linkedClinics)
                                 DoctorHomeItem(doctor = doc, practicingClinics = linkedClinics)
                             }
@@ -891,6 +891,7 @@ fun HomeTab(
     // ── Filter & Sort Clinics using MedicalSearchEngine & OpenRouteSpatialEngine ─────────
     val displayedClinics = remember(
         allClinics,
+        selectedDate,
         searchQuery,
         selectedLocation,
         selectedSort,
@@ -902,6 +903,16 @@ fun HomeTab(
         NEPAL_DISTRICT_ALIASES
     ) {
         var list = allClinics
+
+        // Clinic should be shown to book ONLY if the clinic has published slot for that day
+        val dateStr = selectedDate.toString()
+        list = list.filter { item ->
+            item.availableSlots.any { slot ->
+                slot.isPublished &&
+                    (slot.maxCapacity - slot.bookedCount) > 0 &&
+                    !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(slot.endTime, dateStr, slot.startTime)
+            }
+        }
 
         if (isLiveGpsActive && userLatitude != null && userLongitude != null) {
             val uLat = userLatitude!!
@@ -1838,15 +1849,33 @@ fun HomeTab(
 
                                     // Doctor Status Badge on top right
                                     Surface(
-                                        color = if (doctor.isInClinic == true) Color(0xFFDCFCE7) else Color(0xFFEFF6FF),
+                                        color = if (clinicsForDoc.isEmpty()) {
+                                            Color(0xFFF1F5F9)
+                                        } else if (doctor.isInClinic == true) {
+                                            Color(0xFFDCFCE7)
+                                        } else {
+                                            Color(0xFFEFF6FF)
+                                        },
                                         shape = RoundedCornerShape(8.dp),
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
                                             .padding(10.dp)
                                     ) {
                                         Text(
-                                            text = if (doctor.isInClinic == true) "In Clinic" else "Verified Doctor",
-                                            color = if (doctor.isInClinic == true) Color(0xFF15803D) else Color(0xFF1D4ED8),
+                                            text = if (clinicsForDoc.isEmpty()) {
+                                                "Not affiliated"
+                                            } else if (doctor.isInClinic == true) {
+                                                "In Clinic"
+                                            } else {
+                                                "Verified Doctor"
+                                            },
+                                            color = if (clinicsForDoc.isEmpty()) {
+                                                Color(0xFF64748B)
+                                            } else if (doctor.isInClinic == true) {
+                                                Color(0xFF15803D)
+                                            } else {
+                                                Color(0xFF1D4ED8)
+                                            },
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 10.sp,
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -1912,16 +1941,21 @@ fun HomeTab(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Icon(Icons.Default.LocalHospital, contentDescription = null, tint = Color(0xFF0891B2), modifier = Modifier.size(15.dp))
+                                        Icon(
+                                            imageVector = if (clinicsForDoc.isEmpty()) Icons.Default.DomainDisabled else Icons.Default.LocalHospital,
+                                            contentDescription = null,
+                                            tint = if (clinicsForDoc.isEmpty()) Color(0xFF94A3B8) else Color(0xFF0891B2),
+                                            modifier = Modifier.size(15.dp)
+                                        )
                                         Text(
-                                            text = if (clinicsForDoc.size > 1) {
-                                                "Available at ${clinicsForDoc.size} clinics (${primaryClinic?.name ?: ""} & more)"
-                                            } else {
-                                                "Practices at ${primaryClinic?.name ?: "Partner Clinic"} · ${primaryClinic?.addressText ?: "Nepal"}"
+                                            text = when {
+                                                clinicsForDoc.isEmpty() -> "Not affiliated"
+                                                clinicsForDoc.size > 1 -> "Available at ${clinicsForDoc.size} clinics (${primaryClinic?.name ?: ""} & more)"
+                                                else -> "Practices at ${primaryClinic?.name ?: "Partner Clinic"} · ${primaryClinic?.addressText ?: "Nepal"}"
                                             },
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color(0xFF475569),
+                                            color = if (clinicsForDoc.isEmpty()) Color(0xFF64748B) else Color(0xFF475569),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -1949,17 +1983,37 @@ fun HomeTab(
                                             )
                                         }
 
-                                        Button(
-                                            onClick = {
-                                                selectedDoctorForClinicPicker = docItem
-                                            },
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
-                                            modifier = Modifier.height(42.dp)
-                                        ) {
-                                            Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(Modifier.width(6.dp))
-                                            Text("Select Clinic & Book", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        if (clinicsForDoc.isEmpty()) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Dr. ${doctor.fullName} is currently not affiliated with any active clinic.",
+                                                        android.widget.Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+                                                shape = RoundedCornerShape(12.dp),
+                                                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFF8FAFC)),
+                                                modifier = Modifier.height(42.dp)
+                                            ) {
+                                                Icon(Icons.Default.DomainDisabled, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Not Affiliated", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color(0xFF64748B))
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = {
+                                                    selectedDoctorForClinicPicker = docItem
+                                                },
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                                modifier = Modifier.height(42.dp)
+                                            ) {
+                                                Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Select Clinic & Book", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            }
                                         }
                                     }
                                 }
@@ -2340,7 +2394,17 @@ fun HomeTab(
     if (selectedDoctorForClinicPicker != null) {
         val docItem = selectedDoctorForClinicPicker!!
         val doctor = docItem.doctor
-        val clinicsForDoctor = docItem.practicingClinics
+        val dateStr = selectedDate.toString()
+        val clinicsForDoctor = remember(docItem, allClinics, selectedDate) {
+            docItem.practicingClinics.filter { c ->
+                val slots = allClinics.firstOrNull { it.clinic.id == c.id }?.availableSlots ?: emptyList()
+                slots.any { s ->
+                    s.isPublished && (s.doctorId == doctor.id || s.doctorId.isBlank()) &&
+                        (s.maxCapacity - s.bookedCount) > 0 &&
+                        !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(s.endTime, dateStr, s.startTime)
+                }
+            }
+        }
 
         AlertDialog(
             onDismissRequest = { selectedDoctorForClinicPicker = null },
@@ -2362,16 +2426,48 @@ fun HomeTab(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Choose the clinic where you want to book your appointment with Dr. ${doctor.fullName}:",
-                        fontSize = 12.sp,
-                        color = Color(0xFF64748B)
-                    )
+                    if (clinicsForDoctor.isEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFF1F5F9),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.DomainDisabled,
+                                    contentDescription = null,
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Text(
+                                    text = "No Published Slots for $selectedDate",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Text(
+                                    text = "Dr. ${doctor.fullName} currently has no published booking slots for $selectedDate at any affiliated clinic. Please select another date.",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF64748B),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "Choose the clinic where you want to book your appointment with Dr. ${doctor.fullName}:",
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B)
+                        )
 
-                    LazyColumn(
-                        modifier = Modifier.heightIn(max = 320.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                        LazyColumn(
+                            modifier = Modifier.heightIn(max = 320.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                         items(clinicsForDoctor, key = { it.id }) { clinic ->
                             Card(
                                 shape = RoundedCornerShape(14.dp),
@@ -2455,14 +2551,15 @@ fun HomeTab(
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedDoctorForClinicPicker = null }) {
-                    Text("Cancel")
-                }
             }
-        )
-    }
+        },
+        confirmButton = {
+            TextButton(onClick = { selectedDoctorForClinicPicker = null }) {
+                Text("Cancel")
+            }
+        }
+    )
+}
 
     // ── LOCATION SELECTOR DIALOG ──────────────────────────────────────────
     if (showLocationDialog) {
@@ -4052,6 +4149,7 @@ fun AppointmentsTab(
     val clinicCache = remember { mutableStateMapOf<String, Clinic>() }
     val doctorCache = remember { mutableStateMapOf<String, Doctor>() }
     val queueCache = remember { mutableStateMapOf<String, QueueEntry>() }
+    val clinicQueueCache = remember { mutableStateMapOf<String, List<QueueEntry>>() }
 
     // Reschedule Dialog State
     var reschedulingAppt by remember { mutableStateOf<Appointment?>(null) }
@@ -4112,6 +4210,12 @@ fun AppointmentsTab(
                     try {
                         val q = queueRepository.getQueueStatus(appt.id)
                         if (q != null) queueCache[appt.id] = q
+                    } catch (ignored: Exception) {}
+                }
+                if (!appt.clinicId.isNullOrBlank() && !clinicQueueCache.containsKey(appt.clinicId) && queueRepository != null) {
+                    try {
+                        val entries = queueRepository.getQueueEntriesForClinic(appt.clinicId)
+                        clinicQueueCache[appt.clinicId] = entries
                     } catch (ignored: Exception) {}
                 }
             }
@@ -4374,23 +4478,32 @@ fun AppointmentsTab(
                     val clinicName = clinic?.name ?: "Himalayan Health Clinic"
                     val clinicAddress = clinic?.addressText ?: "Thamel, Kathmandu"
                     val doctorName = doctor?.fullName ?: "Ramesh Shrestha"
-                    val queuePosition = qEntry?.queuePosition ?: 3
-                    val aheadCount = (queuePosition - 1).coerceAtLeast(0)
-                    val totalWaiting = queuePosition + 9
+                    val myPos = qEntry?.queuePosition ?: 1
+                    val clinicEntries = appt.clinicId?.let { clinicQueueCache[it] } ?: emptyList()
+                    val liveAhead = if (clinicEntries.isNotEmpty()) {
+                        clinicEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
+                    } else {
+                        (myPos - 1).coerceAtLeast(0)
+                    }
+                    val totalWaiting = if (clinicEntries.isNotEmpty()) {
+                        clinicEntries.count { it.status == "waiting" || it.status == "inside" }
+                    } else {
+                        liveAhead + 1
+                    }
                     val isInClinic = doctor?.isInClinic == true
                     val isWithDoctor = qEntry?.status == "inside"
                     val avgMinutes = clinic?.getEffectiveAvgMinutes() ?: 10
                     val isClinicOnBreak = clinic?.isOnBreak == true
-                    val timingEstimate = remember(clinic, doctor, qEntry, aheadCount, isInClinic, isClinicOnBreak) {
+                    val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, clinicEntries) {
                         QueueRepository.calculateLiveQueueTimingEstimate(
                             clinic = clinic,
                             isDoctorInClinic = isInClinic,
-                            allClinicQueueEntries = emptyList(),
+                            allClinicQueueEntries = clinicEntries,
                             targetEntry = qEntry,
-                            fallbackPatientsAhead = aheadCount
+                            fallbackPatientsAhead = liveAhead
                         )
                     }
-                    val estWaitMinutes = if (aheadCount > 0) aheadCount * avgMinutes else 0
+                    val estWaitMinutes = if (liveAhead > 0) liveAhead * avgMinutes else 0
                     val estTimeStr = try {
                         java.time.LocalTime.now().plusMinutes(estWaitMinutes.toLong())
                             .format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
@@ -4565,14 +4678,14 @@ fun AppointmentsTab(
                                 ) {
                                     Surface(
                                         shape = RoundedCornerShape(10.dp),
-                                        color = Color(0xFF00796B),
+                                        color = if (isWithDoctor) Color(0xFF15803D) else Color(0xFF00796B),
                                         modifier = Modifier.size(46.dp)
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Text(
-                                                text = "#$queuePosition",
+                                                text = if (isWithDoctor) "NOW" else "$liveAhead",
                                                 fontWeight = FontWeight.ExtraBold,
-                                                fontSize = 18.sp,
+                                                fontSize = if (isWithDoctor) 13.sp else 18.sp,
                                                 color = Color.White
                                             )
                                         }
@@ -4583,13 +4696,19 @@ fun AppointmentsTab(
                                         verticalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
                                         Text(
-                                            text = "Your position in queue",
+                                            text = "Live Queue Position",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp,
                                             color = Color(0xFF0F172A)
                                         )
                                         Text(
-                                            text = "$aheadCount ahead of you  ·  $totalWaiting waiting",
+                                            text = if (isWithDoctor) {
+                                                "With doctor in consultation room • Token #$myPos"
+                                            } else if (liveAhead == 0) {
+                                                "Next in line (0 ahead) • Token #$myPos • $totalWaiting in queue"
+                                            } else {
+                                                "$liveAhead ahead of you in line • Token #$myPos • $totalWaiting in queue"
+                                            },
                                             fontSize = 12.sp,
                                             color = Color(0xFF64748B)
                                         )
@@ -4610,7 +4729,7 @@ fun AppointmentsTab(
                                                     isClinicOnBreak -> "Clinic on break"
                                                     timingEstimate.isSoonBeReady || timingEstimate.expectedExactTimeText == "Soon, be ready" -> "Soon, be ready"
                                                     timingEstimate.doctorStatusBanner != null -> timingEstimate.estimatedTimeLeftText
-                                                    aheadCount == 0 -> "Soon, be ready"
+                                                    liveAhead == 0 -> "Soon, be ready"
                                                     else -> timingEstimate.estimatedTimeLeftText
                                                 },
                                                 fontSize = 11.sp,

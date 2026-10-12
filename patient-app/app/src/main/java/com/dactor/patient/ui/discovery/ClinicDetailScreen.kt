@@ -832,6 +832,14 @@ fun ClinicDetailScreen(
                                     modifier = Modifier.clickable { openMaps(address) }
                                 )
                             }
+
+                            com.dactor.patient.ui.components.ClinicMapView(
+                                clinicName = clinicName,
+                                clinicAddress = address,
+                                latitude = clinic?.latitude ?: 0.0,
+                                longitude = clinic?.longitude ?: 0.0,
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
                         }
                     }
                 }
