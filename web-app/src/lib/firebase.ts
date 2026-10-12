@@ -79,14 +79,14 @@ async function fetchKnownAccountsFromSupabase(): Promise<SuggestedGoogleAccount[
   const results: SuggestedGoogleAccount[] = []
   try {
     const [clinicsRes, doctorsRes, profilesRes] = await Promise.allSettled([
-      supabase.from('clinics').select('email, name').not('email', 'is', null).limit(15),
-      supabase.from('doctors').select('email, full_name').not('email', 'is', null).limit(15),
-      supabase.from('profiles').select('email, full_name, role').not('email', 'is', null).limit(15),
+      supabase.from('clinics').select('contact_email, name').not('contact_email', 'is', null).limit(20),
+      supabase.from('doctors').select('email, full_name').not('email', 'is', null).limit(20),
+      supabase.from('profiles').select('email, full_name, role').not('email', 'is', null).limit(20),
     ])
 
     if (clinicsRes.status === 'fulfilled' && Array.isArray(clinicsRes.value.data)) {
       for (const c of clinicsRes.value.data) {
-        const em = (c.email || '').toLowerCase().trim()
+        const em = ((c as any).contact_email || '').toLowerCase().trim()
         if (em && em.includes('@')) {
           results.push({ email: em, label: c.name || 'Registered Clinic', roleBadge: 'Clinic' })
         }
