@@ -137,12 +137,8 @@ import {
   checkEmailPortalAssociation,
 } from '../services/db'
 import {
-  firebaseSignInWithEmail,
-  firebaseSignUpWithEmail,
-  firebaseSendPasswordReset,
   firebaseSignOut,
   signInWithFirebaseGoogle,
-  FirebaseAuthUser,
 } from '../lib/firebase'
 import { supabase } from '../lib/supabase'
 
@@ -172,17 +168,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [patientUser, setPatientUser] = useState<PatientProfile | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
 
-  // Auth Modals & Inputs
+  // Auth Modals & Inputs (Strictly Google Sign-In Only)
   const [showAuthModal, setShowAuthModal] = useState(false)
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot'>('login')
-  const [authEmail, setAuthEmail] = useState('')
-  const [authPassword, setAuthPassword] = useState('')
-  const [authFullName, setAuthFullName] = useState('')
-  const [authPhone, setAuthPhone] = useState('')
-  const [authAge, setAuthAge] = useState('')
-  const [authGender, setAuthGender] = useState('Male')
   const [authError, setAuthError] = useState<string | null>(null)
-  const [authSuccess, setAuthSuccess] = useState<string | null>(null)
   const [authSubmitting, setAuthSubmitting] = useState(false)
 
   // Edit Profile Modal
@@ -724,123 +712,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   }
 
   // ==========================================
-  // AUTHENTICATION HANDLERS
+  // AUTHENTICATION HANDLERS (STRICTLY GOOGLE SIGN-IN ONLY)
   // ==========================================
-  const handleAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setAuthError(null)
-    setAuthSuccess(null)
-
-    if (authMode === 'signup') {
-      if (authFullName.trim().length < 2) {
-        setAuthError('Please enter your full legal name (minimum 2 characters).')
-        return
-      }
-      const cleanPhone = authPhone.replace(/\D/g, '')
-      if (!/^9\d{9}$/.test(cleanPhone)) {
-        setAuthError('Please enter a valid 10-digit mobile number starting with 9 (e.g. 98XXXXXXXX).')
-        return
-      }
-      const ageNum = Number(authAge)
-      if (!authAge || !Number.isInteger(ageNum) || ageNum < 1 || ageNum > 120) {
-        setAuthError('Please enter a valid age between 1 and 120.')
-        return
-      }
-    }
-
-    setAuthSubmitting(true)
-
-    try {
-      // Enforce 1 Google Account = 1 Portal Role rule
-      if (authMode === 'login' || authMode === 'signup') {
-        const assoc = await checkEmailPortalAssociation(authEmail)
-        if (assoc && assoc.portal !== 'patient') {
-          await firebaseSignOut()
-          const entitySuffix = assoc.entityName ? ` (${assoc.entityName})` : ''
-          setAuthError(
-            `This Google account (${assoc.email}) is already associated with a ${assoc.portalLabel} account${entitySuffix}. You cannot log in to the Patient Portal with this Google ID. Please change your Google account.`
-          )
-          return
-        }
-      }
-
-      if (authMode === 'login') {
-        const res = await firebaseSignInWithEmail(authEmail, authPassword)
-        if (!res.success || !res.user) {
-          setAuthError(res.error || 'Login failed')
-          return
-        }
-
-        const profile = await getPatientProfileByEmail(res.user.email)
-        if (profile && profile.fullName && profile.phone && profile.age && profile.gender) {
-          setPatientUser(profile)
-          initProfileFields(profile)
-          localStorage.setItem('dactor_patient_email', profile.email)
-          localStorage.setItem('dactor_patient_session', JSON.stringify(profile))
-          localStorage.setItem('dactor_auth_logged_in', 'true')
-          localStorage.setItem('dactor_auth_email', profile.email)
-          localStorage.setItem('dactor_auth_role', 'patient')
-          window.dispatchEvent(new Event('storage'))
-          setShowAuthModal(false)
-        } else {
-          // Do NOT auto-fill name, gender, or age — prompt user to complete profile
-          const partial: PatientProfile = profile || {
-            id: crypto.randomUUID(),
-            authUid: res.user.uid,
-            email: res.user.email,
-            fullName: '',
-            role: 'patient',
-          }
-          setPatientUser(partial)
-          initProfileFields(partial)
-          localStorage.setItem('dactor_patient_email', partial.email)
-          localStorage.setItem('dactor_auth_logged_in', 'true')
-          localStorage.setItem('dactor_auth_email', partial.email)
-          localStorage.setItem('dactor_auth_role', 'patient')
-          window.dispatchEvent(new Event('storage'))
-          setShowAuthModal(false)
-          setShowEditProfileModal(true)
-        }
-      } else if (authMode === 'signup') {
-        const res = await firebaseSignUpWithEmail(authEmail, authPassword, authFullName.trim())
-        if (!res.success || !res.user) {
-          setAuthError(res.error || 'Signup failed')
-          return
-        }
-
-        const newProfile = await savePatientProfile({
-          email: res.user.email,
-          authUid: res.user.uid,
-          fullName: authFullName.trim(),
-          phone: authPhone.replace(/\D/g, ''),
-          age: parseInt(authAge, 10),
-          gender: authGender,
-          role: 'patient',
-        })
-
-        if (newProfile) {
-          setPatientUser(newProfile)
-          initProfileFields(newProfile)
-          localStorage.setItem('dactor_patient_email', newProfile.email)
-          localStorage.setItem('dactor_patient_session', JSON.stringify(newProfile))
-          localStorage.setItem('dactor_auth_logged_in', 'true')
-          setShowAuthModal(false)
-        }
-      } else if (authMode === 'forgot') {
-        const res = await firebaseSendPasswordReset(authEmail)
-        if (res.success) {
-          setAuthSuccess('Password reset link sent to your email!')
-        } else {
-          setAuthError(res.error || 'Failed to send reset link')
-        }
-      }
-    } catch (err: any) {
-      setAuthError(err.message || 'Authentication error')
-    } finally {
-      setAuthSubmitting(false)
-    }
-  }
-
   // Real Google Sign-In linked to Supabase patient database (strictly NO auto-fill of name/gender/age from Google)
   const handleGoogleSignIn = async () => {
     setAuthSubmitting(true)
@@ -1133,13 +1006,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               ) : (
                 <button
                   onClick={() => {
-                    setAuthMode('login')
+                    setAuthError(null)
                     setShowAuthModal(true)
                   }}
                   className="flex items-center space-x-2 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition transform hover:scale-[1.02]"
                 >
                   <LogIn className="w-4 h-4" />
-                  <span>Patient Login / Sign Up</span>
+                  <span>Sign in with Google</span>
                 </button>
               )}
             </div>

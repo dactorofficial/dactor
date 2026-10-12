@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase'
 import {
   Clinic,
+  ClinicInvitation,
   Doctor,
   Appointment,
   Slot,
@@ -52,6 +53,21 @@ export async function getClinicById(id: string): Promise<Clinic | null> {
     const isVerified = mapped.verificationStatus === 'approved' || mapped.verificationStatus === 'verified'
     if (!isVerified || mapped.isArchived) return null
     return mapped
+  } catch {
+    return null
+  }
+}
+
+export async function getClinicForPortalById(id: string): Promise<Clinic | null> {
+  try {
+    const { data, error } = await supabase
+      .from('clinics')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error || !data) return null
+    return mapClinic(data)
   } catch {
     return null
   }
@@ -1228,6 +1244,8 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
       desc: updates.description !== undefined ? updates.description : (currentMeta.desc ?? current?.description),
       pan_number: updates.panNumber !== undefined ? updates.panNumber : (currentMeta.pan_number ?? current?.pan_number),
       manager_phone: updates.managerPhone !== undefined ? updates.managerPhone : (currentMeta.manager_phone ?? current?.manager_phone),
+      registration_doc_url: updates.registrationDocUrl !== undefined ? updates.registrationDocUrl : (currentMeta.registration_doc_url ?? current?.registration_doc_url),
+      specialties: updates.specialties !== undefined ? updates.specialties : (currentMeta.specialties ?? current?.specialties),
       is_on_break: updates.isOnBreak !== undefined ? updates.isOnBreak : (currentMeta.is_on_break ?? current?.is_on_break),
       break_updated_at: updates.breakUpdatedAt !== undefined ? updates.breakUpdatedAt : (currentMeta.break_updated_at ?? current?.break_updated_at),
       weekly_schedule_json: updates.weeklyScheduleJson !== undefined ? updates.weeklyScheduleJson : (currentMeta.weekly_schedule_json ?? current?.weekly_schedule_json),
@@ -1236,6 +1254,19 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
       avg_time_mode: updates.avgTimeMode !== undefined ? updates.avgTimeMode : (currentMeta.avg_time_mode ?? current?.avg_time_mode),
       pictures: updates.pictures !== undefined ? updates.pictures : (currentMeta.pictures ?? current?.pictures),
       logo_url: updates.logoUrl !== undefined ? updates.logoUrl : (currentMeta.logo_url ?? current?.logo_url),
+      is_activated: updates.isActivated !== undefined ? updates.isActivated : (currentMeta.is_activated ?? current?.is_activated ?? true),
+      activation_expires_at: updates.activationExpiresAt !== undefined ? updates.activationExpiresAt : (currentMeta.activation_expires_at ?? current?.activation_expires_at),
+      activation_plan: updates.activationPlan !== undefined ? updates.activationPlan : (currentMeta.activation_plan ?? current?.activation_plan),
+      activation_paid_amount: updates.activationPaidAmount !== undefined ? updates.activationPaidAmount : (currentMeta.activation_paid_amount ?? current?.activation_paid_amount),
+      activation_notes: updates.activationNotes !== undefined ? updates.activationNotes : (currentMeta.activation_notes ?? current?.activation_notes),
+      is_archived: updates.isArchived !== undefined ? updates.isArchived : (currentMeta.is_archived ?? current?.is_archived ?? false),
+      archived_at: updates.archivedAt !== undefined ? updates.archivedAt : (currentMeta.archived_at ?? current?.archived_at),
+      deletion_scheduled_at: updates.deletionScheduledAt !== undefined ? updates.deletionScheduledAt : (currentMeta.deletion_scheduled_at ?? current?.deletion_scheduled_at),
+      payment_gateway_provider: updates.paymentGatewayProvider !== undefined ? updates.paymentGatewayProvider : (currentMeta.payment_gateway_provider ?? current?.payment_gateway_provider),
+      payment_api_key: updates.paymentApiKey !== undefined ? updates.paymentApiKey : (currentMeta.payment_api_key ?? current?.payment_api_key),
+      payment_secret_key: updates.paymentSecretKey !== undefined ? updates.paymentSecretKey : (currentMeta.payment_secret_key ?? current?.payment_secret_key),
+      merchant_id: updates.merchantId !== undefined ? updates.merchantId : (currentMeta.merchant_id ?? current?.merchant_id),
+      is_direct_payment_enabled: updates.isDirectPaymentEnabled !== undefined ? updates.isDirectPaymentEnabled : (currentMeta.is_direct_payment_enabled ?? current?.is_direct_payment_enabled),
     }
 
     const payload: any = {
@@ -1250,8 +1281,11 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
     if (updates.addressText !== undefined) payload.address_text = updates.addressText
     if (updates.latitude !== undefined) payload.latitude = updates.latitude
     if (updates.longitude !== undefined) payload.longitude = updates.longitude
+    if (updates.autoNotifyThreshold !== undefined) payload.auto_notify_threshold = updates.autoNotifyThreshold
     if (updates.logoUrl !== undefined) payload.logo_url = updates.logoUrl
     if (updates.pictures !== undefined) payload.pictures = updates.pictures
+    if (updates.specialties !== undefined) payload.specialties = updates.specialties
+    if (updates.registrationDocUrl !== undefined) payload.registration_doc_url = updates.registrationDocUrl
     if (updates.panNumber !== undefined) payload.pan_number = updates.panNumber
     if (updates.managerPhone !== undefined) payload.manager_phone = updates.managerPhone
     if (updates.isOnBreak !== undefined) payload.is_on_break = updates.isOnBreak
@@ -1259,6 +1293,19 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
     if (updates.declaredHolidays !== undefined) payload.declared_holidays = updates.declaredHolidays
     if (updates.manualAvgConsultationTimeMinutes !== undefined) payload.manual_avg_consultation_time_minutes = updates.manualAvgConsultationTimeMinutes
     if (updates.avgTimeMode !== undefined) payload.avg_time_mode = updates.avgTimeMode
+    if (updates.isActivated !== undefined) payload.is_activated = updates.isActivated
+    if (updates.activationExpiresAt !== undefined) payload.activation_expires_at = updates.activationExpiresAt
+    if (updates.activationPlan !== undefined) payload.activation_plan = updates.activationPlan
+    if (updates.activationPaidAmount !== undefined) payload.activation_paid_amount = updates.activationPaidAmount
+    if (updates.activationNotes !== undefined) payload.activation_notes = updates.activationNotes
+    if (updates.isArchived !== undefined) payload.is_archived = updates.isArchived
+    if (updates.archivedAt !== undefined) payload.archived_at = updates.archivedAt
+    if (updates.deletionScheduledAt !== undefined) payload.deletion_scheduled_at = updates.deletionScheduledAt
+    if (updates.paymentGatewayProvider !== undefined) payload.payment_gateway_provider = updates.paymentGatewayProvider
+    if (updates.paymentApiKey !== undefined) payload.payment_api_key = updates.paymentApiKey
+    if (updates.paymentSecretKey !== undefined) payload.payment_secret_key = updates.paymentSecretKey
+    if (updates.merchantId !== undefined) payload.merchant_id = updates.merchantId
+    if (updates.isDirectPaymentEnabled !== undefined) payload.is_direct_payment_enabled = updates.isDirectPaymentEnabled
 
     const { error } = await supabase.from('clinics').update(payload).eq('id', id)
     if (error) {
@@ -1272,7 +1319,7 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
 }
 
 export async function toggleClinicHoliday(clinicId: string, dateStr: string, isHoliday: boolean): Promise<boolean> {
-  const clinic = await getClinicById(clinicId)
+  const clinic = await getClinicForPortalById(clinicId)
   if (!clinic) return false
 
   let holidays = clinic.declaredHolidays || []
@@ -1442,6 +1489,8 @@ function mapClinic(c: any): Clinic {
     }
   }
 
+  const defaultExpiry = new Date(Date.now() + 30 * 86400000).toISOString()
+
   return {
     id: c.id,
     name: c.name,
@@ -1452,7 +1501,7 @@ function mapClinic(c: any): Clinic {
     addressText: c.address_text,
     latitude: c.latitude,
     longitude: c.longitude,
-    autoNotifyThreshold: c.auto_notify_threshold,
+    autoNotifyThreshold: c.auto_notify_threshold ?? 2,
     description: cleanDesc,
     panNumber: c.pan_number || meta.pan_number,
     managerPhone: c.manager_phone || meta.manager_phone,
@@ -1461,9 +1510,10 @@ function mapClinic(c: any): Clinic {
     specialties: c.specialties || meta.specialties || [],
     createdAt: c.created_at,
     updatedAt: c.updated_at,
-    isArchived: c.is_archived ?? meta.is_archived,
+    isArchived: c.is_archived ?? meta.is_archived ?? false,
+    archivedAt: c.archived_at || meta.archived_at,
     deletionScheduledAt: c.deletion_scheduled_at || meta.deletion_scheduled_at,
-    logoUrl: c.logo_url || (pics.length > 0 ? pics[0] : null),
+    logoUrl: c.logo_url || meta.logo_url || (pics.length > 0 ? pics[0] : null),
     isOnBreak: c.is_on_break ?? meta.is_on_break ?? false,
     breakUpdatedAt: c.break_updated_at || meta.break_updated_at,
     weeklyScheduleJson: c.weekly_schedule_json || meta.weekly_schedule_json,
@@ -1472,6 +1522,17 @@ function mapClinic(c: any): Clinic {
     manualAvgConsultationTimeMinutes: c.manual_avg_consultation_time_minutes ?? meta.manual_avg_consultation_time_minutes ?? 10,
     calculatedAvgConsultationTimeMinutes: c.calculated_avg_consultation_time_minutes ?? meta.calculated_avg_consultation_time_minutes,
     avgTimeMode: c.avg_time_mode || meta.avg_time_mode || 'auto',
+    isActivated: c.is_activated ?? meta.is_activated ?? true,
+    activationExpiresAt: c.activation_expires_at || meta.activation_expires_at || defaultExpiry,
+    activationPlan: c.activation_plan || meta.activation_plan || '1_month',
+    activationPaidAmount: Number(c.activation_paid_amount ?? meta.activation_paid_amount ?? 1500),
+    activationNotes: c.activation_notes || meta.activation_notes,
+    activationPaymentProofUrl: c.activation_payment_proof_url || meta.activation_payment_proof_url,
+    paymentGatewayProvider: c.payment_gateway_provider || meta.payment_gateway_provider || 'esewa',
+    paymentApiKey: c.payment_api_key || meta.payment_api_key || '',
+    paymentSecretKey: c.payment_secret_key || meta.payment_secret_key || '',
+    merchantId: c.merchant_id || meta.merchant_id || '',
+    isDirectPaymentEnabled: c.is_direct_payment_enabled ?? meta.is_direct_payment_enabled ?? false,
   }
 }
 
@@ -2282,3 +2343,185 @@ export async function getClinicPatientDirectory(clinicId: string): Promise<{
     return []
   }
 }
+
+// ==========================================
+// CLINIC SUBSCRIPTION, ARCHIVE, SLOTS & INVITATIONS API
+// ==========================================
+export async function requestClinicActivationRenewal(
+  clinicId: string,
+  plan: '1_month' | '12_months',
+  amountPaid: number,
+  notes: string
+): Promise<boolean> {
+  return await updateClinic(clinicId, {
+    activationPlan: plan,
+    activationPaidAmount: amountPaid,
+    activationNotes: `RENEWAL_REQUEST: ${notes} (${new Date().toISOString()})`,
+  })
+}
+
+export async function completeClinicSubscriptionPayment(
+  clinicId: string,
+  plan: '1_month' | '12_months',
+  amountPaid: number,
+  txnRef: string
+): Promise<boolean> {
+  const days = plan === '12_months' ? 365 : 30
+  const expiresAt = new Date(Date.now() + days * 86400000).toISOString()
+  return await updateClinic(clinicId, {
+    isActivated: true,
+    activationExpiresAt: expiresAt,
+    activationPlan: plan,
+    activationPaidAmount: amountPaid,
+    activationNotes: `INSTANT_ACTIVATED (${txnRef}) on ${new Date().toISOString()}`,
+  })
+}
+
+export async function scheduleClinicDeletion(clinicId: string): Promise<boolean> {
+  const now = new Date()
+  const purgeDate = new Date(now.getTime() + 30 * 86400000)
+  return await updateClinic(clinicId, {
+    isArchived: true,
+    archivedAt: now.toISOString(),
+    deletionScheduledAt: purgeDate.toISOString(),
+  })
+}
+
+export async function cancelClinicDeletion(clinicId: string): Promise<boolean> {
+  return await updateClinic(clinicId, {
+    isArchived: false,
+    archivedAt: '',
+    deletionScheduledAt: '',
+  })
+}
+
+export async function updateAppointmentNotes(appointmentId: string, notes: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('appointments')
+      .update({
+        notes: notes.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', appointmentId)
+    return !error
+  } catch {
+    return false
+  }
+}
+
+export async function updateSlot(
+  slotId: string,
+  updates: { startTime?: string; endTime?: string; maxCapacity?: number }
+): Promise<boolean> {
+  try {
+    const payload: any = {}
+    if (updates.startTime !== undefined) payload.start_time = updates.startTime
+    if (updates.endTime !== undefined) payload.end_time = updates.endTime
+    if (updates.maxCapacity !== undefined) payload.max_capacity = updates.maxCapacity
+    const { error } = await supabase.from('slots').update(payload).eq('id', slotId)
+    return !error
+  } catch {
+    return false
+  }
+}
+
+export async function getClinicInvitations(clinicId: string): Promise<ClinicInvitation[]> {
+  try {
+    const { data, error } = await supabase
+      .from('clinic_invitations')
+      .select('*')
+      .eq('clinic_id', clinicId)
+      .order('created_at', { ascending: false })
+
+    if (!error && Array.isArray(data)) {
+      return data.map((row: any) => ({
+        id: row.id,
+        clinicId: row.clinic_id,
+        clinicName: row.clinic_name,
+        doctorId: row.doctor_id,
+        invitedEmail: row.doctor_email || row.invited_email || '',
+        invitedName: row.doctor_name || row.invited_name || 'Medical Staff',
+        role: row.role === 'lab_technician' ? 'lab_technician' : 'doctor',
+        specialty: row.specialty || 'General Physician',
+        status: row.status || 'pending',
+        createdAt: row.created_at || new Date().toISOString(),
+      }))
+    }
+  } catch {}
+
+  try {
+    const raw = localStorage.getItem(`dactor_clinic_invitations_${clinicId}`)
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return []
+}
+
+export async function sendClinicInvitation(params: {
+  clinicId: string
+  clinicName: string
+  doctorId?: string
+  invitedEmail: string
+  invitedName: string
+  role: 'doctor' | 'lab_technician'
+  specialty?: string
+}): Promise<ClinicInvitation | null> {
+  const newInv: ClinicInvitation = {
+    id: crypto.randomUUID(),
+    clinicId: params.clinicId,
+    clinicName: params.clinicName,
+    doctorId: params.doctorId,
+    invitedEmail: params.invitedEmail.trim().toLowerCase(),
+    invitedName: params.invitedName.trim(),
+    role: params.role,
+    specialty: params.specialty || (params.role === 'lab_technician' ? 'Diagnostic Lab' : 'General Physician'),
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  }
+
+  try {
+    await supabase.from('clinic_invitations').insert({
+      id: newInv.id,
+      clinic_id: newInv.clinicId,
+      clinic_name: newInv.clinicName,
+      doctor_id: newInv.doctorId || null,
+      doctor_email: newInv.invitedEmail,
+      doctor_name: newInv.invitedName,
+      role: newInv.role,
+      specialty: newInv.specialty,
+      status: 'pending',
+      created_at: newInv.createdAt,
+    })
+  } catch {}
+
+  // Also link doctor to clinic roster if doctorId is provided so they appear on clinic roster immediately when accepted/affiliated
+  if (params.doctorId) {
+    try {
+      await supabase
+        .from('doctors')
+        .update({ clinic_id: params.clinicId, active_clinic_id: params.clinicId })
+        .eq('id', params.doctorId)
+    } catch {}
+  }
+
+  try {
+    const existing = await getClinicInvitations(params.clinicId)
+    const filtered = existing.filter((i) => i.invitedEmail.toLowerCase() !== newInv.invitedEmail)
+    localStorage.setItem(`dactor_clinic_invitations_${params.clinicId}`, JSON.stringify([newInv, ...filtered]))
+  } catch {}
+
+  return newInv
+}
+
+export async function cancelClinicInvitation(invitationId: string, clinicId: string): Promise<boolean> {
+  try {
+    await supabase.from('clinic_invitations').delete().eq('id', invitationId)
+  } catch {}
+  try {
+    const existing = await getClinicInvitations(clinicId)
+    const updated = existing.map((i) => (i.id === invitationId ? { ...i, status: 'cancelled' as const } : i))
+    localStorage.setItem(`dactor_clinic_invitations_${clinicId}`, JSON.stringify(updated))
+  } catch {}
+  return true
+}
+

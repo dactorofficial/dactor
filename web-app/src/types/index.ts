@@ -1,7 +1,7 @@
 export interface Clinic {
   id: string
   name: string
-  type?: string // polyclinic, diagnostic_lab, opd_clinic, etc.
+  type?: string // polyclinic, diagnostic_lab, opd_clinic, single_visit, multi_visit, etc.
   verificationStatus?: string // approved, pending, rejected
   contactPhone?: string
   contactEmail?: string
@@ -18,6 +18,7 @@ export interface Clinic {
   createdAt?: string
   updatedAt?: string
   isArchived?: boolean
+  archivedAt?: string
   deletionScheduledAt?: string
   logoUrl?: string
   isOnBreak?: boolean
@@ -28,6 +29,32 @@ export interface Clinic {
   manualAvgConsultationTimeMinutes?: number
   calculatedAvgConsultationTimeMinutes?: number
   avgTimeMode?: string
+  // Subscription & Activation fields
+  isActivated?: boolean
+  activationExpiresAt?: string
+  activationPlan?: string
+  activationPaidAmount?: number
+  activationNotes?: string
+  activationPaymentProofUrl?: string
+  // Payment Gateway Config fields
+  paymentGatewayProvider?: string
+  paymentApiKey?: string
+  paymentSecretKey?: string
+  merchantId?: string
+  isDirectPaymentEnabled?: boolean
+}
+
+export interface ClinicInvitation {
+  id: string
+  clinicId: string
+  clinicName?: string
+  doctorId?: string
+  invitedEmail: string
+  invitedName: string
+  role: 'doctor' | 'lab_technician'
+  specialty?: string
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled'
+  createdAt: string
 }
 
 export interface DayScheduleInfo {

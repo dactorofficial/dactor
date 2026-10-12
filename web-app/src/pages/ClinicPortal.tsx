@@ -50,6 +50,7 @@ import {
 } from 'lucide-react'
 import {
   Clinic,
+  ClinicInvitation,
   Doctor,
   Appointment,
   ClinicService,
@@ -64,12 +65,13 @@ import {
 import {
   getClinics,
   getClinicById,
+  getClinicForPortalById,
   getClinicByEmail,
-  getDoctorByEmail,
-  getDoctorById,
+  getDoctors,
   getDoctorsByClinic,
   getAppointmentsByClinic,
   updateAppointmentStatus,
+  updateAppointmentNotes,
   createAppointment,
   getClinicServices,
   createClinicService,
@@ -77,6 +79,8 @@ import {
   saveLabReport,
   uploadReportFile,
   getLabReportsByClinic,
+  getClinicNotifications,
+  markAllNotificationsAsRead,
   sendBroadcastNotification,
   createClinic,
   createDoctor,
@@ -99,12 +103,20 @@ import {
   getClinicPatientDirectory,
   createSlot,
   getSlotsByDoctorAndDate,
+  updateSlot,
   deleteSlot,
   reorderQueuePosition,
   shiftAppointmentDate,
   checkAndNotifyApproachingPatients,
   uploadClinicPhoto,
   uploadDoctorPhoto,
+  requestClinicActivationRenewal,
+  completeClinicSubscriptionPayment,
+  scheduleClinicDeletion,
+  cancelClinicDeletion,
+  getClinicInvitations,
+  sendClinicInvitation,
+  cancelClinicInvitation,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { supabase } from '../lib/supabase'
@@ -369,7 +381,6 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [clinicDoctors, setClinicDoctors] = useState<Doctor[]>([])
 
   // Authentication & Verification State Machine
-  const [portalRoleTab, setPortalRoleTab] = useState<'clinic' | 'doctor'>('clinic')
   const [currentView, setCurrentView] = useState<
     'auth_choice' | 'register_form' | 'pending_verification' | 'operational_desk'
   >(() => {
@@ -459,39 +470,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [regClinicErrors, setRegClinicErrors] = useState<{ [key: string]: string }>({})
   const [isDetectingLocation, setIsDetectingLocation] = useState(false)
 
-  // ==========================================
-  // DOCTOR REGISTRATION & KYC FORM FIELDS
-  // ==========================================
-  const [regDoctorRole, setRegDoctorRole] = useState<'doctor' | 'lab_technician'>('doctor')
-  const [regDoctorName, setRegDoctorName] = useState('')
-  const [regDoctorGender, setRegDoctorGender] = useState('Male')
-  const [regDoctorAge, setRegDoctorAge] = useState('')
-  const [regDoctorStartingYear, setRegDoctorStartingYear] = useState<number>(2020)
-  const [regDoctorSpecialty, setRegDoctorSpecialty] = useState('General Physician')
-  const [regDoctorEducation, setRegDoctorEducation] = useState('MBBS, MD')
-  const [regDoctorNmc, setRegDoctorNmc] = useState('')
-  const [regDoctorPersonalPhone, setRegDoctorPersonalPhone] = useState('')
-  const [regDoctorPublicPhone, setRegDoctorPublicPhone] = useState('')
-  const [regDoctorPhotoFile, setRegDoctorPhotoFile] = useState<File | null>(null)
-  const [regDoctorLicenseFile, setRegDoctorLicenseFile] = useState<File | null>(null)
-  const [regDoctorDegreeFile, setRegDoctorDegreeFile] = useState<File | null>(null)
-  const [regDoctorDesc, setRegDoctorDesc] = useState('')
-  const [regDoctorTermsAccepted, setRegDoctorTermsAccepted] = useState(false)
-  const [regDoctorErrors, setRegDoctorErrors] = useState<{ [key: string]: string }>({})
-
   // Form submission status & progress
   const [isSubmittingRegistration, setIsSubmittingRegistration] = useState(false)
   const [registrationStatusMsg, setRegistrationStatusMsg] = useState<string | null>(null)
   const [checkingVerification, setCheckingVerification] = useState(false)
   const [verificationCheckMsg, setVerificationCheckMsg] = useState<string | null>(null)
 
-  // Operational desk tabs:
-  // 'queue' | 'walkin' | 'slots' | 'future_appts' | 'working_hours' | 'doctors' | 'billing' | 'patients' | 'lab' | 'rates' | 'broadcast' | 'settings'
+  // Operational desk tabs matching DashboardScreen.kt
   const [deskTab, setDeskTab] = useState<
     | 'queue'
     | 'walkin'
     | 'slots'
     | 'future_appts'
+    | 'noshow'
+    | 'fees'
+    | 'invitations'
     | 'working_hours'
     | 'doctors'
     | 'billing'
@@ -501,6 +494,57 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     | 'broadcast'
     | 'settings'
   >('queue')
+
+  // Queue Board Segmented Sub-Tab (QueueBoardScreen.kt: Waiting vs Past/Completed)
+  const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'past'>('waiting')
+
+  // Clinical Remark Modal State (QueueBoardScreen.kt & FutureAppointmentsScreen.kt)
+  const [remarkModalOpen, setRemarkModalOpen] = useState(false)
+  const [remarkTargetAppt, setRemarkTargetAppt] = useState<Appointment | null>(null)
+  const [remarkText, setRemarkText] = useState('')
+  const [savingRemark, setSavingRemark] = useState(false)
+
+  // Subscription Renewal Modal & Notification Drawer State (DashboardScreen.kt)
+  const [showRenewalModal, setShowRenewalModal] = useState(false)
+  const [renewalPlan, setRenewalPlan] = useState<'1_month' | '12_months'>('1_month')
+  const [renewalTxnRef, setRenewalTxnRef] = useState('')
+  const [submittingRenewal, setSubmittingRenewal] = useState(false)
+  const [clinicNotifications, setClinicNotifications] = useState<DactorNotification[]>([])
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false)
+
+  // Staff & Doctor Invitations State (InvitationManagerScreen.kt)
+  const [allSystemDoctors, setAllSystemDoctors] = useState<Doctor[]>([])
+  const [clinicInvitations, setClinicInvitations] = useState<ClinicInvitation[]>([])
+  const [inviteSubTab, setInviteSubTab] = useState<'find' | 'sent'>('find')
+  const [inviteRoleFilter, setInviteRoleFilter] = useState<'all' | 'doctor' | 'lab_technician'>('all')
+  const [inviteSearchQuery, setInviteSearchQuery] = useState('')
+  const [customInviteEmail, setCustomInviteEmail] = useState('')
+  const [customInviteName, setCustomInviteName] = useState('')
+  const [customInviteRole, setCustomInviteRole] = useState<'doctor' | 'lab_technician'>('doctor')
+  const [viewingDoctorProfile, setViewingDoctorProfile] = useState<Doctor | null>(null)
+
+  // Consultation Fee Manager State (ConsultationFeeManagerScreen.kt)
+  const [editingDoctorFees, setEditingDoctorFees] = useState<{ [docId: string]: number }>({})
+  const [savingDocFeeId, setSavingDocFeeId] = useState<string | null>(null)
+
+  // Slot Capacity Edit Modal State (SlotManagerScreen.kt)
+  const [editingSlotCapacity, setEditingSlotCapacity] = useState<Slot | null>(null)
+  const [newSlotCapacityVal, setNewSlotCapacityVal] = useState<number>(5)
+
+  // Future OPD Sub-Filter (FutureAppointmentsScreen.kt)
+  const [futureSubFilter, setFutureSubFilter] = useState<'all' | 'waiting' | 'completed'>('all')
+
+  // Billing Date Filter & Catalog Category Filter (BillingScreen.kt & CatalogManagerScreen.kt)
+  const [billingDateFilter, setBillingDateFilter] = useState<string>('all')
+  const [catalogCategoryFilter, setCatalogCategoryFilter] = useState<string>('All')
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>('')
+
+  // Lab Workflow Sub-Tab, Search & Verification Gate Modal (LabWorkflowScreen.kt)
+  const [labSubTab, setLabSubTab] = useState<'all' | 'processing' | 'prepared'>('all')
+  const [labSearchQuery, setLabSearchQuery] = useState('')
+  const [labVerifyTargetReport, setLabVerifyTargetReport] = useState<{ report: LabReport; appt: Appointment } | null>(null)
+  const [labVerifyInput, setLabVerifyInput] = useState('')
+  const [labVerifyError, setLabVerifyError] = useState<string | null>(null)
 
   // Operational Data State
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -633,16 +677,28 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [broadcastMessage, setBroadcastMessage] = useState('')
   const [broadcastSent, setBroadcastSent] = useState(false)
 
-  // Clinic Settings State
+  // Clinic Settings State (ClinicSettingsScreen.kt)
   const [settingName, setSettingName] = useState('')
+  const [settingType, setSettingType] = useState('multi_visit')
   const [settingPhone, setSettingPhone] = useState('')
   const [settingEmail, setSettingEmail] = useState('')
   const [settingAddress, setSettingAddress] = useState('')
+  const [settingLat, setSettingLat] = useState<number>(27.7172)
+  const [settingLng, setSettingLng] = useState<number>(85.324)
   const [settingPan, setSettingPan] = useState('')
   const [settingManagerPhone, setSettingManagerPhone] = useState('')
   const [settingThreshold, setSettingThreshold] = useState<number>(2)
+  const [settingSpecialties, setSettingSpecialties] = useState<string[]>([])
+  const [settingDesc, setSettingDesc] = useState('')
+  const [settingGatewayProvider, setSettingGatewayProvider] = useState('esewa')
+  const [settingMerchantId, setSettingMerchantId] = useState('')
+  const [settingPaymentApiKey, setSettingPaymentApiKey] = useState('')
+  const [settingPaymentSecretKey, setSettingPaymentSecretKey] = useState('')
+  const [settingDirectPaymentEnabled, setSettingDirectPaymentEnabled] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsSuccess, setSettingsSuccess] = useState(false)
+  const [showTermsModal, setShowTermsModal] = useState(false)
+  const [showDeleteArchiveModal, setShowDeleteArchiveModal] = useState(false)
 
   // Generate Year dropdown options (2026 down to 1960)
   const practicingYears: number[] = []
@@ -650,35 +706,62 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     practicingYears.push(y)
   }
 
+  const syncClinicToSettings = (clinicObj: Clinic) => {
+    setClinicOnBreak(clinicObj.isOnBreak ?? false)
+    setAvgTimeMode((clinicObj.avgTimeMode as any) || 'auto')
+    setManualAvgMinutes(clinicObj.manualAvgConsultationTimeMinutes || 10)
+    if (clinicObj.weeklyScheduleJson) {
+      try {
+        setWeeklySchedule(JSON.parse(clinicObj.weeklyScheduleJson))
+      } catch {}
+    }
+    setSettingName(clinicObj.name || '')
+    setSettingType(clinicObj.type || 'multi_visit')
+    setSettingPhone(clinicObj.contactPhone || '')
+    setSettingEmail(clinicObj.contactEmail || '')
+    setSettingAddress(clinicObj.addressText || '')
+    setSettingLat(clinicObj.latitude || 27.7172)
+    setSettingLng(clinicObj.longitude || 85.324)
+    setSettingPan(clinicObj.panNumber || '')
+    setSettingManagerPhone(clinicObj.managerPhone || '')
+    setSettingThreshold(clinicObj.autoNotifyThreshold || 2)
+    setSettingSpecialties(clinicObj.specialties || [])
+    setSettingDesc(clinicObj.description || '')
+    setSettingGatewayProvider(clinicObj.paymentGatewayProvider || 'esewa')
+    setSettingMerchantId(clinicObj.merchantId || '')
+    setSettingPaymentApiKey(clinicObj.paymentApiKey || '')
+    setSettingPaymentSecretKey(clinicObj.paymentSecretKey || '')
+    setSettingDirectPaymentEnabled(clinicObj.isDirectPaymentEnabled ?? false)
+  }
+
   // Load Clinics and Taxonomy on mount
   useEffect(() => {
     async function init() {
-      const [cList, specs, quals] = await Promise.all([
+      const [cList, specs, quals, allDocs] = await Promise.all([
         getClinics(),
         getMedicalSpecialties(),
         getMedicalQualifications(),
+        getDoctors(),
       ])
       setClinics(cList)
       setMedicalSpecialties(specs)
       setMedicalQualifications(quals)
-      if (cList.length > 0) {
-        setSelectedClinic(cList[0])
-        setClinicOnBreak(cList[0].isOnBreak ?? false)
-        setAvgTimeMode((cList[0].avgTimeMode as any) || 'auto')
-        setManualAvgMinutes(cList[0].manualAvgConsultationTimeMinutes || 10)
-        if (cList[0].weeklyScheduleJson) {
-          try {
-            setWeeklySchedule(JSON.parse(cList[0].weeklyScheduleJson))
-          } catch {}
-        }
-        // Prefill settings form
-        setSettingName(cList[0].name)
-        setSettingPhone(cList[0].contactPhone || '')
-        setSettingEmail(cList[0].contactEmail || '')
-        setSettingAddress(cList[0].addressText || '')
-        setSettingPan(cList[0].panNumber || '')
-        setSettingManagerPhone(cList[0].managerPhone || '')
-        setSettingThreshold(cList[0].autoNotifyThreshold || 2)
+      setAllSystemDoctors(allDocs)
+
+      const savedEmail = (localStorage.getItem('dactor_auth_email') || '').trim().toLowerCase()
+      let initialClinic: Clinic | null = null
+      if (savedEmail) {
+        initialClinic =
+          cList.find((c) => (c.contactEmail || '').toLowerCase() === savedEmail) ||
+          (await getClinicByEmail(savedEmail))
+      }
+      if (!initialClinic && cList.length > 0) {
+        initialClinic = cList[0]
+      }
+
+      if (initialClinic) {
+        setSelectedClinic(initialClinic)
+        syncClinicToSettings(initialClinic)
       }
     }
     init()
@@ -691,21 +774,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     async function loadClinicDetails() {
       setLoading(true)
       try {
-        const [docs, appts, srvs, reps, invs, directory] = await Promise.all([
+        const [docs, appts, srvs, reps, invs, directory, notifs, invites, sysDocs] = await Promise.all([
           getDoctorsByClinic(selectedClinic.id),
           getAppointmentsByClinic(selectedClinic.id),
           getClinicServices(selectedClinic.id),
           getLabReportsByClinic(selectedClinic.id),
           getBillingInvoicesByClinic(selectedClinic.id),
           getClinicPatientDirectory(selectedClinic.id),
+          getClinicNotifications(selectedClinic.id),
+          getClinicInvitations(selectedClinic.id),
+          getDoctors(),
         ])
 
         setClinicDoctors(docs)
+        const feeMap: { [id: string]: number } = {}
+        docs.forEach((d) => {
+          feeMap[d.id] = d.consultationFee || 500
+        })
+        setEditingDoctorFees(feeMap)
+
         if (docs.length > 0) {
           const doc = docs[0]
           setSelectedDoctor(doc)
-          setWalkinDoctorId(doc.id)
-          setSlotDoctorId(doc.id)
+          setWalkinDoctorId((prev) => prev || doc.id)
+          setSlotDoctorId((prev) => prev || doc.id)
           setDoctorInClinic(doc.isInClinic ?? true)
         }
         setAppointments(appts)
@@ -713,21 +805,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         setLabReports(reps)
         setInvoices(invs)
         setPatientDirectory(directory)
-        setClinicOnBreak(selectedClinic.isOnBreak ?? false)
-        setAvgTimeMode((selectedClinic.avgTimeMode as any) || 'auto')
-        setManualAvgMinutes(selectedClinic.manualAvgConsultationTimeMinutes || 10)
-        if (selectedClinic.weeklyScheduleJson) {
-          try {
-            setWeeklySchedule(JSON.parse(selectedClinic.weeklyScheduleJson))
-          } catch {}
-        }
-        setSettingName(selectedClinic.name)
-        setSettingPhone(selectedClinic.contactPhone || '')
-        setSettingEmail(selectedClinic.contactEmail || '')
-        setSettingAddress(selectedClinic.addressText || '')
-        setSettingPan(selectedClinic.panNumber || '')
-        setSettingManagerPhone(selectedClinic.managerPhone || '')
-        setSettingThreshold(selectedClinic.autoNotifyThreshold || 2)
+        setClinicNotifications(notifs)
+        setClinicInvitations(invites)
+        setAllSystemDoctors(sysDocs)
+        syncClinicToSettings(selectedClinic)
       } catch (err) {
         console.error('Error loading clinic operational data:', err)
       } finally {
@@ -763,7 +844,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }, [billItems])
 
-  const saveSession = (email: string, role: 'clinic_manager' | 'doctor' | 'lab_tech') => {
+  const saveSession = (email: string, role: 'clinic_manager' | 'doctor' | 'lab_tech' = 'clinic_manager') => {
     setIsAuthenticated(true)
     setAuthEmail(email)
     setAuthRole(role)
@@ -797,8 +878,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     resetToAuthChoice()
   }
 
-  // 1. Process Login & Verification for Email & Role Tab
-  const processLoginForEmail = async (email: string, roleTab: 'clinic' | 'doctor') => {
+  // 1. Process Login & Verification for Clinic Email (Strictly Clinic Portal Only)
+  const processLoginForEmail = async (email: string, _roleTab: 'clinic' | 'doctor' = 'clinic') => {
     const trimmedEmail = email.trim().toLowerCase()
     setFirebaseLoading(true)
     setFirebaseError(null)
@@ -807,7 +888,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     try {
       // Enforce 1 Google Account = 1 Portal Role rule
       const assoc = await checkEmailPortalAssociation(trimmedEmail)
-      if (roleTab === 'clinic' && assoc && assoc.portal !== 'clinic') {
+      if (assoc && assoc.portal !== 'clinic') {
         await signOutFirebase().catch(() => {})
         setVerifiedEmail('')
         setCurrentView('auth_choice')
@@ -817,90 +898,42 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         )
         return
       }
-      if (roleTab === 'doctor' && assoc && assoc.portal !== 'doctor') {
-        await signOutFirebase().catch(() => {})
-        setVerifiedEmail('')
-        setCurrentView('auth_choice')
-        const entitySuffix = assoc.entityName ? ` (${assoc.entityName})` : ''
-        setFirebaseError(
-          `This Google account (${trimmedEmail}) is already associated with a ${assoc.portalLabel} account${entitySuffix}. You cannot log in to the Doctor / Specialist Portal with this Google ID. Please change your Google account.`
-        )
-        return
-      }
 
-      if (roleTab === 'clinic') {
-        const existingClinic = await getClinicByEmail(trimmedEmail)
-        if (existingClinic) {
-          const vStatus = (existingClinic.verificationStatus || 'approved').toLowerCase()
-          if (vStatus === 'approved') {
-            setSelectedClinic(existingClinic)
-            saveSession(trimmedEmail, 'clinic_manager')
-          } else {
-            const pending = {
-              email: trimmedEmail,
-              role: 'clinic' as const,
-              name: existingClinic.name,
-              id: existingClinic.id,
-              details: `${(existingClinic.type || 'Polyclinic').replace('_', ' ')} • PAN: ${existingClinic.panNumber || '9-Digit Record'} • ${existingClinic.addressText || 'Nepal'}`,
-              status: vStatus,
-            }
-            setPendingEntity(pending)
-            localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
-            setCurrentView('pending_verification')
-          }
+      const existingClinic = await getClinicByEmail(trimmedEmail)
+      if (existingClinic) {
+        const vStatus = (existingClinic.verificationStatus || 'approved').toLowerCase()
+        if (vStatus === 'approved' || vStatus === 'verified') {
+          setSelectedClinic(existingClinic)
+          saveSession(trimmedEmail, 'clinic_manager')
         } else {
-          // Unregistered clinic -> Open Clinic Registration Form!
-          setRegClinicName('')
-          setRegClinicErrors({})
-          setCurrentView('register_form')
+          const pending = {
+            email: trimmedEmail,
+            role: 'clinic' as const,
+            name: existingClinic.name,
+            id: existingClinic.id,
+            details: `${(existingClinic.type || 'Polyclinic').replace('_', ' ')} • PAN: ${existingClinic.panNumber || '9-Digit Record'} • ${existingClinic.addressText || 'Nepal'}`,
+            status: vStatus,
+          }
+          setPendingEntity(pending)
+          localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
+          setCurrentView('pending_verification')
         }
       } else {
-        // DOCTOR
-        const existingDoctor = await getDoctorByEmail(trimmedEmail)
-        if (existingDoctor) {
-          const kStatus = (existingDoctor.kycStatus || 'approved').toLowerCase()
-          if (kStatus === 'approved' || kStatus === 'verified') {
-            setSelectedDoctor(existingDoctor)
-            const clinicId = existingDoctor.clinicId || existingDoctor.activeClinicId
-            if (clinicId) {
-              const c = clinics.find((cl) => cl.id === clinicId) || (await getClinicById(clinicId))
-              if (c) setSelectedClinic(c)
-            }
-            const role =
-              existingDoctor.practitionerRole === 'lab_technician' || existingDoctor.isLabTechnician
-                ? 'lab_tech'
-                : 'doctor'
-            saveSession(trimmedEmail, role)
-          } else {
-            const pending = {
-              email: trimmedEmail,
-              role: 'doctor' as const,
-              name: existingDoctor.fullName,
-              id: existingDoctor.id,
-              details: `NMC: ${existingDoctor.nmcLicenseNumber || 'Registered'} • ${existingDoctor.specialty || 'General Physician'}`,
-              status: kStatus,
-            }
-            setPendingEntity(pending)
-            localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
-            setCurrentView('pending_verification')
-          }
-        } else {
-          // Unregistered doctor -> Open Doctor Registration & KYC Form!
-          setRegDoctorName('')
-          setRegDoctorErrors({})
-          setCurrentView('register_form')
-        }
+        // Unregistered clinic -> Open Clinic Registration Form! (Never prefill name from Google)
+        setRegClinicName('')
+        setRegClinicErrors({})
+        setCurrentView('register_form')
       }
     } catch (err: any) {
-      console.error('Error verifying account:', err)
+      console.error('Error verifying clinic account:', err)
       setFirebaseError(err.message || 'Error communicating with database')
     } finally {
       setFirebaseLoading(false)
     }
   }
 
-  // 2. Google OAuth Trigger linked to active Role Tab
-  const handleGoogleSignInWithRole = async (roleTab: 'clinic' | 'doctor') => {
+  // 2. Google Sign-In Trigger for Clinic Portal
+  const handleGoogleSignInWithRole = async (_roleTab: 'clinic' | 'doctor' = 'clinic') => {
     setFirebaseLoading(true)
     setFirebaseError(null)
     try {
@@ -909,16 +942,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       if (!googleUser || !googleUser.email) {
         throw new Error('Google sign-in did not return user credentials.')
       }
-      await processLoginForEmail(googleUser.email, roleTab)
+      await processLoginForEmail(googleUser.email, 'clinic')
     } catch (err: any) {
-      console.warn('Google Sign-In notice:', err)
-      const errCode = err?.code || ''
-      if (errCode === 'auth/popup-closed-by-user' || err?.message?.includes('closed-by-user')) {
-        setFirebaseError('Sign-in popup was closed before completing. Please try again.')
-      } else if (errCode === 'auth/popup-blocked' || err?.message?.includes('popup-blocked')) {
-        setFirebaseError('Sign-in popup was blocked by your browser. Please allow popups for this site and try again.')
-      } else if (errCode === 'auth/unauthorized-domain') {
-        setFirebaseError('This domain is not yet listed in Firebase Console Authorized Domains.')
+      if (err?.message?.includes('cancelled')) {
+        // User closed account chooser
       } else {
         setFirebaseError(err?.message || 'Failed to sign in with Google. Please try again.')
       }
@@ -933,46 +960,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setCheckingVerification(true)
     setVerificationCheckMsg(null)
     try {
-      if (pendingEntity.role === 'clinic') {
-        const refreshed = pendingEntity.id
-          ? await getClinicById(pendingEntity.id)
-          : await getClinicByEmail(pendingEntity.email)
-        if (refreshed) {
-          const st = (refreshed.verificationStatus || 'pending').toLowerCase()
-          if (st === 'approved') {
-            setSelectedClinic(refreshed)
-            saveSession(pendingEntity.email, 'clinic_manager')
-            return
-          } else {
-            setPendingEntity({ ...pendingEntity, status: st })
-            localStorage.setItem('dactor_pending_verification', JSON.stringify({ ...pendingEntity, status: st }))
-            setVerificationCheckMsg('Status checked: Registration is still under administrative review.')
-          }
-        }
-      } else {
-        const refreshed = pendingEntity.id
-          ? await getDoctorById(pendingEntity.id)
-          : await getDoctorByEmail(pendingEntity.email)
-        if (refreshed) {
-          const st = (refreshed.kycStatus || 'pending').toLowerCase()
-          if (st === 'approved' || st === 'verified') {
-            setSelectedDoctor(refreshed)
-            const clinicId = refreshed.clinicId || refreshed.activeClinicId
-            if (clinicId) {
-              const c = clinics.find((cl) => cl.id === clinicId) || (await getClinicById(clinicId))
-              if (c) setSelectedClinic(c)
-            }
-            const role =
-              refreshed.practitionerRole === 'lab_technician' || refreshed.isLabTechnician
-                ? 'lab_tech'
-                : 'doctor'
-            saveSession(pendingEntity.email, role)
-            return
-          } else {
-            setPendingEntity({ ...pendingEntity, status: st })
-            localStorage.setItem('dactor_pending_verification', JSON.stringify({ ...pendingEntity, status: st }))
-            setVerificationCheckMsg('Status checked: Medical KYC is still under regulatory review.')
-          }
+      const refreshed = pendingEntity.id
+        ? await getClinicForPortalById(pendingEntity.id)
+        : await getClinicByEmail(pendingEntity.email)
+      if (refreshed) {
+        const st = (refreshed.verificationStatus || 'pending').toLowerCase()
+        if (st === 'approved' || st === 'verified') {
+          setSelectedClinic(refreshed)
+          saveSession(pendingEntity.email, 'clinic_manager')
+          return
+        } else {
+          setPendingEntity({ ...pendingEntity, status: st })
+          localStorage.setItem('dactor_pending_verification', JSON.stringify({ ...pendingEntity, status: st }))
+          setVerificationCheckMsg('Status checked: Registration is still under administrative review.')
         }
       }
     } catch (err: any) {
@@ -993,11 +993,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       (pos) => {
         setRegClinicLat(pos.coords.latitude)
         setRegClinicLng(pos.coords.longitude)
+        setSettingLat(pos.coords.latitude)
+        setSettingLng(pos.coords.longitude)
         setIsDetectingLocation(false)
       },
       () => {
         setIsDetectingLocation(false)
-        alert('Could not retrieve GPS coordinates automatically. You can enter them manually.')
+        alert('Could not retrieve GPS coordinates automatically. You can enter them manually or select a Nepal City Preset.')
       },
       { timeout: 10000 }
     )
@@ -1087,94 +1089,250 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
-  // 6. Submit Doctor Registration & KYC
-  const submitDoctorRegistration = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const errors: { [key: string]: string } = {}
-    if (regDoctorName.trim().length < 3) errors.name = 'Doctor full name must be at least 3 characters.'
-    const parsedAge = parseInt(regDoctorAge, 10)
-    if (isNaN(parsedAge) || parsedAge < 20 || parsedAge > 100) errors.age = 'Age must be between 20 and 100.'
-    if (regDoctorNmc.trim().length < 3) errors.nmc = 'NMC license number is required (min 3 chars).'
-    const cleanPersonal = regDoctorPersonalPhone.replace(/\D/g, '')
-    if (cleanPersonal.length !== 10 || !cleanPersonal.startsWith('9'))
-      errors.personalPhone = 'Personal mobile must be 10 digits starting with 9.'
-    if (!regDoctorTermsAccepted) errors.terms = 'You must accept the NMC Code of Ethics & Terms to register.'
+  // Master Doctor Presence Toggle (All Doctors Present / Off-Duty at once - DashboardScreen.kt)
+  const handleToggleAllDoctorsPresence = async (makePresent: boolean) => {
+    if (clinicDoctors.length === 0) return
+    setUpdatingPresence(true)
+    try {
+      await Promise.all(clinicDoctors.map((d) => updateDoctorPresence(d.id, makePresent)))
+      setClinicDoctors((prev) => prev.map((d) => ({ ...d, isInClinic: makePresent })))
+      setDoctorInClinic(makePresent)
+      if (selectedDoctor) {
+        setSelectedDoctor({ ...selectedDoctor, isInClinic: makePresent })
+      }
+    } catch (err) {
+      console.error('Error toggling all doctors presence:', err)
+    } finally {
+      setUpdatingPresence(false)
+    }
+  }
 
-    if (Object.keys(errors).length > 0) {
-      setRegDoctorErrors(errors)
+  // Clinical Remark Save Handler (QueueBoardScreen.kt & FutureAppointmentsScreen.kt)
+  const handleOpenRemarkModal = (appt: Appointment) => {
+    setRemarkTargetAppt(appt)
+    setRemarkText(appt.notes || '')
+    setRemarkModalOpen(true)
+  }
+
+  const handleSaveClinicalRemark = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!remarkTargetAppt) return
+    setSavingRemark(true)
+    try {
+      const ok = await updateAppointmentNotes(remarkTargetAppt.id, remarkText)
+      if (ok) {
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === remarkTargetAppt.id ? { ...a, notes: remarkText.trim() } : a))
+        )
+        setRemarkModalOpen(false)
+      }
+    } finally {
+      setSavingRemark(false)
+    }
+  }
+
+  // Subscription Renewal & Instant Bypass Handlers (DashboardScreen.kt & ClinicSettingsScreen.kt)
+  const handleRequestRenewalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedClinic) return
+    if (!renewalTxnRef.trim()) {
+      alert('Please enter your payment transaction ID / reference.')
+      return
+    }
+    setSubmittingRenewal(true)
+    try {
+      const amt = renewalPlan === '12_months' ? 15000 : 1500
+      const ok = await requestClinicActivationRenewal(selectedClinic.id, renewalPlan, amt, renewalTxnRef.trim())
+      if (ok) {
+        alert('Renewal payment reference submitted to Dactor Admin for verification!')
+        setShowRenewalModal(false)
+        setRenewalTxnRef('')
+      }
+    } finally {
+      setSubmittingRenewal(false)
+    }
+  }
+
+  const handleInstantBypassSubscription = async () => {
+    if (!selectedClinic) return
+    setSubmittingRenewal(true)
+    try {
+      const amt = renewalPlan === '12_months' ? 15000 : 1500
+      const ok = await completeClinicSubscriptionPayment(
+        selectedClinic.id,
+        renewalPlan,
+        amt,
+        `BYPASS-${Date.now()}`
+      )
+      if (ok) {
+        const refreshed = await getClinicForPortalById(selectedClinic.id)
+        if (refreshed) setSelectedClinic(refreshed)
+        setShowRenewalModal(false)
+        alert(`Subscription activated for ${renewalPlan === '12_months' ? '365 days' : '30 days'}!`)
+      }
+    } finally {
+      setSubmittingRenewal(false)
+    }
+  }
+
+  // 30-Day Archive Schedule & Restore Handlers (ClinicSettingsScreen.kt & DashboardScreen.kt)
+  const handleScheduleClinicArchive = async () => {
+    if (!selectedClinic) return
+    const ok = await scheduleClinicDeletion(selectedClinic.id)
+    if (ok) {
+      const refreshed = await getClinicForPortalById(selectedClinic.id)
+      if (refreshed) setSelectedClinic(refreshed)
+      setShowDeleteArchiveModal(false)
+    }
+  }
+
+  const handleCancelClinicArchive = async () => {
+    if (!selectedClinic) return
+    const ok = await cancelClinicDeletion(selectedClinic.id)
+    if (ok) {
+      const refreshed = await getClinicForPortalById(selectedClinic.id)
+      if (refreshed) setSelectedClinic(refreshed)
+      alert('Account deletion cancelled! Your clinic operational desk is restored.')
+    }
+  }
+
+  // Slot -30m & Capacity Update Handlers (SlotManagerScreen.kt)
+  const handleSubtract30MinsFromSlot = async (slot: Slot) => {
+    // Parse endTime and subtract 30 mins
+    try {
+      const clean = slot.endTime.trim().toUpperCase()
+      const isPM = clean.includes('PM')
+      const isAM = clean.includes('AM')
+      const parts = clean.replace(/[^0-9:]/g, '').split(':')
+      let h = parseInt(parts[0] || '10', 10)
+      let m = parseInt(parts[1] || '0', 10)
+      if (isPM && h < 12) h += 12
+      if (isAM && h === 12) h = 0
+      let totalMins = h * 60 + m - 30
+      if (totalMins < 0) totalMins = 0
+      const newH24 = Math.floor(totalMins / 60)
+      const newM = totalMins % 60
+      const newAmpm = newH24 >= 12 ? 'PM' : 'AM'
+      const newH12 = newH24 % 12 || 12
+      const newEndStr = `${String(newH12).padStart(2, '0')}:${String(newM).padStart(2, '0')} ${newAmpm}`
+      const ok = await updateSlot(slot.id, { endTime: newEndStr })
+      if (ok) {
+        setPublishedSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, endTime: newEndStr } : s)))
+      }
+    } catch {}
+  }
+
+  const handleSaveSlotCapacityUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingSlotCapacity) return
+    const ok = await updateSlot(editingSlotCapacity.id, { maxCapacity: newSlotCapacityVal })
+    if (ok) {
+      setPublishedSlots((prev) =>
+        prev.map((s) => (s.id === editingSlotCapacity.id ? { ...s, maxCapacity: newSlotCapacityVal } : s))
+      )
+      setEditingSlotCapacity(null)
+    }
+  }
+
+  // Consultation Fee Manager Handler (ConsultationFeeManagerScreen.kt)
+  const handleSaveDoctorFee = async (doc: Doctor, newFee: number) => {
+    setSavingDocFeeId(doc.id)
+    try {
+      const ok = await updateDoctor(doc.id, { consultationFee: newFee })
+      if (ok) {
+        setClinicDoctors((prev) =>
+          prev.map((d) => (d.id === doc.id ? { ...d, consultationFee: newFee } : d))
+        )
+        if (selectedDoctor?.id === doc.id) {
+          setSelectedDoctor({ ...selectedDoctor, consultationFee: newFee })
+        }
+        alert(`Consultation fee for ${doc.fullName} updated to Rs. ${newFee}!`)
+      }
+    } finally {
+      setSavingDocFeeId(null)
+    }
+  }
+
+  // Staff & Doctor Invitations Handlers (InvitationManagerScreen.kt)
+  const handleSendCustomStaffInvitation = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedClinic || !customInviteEmail.trim() || !customInviteName.trim()) return
+    const created = await sendClinicInvitation({
+      clinicId: selectedClinic.id,
+      clinicName: selectedClinic.name,
+      invitedEmail: customInviteEmail.trim(),
+      invitedName: customInviteName.trim(),
+      role: customInviteRole,
+    })
+    if (created) {
+      setClinicInvitations((prev) => [created, ...prev])
+      setCustomInviteEmail('')
+      setCustomInviteName('')
+      alert(`Invitation sent to ${created.invitedName} (${created.invitedEmail})!`)
+    }
+  }
+
+  const handleSendDoctorInvitation = async (doc: Doctor) => {
+    if (!selectedClinic) return
+    const role: 'doctor' | 'lab_technician' =
+      doc.practitionerRole === 'lab_technician' || doc.isLabTechnician ? 'lab_technician' : 'doctor'
+    const created = await sendClinicInvitation({
+      clinicId: selectedClinic.id,
+      clinicName: selectedClinic.name,
+      doctorId: doc.id,
+      invitedEmail: doc.email || `${doc.id}@dactor.health`,
+      invitedName: doc.fullName,
+      role,
+      specialty: doc.specialty,
+    })
+    if (created) {
+      setClinicInvitations((prev) => [created, ...prev])
+      if (!clinicDoctors.some((cd) => cd.id === doc.id)) {
+        setClinicDoctors((prev) => [...prev, { ...doc, clinicId: selectedClinic.id }])
+      }
+      alert(`Invitation sent to ${doc.fullName} and linked to ${selectedClinic.name}!`)
+    }
+  }
+
+  const handleCancelStaffInvitation = async (invId: string) => {
+    if (!selectedClinic) return
+    const ok = await cancelClinicInvitation(invId, selectedClinic.id)
+    if (ok) {
+      setClinicInvitations((prev) => prev.filter((i) => i.id !== invId))
+    }
+  }
+
+  const handleSettingsGPS = handleBrowserGPS
+
+  // Lab Report Privacy Verification Gate Handler (LabWorkflowScreen.kt)
+  const handleVerifyAndOpenLabReport = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!labVerifyTargetReport) return
+    const q = labVerifyInput.trim().toLowerCase()
+    const pName = (labVerifyTargetReport.appt.patientName || '').trim().toLowerCase()
+    const pPhone = (labVerifyTargetReport.appt.patientMobile || '').replace(/\D/g, '')
+    const qDigits = q.replace(/\D/g, '')
+
+    const isMatch =
+      (q.length >= 2 && pName.includes(q)) ||
+      (qDigits.length >= 6 && pPhone.includes(qDigits))
+
+    if (!isMatch) {
+      setLabVerifyError('Verification failed. Please enter the matching patient name or registered phone number.')
       return
     }
 
-    const effectiveDocEmail = verifiedEmail.trim() || `doctor.${Date.now()}@dactor.health`
-    if (!verifiedEmail.trim()) setVerifiedEmail(effectiveDocEmail)
-
-    setIsSubmittingRegistration(true)
-    setRegistrationStatusMsg('Compressing certificates and uploading to Supabase...')
-
-    try {
-      let photoUrl: string | undefined
-      if (regDoctorPhotoFile) {
-        const compressed = await compressImage(regDoctorPhotoFile, 400)
-        photoUrl =
-          (await uploadClinicDocument(`doc_photo_${regDoctorPhotoFile.name}`, compressed, 'doctor_photos')) ||
-          undefined
-      }
-
-      let licenseDocUrl: string | undefined
-      if (regDoctorLicenseFile) {
-        const compressed = await compressImage(regDoctorLicenseFile, 500)
-        licenseDocUrl =
-          (await uploadClinicDocument(`nmc_license_${regDoctorLicenseFile.name}`, compressed, 'doctor_kyc_docs')) ||
-          undefined
-      }
-
-      const cleanPublic = regDoctorPublicPhone.replace(/\D/g, '')
-
-      const newDoctorPayload: Partial<Doctor> = {
-        fullName: regDoctorName.trim(),
-        email: effectiveDocEmail,
-        clinicId: selectedClinic?.id,
-        activeClinicId: selectedClinic?.id,
-        gender: regDoctorGender,
-        age: parsedAge,
-        startingPracticingYear: regDoctorStartingYear,
-        specialty: regDoctorSpecialty,
-        specialties: [regDoctorSpecialty],
-        education: regDoctorEducation,
-        nmcLicenseNumber: regDoctorNmc.trim(),
-        personalMobileNumber: cleanPersonal,
-        publicMobileNumber: cleanPublic || undefined,
-        description: regDoctorDesc.trim() || undefined,
-        profilePictureUrl: photoUrl,
-        kycStatus: 'pending',
-        practitionerRole: regDoctorRole,
-        isLabTechnician: regDoctorRole === 'lab_technician',
-        isInClinic: true,
-      }
-
-      setRegistrationStatusMsg('Saving doctor profile and KYC to Supabase...')
-      const created = await createDoctor(newDoctorPayload)
-      if (!created) throw new Error('Failed to create doctor in database.')
-
-      const pending = {
-        email: effectiveDocEmail,
-        role: 'doctor' as const,
-        name: created.fullName,
-        id: created.id,
-        details: `NMC: ${created.nmcLicenseNumber} • ${created.specialty}`,
-        status: 'pending',
-      }
-      setSelectedDoctor(created)
-      setClinicDoctors((prev) => [created, ...prev])
-      setPendingEntity(pending)
-      localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
-      setCurrentView('pending_verification')
-    } catch (err: any) {
-      alert('Error registering doctor: ' + err.message)
-    } finally {
-      setIsSubmittingRegistration(false)
-      setRegistrationStatusMsg(null)
+    const url = labVerifyTargetReport.report.reportFileUrl
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } else {
+      alert(
+        `Verified! Report: ${labVerifyTargetReport.report.testName}\nStatus: ${labVerifyTargetReport.report.status}\nNotes: ${labVerifyTargetReport.report.technicianNotes || 'Normal parameters.'}`
+      )
     }
+    setLabVerifyTargetReport(null)
+    setLabVerifyInput('')
+    setLabVerifyError(null)
   }
 
   // Doctor In-Clinic Presence Toggle
@@ -1852,31 +2010,36 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
-  // Save Clinic Settings
+  // Save Clinic Settings (ClinicSettingsScreen.kt)
   const handleSaveClinicSettings = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedClinic) return
     setSavingSettings(true)
     try {
-      const ok = await updateClinic(selectedClinic.id, {
+      const updates: Partial<Clinic> = {
         name: settingName.trim(),
+        type: settingType as any,
         contactPhone: settingPhone.trim(),
         contactEmail: settingEmail.trim(),
         addressText: settingAddress.trim(),
+        latitude: settingLat,
+        longitude: settingLng,
         panNumber: settingPan.trim(),
         managerPhone: settingManagerPhone.trim(),
         autoNotifyThreshold: settingThreshold,
-      })
+        specialties: settingSpecialties,
+        description: settingDesc.trim(),
+        paymentGatewayProvider: settingGatewayProvider,
+        merchantId: settingMerchantId.trim(),
+        paymentApiKey: settingPaymentApiKey.trim(),
+        paymentSecretKey: settingPaymentSecretKey.trim(),
+        isDirectPaymentEnabled: settingDirectPaymentEnabled,
+      }
+      const ok = await updateClinic(selectedClinic.id, updates)
       if (ok) {
         setSelectedClinic({
           ...selectedClinic,
-          name: settingName.trim(),
-          contactPhone: settingPhone.trim(),
-          contactEmail: settingEmail.trim(),
-          addressText: settingAddress.trim(),
-          panNumber: settingPan.trim(),
-          managerPhone: settingManagerPhone.trim(),
-          autoNotifyThreshold: settingThreshold,
+          ...updates,
         })
         setSettingsSuccess(true)
         setTimeout(() => setSettingsSuccess(false), 3000)
@@ -2021,14 +2184,98 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
-  const isDiagnosticLab =
-    selectedClinic?.type === 'diagnostic_lab' || selectedClinic?.type === 'polyclinic'
+  const isDiagnosticLab = true // Allow all clinics access to Lab & Rates modules like DashboardScreen.kt
+
+  // Subscription & Archive Countdown Calculations (DashboardScreen.kt & ClinicSettingsScreen.kt)
+  const subscriptionDaysLeft = useMemo(() => {
+    if (!selectedClinic?.activationExpiresAt) return 30
+    try {
+      const exp = new Date(selectedClinic.activationExpiresAt).getTime()
+      const diff = Math.ceil((exp - Date.now()) / (1000 * 60 * 60 * 24))
+      return Math.max(0, diff)
+    } catch {
+      return 30
+    }
+  }, [selectedClinic?.activationExpiresAt])
+
+  const isSubscriptionActive = Boolean(
+    (selectedClinic?.isActivated ?? true) && subscriptionDaysLeft > 0
+  )
+
+  const archiveDaysLeft = useMemo(() => {
+    if (!selectedClinic?.deletionScheduledAt) return 30
+    try {
+      const del = new Date(selectedClinic.deletionScheduledAt).getTime()
+      const diff = Math.ceil((del - Date.now()) / (1000 * 60 * 60 * 24))
+      return Math.max(0, diff)
+    } catch {
+      return 30
+    }
+  }, [selectedClinic?.deletionScheduledAt])
+
+  // 14-Day Horizontal Date Strip (SlotManagerScreen.kt & FutureAppointmentsScreen.kt)
+  const upcoming14Dates = useMemo(() => {
+    const arr: { dateStr: string; dayShort: string; dayNum: string; monthShort: string }[] = []
+    for (let i = 0; i < 14; i++) {
+      const d = new Date()
+      d.setDate(d.getDate() + i)
+      const dateStr = d.toISOString().split('T')[0]
+      const dayShort = i === 0 ? 'Today' : i === 1 ? 'Tmrw' : d.toLocaleDateString('en-US', { weekday: 'short' })
+      const dayNum = String(d.getDate()).padStart(2, '0')
+      const monthShort = d.toLocaleDateString('en-US', { month: 'short' })
+      arr.push({ dateStr, dayShort, dayNum, monthShort })
+    }
+    return arr
+  }, [])
+
+  // 13 Nepal City Presets (ClinicSettingsScreen.kt)
+  const NEPAL_CITY_PRESETS = [
+    { name: 'Kathmandu', lat: 27.7172, lng: 85.324 },
+    { name: 'Lalitpur (Patan)', lat: 27.6644, lng: 85.3188 },
+    { name: 'Bhaktapur', lat: 27.671, lng: 85.4298 },
+    { name: 'Pokhara', lat: 28.2096, lng: 83.9856 },
+    { name: 'Bharatpur (Chitwan)', lat: 27.6833, lng: 84.4333 },
+    { name: 'Biratnagar', lat: 26.4525, lng: 87.2718 },
+    { name: 'Birgunj', lat: 27.0104, lng: 84.877 },
+    { name: 'Dharan', lat: 26.812, lng: 87.2836 },
+    { name: 'Butwal', lat: 27.7006, lng: 83.4484 },
+    { name: 'Hetauda', lat: 27.4284, lng: 85.0322 },
+    { name: 'Janakpur', lat: 26.7288, lng: 85.9263 },
+    { name: 'Nepalgunj', lat: 28.05, lng: 81.6167 },
+    { name: 'Dhangadhi', lat: 28.6852, lng: 80.6216 },
+  ]
+
+  const defaultSpecialtyList = useMemo(
+    () =>
+      medicalSpecialties.length > 0
+        ? medicalSpecialties.map((s) => s.name)
+        : [
+            'General Physician',
+            'Pediatrics',
+            'Orthopedics',
+            'Gynecology & Obstetrics',
+            'Dermatology',
+            'Cardiology',
+            'ENT',
+            'Dentistry',
+            'Ophthalmology',
+            'Pathology & Lab Diagnostics',
+            'Psychiatry',
+            'Neurology',
+          ],
+    [medicalSpecialties]
+  )
 
   // Queue Counts
   const todayDateStr = new Date().toISOString().split('T')[0]
   const todayAppointments = useMemo(
     () => appointments.filter((a) => a.appointmentDate === todayDateStr),
     [appointments, todayDateStr]
+  )
+
+  const noShowAppointments = useMemo(
+    () => appointments.filter((a) => a.checkinStatus === 'no_show'),
+    [appointments]
   )
 
   const activeConsultationPatient = useMemo(
@@ -2170,41 +2417,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   }
 
   // ==========================================
-  // VIEW 2: CLINIC & DOCTOR REGISTRATION FORMS
+  // VIEW 2: CLINIC REGISTRATION FORM
   // ==========================================
   if (currentView === 'register_form') {
-    const defaultSpecialtyList =
-      medicalSpecialties.length > 0
-        ? medicalSpecialties.map((s) => s.name)
-        : [
-            'General Physician',
-            'Pediatrics',
-            'Orthopedics',
-            'Gynecology & Obstetrics',
-            'Dermatology',
-            'Cardiology',
-            'ENT',
-            'Dentistry',
-            'Ophthalmology',
-            'Pathology & Lab Diagnostics',
-            'Psychiatry',
-            'Neurology',
-          ]
-
-    const defaultQualificationList =
-      medicalQualifications.length > 0
-        ? medicalQualifications.map((q) => (q.fullTitle ? `${q.degreeName} (${q.fullTitle})` : q.degreeName))
-        : [
-            'MBBS',
-            'MBBS, MD (Internal Medicine)',
-            'MBBS, MS (General Surgery)',
-            'MBBS, MD (Pediatrics)',
-            'MBBS, MD (Dermatology)',
-            'MBBS, MD (Pathology)',
-            'BDS, MDS',
-            'BMLT / Medical Lab Technologist',
-          ]
-
     return (
       <div className="max-w-3xl mx-auto px-4 py-10">
         <div className="bg-white rounded-3xl p-6 sm:p-10 shadow-2xl border border-slate-200/90 space-y-6">
@@ -2238,12 +2453,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 type="email"
                 value={verifiedEmail}
                 onChange={(e) => setVerifiedEmail(e.target.value)}
-                placeholder="doctor.or.clinic@gmail.com"
+                placeholder="clinic.manager@gmail.com"
                 className="px-3.5 py-2 rounded-xl border border-brand-200 bg-white text-xs font-bold text-slate-800 sm:w-56 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
               <button
                 type="button"
-                onClick={() => handleGoogleSignInWithRole(portalRoleTab)}
+                onClick={() => handleGoogleSignInWithRole('clinic')}
                 className="px-3 py-2 rounded-xl border border-brand-300 bg-white hover:bg-brand-50 text-brand-700 font-bold text-xs shrink-0 cursor-pointer transition"
               >
                 Change Account
@@ -2642,7 +2857,6 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <button
               type="button"
               onClick={() => {
-                setPortalRoleTab('clinic')
                 setCurrentView('register_form')
               }}
               className="px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shrink-0 cursor-pointer shadow-sm transition-all"
@@ -2670,6 +2884,41 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   // ==========================================
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* 30-DAY ARCHIVE LOCK BANNER (ClinicSettingsScreen.kt & ClinicNavGraph.kt) */}
+      {selectedClinic?.isArchived && (
+        <div className="p-6 rounded-3xl bg-rose-950 text-white border-2 border-rose-500 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-start space-x-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-600 flex items-center justify-center shrink-0">
+              <Lock className="w-6 h-6 text-white" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-500 text-white">
+                  30-Day Deletion Grace Period
+                </span>
+                <span className="text-xs font-mono font-bold text-rose-200">
+                  {archiveDaysLeft} Days Remaining
+                </span>
+              </div>
+              <h2 className="text-lg font-black">
+                Clinic Account Archived & Hidden from Patient Bookings
+              </h2>
+              <p className="text-xs text-rose-200 max-w-2xl leading-relaxed">
+                This clinic is scheduled for permanent deletion on{' '}
+                <strong>{selectedClinic.deletionScheduledAt?.split('T')[0] || '30 days from archive'}</strong>. You can restore full operational status anytime before the countdown expires.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleCancelClinicArchive}
+            className="px-5 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl text-xs shadow-lg cursor-pointer shrink-0 transition"
+          >
+            Cancel Deletion & Restore Clinic Account
+          </button>
+        </div>
+      )}
+
       {/* Top Banner / Clinic Context Bar */}
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
@@ -2693,6 +2942,25 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <h1 className="text-xl sm:text-2xl font-black text-slate-900">
                 {selectedClinic?.name}
               </h1>
+              {/* Subscription Status Pill (DashboardScreen.kt lines 155-184) */}
+              <button
+                type="button"
+                onClick={() => setShowRenewalModal(true)}
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-black border flex items-center gap-1 cursor-pointer transition ${
+                  isSubscriptionActive
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                    : 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100 animate-pulse'
+                }`}
+                title="Click to manage Clinic Subscription & License Renewal"
+              >
+                <CreditCard className="w-3 h-3" />
+                <span>
+                  {isSubscriptionActive
+                    ? `Active • ${subscriptionDaysLeft}d left`
+                    : 'Expired • Renew'}
+                </span>
+              </button>
+
               {selectedClinic?.pictures && selectedClinic.pictures.length > 0 && (
                 <button
                   type="button"
@@ -2721,7 +2989,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </select>
               )}
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-brand-100 text-brand-800">
-                {selectedClinic?.type === 'diagnostic_lab' ? 'Diagnostic Lab' : 'Polyclinic OPD'}
+                {selectedClinic?.type === 'diagnostic_lab'
+                  ? 'Diagnostic Lab'
+                  : selectedClinic?.type === 'single_Specialty'
+                  ? 'Single Specialty'
+                  : 'Polyclinic OPD'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -2730,8 +3002,23 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           </div>
         </div>
 
-        {/* Action Controls in Header: Doctor Presence & Break Toggles */}
+        {/* Action Controls in Header: Notifications Bell, Doctor Presence, Break, Add Doctor & Logout */}
         <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
+          {/* Notification Bell Drawer Trigger (DashboardScreen.kt line 198) */}
+          <button
+            type="button"
+            onClick={() => setShowNotificationsModal(true)}
+            className="relative p-2.5 rounded-xl bg-slate-50 hover:bg-brand-50 text-slate-700 hover:text-brand-700 border border-slate-200 transition cursor-pointer"
+            title="View Clinic Notifications"
+          >
+            <Bell className="w-4 h-4" />
+            {clinicNotifications.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center">
+                {Math.min(9, clinicNotifications.length)}
+              </span>
+            )}
+          </button>
+
           {/* Doctor Presence Toggle */}
           {selectedDoctor && (
             <button
@@ -2786,7 +3073,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         </div>
       </div>
 
-      {/* Navigation Desk Tabs */}
+      {/* Navigation Desk Tabs (All 15 Modules from DashboardScreen.kt) */}
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-3 overflow-x-auto">
         <button
           onClick={() => setDeskTab('queue')}
@@ -2834,6 +3121,42 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         >
           <Calendar className="w-4 h-4" />
           <span>Future Appointments & Holidays</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('noshow')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'noshow'
+              ? 'bg-rose-600 text-white shadow-xs'
+              : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4" />
+          <span>No-Show Patients ({noShowAppointments.length})</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('fees')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'fees'
+              ? 'bg-brand-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <CreditCard className="w-4 h-4" />
+          <span>Consultation Fees</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('invitations')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'invitations'
+              ? 'bg-brand-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <UserCheck className="w-4 h-4" />
+          <span>Doctor & Staff Invitations</span>
         </button>
 
         <button
@@ -2942,6 +3265,79 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'queue' && (
         <div className="space-y-6">
+          {/* Enlisted Doctors & Presence Roster Bar with Master Switch (DashboardScreen.kt lines 296-456) */}
+          {clinicDoctors.length > 0 && (
+            <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <Stethoscope className="w-4 h-4 text-brand-600" />
+                    <span>Enlisted Doctors & Live Cabin Presence Roster ({clinicDoctors.filter((d) => d.isInClinic ?? true).length}/{clinicDoctors.length} Present)</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Toggle individual doctor presence or use the Master Switch to set all doctors Present or Off-Duty.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={updatingPresence}
+                    onClick={() => handleToggleAllDoctorsPresence(true)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold cursor-pointer transition"
+                  >
+                    ● Set All Present
+                  </button>
+                  <button
+                    type="button"
+                    disabled={updatingPresence}
+                    onClick={() => handleToggleAllDoctorsPresence(false)}
+                    className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-bold cursor-pointer transition"
+                  >
+                    ○ Set All Off-Duty
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2.5">
+                {clinicDoctors.map((doc) => {
+                  const isPresent = doc.isInClinic ?? true
+                  return (
+                    <div
+                      key={doc.id}
+                      className={`px-3 py-2 rounded-2xl border flex items-center space-x-2.5 text-xs transition ${
+                        isPresent
+                          ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                          : 'bg-slate-50 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      <div className="w-7 h-7 rounded-xl bg-brand-100 text-brand-700 font-black flex items-center justify-center overflow-hidden shrink-0">
+                        {doc.profilePictureUrl ? (
+                          <img src={doc.profilePictureUrl} alt={doc.fullName} className="w-full h-full object-cover" />
+                        ) : (
+                          doc.fullName.charAt(0)
+                        )}
+                      </div>
+                      <div>
+                        <span className="font-bold block leading-tight">{doc.fullName}</span>
+                        <span className="text-[10px] text-slate-500">{doc.specialty || 'General'}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleDoctorPresence(doc)}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-black cursor-pointer ${
+                          isPresent
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {isPresent ? 'IN' : 'OUT'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Top Banner Alert if Doctor is Away or Clinic is on Break */}
           {!doctorInClinic && (
             <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center space-x-3 text-rose-800 text-xs font-bold">
@@ -3086,6 +3482,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   Mark Consultation Done
                 </button>
                 <button
+                  onClick={() => handleOpenRemarkModal(activeConsultationPatient)}
+                  className="px-3 py-2.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  title="Add or edit clinical remark"
+                >
+                  Remark
+                </button>
+                <button
                   onClick={() => handleOpenPushAlertModal(activeConsultationPatient)}
                   className="px-3 py-2.5 bg-white hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                   title="Send push alert to patient"
@@ -3103,13 +3506,33 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           )}
 
-          {/* Section Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-black text-slate-900">Today's Live OPD Queue Board</h2>
-              <p className="text-xs text-slate-500">
-                Call patients inside, slide rankings up/down, shift dates, and complete visits.
-              </p>
+          {/* Section Header + Segmented Sub-Tabs (QueueBoardScreen.kt lines 124-140) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex p-1 bg-slate-200/80 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setQueueSubTab('waiting')}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
+                    queueSubTab === 'waiting'
+                      ? 'bg-white text-brand-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Waiting Queue ({queueWaitingCount + queueInsideCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQueueSubTab('past')}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
+                    queueSubTab === 'past'
+                      ? 'bg-white text-brand-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Past / Completed Queue ({todayAppointments.filter((a) => a.checkinStatus === 'completed' || a.checkinStatus === 'no_show' || a.checkinStatus === 'cancelled').length})
+                </button>
+              </div>
             </div>
             <div className="flex items-center space-x-2">
               <button
@@ -3145,7 +3568,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
                     <tr>
                       <th className="py-3.5 px-4">Token Code</th>
-                      <th className="py-3.5 px-4">Patient Name</th>
+                      <th className="py-3.5 px-4">Patient Name & Phone</th>
                       <th className="py-3.5 px-4">Age / Gender</th>
                       <th className="py-3.5 px-4">Doctor</th>
                       <th className="py-3.5 px-4">Status</th>
@@ -3155,7 +3578,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {todayAppointments.map((appt) => {
+                    {todayAppointments
+                      .filter((appt) =>
+                        queueSubTab === 'waiting'
+                          ? appt.checkinStatus === 'waiting' ||
+                            appt.checkinStatus === 'in_consultation' ||
+                            appt.checkinStatus === 'inside'
+                          : appt.checkinStatus === 'completed' ||
+                            appt.checkinStatus === 'no_show' ||
+                            appt.checkinStatus === 'cancelled'
+                      )
+                      .map((appt) => {
                       const isWaiting = appt.checkinStatus === 'waiting'
                       const inCabin =
                         appt.checkinStatus === 'in_consultation' || appt.checkinStatus === 'inside'
@@ -3171,10 +3604,38 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       return (
                         <tr key={appt.id} className="hover:bg-slate-50/50">
                           <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
-                            #{appt.trackingCode10Digit}
+                            <div className="flex items-center space-x-1.5">
+                              <span>#{appt.trackingCode10Digit}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(appt.trackingCode10Digit)
+                                  alert(`Copied 10-digit ID: ${appt.trackingCode10Digit}`)
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-brand-50 text-[10px] font-sans font-bold text-slate-600 hover:text-brand-700 cursor-pointer"
+                                title="Copy 10-Digit Tracking ID"
+                              >
+                                Copy
+                              </button>
+                            </div>
                           </td>
                           <td className="py-3.5 px-4 font-bold text-slate-900">
-                            {appt.patientName}
+                            <div>{appt.patientName}</div>
+                            {appt.patientMobile && (
+                              <a
+                                href={`tel:${appt.patientMobile}`}
+                                className="inline-flex items-center space-x-1 text-[11px] font-mono text-brand-700 hover:underline mt-0.5"
+                                title="Call Patient Mobile"
+                              >
+                                <Phone className="w-3 h-3" />
+                                <span>{appt.patientMobile}</span>
+                              </a>
+                            )}
+                            {appt.notes && (
+                              <div className="mt-1 px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-[10px] text-amber-900 font-medium">
+                                Remark: {appt.notes}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3.5 px-4 text-slate-600">
                             {appt.patientAge || '–'} Yrs • {appt.patientGender || '–'}
@@ -3190,6 +3651,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             ) : isDone ? (
                               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-brand-100 text-brand-800">
                                 Completed
+                              </span>
+                            ) : appt.checkinStatus === 'no_show' ? (
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">
+                                No-Show
                               </span>
                             ) : (
                               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
@@ -3276,6 +3741,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               </button>
                             )}
 
+                            {/* Add / Edit Clinical Remark (QueueBoardScreen.kt) */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenRemarkModal(appt)}
+                              className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg font-bold text-[11px] cursor-pointer"
+                              title="Add or edit clinical remark / notes"
+                            >
+                              Remark
+                            </button>
+
                             {/* Shift Appointment Date */}
                             <button
                               onClick={() => handleOpenShiftModal(appt)}
@@ -3312,7 +3787,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             </button>
 
                             {/* No Show */}
-                            {!isDone && (
+                            {!isDone && appt.checkinStatus !== 'no_show' && (
                               <button
                                 onClick={() => handleStatusChange(appt.id, 'no_show')}
                                 className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold text-[11px] cursor-pointer"
@@ -3500,7 +3975,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB: TIMED SLOTS PUBLISHER */}
+      {/* DESK TAB: TIMED SLOTS PUBLISHER (SlotManagerScreen.kt) */}
       {/* ========================================================= */}
       {deskTab === 'slots' && (
         <div className="space-y-6">
@@ -3515,6 +3990,36 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <span className="text-xs font-bold text-brand-800 bg-brand-50 px-3 py-1.5 rounded-xl border border-brand-200">
                 {publishedSlots.length} Slots Published on {slotDate}
               </span>
+            </div>
+          </div>
+
+          {/* 14-Day Horizontal Date Strip (SlotManagerScreen.kt) */}
+          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs space-y-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+              Quick 14-Day Schedule Selector
+            </span>
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1">
+              {upcoming14Dates.map((d) => {
+                const isSelected = slotDate === d.dateStr
+                const isHol = selectedClinic?.declaredHolidays?.includes(d.dateStr)
+                return (
+                  <button
+                    key={d.dateStr}
+                    type="button"
+                    onClick={() => setSlotDate(d.dateStr)}
+                    className={`px-3.5 py-2 rounded-2xl border text-center shrink-0 transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-brand-600 border-brand-600 text-white shadow-sm'
+                        : isHol
+                        ? 'bg-rose-50 border-rose-200 text-rose-700'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="text-[10px] font-bold block uppercase opacity-80">{d.dayShort}</span>
+                    <span className="text-sm font-black block">{d.dayNum} {d.monthShort}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
@@ -3687,7 +4192,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       return (
                         <div
                           key={slot.id}
-                          className="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-200 flex items-center justify-between transition-colors"
+                          className="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-200 flex items-center justify-between transition-colors gap-2"
                         >
                           <div className="space-y-0.5">
                             <span className="text-xs font-black text-slate-900 font-mono">
@@ -3709,14 +4214,36 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteSlot(slot.id)}
-                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                            title="Delete this time slot"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* Slot Actions from SlotManagerScreen.kt: -30m, Edit Capacity, Delete */}
+                          <div className="flex items-center space-x-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleSubtract30MinsFromSlot(slot)}
+                              className="px-2 py-1 text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg cursor-pointer"
+                              title="Shorten slot end time by 30 minutes"
+                            >
+                              -30m
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingSlotCapacity(slot)
+                                setNewSlotCapacityVal(slot.maxCapacity || 5)
+                              }}
+                              className="px-2 py-1 text-[10px] font-bold bg-white hover:bg-brand-50 text-slate-700 hover:text-brand-700 border border-slate-200 rounded-lg cursor-pointer"
+                              title="Edit max patients capacity"
+                            >
+                              Cap
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSlot(slot.id)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                              title="Delete this time slot"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       )
                     })}
@@ -3733,6 +4260,53 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'future_appts' && (
         <div className="space-y-6">
+          {/* 14-Day Horizontal Date Strip with Holiday & Booking Indicators (FutureAppointmentsScreen.kt) */}
+          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs space-y-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+              14-Day Upcoming OPD Calendar Strip
+            </span>
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1">
+              {upcoming14Dates.map((d) => {
+                const isSelected = futureSelectedDate === d.dateStr
+                const isHol = selectedClinic?.declaredHolidays?.includes(d.dateStr)
+                const apptCount = appointments.filter((a) => a.appointmentDate === d.dateStr).length
+                return (
+                  <button
+                    key={d.dateStr}
+                    type="button"
+                    onClick={() => setFutureSelectedDate(d.dateStr)}
+                    className={`px-3.5 py-2 rounded-2xl border text-center shrink-0 transition cursor-pointer relative ${
+                      isSelected
+                        ? 'bg-brand-600 border-brand-600 text-white shadow-sm'
+                        : isHol
+                        ? 'bg-rose-50 border-rose-300 text-rose-800'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="text-[10px] font-bold block uppercase opacity-80">{d.dayShort}</span>
+                    <span className="text-sm font-black block">{d.dayNum} {d.monthShort}</span>
+                    <div className="flex items-center justify-center gap-1 mt-0.5">
+                      {isHol && (
+                        <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase bg-rose-600 text-white">
+                          Closed
+                        </span>
+                      )}
+                      {apptCount > 0 && (
+                        <span
+                          className={`px-1.5 py-0.2 rounded text-[9px] font-black ${
+                            isSelected ? 'bg-white text-brand-700' : 'bg-brand-100 text-brand-800'
+                          }`}
+                        >
+                          {apptCount} OPD
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {/* Top Control Bar: Date Selector & Declare Holiday Toggle */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="space-y-1">
@@ -3743,6 +4317,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+              {/* Sub-filter Pills (FutureAppointmentsScreen.kt: All / Waiting / Completed) */}
+              <div className="flex p-1 bg-slate-100 rounded-xl">
+                {(['all', 'waiting', 'completed'] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setFutureSubFilter(f)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize cursor-pointer ${
+                      futureSubFilter === f
+                        ? 'bg-white text-brand-700 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {f === 'all' ? 'All' : f === 'waiting' ? 'Waiting / Active' : 'Completed'}
+                  </button>
+                ))}
+              </div>
+
               {/* Date Input */}
               <input
                 type="date"
@@ -3817,13 +4409,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {futureDateAppointments.map((appt) => (
+                    {futureDateAppointments
+                      .filter((appt) =>
+                        futureSubFilter === 'all'
+                          ? true
+                          : futureSubFilter === 'waiting'
+                          ? appt.checkinStatus === 'waiting' || appt.checkinStatus === 'in_consultation'
+                          : appt.checkinStatus === 'completed'
+                      )
+                      .map((appt) => (
                       <tr key={appt.id} className="hover:bg-slate-50/50">
                         <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
                           #{appt.trackingCode10Digit}
                         </td>
                         <td className="py-3.5 px-4 font-bold text-slate-900">
-                          {appt.patientName}
+                          <div>{appt.patientName}</div>
+                          {appt.notes && (
+                            <div className="mt-0.5 text-[10px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block">
+                              Remark: {appt.notes}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3.5 px-4 text-slate-600">
                           {appt.patientMobile || '–'}
@@ -3843,6 +4448,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           Rs. {appt.feeAmount} ({appt.paymentStatus})
                         </td>
                         <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenRemarkModal(appt)}
+                            className="px-2.5 py-1 bg-amber-50 text-amber-900 hover:bg-amber-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                          >
+                            Remark
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleOpenShiftModal(appt)}
@@ -3873,6 +4485,467 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB: NO-SHOW PATIENTS DESK (DashboardScreen.kt)      */}
+      {/* ========================================================= */}
+      {deskTab === 'noshow' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+                <span>No-Show Patients Management Desk</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Review patients marked as No-Show. Restore them back into the active waiting queue if they arrive late, or reschedule their appointment date.
+              </p>
+            </div>
+            <span className="px-3.5 py-1.5 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 text-xs font-black">
+              {noShowAppointments.length} No-Show Records
+            </span>
+          </div>
+
+          {noShowAppointments.length === 0 ? (
+            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
+              <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
+              <h3 className="font-bold text-slate-800 text-sm">Zero No-Show Patients</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                All registered patients have attended or are actively waiting in queue.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-rose-50/70 border-b border-rose-100 text-rose-900 uppercase tracking-wider font-bold">
+                    <tr>
+                      <th className="py-3.5 px-4">Token Code</th>
+                      <th className="py-3.5 px-4">Patient Name</th>
+                      <th className="py-3.5 px-4">Mobile</th>
+                      <th className="py-3.5 px-4">Scheduled Date</th>
+                      <th className="py-3.5 px-4">Doctor</th>
+                      <th className="py-3.5 px-4 text-right">Recovery Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {noShowAppointments.map((appt) => (
+                      <tr key={appt.id} className="hover:bg-slate-50/50">
+                        <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                          #{appt.trackingCode10Digit}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-slate-900">
+                          {appt.patientName}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {appt.patientMobile ? (
+                            <a
+                              href={`tel:${appt.patientMobile}`}
+                              className="text-brand-700 font-mono font-bold hover:underline"
+                            >
+                              {appt.patientMobile}
+                            </a>
+                          ) : (
+                            '–'
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-600">{appt.appointmentDate}</td>
+                        <td className="py-3.5 px-4 text-slate-600">
+                          {appt.doctor?.fullName || selectedDoctor?.fullName || 'OPD Doctor'}
+                        </td>
+                        <td className="py-3.5 px-4 text-right space-x-2 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(appt.id, 'waiting')}
+                            className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold text-[11px] cursor-pointer shadow-2xs"
+                          >
+                            Restore to Waiting Queue
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenShiftModal(appt)}
+                            className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-xl font-bold text-[11px] cursor-pointer"
+                          >
+                            Reschedule Date
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPushAlertModal(appt)}
+                            className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-bold text-[11px] cursor-pointer"
+                          >
+                            Push Alert
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB: CONSULTATION FEES MANAGER (ConsultationFeeManagerScreen.kt) */}
+      {/* ========================================================= */}
+      {deskTab === 'fees' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">
+                Doctor Consultation Fees Manager
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Configure OPD consultation fees for each enlisted doctor. Changes sync immediately to walk-in reception, online bookings, and billing invoices.
+              </p>
+            </div>
+            <span className="px-3.5 py-1.5 rounded-xl bg-brand-50 text-brand-800 border border-brand-200 text-xs font-black">
+              {clinicDoctors.length} Enlisted Doctors
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {clinicDoctors.map((doc) => {
+              const currentFeeVal =
+                editingDoctorFees[doc.id] !== undefined
+                  ? editingDoctorFees[doc.id]
+                  : doc.consultationFee || 500
+              return (
+                <div
+                  key={doc.id}
+                  className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-12 h-12 rounded-2xl bg-brand-100 text-brand-800 font-black flex items-center justify-center overflow-hidden">
+                        {doc.profilePictureUrl ? (
+                          <img src={doc.profilePictureUrl} alt={doc.fullName} className="w-full h-full object-cover" />
+                        ) : (
+                          doc.fullName.charAt(0)
+                        )}
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-slate-900">{doc.fullName}</h3>
+                        <p className="text-xs text-brand-700 font-bold">{doc.specialty || 'General Physician'}</p>
+                      </div>
+                    </div>
+                    <span className="px-3 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-black">
+                      Current: Rs. {doc.consultationFee || 500}
+                    </span>
+                  </div>
+
+                  {/* Quick Fee Presets */}
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] font-bold text-slate-500 block">
+                      Quick Fee Presets (NPR):
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[300, 500, 700, 800, 1000, 1200, 1500].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() =>
+                            setEditingDoctorFees({ ...editingDoctorFees, [doc.id]: preset })
+                          }
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition ${
+                            currentFeeVal === preset
+                              ? 'bg-brand-600 text-white border-brand-600'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          Rs. {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="number"
+                      min={0}
+                      value={currentFeeVal}
+                      onChange={(e) =>
+                        setEditingDoctorFees({
+                          ...editingDoctorFees,
+                          [doc.id]: Number(e.target.value) || 0,
+                        })
+                      }
+                      className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-black focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={savingDocFeeId === doc.id}
+                      onClick={() => handleSaveDoctorFee(doc, currentFeeVal)}
+                      className="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs transition"
+                    >
+                      {savingDocFeeId === doc.id ? 'Saving...' : 'Update Fee'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB: DOCTOR & STAFF INVITATIONS (InvitationManagerScreen.kt) */}
+      {/* ========================================================= */}
+      {deskTab === 'invitations' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">
+                Doctor & Clinical Staff Invitations
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Search verified Dactor practitioners across Nepal, inspect their full NMC credentials, and invite them to join {selectedClinic?.name}.
+              </p>
+            </div>
+            <div className="flex p-1 bg-slate-100 rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setInviteSubTab('find')}
+                className={`px-4 py-2 rounded-xl text-xs font-black cursor-pointer transition ${
+                  inviteSubTab === 'find'
+                    ? 'bg-white text-brand-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Find & Invite Staff ({allSystemDoctors.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setInviteSubTab('sent')}
+                className={`px-4 py-2 rounded-xl text-xs font-black cursor-pointer transition ${
+                  inviteSubTab === 'sent'
+                    ? 'bg-white text-brand-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Sent Invitations ({clinicInvitations.length})
+              </button>
+            </div>
+          </div>
+
+          {inviteSubTab === 'find' ? (
+            <div className="space-y-6">
+              {/* Direct Custom Email Invite Card */}
+              <form
+                onSubmit={handleSendCustomStaffInvitation}
+                className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4"
+              >
+                <h3 className="text-xs font-black uppercase tracking-wider text-brand-700">
+                  Send Direct Invitation by Google Email
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <input
+                    type="text"
+                    value={customInviteName}
+                    onChange={(e) => setCustomInviteName(e.target.value)}
+                    placeholder="Doctor / Technician Name"
+                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold"
+                    required
+                  />
+                  <input
+                    type="email"
+                    value={customInviteEmail}
+                    onChange={(e) => setCustomInviteEmail(e.target.value)}
+                    placeholder="practitioner@gmail.com"
+                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold"
+                    required
+                  />
+                  <select
+                    value={customInviteRole}
+                    onChange={(e) => setCustomInviteRole(e.target.value as any)}
+                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold"
+                  >
+                    <option value="doctor">Medical Doctor</option>
+                    <option value="lab_technician">Lab Technician</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className="py-2.5 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+                  >
+                    Send Invitation
+                  </button>
+                </div>
+              </form>
+
+              {/* Filter & Search Bar */}
+              <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  {(['all', 'doctor', 'lab_technician'] as const).map((rf) => (
+                    <button
+                      key={rf}
+                      type="button"
+                      onClick={() => setInviteRoleFilter(rf)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition ${
+                        inviteRoleFilter === rf
+                          ? 'bg-brand-600 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {rf === 'all' ? 'All Roles' : rf === 'doctor' ? 'Doctors' : 'Lab Staff'}
+                    </button>
+                  ))}
+                </div>
+                <div className="relative flex-1 max-w-md">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+                  <input
+                    type="text"
+                    value={inviteSearchQuery}
+                    onChange={(e) => setInviteSearchQuery(e.target.value)}
+                    placeholder="Search by Doctor Name, Specialty, NMC License, or Email..."
+                    className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold"
+                  />
+                </div>
+              </div>
+
+              {/* System Doctors Directory Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {allSystemDoctors
+                  .filter((d) =>
+                    inviteRoleFilter === 'all'
+                      ? true
+                      : (d.practitionerRole || (d.isLabTechnician ? 'lab_technician' : 'doctor')) ===
+                        inviteRoleFilter
+                  )
+                  .filter((d) => {
+                    if (!inviteSearchQuery.trim()) return true
+                    const q = inviteSearchQuery.toLowerCase()
+                    return (
+                      d.fullName.toLowerCase().includes(q) ||
+                      (d.specialty || '').toLowerCase().includes(q) ||
+                      (d.nmcLicenseNumber || '').toLowerCase().includes(q) ||
+                      (d.email || '').toLowerCase().includes(q)
+                    )
+                  })
+                  .map((doc) => {
+                    const alreadyEnlisted = clinicDoctors.some((cd) => cd.id === doc.id)
+                    const alreadyInvited = clinicInvitations.some(
+                      (inv) =>
+                        inv.status === 'pending' &&
+                        inv.invitedEmail.toLowerCase() === (doc.email || '').toLowerCase()
+                    )
+                    return (
+                      <div
+                        key={doc.id}
+                        className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between"
+                      >
+                        <div className="flex items-start space-x-3">
+                          <div className="w-13 h-13 rounded-2xl bg-brand-100 text-brand-800 font-black text-lg flex items-center justify-center overflow-hidden shrink-0">
+                            {doc.profilePictureUrl ? (
+                              <img
+                                src={doc.profilePictureUrl}
+                                alt={doc.fullName}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              doc.fullName.charAt(0)
+                            )}
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-slate-900">{doc.fullName}</h4>
+                            <p className="text-xs font-bold text-brand-700">
+                              {doc.specialty || 'General Physician'}
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              {doc.education || 'MBBS'} • NMC: {doc.nmcLicenseNumber || 'Verified'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => setViewingDoctorProfile(doc)}
+                            className="flex-1 py-2 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs cursor-pointer"
+                          >
+                            View Full Profile
+                          </button>
+                          {alreadyEnlisted ? (
+                            <span className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-black">
+                              ✓ Enlisted
+                            </span>
+                          ) : alreadyInvited ? (
+                            <span className="px-3 py-2 rounded-xl bg-amber-50 text-amber-800 text-xs font-black">
+                              Pending Invite
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleSendDoctorInvitation(doc)}
+                              className="flex-1 py-2 px-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs cursor-pointer"
+                            >
+                              Invite to Clinic
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+              {clinicInvitations.length === 0 ? (
+                <div className="p-12 text-center text-xs text-slate-500">
+                  No staff invitations have been sent from this clinic yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                      <tr>
+                        <th className="py-3.5 px-4">Practitioner Name</th>
+                        <th className="py-3.5 px-4">Email</th>
+                        <th className="py-3.5 px-4">Role</th>
+                        <th className="py-3.5 px-4">Status</th>
+                        <th className="py-3.5 px-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {clinicInvitations.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-slate-50/50">
+                          <td className="py-3.5 px-4 font-bold text-slate-900">{inv.invitedName}</td>
+                          <td className="py-3.5 px-4 text-slate-600">{inv.invitedEmail}</td>
+                          <td className="py-3.5 px-4 capitalize">{inv.role}</td>
+                          <td className="py-3.5 px-4">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                inv.status === 'accepted'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : inv.status === 'rejected'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {inv.status}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            {inv.status === 'pending' && (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelStaffInvitation(inv.id)}
+                                className="px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                              >
+                                Cancel / Revoke
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -4167,20 +5240,37 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB 6: BILLS & PAYMENTS DIRECTORY */}
+      {/* DESK TAB 6: BILLS & PAYMENTS DIRECTORY (BillingScreen.kt) */}
       {/* ========================================================= */}
       {deskTab === 'billing' && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-black text-slate-900">Clinic Billing & Invoices Directory</h2>
               <p className="text-xs text-slate-500">
-                Track all patient payments, total bills, and dates. Generates invoices on request.
+                Track all patient payments, total bills, balance due, and dates. Filter by date or generate thermal receipts.
               </p>
             </div>
-            <span className="text-xs font-bold text-brand-800 bg-brand-50 px-3 py-1.5 rounded-xl">
-              {invoices.length} Invoices Recorded
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                value={billingDateFilter === 'all' ? '' : billingDateFilter}
+                onChange={(e) => setBillingDateFilter(e.target.value || 'all')}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800"
+              />
+              {billingDateFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setBillingDateFilter('all')}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 cursor-pointer"
+                >
+                  Show All Dates
+                </button>
+              )}
+              <span className="text-xs font-bold text-brand-800 bg-brand-50 px-3 py-1.5 rounded-xl">
+                {invoices.length} Invoices Recorded
+              </span>
+            </div>
           </div>
 
           <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
@@ -4198,7 +5288,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
-                  {invoices.map((inv) => (
+                  {invoices
+                    .filter((inv) =>
+                      billingDateFilter === 'all'
+                        ? true
+                        : (inv.createdAt?.split('T')[0] || '') === billingDateFilter
+                    )
+                    .map((inv) => (
                     <tr key={inv.id} className="hover:bg-slate-50/50">
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
                         #{inv.id.substring(0, 8)} •{' '}
@@ -4244,7 +5340,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           </div>
 
-          {/* Clinic Direct Billing Catalog Manager */}
+          {/* Clinic Direct Billing Catalog Manager (CatalogManagerScreen.kt) */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
               <div>
@@ -4259,6 +5355,35 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
                 {services.length} Catalog Items
               </span>
+            </div>
+
+            {/* Category Filter Tabs & Search Bar (CatalogManagerScreen.kt) */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-1.5">
+                {['All', 'Hematology', 'Biochemistry', 'Radiology & Imaging', 'Clinical Pathology', 'Consultation'].map(
+                  (cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setCatalogCategoryFilter(cat)}
+                      className={`px-3 py-1 rounded-xl text-xs font-bold cursor-pointer transition ${
+                        catalogCategoryFilter === cat
+                          ? 'bg-brand-600 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  )
+                )}
+              </div>
+              <input
+                type="text"
+                value={catalogSearchQuery}
+                onChange={(e) => setCatalogSearchQuery(e.target.value)}
+                placeholder="Search catalog items..."
+                className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold sm:w-56"
+              />
             </div>
 
             {/* Form to add item to catalog */}
@@ -4303,7 +5428,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {services.map((item) => (
+                {services
+                  .filter((item) =>
+                    catalogCategoryFilter === 'All'
+                      ? true
+                      : (item.category || '').toLowerCase() === catalogCategoryFilter.toLowerCase()
+                  )
+                  .filter((item) =>
+                    !catalogSearchQuery.trim()
+                      ? true
+                      : item.serviceName.toLowerCase().includes(catalogSearchQuery.toLowerCase())
+                  )
+                  .map((item) => (
                   <div
                     key={item.id}
                     className="p-3 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 flex items-center justify-between transition-colors"
@@ -4426,7 +5562,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
             </div>
           )}
-        
+
           {/* Patient Directory Table */}
           <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
@@ -4484,7 +5620,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         </td>
                         <td className="py-3.5 px-4">
                           <div className="flex flex-wrap gap-1">
-                            {pat.trackingCodes.slice(0, 2).map((code) => (
+                            {pat.trackingCodes.slice(0, 2).map((code: string) => (
                               <span
                                 key={code}
                                 className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-mono text-[10px] font-bold"
@@ -4506,15 +5642,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
             )}
           </div>
-</div>
+        </div>
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB 8: DIAGNOSTIC LAB 3-STAGE PIPELINE */}
+      {/* DESK TAB 8: DIAGNOSTIC LAB 3-STAGE PIPELINE (LabWorkflowScreen.kt) */}
       {/* ========================================================= */}
       {deskTab === 'lab' && isDiagnosticLab && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-black text-slate-900">
                 Diagnostic Laboratory Pipeline (3-Stage Workflow)
@@ -4525,11 +5661,45 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
             <button
               onClick={() => setRefreshKey((k) => k + 1)}
-              className="flex items-center space-x-1.5 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-xl cursor-pointer"
+              className="flex items-center space-x-1.5 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-xl cursor-pointer self-start sm:self-auto"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               <span>Refresh Lab Queue</span>
             </button>
+          </div>
+
+          {/* 3 Sub-Tabs + Search Bar (LabWorkflowScreen.kt) */}
+          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="flex p-1 bg-slate-100 rounded-2xl">
+              {(['all', 'processing', 'prepared'] as const).map((lt) => (
+                <button
+                  key={lt}
+                  type="button"
+                  onClick={() => setLabSubTab(lt)}
+                  className={`px-4 py-2 rounded-xl text-xs font-black cursor-pointer transition ${
+                    labSubTab === lt
+                      ? 'bg-white text-teal-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {lt === 'all'
+                    ? 'All Lab Orders'
+                    : lt === 'processing'
+                    ? 'Processing in Lab'
+                    : 'Prepared & Ready'}
+                </button>
+              ))}
+            </div>
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+              <input
+                type="text"
+                value={labSearchQuery}
+                onChange={(e) => setLabSearchQuery(e.target.value)}
+                placeholder="Search by 10-Digit Code, Patient Name, or Test..."
+                className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold"
+              />
+            </div>
           </div>
 
           <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
@@ -4545,7 +5715,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
-                  {appointments.map((appt) => {
+                  {appointments
+                    .filter((appt) => {
+                      const relatedReport = labReports.find(
+                        (r) => r.trackingCode10Digit === appt.trackingCode10Digit
+                      )
+                      const labStatus =
+                        relatedReport?.status ||
+                        (appt.checkinStatus === 'completed'
+                          ? 'prepared'
+                          : appt.checkinStatus === 'in_consultation'
+                          ? 'processing'
+                          : 'sample_collected')
+                      if (labSubTab === 'processing' && labStatus !== 'processing') return false
+                      if (labSubTab === 'prepared' && labStatus !== 'prepared') return false
+                      if (labSearchQuery.trim()) {
+                        const q = labSearchQuery.toLowerCase()
+                        return (
+                          appt.trackingCode10Digit.toLowerCase().includes(q) ||
+                          appt.patientName.toLowerCase().includes(q)
+                        )
+                      }
+                      return true
+                    })
+                    .map((appt) => {
                     const relatedReport = labReports.find(
                       (r) => r.trackingCode10Digit === appt.trackingCode10Digit
                     )
@@ -4605,15 +5798,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             </button>
                           )}
                           {labStatus === 'prepared' && relatedReport?.reportFileUrl && (
-                            <a
-                              href={relatedReport.reportFileUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px] inline-flex items-center space-x-1"
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLabVerifyTargetReport({ report: relatedReport, appt })
+                                setLabVerifyInput('')
+                                setLabVerifyError(null)
+                              }}
+                              className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg font-bold text-[11px] inline-flex items-center space-x-1 cursor-pointer"
                             >
-                              <Eye className="w-3 h-3" />
-                              <span>View File</span>
-                            </a>
+                              <Lock className="w-3 h-3" />
+                              <span>Verify & View Report</span>
+                            </button>
                           )}
                         </td>
                       </tr>
@@ -4627,95 +5823,142 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB 9: MANAGE LAB TESTS & PRICING RATES */}
+      {/* DESK TAB 9: MANAGE LAB TESTS & PRICING RATES (CatalogManagerScreen.kt) */}
       {/* ========================================================= */}
       {deskTab === 'rates' && isDiagnosticLab && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
-            <h3 className="text-lg font-black text-slate-900">Add Diagnostic Test</h3>
-            <p className="text-xs text-slate-500 font-medium">
-              Create a new test or package with your official rate.
+        <div className="space-y-6">
+          {/* 1-Click Common Diagnostic Test Presets (CatalogManagerScreen.kt) */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-3">
+            <h3 className="text-xs font-black uppercase tracking-wider text-teal-700">
+              ⚡ 1-Click Common Pathology & Diagnostic Presets
+            </h3>
+            <p className="text-xs text-slate-500">
+              Click any standard Nepal laboratory test below to add it immediately to your clinic's published rate list:
             </p>
-
-            <form onSubmit={handleAddService} className="space-y-3.5">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Test Name</label>
-                <input
-                  type="text"
-                  value={newServiceName}
-                  onChange={(e) => setNewServiceName(e.target.value)}
-                  placeholder="e.g. Complete Blood Count (CBC)"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Price (Rs.)</label>
-                <input
-                  type="number"
-                  value={newServicePrice}
-                  onChange={(e) => setNewServicePrice(e.target.value)}
-                  placeholder="e.g. 600"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Category</label>
-                <select
-                  value={newServiceCategory}
-                  onChange={(e) => setNewServiceCategory(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+            <div className="flex flex-wrap gap-2">
+              {[
+                { name: 'Complete Blood Count (CBC)', price: 450, cat: 'Hematology' },
+                { name: 'Fasting Blood Sugar (FBS)', price: 150, cat: 'Biochemistry' },
+                { name: 'HbA1c (Glycated Hemoglobin)', price: 750, cat: 'Biochemistry' },
+                { name: 'Lipid Profile', price: 900, cat: 'Biochemistry' },
+                { name: 'Liver Function Test (LFT)', price: 850, cat: 'Biochemistry' },
+                { name: 'Renal Function Test (RFT)', price: 800, cat: 'Biochemistry' },
+                { name: 'Thyroid Profile (T3, T4, TSH)', price: 1100, cat: 'Hormones & Immunology' },
+                { name: 'Urine Routine Examination (R/E)', price: 200, cat: 'Clinical Pathology' },
+                { name: 'Digital X-Ray Chest PA', price: 600, cat: 'Radiology & Imaging' },
+                { name: 'USG Whole Abdomen & Pelvis', price: 1200, cat: 'Radiology & Imaging' },
+              ].map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  onClick={async () => {
+                    if (!selectedClinic) return
+                    const created = await createClinicService({
+                      clinicId: selectedClinic.id,
+                      serviceName: preset.name,
+                      price: preset.price,
+                      category: preset.cat,
+                      isAvailable: true,
+                    })
+                    if (created) {
+                      setServices((prev) => [...prev, created])
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 text-xs font-bold cursor-pointer transition"
                 >
-                  <option value="Hematology">Hematology</option>
-                  <option value="Biochemistry">Biochemistry</option>
-                  <option value="Hormones & Immunology">Hormones & Immunology</option>
-                  <option value="Microbiology & Serology">Microbiology & Serology</option>
-                  <option value="Clinical Pathology">Clinical Pathology</option>
-                  <option value="Radiology & Imaging">Radiology & Imaging</option>
-                </select>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs shadow-xs transition-colors cursor-pointer"
-              >
-                Save Test & Publish Rate
-              </button>
-            </form>
+                  + {preset.name} (Rs. {preset.price})
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black text-slate-900">Current Clinic Diagnostic Rates</h3>
-              <span className="text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1 rounded-full">
-                {services.length} Tests Active
-              </span>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+              <h3 className="text-lg font-black text-slate-900">Add Diagnostic Test</h3>
+              <p className="text-xs text-slate-500 font-medium">
+                Create a new test or package with your official rate.
+              </p>
+
+              <form onSubmit={handleAddService} className="space-y-3.5">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Test Name</label>
+                  <input
+                    type="text"
+                    value={newServiceName}
+                    onChange={(e) => setNewServiceName(e.target.value)}
+                    placeholder="e.g. Complete Blood Count (CBC)"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Price (Rs.)</label>
+                  <input
+                    type="number"
+                    value={newServicePrice}
+                    onChange={(e) => setNewServicePrice(e.target.value)}
+                    placeholder="e.g. 600"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Category</label>
+                  <select
+                    value={newServiceCategory}
+                    onChange={(e) => setNewServiceCategory(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  >
+                    <option value="Hematology">Hematology</option>
+                    <option value="Biochemistry">Biochemistry</option>
+                    <option value="Hormones & Immunology">Hormones & Immunology</option>
+                    <option value="Microbiology & Serology">Microbiology & Serology</option>
+                    <option value="Clinical Pathology">Clinical Pathology</option>
+                    <option value="Radiology & Imaging">Radiology & Imaging</option>
+                  </select>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs shadow-xs transition-colors cursor-pointer"
+                >
+                  Save Test & Publish Rate
+                </button>
+              </form>
             </div>
 
-            <div className="space-y-2.5 max-h-[500px] overflow-y-auto">
-              {services.map((srv) => (
-                <div
-                  key={srv.id}
-                  className="p-3.5 rounded-2xl border border-slate-100 bg-slate-50/60 flex items-center justify-between"
-                >
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-900">{srv.serviceName}</h4>
-                    <span className="text-[10px] text-slate-400 font-medium">{srv.category}</span>
+            <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-black text-slate-900">Current Clinic Diagnostic Rates</h3>
+                <span className="text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1 rounded-full">
+                  {services.length} Tests Active
+                </span>
+              </div>
+
+              <div className="space-y-2.5 max-h-[500px] overflow-y-auto">
+                {services.map((srv) => (
+                  <div
+                    key={srv.id}
+                    className="p-3.5 rounded-2xl border border-slate-100 bg-slate-50/60 flex items-center justify-between"
+                  >
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">{srv.serviceName}</h4>
+                      <span className="text-[10px] text-slate-400 font-medium">{srv.category}</span>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <span className="text-xs font-black text-teal-700">Rs. {srv.price}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteService(srv.id)}
+                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                        title="Remove test"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-3">
-                    <span className="text-xs font-black text-teal-700">Rs. {srv.price}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteService(srv.id)}
-                      className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                      title="Remove test"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -4783,15 +6026,65 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB 11: CLINIC PROFILE & OPERATIONAL SETTINGS */}
+      {/* DESK TAB 11: CLINIC PROFILE & OPERATIONAL SETTINGS (ClinicSettingsScreen.kt) */}
       {/* ========================================================= */}
       {deskTab === 'settings' && (
-        <div className="max-w-2xl mx-auto space-y-6">
+        <div className="max-w-3xl mx-auto space-y-6">
+          {/* 1. PORTAL LICENSE & SUBSCRIPTION STATUS CARD (ClinicSettingsScreen.kt lines 155-235) */}
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-brand-600 block">
+                  Dactor Cloud Operational License
+                </span>
+                <h3 className="text-lg font-black text-slate-900">
+                  Portal Subscription & License Status
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Plan: <strong className="text-slate-800">{selectedClinic?.activationPlan || '1_month'}</strong> • Expires:{' '}
+                  <strong className="text-slate-800">
+                    {selectedClinic?.activationExpiresAt?.split('T')[0] || '30 Days'}
+                  </strong>
+                </p>
+              </div>
+              <span
+                className={`px-4 py-1.5 rounded-2xl text-xs font-black border self-start sm:self-auto ${
+                  isSubscriptionActive
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : 'bg-rose-50 text-rose-800 border-rose-300'
+                }`}
+              >
+                {isSubscriptionActive
+                  ? `Active • ${subscriptionDaysLeft} Days Left`
+                  : 'Subscription Expired'}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRenewalModal(true)}
+                className="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+              >
+                Renew Subscription Plan (1 Month / 1 Year)
+              </button>
+              <button
+                type="button"
+                disabled={submittingRenewal}
+                onClick={handleInstantBypassSubscription}
+                className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs cursor-pointer"
+              >
+                ⚡ Instant 30-Day Testing Activation Bypass
+              </button>
+            </div>
+          </div>
+
+          {/* 2. CLINIC PROFILE, OPERATIONAL TYPE, GPS & PAYMENT GATEWAY FORM */}
           <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
             <div>
               <h2 className="text-xl font-black text-slate-900">Clinic Profile & Operational Settings</h2>
               <p className="text-xs text-slate-500 font-medium mt-1">
-                Configure your official registration details, emergency manager phone, and auto-queue thresholds.
+                Configure your official registration details, facility type, 13 Nepal City GPS coordinates, specialties, and direct payment gateway keys.
               </p>
             </div>
 
@@ -4802,15 +6095,31 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
             )}
 
-            <form onSubmit={handleSaveClinicSettings} className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Clinic Name</label>
-                <input
-                  type="text"
-                  value={settingName}
-                  onChange={(e) => setSettingName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
+            <form onSubmit={handleSaveClinicSettings} className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Clinic Name</label>
+                  <input
+                    type="text"
+                    value={settingName}
+                    onChange={(e) => setSettingName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Operational Facility Type
+                  </label>
+                  <select
+                    value={settingType}
+                    onChange={(e) => setSettingType(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    <option value="multi_visit">Polyclinic / Multi-Visit OPD Hospital</option>
+                    <option value="single_Specialty">Single-Specialty Clinic</option>
+                    <option value="diagnostic_lab">Diagnostic Pathology Lab</option>
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -4859,14 +6168,115 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
               </div>
 
+              {/* Address & 13 Nepal Cities GPS Presets (ClinicSettingsScreen.kt) */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Address Text</label>
+                  <input
+                    type="text"
+                    value={settingAddress}
+                    onChange={(e) => setSettingAddress(e.target.value)}
+                    placeholder="Street Address, City, Ward"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-bold text-slate-600 block">
+                    Quick Nepal City GPS Presets (13 Major Cities):
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {NEPAL_CITY_PRESETS.map((city) => (
+                      <button
+                        key={city.name}
+                        type="button"
+                        onClick={() => {
+                          setSettingLat(city.lat)
+                          setSettingLng(city.lng)
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-brand-50 text-slate-700 hover:text-brand-800 border border-slate-200 text-[10px] font-bold cursor-pointer"
+                      >
+                        📍 {city.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Latitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={settingLat}
+                      onChange={(e) => setSettingLat(parseFloat(e.target.value) || 27.7172)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Longitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={settingLng}
+                      onChange={(e) => setSettingLng(parseFloat(e.target.value) || 85.324)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSettingsGPS}
+                    disabled={isDetectingLocation}
+                    className="py-2 px-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold cursor-pointer flex items-center justify-center space-x-1"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>{isDetectingLocation ? 'Detecting...' : 'Detect Live GPS'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Specialties Multi-Select */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Available Medical Specialties & Departments
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {defaultSpecialtyList.map((spec) => {
+                    const selected = settingSpecialties.includes(spec)
+                    return (
+                      <button
+                        key={spec}
+                        type="button"
+                        onClick={() =>
+                          setSettingSpecialties(
+                            selected
+                              ? settingSpecialties.filter((s) => s !== spec)
+                              : [...settingSpecialties, spec]
+                          )
+                        }
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition ${
+                          selected
+                            ? 'bg-brand-600 text-white border-brand-600'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {selected ? `✓ ${spec}` : `+ ${spec}`}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Address Text</label>
-                <input
-                  type="text"
-                  value={settingAddress}
-                  onChange={(e) => setSettingAddress(e.target.value)}
-                  placeholder="Street Address, City, Ward"
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Facility Description & Patient Instructions
+                </label>
+                <textarea
+                  rows={2}
+                  value={settingDesc}
+                  onChange={(e) => setSettingDesc(e.target.value)}
+                  placeholder="Describe available diagnostic services, pharmacy, parking, and OPD timings..."
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50"
                 />
               </div>
 
@@ -4884,17 +6294,97 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 />
               </div>
 
+              {/* Direct Payment Gateway & API Configuration (ClinicSettingsScreen.kt lines 420-530) */}
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                      Direct Patient Payment Gateway Integration
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Receive online consultation & lab payments directly into your clinic merchant account.
+                    </p>
+                  </div>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settingDirectPaymentEnabled}
+                      onChange={(e) => setSettingDirectPaymentEnabled(e.target.checked)}
+                      className="w-4 h-4 rounded text-brand-600"
+                    />
+                    <span className="text-xs font-bold text-slate-800">Enable Direct Payment</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      Payment Gateway Provider
+                    </label>
+                    <select
+                      value={settingGatewayProvider}
+                      onChange={(e) => setSettingGatewayProvider(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold"
+                    >
+                      <option value="esewa">eSewa Merchant (Nepal)</option>
+                      <option value="khalti">Khalti Digital Wallet (Nepal)</option>
+                      <option value="connectips">ConnectIPS / Fonepay</option>
+                      <option value="stripe">Stripe International</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      Merchant ID / Service Code
+                    </label>
+                    <input
+                      type="text"
+                      value={settingMerchantId}
+                      onChange={(e) => setSettingMerchantId(e.target.value)}
+                      placeholder="e.g. EPAYTEST or Merchant ID"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      Public / Live API Key
+                    </label>
+                    <input
+                      type="text"
+                      value={settingPaymentApiKey}
+                      onChange={(e) => setSettingPaymentApiKey(e.target.value)}
+                      placeholder="live_public_key_..."
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      Merchant Secret Key
+                    </label>
+                    <input
+                      type="password"
+                      value={settingPaymentSecretKey}
+                      onChange={(e) => setSettingPaymentSecretKey(e.target.value)}
+                      placeholder="••••••••••••••••"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={savingSettings}
                 className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all text-xs cursor-pointer"
               >
-                {savingSettings ? 'Saving Settings...' : 'Save Clinic Settings'}
+                {savingSettings ? 'Saving Settings...' : 'Save All Clinic Profile & Gateway Settings'}
               </button>
             </form>
           </div>
 
-          {/* CLINIC FACILITY PHOTOS & LOGO GALLERY (1-4 Photos) */}
+          {/* 3. CLINIC FACILITY PHOTOS & LOGO GALLERY (1-4 Photos) */}
           <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
               <div>
@@ -5007,6 +6497,50 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </p>
               </div>
             )}
+          </div>
+
+          {/* 4. LEGAL TERMS & 30-DAY ARCHIVE ACCOUNT DELETION (ClinicSettingsScreen.kt lines 540-630) */}
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-rose-200/80 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-slate-900">
+                  Regulatory Terms & Account Lifecycle Governance
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Review your Dactor healthcare provider agreement or schedule a 30-day reversible clinic account deletion.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTermsModal(true)}
+                className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs cursor-pointer shrink-0"
+              >
+                View Regulatory Terms & Conditions
+              </button>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="text-xs text-rose-700">
+                <strong>30-Day Reversible Deletion Policy:</strong> Deleting your clinic account immediately hides your clinic from patient search and schedules permanent deletion in 30 days.
+              </div>
+              {selectedClinic?.isArchived ? (
+                <button
+                  type="button"
+                  onClick={handleCancelClinicArchive}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs cursor-pointer shrink-0"
+                >
+                  Restore Clinic Account
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteArchiveModal(true)}
+                  className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs cursor-pointer shrink-0"
+                >
+                  Delete Clinic Account (30-Day Grace)
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -5346,6 +6880,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     placeholder="e.g. 1000"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setBillPaidAmount(String(billTotalAmount || 0))}
+                      className="px-2 py-0.5 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-md text-[10px] font-bold border border-brand-200 cursor-pointer"
+                    >
+                      Full Amount
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBillPaidAmount(String(Math.round((Number(billTotalAmount) || 0) * 0.5)))}
+                      className="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-md text-[10px] font-bold border border-amber-200 cursor-pointer"
+                    >
+                      50% Advance
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBillPaidAmount('0')}
+                      className="px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-md text-[10px] font-bold border border-rose-200 cursor-pointer"
+                    >
+                      Unpaid (Rs. 0)
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -5777,11 +7334,48 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 Register Doctor / Medical Practitioner
               </h3>
               <p className="text-xs text-slate-500">
-                Add a specialist to {selectedClinic?.name} with starting practice year and consultation fee.
+                Add a specialist or lab technician to {selectedClinic?.name} with starting practice year and consultation fee.
               </p>
             </div>
 
             <form onSubmit={handleCreateDoctor} className="space-y-4">
+              {/* Role Selector */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Practitioner Role
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDocRole('doctor')
+                      if (docSpecialty === 'Pathology & Lab Medicine') setDocSpecialty('General Physician')
+                    }}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      docRole === 'doctor'
+                        ? 'bg-brand-600 text-white border-brand-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    👨‍⚕️ Medical Doctor
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDocRole('lab_technician')
+                      setDocSpecialty('Pathology & Lab Medicine')
+                    }}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      docRole === 'lab_technician'
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🧪 Lab Technician
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
                   Full Name <span className="text-rose-500">*</span>
@@ -6002,6 +7596,580 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   {uploadingDoctorPhoto ? 'Uploading...' : 'Save & Publish Photo'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 1: PORTAL SUBSCRIPTION & ACTIVATION RENEWAL         */}
+      {/* ========================================================= */}
+      {showRenewalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-brand-600">
+                  Dactor Portal License
+                </span>
+                <h3 className="text-lg font-black text-slate-900">
+                  Manage & Renew Clinic Subscription
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {selectedClinic?.name} • Status: {!isSubscriptionActive ? 'Expired / Renewal Due' : `${subscriptionDaysLeft} Days Remaining`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRenewalModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRequestRenewalSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRenewalPlan('1_month')}
+                  className={`p-4 rounded-2xl border text-left transition cursor-pointer ${
+                    renewalPlan === '1_month'
+                      ? 'bg-brand-50 border-brand-500 ring-2 ring-brand-500/20'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-brand-600 block">
+                    Monthly License
+                  </span>
+                  <span className="text-lg font-black text-slate-900 block mt-0.5">
+                    Rs. 1,500
+                  </span>
+                  <span className="text-[11px] text-slate-500 block mt-1">
+                    30 Days Full OPD & Lab Portal
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRenewalPlan('12_months')}
+                  className={`p-4 rounded-2xl border text-left transition cursor-pointer relative ${
+                    renewalPlan === '12_months'
+                      ? 'bg-brand-50 border-brand-500 ring-2 ring-brand-500/20'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="px-2 py-0.5 bg-emerald-600 text-white text-[9px] font-black rounded-md uppercase absolute top-2.5 right-2.5">
+                    Save 17%
+                  </span>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-brand-600 block">
+                    Annual License
+                  </span>
+                  <span className="text-lg font-black text-slate-900 block mt-0.5">
+                    Rs. 15,000
+                  </span>
+                  <span className="text-[11px] text-slate-500 block mt-1">
+                    365 Days Full OPD & Lab Portal
+                  </span>
+                </button>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  eSewa / Khalti / Bank Transaction Reference ID
+                </label>
+                <input
+                  type="text"
+                  value={renewalTxnRef}
+                  onChange={(e) => setRenewalTxnRef(e.target.value)}
+                  placeholder="e.g. ESW-984120394 or Bank Voucher #"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  required
+                />
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  disabled={submittingRenewal}
+                  onClick={handleInstantBypassSubscription}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+                >
+                  ⚡ Instant Activation (Testing Bypass)
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingRenewal}
+                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-brand-600/20 cursor-pointer"
+                >
+                  {submittingRenewal ? 'Submitting...' : 'Submit Payment Renewal'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 2: CLINIC NOTIFICATIONS DRAWER                      */}
+      {/* ========================================================= */}
+      {showNotificationsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2">
+                <Bell className="w-5 h-5 text-brand-600" />
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    Clinic Notifications & Activity Log
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Recent alerts, bookings, and broadcasts for {selectedClinic?.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNotificationsModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+              {clinicNotifications.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs font-medium">
+                  No recent notifications found for this clinic.
+                </div>
+              ) : (
+                clinicNotifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-slate-900">{n.title}</span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        {n.createdAt ? new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">{n.message}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowNotificationsModal(false)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Close Drawer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 3: CLINICAL REMARK / RECEPTION NOTES EDITOR         */}
+      {/* ========================================================= */}
+      {remarkModalOpen && remarkTargetAppt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
+                  Reception / Clinical Notes
+                </span>
+                <h3 className="text-base font-black text-slate-900">
+                  Add / Edit Remark for {remarkTargetAppt.patientName}
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Token #{remarkTargetAppt.trackingCode10Digit}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRemarkModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveClinicalRemark} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Clinical Remark / Symptoms / Reception Note
+                </label>
+                <textarea
+                  rows={4}
+                  value={remarkText}
+                  onChange={(e) => setRemarkText(e.target.value)}
+                  placeholder="Enter patient vitals, chief complaint, follow-up instructions, or reception notes..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setRemarkModalOpen(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingRemark}
+                  className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+                >
+                  {savingRemark ? 'Saving...' : 'Save Remark'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 4: EDIT SLOT MAX CAPACITY                           */}
+      {/* ========================================================= */}
+      {editingSlotCapacity && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
+                  Slot Capacity Control
+                </span>
+                <h3 className="text-base font-black text-slate-900">
+                  Update Max Patients for Slot
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  {editingSlotCapacity.startTime} - {editingSlotCapacity.endTime} ({editingSlotCapacity.slotDate})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSlotCapacity(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSlotCapacityUpdate} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Maximum Patient Bookings Allowed
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={newSlotCapacityVal}
+                  onChange={(e) => setNewSlotCapacityVal(Number(e.target.value) || 1)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-black focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingSlotCapacity(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+                >
+                  Update Capacity
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 5: VIEW DOCTOR PROFILE (FROM INVITATIONS DIRECTORY) */}
+      {/* ========================================================= */}
+      {viewingDoctorProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-3">
+                <div className="w-12 h-12 rounded-2xl bg-brand-50 border border-brand-200 overflow-hidden flex items-center justify-center font-black text-brand-700 text-lg">
+                  {viewingDoctorProfile.profilePictureUrl ? (
+                    <img
+                      src={viewingDoctorProfile.profilePictureUrl}
+                      alt={viewingDoctorProfile.fullName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    viewingDoctorProfile.fullName.charAt(0)
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    {viewingDoctorProfile.fullName}
+                  </h3>
+                  <p className="text-xs font-bold text-brand-600">
+                    {viewingDoctorProfile.specialty || 'General Physician'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingDoctorProfile(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+              <div className="flex justify-between">
+                <span className="text-slate-500">NMC License Number:</span>
+                <span className="font-bold text-slate-900">{viewingDoctorProfile.nmcLicenseNumber || 'Verified'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Qualifications:</span>
+                <span className="font-bold text-slate-900">{viewingDoctorProfile.education || 'MBBS, MD'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Experience:</span>
+                <span className="font-bold text-slate-900">
+                  {viewingDoctorProfile.startingPracticingYear
+                    ? `${Math.max(1, 2026 - viewingDoctorProfile.startingPracticingYear)}+ Years (Since ${viewingDoctorProfile.startingPracticingYear})`
+                    : `${viewingDoctorProfile.experienceYears || 5}+ Years`}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Standard OPD Fee:</span>
+                <span className="font-bold text-brand-700">Rs. {viewingDoctorProfile.consultationFee || 500}</span>
+              </div>
+              {viewingDoctorProfile.publicMobileNumber && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Public Contact:</span>
+                  <span className="font-bold text-slate-900">{viewingDoctorProfile.publicMobileNumber}</span>
+                </div>
+              )}
+              {viewingDoctorProfile.description && (
+                <div className="pt-2 border-t border-slate-200 mt-2">
+                  <span className="text-slate-500 block mb-0.5">Bio / Clinical Summary:</span>
+                  <p className="text-slate-700 leading-relaxed">{viewingDoctorProfile.description}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center space-x-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setViewingDoctorProfile(null)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleSendDoctorInvitation(viewingDoctorProfile)
+                  setViewingDoctorProfile(null)
+                }}
+                className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+              >
+                Send Clinic Invitation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 6: LAB REPORT PRIVACY VERIFICATION GATE             */}
+      {/* ========================================================= */}
+      {labVerifyTargetReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-teal-600">
+                  Patient Privacy Security Gate
+                </span>
+                <h3 className="text-base font-black text-slate-900">
+                  Verify Identity to View Report
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Report: {labVerifyTargetReport.report.testName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setLabVerifyTargetReport(null)
+                  setLabVerifyInput('')
+                  setLabVerifyError(null)
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleVerifyAndOpenLabReport} className="space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                For patient confidentiality, please enter the patient&apos;s <strong>Full Name</strong> or <strong>Registered Mobile Number</strong> to unlock and open this diagnostic report.
+              </p>
+
+              <div>
+                <input
+                  type="text"
+                  value={labVerifyInput}
+                  onChange={(e) => {
+                    setLabVerifyInput(e.target.value)
+                    setLabVerifyError(null)
+                  }}
+                  placeholder={`e.g. ${labVerifyTargetReport.appt.patientName}`}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  required
+                />
+                {labVerifyError && (
+                  <p className="text-[11px] text-rose-600 font-bold mt-1">{labVerifyError}</p>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLabVerifyTargetReport(null)
+                    setLabVerifyInput('')
+                    setLabVerifyError(null)
+                  }}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+                >
+                  Verify & Open Report
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 7: CLINIC REGULATORY TERMS & DATA COMPLIANCE        */}
+      {/* ========================================================= */}
+      {showTermsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
+                  Healthcare Governance
+                </span>
+                <h3 className="text-base font-black text-slate-900">
+                  Dactor Clinic Terms, Privacy & Regulatory Compliance
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTermsModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 text-xs text-slate-600 leading-relaxed pr-1">
+              <p>
+                <strong>1. Nepal Medical Council (NMC) & MoHP Compliance:</strong> All doctors and laboratory personnel registered under this clinic must hold valid, active licenses from the Nepal Medical Council (NMC) or Nepal Health Professional Council (NHPC).
+              </p>
+              <p>
+                <strong>2. Patient Data Confidentiality:</strong> Patient medical records, diagnostic pathology reports, and contact details are strictly confidential and protected under Nepal&apos;s Individual Privacy Act. Laboratory reports require patient name/mobile verification before viewing.
+              </p>
+              <p>
+                <strong>3. Transparent Billing & PAN Disclosure:</strong> Clinics issuing digital invoices or accepting direct eSewa/Khalti/Fonepay settlements are responsible for accurate tax and PAN reporting.
+              </p>
+              <p>
+                <strong>4. 30-Day Reversible Account Archive Policy:</strong> When a clinic schedules account deletion, all public listings are hidden immediately, while historical patient records remain safely archived for 30 days in case the clinic administrator chooses to restore the account.
+              </p>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowTermsModal(false)}
+                className="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                I Understand & Acknowledge
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 8: 30-DAY REVERSIBLE CLINIC ACCOUNT DELETION        */}
+      {/* ========================================================= */}
+      {showDeleteArchiveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-rose-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600">
+                  30-Day Reversible Archive
+                </span>
+                <h3 className="text-base font-black text-slate-900">
+                  Schedule Clinic Account Deletion?
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeleteArchiveModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900 space-y-1.5 leading-relaxed">
+              <p className="font-bold">What happens when you schedule deletion:</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>Your clinic will enter a <strong>30-day archive grace period</strong>.</li>
+                <li>You can cancel deletion and restore your clinic with 1 click at any time during the next 30 days.</li>
+                <li>After 30 days, the clinic profile will be permanently deactivated.</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteArchiveModal(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Keep Account Active
+              </button>
+              <button
+                type="button"
+                onClick={handleScheduleClinicArchive}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+              >
+                Schedule 30-Day Archive
+              </button>
             </div>
           </div>
         </div>
