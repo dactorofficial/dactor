@@ -83,9 +83,30 @@ fun PatientDirectoryScreen(
     var selectedVisitDate by remember { mutableStateOf(LocalDate.now()) }
     var datewiseSearchQuery by remember { mutableStateOf("") }
     var showDatePickerDialog by remember { mutableStateOf(false) }
+    val directoryPrefs = remember(context) {
+        context.getSharedPreferences("clinic_patient_directory", android.content.Context.MODE_PRIVATE)
+    }
     var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(emptyList()) }
     var registeredPatients by remember(effectiveClinicId) { mutableStateOf<List<Profile>>(emptyList()) }
-    var locallyAddedProfiles by remember(effectiveClinicId) { mutableStateOf<List<Profile>>(emptyList()) }
+    var locallyAddedProfiles by remember(effectiveClinicId) {
+        val savedRaw = directoryPrefs.getString("records_${effectiveClinicId.ifBlank { "default" }}", "") ?: ""
+        val loaded = savedRaw.split("\n").mapNotNull { line ->
+            val parts = line.split("|")
+            if (parts.size >= 5 && parts[0].isNotBlank()) {
+                Profile(
+                    id = parts[0],
+                    authUid = null,
+                    email = parts.getOrNull(4) ?: "",
+                    fullName = parts[1],
+                    role = "patient",
+                    phone = parts[2],
+                    gender = parts[3].ifBlank { "Male" },
+                    age = parts.getOrNull(5)?.toIntOrNull()
+                )
+            } else null
+        }
+        mutableStateOf(loaded)
+    }
     var affiliatedDoctors by remember(effectiveClinicId) { mutableStateOf<List<Doctor>>(emptyList()) }
     var allClinicsMap by remember(effectiveClinicId) { mutableStateOf<Map<String, Clinic>>(emptyMap()) }
     var currentClinic by remember(effectiveClinicId) { mutableStateOf<Clinic?>(null) }
@@ -1717,7 +1738,7 @@ fun PatientDirectoryScreen(
                         modifier = Modifier.verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Generated Appointment ID Preview Box
+                        // Patient Record ID Preview Box
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = Color(0xFFE0F7FA).copy(alpha = 0.6f),
@@ -1730,7 +1751,7 @@ fun PatientDirectoryScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column {
-                                    Text("Generated Appointment ID", fontSize = 10.sp, color = Color(0xFF00838F))
+                                    Text("Patient Directory Record ID", fontSize = 10.sp, color = Color(0xFF00838F))
                                     Text(
                                         generatedApptIdPreview,
                                         fontWeight = FontWeight.Bold,
@@ -1741,7 +1762,7 @@ fun PatientDirectoryScreen(
                                     )
                                 }
                                 Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFF0097A7)) {
-                                    Text("Auto-Assigned", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    Text("Clinic Record Only", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                 }
                             }
                         }
@@ -1842,41 +1863,23 @@ fun PatientDirectoryScreen(
                                     gender = newPatientGender,
                                     age = newPatientAge.trim().toIntOrNull()
                                 )
-                                locallyAddedProfiles = listOf(createdProfile) + locallyAddedProfiles
-
-                                // Also persist an Appointment record with the generated 10-digit Appointment ID
-                                val cId = effectiveClinicId.ifBlank {
-                                    effectiveSessionManager.getSavedClinicId()?.takeIf { it.isNotBlank() }
-                                        ?: allClinicsMap.keys.firstOrNull() ?: ""
+                                val updatedLocal = (listOf(createdProfile) + locallyAddedProfiles).distinctBy { it.id }
+                                locallyAddedProfiles = updatedLocal
+                                val serialized = updatedLocal.joinToString("\n") { p ->
+                                    listOf(
+                                        p.id,
+                                        (p.fullName ?: "").replace("|", " ").replace("\n", " "),
+                                        (p.phone ?: "").replace("|", " ").replace("\n", " "),
+                                        (p.gender ?: "Male").replace("|", " ").replace("\n", " "),
+                                        p.email.replace("|", " ").replace("\n", " "),
+                                        p.age?.toString() ?: ""
+                                    ).joinToString("|")
                                 }
-                                val dId = savedDoctorId.ifBlank { affiliatedDoctors.firstOrNull()?.id }
-                                if (cId.isNotBlank() && appointmentRepository != null) {
-                                    val walkinAppt = Appointment(
-                                        id = java.util.UUID.randomUUID().toString(),
-                                        trackingCode10Digit = generatedApptIdPreview,
-                                        userId = createdProfile.id,
-                                        clinicId = cId,
-                                        doctorId = dId,
-                                        patientName = newPatientName.trim(),
-                                        patientAge = newPatientAge.trim().toIntOrNull(),
-                                        patientGender = newPatientGender,
-                                        patientMobile = newPatientPhone.trim(),
-                                        patientEmail = newPatientEmail.trim().ifBlank { null },
-                                        appointmentDate = today,
-                                        appointmentTime = try {
-                                            java.time.LocalTime.now().plusMinutes(5).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
-                                        } catch (e: Exception) { "10:00" },
-                                        checkinStatus = "checked_in",
-                                        paymentStatus = "unpaid",
-                                        isWalkin = true
-                                    )
-                                    val savedAppt = appointmentRepository.createWalkinAppointment(walkinAppt)
-                                    if (savedAppt != null) {
-                                        appointments = listOf(savedAppt) + appointments
-                                    }
-                                }
+                                directoryPrefs.edit()
+                                    .putString("records_${effectiveClinicId.ifBlank { "default" }}", serialized)
+                                    .apply()
 
-                                actionMessage = "✓ Patient '${newPatientName.trim()}' saved to directory! Appointment ID: $generatedApptIdPreview"
+                                actionMessage = "✓ Patient '${newPatientName.trim()}' saved to clinic directory! (No appointment booked)"
                                 showRegisterPatientDialog = false
                                 selectedTab = 1
                                 loadData()
@@ -2080,31 +2083,51 @@ private fun PatientRecordCardItem(
             HorizontalDivider(color = Color(0xFFE2E8F0))
 
             // Schedule & Doctor Rows Matching Template
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (item.currentAppointment != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.CalendarToday,
+                            contentDescription = null,
+                            tint = Color(0xFF0284C7),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Schedule: $scheduleDate at $scheduleTime",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0284C7)
+                        )
+                    }
+
+                    Text(
+                        text = "Doctor: $doctorName",
+                        fontSize = 12.5.sp,
+                        color = Color(0xFF475569),
+                        modifier = Modifier.padding(start = 20.dp)
+                    )
+                }
+            } else {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        Icons.Default.CalendarToday,
+                        Icons.Default.FolderShared,
                         contentDescription = null,
-                        tint = Color(0xFF0284C7),
+                        tint = Color(0xFF00838F),
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "Schedule: $scheduleDate at $scheduleTime",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0284C7)
+                        text = "Clinic Record Only — No Appointment Booked",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF00838F)
                     )
                 }
-
-                Text(
-                    text = "Doctor: $doctorName",
-                    fontSize = 12.5.sp,
-                    color = Color(0xFF475569),
-                    modifier = Modifier.padding(start = 20.dp)
-                )
             }
 
             // Existing Remark preview (if present)
