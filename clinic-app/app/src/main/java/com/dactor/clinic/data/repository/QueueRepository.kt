@@ -726,9 +726,9 @@ class QueueRepository @Inject constructor(
                     }
                 }.decodeList<com.dactor.clinic.data.model.Appointment>()
                 .filter {
-                    it.checkinStatus != "completed" &&
-                        it.checkinStatus != "cancelled" &&
-                        it.checkinStatus != "report_prepared"
+                    val status = it.checkinStatus.lowercase()
+                    status !in listOf("completed", "done", "cancelled", "no_show", "report_prepared") &&
+                        status in listOf("waiting", "checked_in", "booked", "inside", "pending")
                 }
 
             var sentCount = 0

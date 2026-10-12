@@ -112,15 +112,8 @@ object NotificationHelper {
             }
         }
 
-        val logoBitmap = try {
-            BitmapFactory.decodeResource(context.resources, R.drawable.app_logo)
-        } catch (_: Exception) {
-            null
-        }
-
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.app_logo)
-            .setLargeIcon(logoBitmap)
             .setColor(android.graphics.Color.WHITE)
             .setContentTitle(displayTitle)
             .setContentText(displayBody)

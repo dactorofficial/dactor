@@ -262,6 +262,30 @@ class NotificationWatchdogService : Service() {
                     for (notif in relevant) {
                         if (!sessionManager.isNotificationSeen(notif.id)) {
                             sessionManager.markNotificationSeen(notif.id)
+
+                            // Doctor notifications should only be given to patients in live queue / yet to get inside
+                            val isDoctorNotif = notif.type in listOf("doctor_arrival", "doctor_presence", "clinic_break", "doctor_status") ||
+                                notif.title.contains("doctor", ignoreCase = true) ||
+                                notif.title.contains("break", ignoreCase = true) ||
+                                notif.message.contains("doctor is", ignoreCase = true) ||
+                                notif.message.contains("doctor has", ignoreCase = true) ||
+                                notif.message.contains("clinic is currently on break", ignoreCase = true)
+
+                            if (isDoctorNotif) {
+                                val matchedAppt = myAppointments.find { appt ->
+                                    (notif.appointmentId != null && (appt.id == notif.appointmentId || appt.trackingCode10Digit == notif.appointmentId)) ||
+                                    (notif.toTemplateData().trackingCode?.isNotBlank() == true && (appt.id == notif.toTemplateData().trackingCode || appt.trackingCode10Digit == notif.toTemplateData().trackingCode))
+                                }
+                                val isMatchedCompleted = matchedAppt != null && matchedAppt.checkinStatus.lowercase() in listOf("done", "completed", "cancelled")
+                                val hasActiveQueueAppt = myAppointments.any {
+                                    it.checkinStatus.lowercase() in listOf("waiting", "checked_in", "booked", "inside", "pending")
+                                }
+
+                                if (isMatchedCompleted || !hasActiveQueueAppt) {
+                                    continue
+                                }
+                            }
+
                             val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
                             NotificationHelper.showSystemNotification(
                                 context = applicationContext,

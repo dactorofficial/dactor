@@ -177,6 +177,17 @@ class QueueRepository @Inject constructor(
                 fallbackPatientsAhead.coerceAtLeast(0)
             }
 
+            // 0. If target patient is already COMPLETED / DONE
+            if (targetEntry?.status == "done" || targetEntry?.status == "completed") {
+                return LiveQueueTimingEstimate(
+                    estimatedTimeLeftText = "Completed",
+                    expectedExactTimeText = "Done",
+                    doctorStatusBanner = null,
+                    isClinicOnBreak = false,
+                    isDoctorNotInside = false
+                )
+            }
+
             // 1. If target patient is currently INSIDE
             if (targetEntry?.status == "inside") {
                 return LiveQueueTimingEstimate(

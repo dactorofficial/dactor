@@ -15,6 +15,7 @@ class NotificationRepository @Inject constructor(
     suspend fun getNotifications(userId: String? = null, appointmentIds: List<String> = emptyList()): List<DactorNotification> = withContext(Dispatchers.IO) {
         try {
             val resolvedIds = appointmentIds.map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+            val patientAppts = mutableListOf<com.dactor.patient.data.model.Appointment>()
             try {
                 if (!userId.isNullOrBlank() || resolvedIds.isNotEmpty()) {
                     val allAppts = supabaseClient.postgrest["appointments"]
@@ -24,6 +25,7 @@ class NotificationRepository @Inject constructor(
                         val matchesUser = !userId.isNullOrBlank() && appt.userId == userId
                         val matchesTracked = appt.id in resolvedIds || appt.trackingCode10Digit in resolvedIds
                         if (matchesUser || matchesTracked) {
+                            patientAppts.add(appt)
                             if (appt.id.isNotBlank()) resolvedIds.add(appt.id)
                             if (appt.trackingCode10Digit.isNotBlank()) resolvedIds.add(appt.trackingCode10Digit)
                         }
@@ -48,7 +50,33 @@ class NotificationRepository @Inject constructor(
                     resolvedIds.any { code -> code.length == 10 && notif.message.contains(code) }
                 val isTargetedAlert = isTargetedType && (isUserSpecific || isAppointmentSpecific)
 
-                isBroadcastForPatients || isUserSpecific || isAppointmentSpecific || isTargetedAlert
+                if (!isBroadcastForPatients && !isUserSpecific && !isAppointmentSpecific && !isTargetedAlert) {
+                    return@filter false
+                }
+
+                // Doctor notifications: do not surface to completed appointments or patients with no active queue appointment
+                val isDoctorNotif = notif.type in listOf("doctor_arrival", "doctor_presence", "clinic_break", "doctor_status") ||
+                    notif.title.contains("doctor", ignoreCase = true) ||
+                    notif.title.contains("break", ignoreCase = true) ||
+                    notif.message.contains("doctor is", ignoreCase = true) ||
+                    notif.message.contains("doctor has", ignoreCase = true) ||
+                    notif.message.contains("clinic is currently on break", ignoreCase = true)
+
+                if (isDoctorNotif && patientAppts.isNotEmpty()) {
+                    val matchedAppt = patientAppts.find { appt ->
+                        (notif.appointmentId != null && (appt.id == notif.appointmentId || appt.trackingCode10Digit == notif.appointmentId)) ||
+                        (!metaCode.isNullOrBlank() && (appt.id == metaCode || appt.trackingCode10Digit == metaCode))
+                    }
+                    val isMatchedCompleted = matchedAppt != null && matchedAppt.checkinStatus.lowercase() in listOf("done", "completed", "cancelled")
+                    val hasActiveQueueAppt = patientAppts.any {
+                        it.checkinStatus.lowercase() in listOf("waiting", "checked_in", "booked", "inside", "pending")
+                    }
+                    if (isMatchedCompleted || !hasActiveQueueAppt) {
+                        return@filter false
+                    }
+                }
+
+                true
             }.toMutableList()
 
             // Also surface any prepared lab reports for this patient's appointments/tracking codes
