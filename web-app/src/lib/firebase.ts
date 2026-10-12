@@ -148,3 +148,22 @@ export function firebaseSignOut(): void {
     localStorage.removeItem('dactor_auth_role')
   } catch {}
 }
+
+/**
+ * Real Firebase Authentication Account Deletion Rule
+ * Permanently deletes the current authenticated Firebase user.
+ */
+export async function deleteFirebaseUserAccount(): Promise<boolean> {
+  try {
+    if (typeof window !== 'undefined' && (window as any).dactorFirebase?.auth?.currentUser) {
+      await (window as any).dactorFirebase.auth.currentUser.delete()
+      firebaseSignOut()
+      return true
+    }
+    return false
+  } catch (err) {
+    console.warn('Firebase user deletion notice:', err)
+    firebaseSignOut()
+    return false
+  }
+}

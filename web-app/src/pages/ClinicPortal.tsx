@@ -117,6 +117,8 @@ import {
   getClinicInvitations,
   sendClinicInvitation,
   cancelClinicInvitation,
+  deleteClinicPermanently,
+  purgeExpiredClinicData,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { supabase } from '../lib/supabase'
@@ -699,6 +701,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [settingsSuccess, setSettingsSuccess] = useState(false)
   const [showTermsModal, setShowTermsModal] = useState(false)
   const [showDeleteArchiveModal, setShowDeleteArchiveModal] = useState(false)
+  const [isDeletingPermanently, setIsDeletingPermanently] = useState(false)
 
   // Generate Year dropdown options (2026 down to 1960)
   const practicingYears: number[] = []
@@ -1193,6 +1196,36 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       const refreshed = await getClinicForPortalById(selectedClinic.id)
       if (refreshed) setSelectedClinic(refreshed)
       alert('Account deletion cancelled! Your clinic operational desk is restored.')
+    }
+  }
+
+  // Admin Permanent Deletion Handler
+  const handlePermanentDeleteClinic = async () => {
+    if (!selectedClinic) return
+    const confirmName = window.prompt(
+      `⚠️ ADMIN PERMANENT PURGE:\nThis will permanently delete "${selectedClinic.name}", its doctors, appointments, slots, and services from the database.\n\nType "${selectedClinic.name}" to confirm:`
+    )
+    if (confirmName !== selectedClinic.name) {
+      if (confirmName !== null) alert('Clinic name did not match. Deletion aborted.')
+      return
+    }
+
+    setIsDeletingPermanently(true)
+    try {
+      const ok = await deleteClinicPermanently(selectedClinic.id)
+      if (ok) {
+        alert(`Clinic "${selectedClinic.name}" has been permanently purged.`)
+        setSelectedClinic(null)
+        setShowDeleteArchiveModal(false)
+        const refreshedList = await getClinics()
+        setClinics(refreshedList)
+      } else {
+        alert('Failed to permanently delete clinic. Please verify permissions.')
+      }
+    } catch (e: any) {
+      alert(`Error during permanent deletion: ${e?.message || e}`)
+    } finally {
+      setIsDeletingPermanently(false)
     }
   }
 
@@ -8208,6 +8241,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
               >
                 Schedule 30-Day Archive
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isDeletingPermanently}
+                onClick={handlePermanentDeleteClinic}
+                className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                <span>{isDeletingPermanently ? 'Purging Clinic...' : 'Admin: Permanent Purge (Immediate)'}</span>
               </button>
             </div>
           </div>

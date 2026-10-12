@@ -38,6 +38,9 @@ import {
   AlertTriangle,
   Info,
   Lock,
+  Unlock,
+  KeyRound,
+  CalendarRange,
 } from 'lucide-react'
 function triggerConfettiBurst() {
   try {
@@ -128,6 +131,8 @@ import {
   getAppointmentsByPatient,
   getPatientTransactions,
   cancelAppointment,
+  shiftAppointmentDate,
+  getAppointmentByTrackingCode,
   getClinicPaymentConfig,
   isSlotTimeExpired,
   recordPaymentTransaction,
@@ -138,11 +143,13 @@ import {
   checkEmailPortalAssociation,
   schedulePatientArchive,
   cancelPatientArchive,
+  deletePatientProfilePermanently,
 } from '../services/db'
 import {
   firebaseSignOut,
   signInWithFirebaseGoogle,
   checkRedirectGoogleUser,
+  deleteFirebaseUserAccount,
 } from '../lib/firebase'
 import { supabase } from '../lib/supabase'
 
@@ -187,6 +194,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
   // Account Deletion State
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false)
+  const [isDeletingPermanently, setIsDeletingPermanently] = useState(false)
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<
@@ -285,6 +293,41 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [newFamilyPhone, setNewFamilyPhone] = useState('')
 
   // ==========================================
+  // PENDING BOOKING REDIRECT & TOAST STATE
+  // ==========================================
+  const [pendingBookingRedirectNotice, setPendingBookingRedirectNotice] = useState(false)
+  const [bookingRestoredToast, setBookingRestoredToast] = useState<string | null>(null)
+
+  // ==========================================
+  // CLAIM APPOINTMENT WITH 10-DIGIT CODE STATE
+  // ==========================================
+  const [showClaimModal, setShowClaimModal] = useState(false)
+  const [claimCodeInput, setClaimCodeInput] = useState('')
+  const [claimCodeError, setClaimCodeError] = useState<string | null>(null)
+  const [isClaimingCode, setIsClaimingCode] = useState(false)
+
+  // ==========================================
+  // RESCHEDULE APPOINTMENT STATE
+  // ==========================================
+  const [rescheduleAppt, setRescheduleAppt] = useState<Appointment | null>(null)
+  const [newRescheduleDate, setNewRescheduleDate] = useState<string>(() => new Date().toISOString().split('T')[0])
+  const [newRescheduleTime, setNewRescheduleTime] = useState<string>('10:00 AM - 11:00 AM')
+  const [rescheduleReason, setRescheduleReason] = useState<string>('')
+  const [isRescheduling, setIsRescheduling] = useState(false)
+
+  // ==========================================
+  // LAB REPORTS PRIVACY VERIFICATION & SEARCH
+  // ==========================================
+  const [reportSearchCode, setReportSearchCode] = useState('')
+  const [isSearchingReport, setIsSearchingReport] = useState(false)
+  const [reportSearchError, setReportSearchError] = useState<string | null>(null)
+  const [unlockedReportIds, setUnlockedReportIds] = useState<string[]>([])
+  const [verifyingReport, setVerifyingReport] = useState<LabReport | null>(null)
+  const [verifyMethod, setVerifyMethod] = useState<'name' | 'phone'>('name')
+  const [verificationInput, setVerificationInput] = useState('')
+  const [verificationError, setVerificationError] = useState<string | null>(null)
+
+  // ==========================================
   // INITIALIZATION & SESSION RESTORE
   // ==========================================
   useEffect(() => {
@@ -322,7 +365,66 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         }
         // Load clinics for booking
         const cList = await getClinics()
-        setClinics(cList.filter((c) => !c.isArchived))
+        const activeClinics = cList.filter((c) => !c.isArchived)
+        setClinics(activeClinics)
+
+        // Restore pending booking redirect if exists
+        const pendingRaw = localStorage.getItem('dactor_pending_booking_redirect')
+        if (pendingRaw) {
+          try {
+            const parsed = JSON.parse(pendingRaw)
+            if (parsed.clinicId) {
+              const clinicMatch = activeClinics.find((c) => c.id === parsed.clinicId)
+              if (clinicMatch) {
+                setSelectedClinic(clinicMatch)
+                const [docs, servs, pCfg] = await Promise.all([
+                  getDoctorsByClinic(clinicMatch.id),
+                  getClinicServices(clinicMatch.id),
+                  getClinicPaymentConfig(clinicMatch.id),
+                ])
+                setClinicDoctors(docs.filter((d) => d.isInClinic))
+                setClinicServices(servs.filter((s) => s.isAvailable))
+                setClinicPaymentConfig(pCfg)
+
+                if (parsed.doctorId) {
+                  const docMatch = docs.find((d) => d.id === parsed.doctorId)
+                  if (docMatch) setSelectedDoctor(docMatch)
+                }
+                if (parsed.serviceId) {
+                  const servMatch = servs.find((s) => s.id === parsed.serviceId)
+                  if (servMatch) setSelectedService(servMatch)
+                }
+                if (parsed.bookingMode) setBookingMode(parsed.bookingMode)
+                if (parsed.bookingDate) setBookingDate(parsed.bookingDate)
+
+                if (parsed.selectedSlotId) {
+                  const rawSlots = await getSlots(clinicMatch.id, parsed.bookingDate)
+                  const validSlots = rawSlots.filter((slot) => {
+                    const isExpired = isSlotTimeExpired(parsed.bookingDate, slot.endTime)
+                    const hasCapacity = slot.bookedCount < slot.maxCapacity
+                    return !isExpired && hasCapacity && slot.isAvailable !== false
+                  })
+                  setAvailableSlots(validSlots)
+                  const slotMatch = validSlots.find((s) => s.id === parsed.selectedSlotId)
+                  if (slotMatch) setSelectedSlot(slotMatch)
+                }
+
+                if (storedEmail) {
+                  setActiveTab('book')
+                  setBookingStep(3)
+                  localStorage.removeItem('dactor_pending_booking_redirect')
+                  setPendingBookingRedirectNotice(false)
+                  setBookingRestoredToast('Booking selection restored! Resuming right where you left off.')
+                  setTimeout(() => setBookingRestoredToast(null), 4000)
+                } else {
+                  setPendingBookingRedirectNotice(true)
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Pending booking restore notice:', e)
+          }
+        }
       } catch (err) {
         console.error('Session restore error:', err)
       } finally {
@@ -370,6 +472,32 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       setShowEditProfileModal(false)
     } else {
       alert('Could not schedule account deletion. Please try again.')
+    }
+  }
+
+  const handlePermanentDeletePatient = async () => {
+    if (!patientUser) return
+    const confirmName = window.prompt(
+      `⚠️ PERMANENT ACCOUNT DELETION:\nThis will permanently delete your patient profile and authentication credentials.\n\nType "${patientUser.fullName}" to confirm:`
+    )
+    if (confirmName !== patientUser.fullName) {
+      if (confirmName !== null) alert('Name did not match. Account deletion aborted.')
+      return
+    }
+
+    setIsDeletingPermanently(true)
+    try {
+      await deletePatientProfilePermanently(patientUser.id)
+      await deleteFirebaseUserAccount()
+      localStorage.removeItem('dactor_patient_session')
+      setPatientUser(null)
+      setShowDeleteConfirmModal(false)
+      setShowEditProfileModal(false)
+      alert('Your patient account and authentication details have been permanently deleted.')
+    } catch (e: any) {
+      alert(`Error during deletion: ${e?.message || e}`)
+    } finally {
+      setIsDeletingPermanently(false)
     }
   }
 
@@ -762,6 +890,247 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   }
 
   // ==========================================
+  // PENDING BOOKING RESTORE & ADVANCE HANDLERS
+  // ==========================================
+  const handleProceedFromSlotStep = () => {
+    if (!selectedSlot && availableSlots.length > 0) return
+
+    // If unauthenticated (Guest / Demo mode), save booking position and prompt Google Sign-In
+    if (!patientUser) {
+      const pendingRedirect = {
+        clinicId: selectedClinic?.id,
+        doctorId: selectedDoctor?.id,
+        serviceId: selectedService?.id,
+        bookingMode,
+        bookingDate,
+        selectedSlotId: selectedSlot?.id,
+      }
+      try {
+        localStorage.setItem('dactor_pending_booking_redirect', JSON.stringify(pendingRedirect))
+      } catch {}
+      setPendingBookingRedirectNotice(true)
+      setShowAuthModal(true)
+      return
+    }
+
+    setBookingStep(3)
+  }
+
+  const restorePendingBookingRedirect = async (overrideClinics?: Clinic[]) => {
+    const pendingRaw = localStorage.getItem('dactor_pending_booking_redirect')
+    if (!pendingRaw) return
+    try {
+      const parsed = JSON.parse(pendingRaw)
+      if (parsed.clinicId) {
+        const availableClinics = overrideClinics || clinics
+        let clinicMatch = availableClinics.find((c) => c.id === parsed.clinicId)
+        if (!clinicMatch) {
+          const fetched = await getClinics()
+          clinicMatch = fetched.find((c) => c.id === parsed.clinicId)
+        }
+        if (clinicMatch) {
+          setSelectedClinic(clinicMatch)
+          const [docs, servs, pCfg] = await Promise.all([
+            getDoctorsByClinic(clinicMatch.id),
+            getClinicServices(clinicMatch.id),
+            getClinicPaymentConfig(clinicMatch.id),
+          ])
+          setClinicDoctors(docs.filter((d) => d.isInClinic))
+          setClinicServices(servs.filter((s) => s.isAvailable))
+          setClinicPaymentConfig(pCfg)
+
+          if (parsed.doctorId) {
+            const docMatch = docs.find((d) => d.id === parsed.doctorId)
+            if (docMatch) setSelectedDoctor(docMatch)
+          }
+          if (parsed.serviceId) {
+            const servMatch = servs.find((s) => s.id === parsed.serviceId)
+            if (servMatch) setSelectedService(servMatch)
+          }
+          if (parsed.bookingMode) setBookingMode(parsed.bookingMode)
+          if (parsed.bookingDate) setBookingDate(parsed.bookingDate)
+
+          if (parsed.selectedSlotId) {
+            const rawSlots = await getSlots(clinicMatch.id, parsed.bookingDate)
+            const validSlots = rawSlots.filter((slot) => {
+              const isExpired = isSlotTimeExpired(parsed.bookingDate, slot.endTime)
+              const hasCapacity = slot.bookedCount < slot.maxCapacity
+              return !isExpired && hasCapacity && slot.isAvailable !== false
+            })
+            setAvailableSlots(validSlots)
+            const slotMatch = validSlots.find((s) => s.id === parsed.selectedSlotId)
+            if (slotMatch) setSelectedSlot(slotMatch)
+          }
+
+          setActiveTab('book')
+          setBookingStep(3)
+          localStorage.removeItem('dactor_pending_booking_redirect')
+          setPendingBookingRedirectNotice(false)
+          setBookingRestoredToast('Booking selection restored! Resuming right where you left off.')
+          setTimeout(() => setBookingRestoredToast(null), 4000)
+        }
+      }
+    } catch (err) {
+      console.warn('Failed restoring booking redirect:', err)
+    }
+  }
+
+  // ==========================================
+  // CLAIM APPOINTMENT WITH 10-DIGIT CODE
+  // ==========================================
+  const handleClaimAppointmentCode = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const clean = claimCodeInput.trim().replace(/\D/g, '')
+    if (clean.length !== 10) {
+      setClaimCodeError('Please enter a valid 10-digit numeric tracking code.')
+      return
+    }
+
+    setIsClaimingCode(true)
+    setClaimCodeError(null)
+    try {
+      const appt = await getAppointmentByTrackingCode(clean)
+      if (!appt) {
+        setClaimCodeError(`No appointment found with tracking code #${clean}. Please verify and try again.`)
+        return
+      }
+
+      saveTrackingCodeLocally(clean)
+
+      if (patientUser?.id && (!appt.userId || appt.userId !== patientUser.id)) {
+        try {
+          await supabase
+            .from('appointments')
+            .update({ user_id: patientUser.id, patient_email: patientUser.email })
+            .eq('tracking_code_10_digit', clean)
+        } catch {}
+      }
+
+      await loadAppointments()
+      await loadTransactions()
+      setShowClaimModal(false)
+      setClaimCodeInput('')
+      setBookingRestoredToast(`Token #${clean} for ${appt.patientName} claimed & added to your appointments!`)
+      setTimeout(() => setBookingRestoredToast(null), 4000)
+    } catch (err: any) {
+      setClaimCodeError(err.message || 'Failed to claim appointment.')
+    } finally {
+      setIsClaimingCode(false)
+    }
+  }
+
+  // ==========================================
+  // RESCHEDULE APPOINTMENT HANDLER
+  // ==========================================
+  const handleConfirmReschedule = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!rescheduleAppt) return
+    setIsRescheduling(true)
+    try {
+      const ok = await shiftAppointmentDate(
+        rescheduleAppt.id,
+        newRescheduleDate,
+        newRescheduleTime,
+        rescheduleReason.trim() || 'Patient requested reschedule via Patient Portal'
+      )
+      if (ok) {
+        setRescheduleAppt(null)
+        await loadAppointments()
+        setBookingRestoredToast(`Appointment shifted to ${newRescheduleDate} (${newRescheduleTime}) successfully!`)
+        setTimeout(() => setBookingRestoredToast(null), 3500)
+      } else {
+        alert('Could not reschedule appointment. Please try again.')
+      }
+    } catch (err: any) {
+      alert(`Error rescheduling: ${err.message || err}`)
+    } finally {
+      setIsRescheduling(false)
+    }
+  }
+
+  // ==========================================
+  // LAB REPORTS LOOKUP & PRIVACY VERIFICATION
+  // ==========================================
+  const handleLookupLabReport = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const clean = reportSearchCode.trim().replace(/\D/g, '')
+    if (clean.length < 5) return
+    setIsSearchingReport(true)
+    setReportSearchError(null)
+    try {
+      const reports = await getLabReportsByTrackingCode(clean)
+      if (reports.length > 0) {
+        setPatientLabReports((prev) => {
+          const map = new Map<string, LabReport>()
+          for (const r of [...reports, ...prev]) map.set(r.id, r)
+          return Array.from(map.values())
+        })
+        saveTrackingCodeLocally(clean)
+        setBookingRestoredToast(`Found ${reports.length} report(s) for token #${clean}`)
+        setTimeout(() => setBookingRestoredToast(null), 3000)
+      } else {
+        setReportSearchError(`No diagnostic lab report found for token #${clean}.`)
+      }
+    } catch {
+      setReportSearchError('Failed to lookup lab report.')
+    } finally {
+      setIsSearchingReport(false)
+    }
+  }
+
+  const handleExecuteReportVerification = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!verifyingReport) return
+    const rawInput = verificationInput.trim()
+    if (!rawInput) {
+      setVerificationError(
+        verifyMethod === 'name'
+          ? "Please enter the patient's registered name"
+          : "Please enter the patient's registered mobile number"
+      )
+      return
+    }
+
+    if (verifyMethod === 'name') {
+      const expected = (verifyingReport.patientName || '').trim().toLowerCase().replace(/\s+/g, ' ')
+      const entered = rawInput.toLowerCase().replace(/\s+/g, ' ')
+      if (
+        !expected ||
+        expected === entered ||
+        (expected.length >= 3 && expected.includes(entered)) ||
+        (entered.length >= 3 && entered.includes(expected))
+      ) {
+        setUnlockedReportIds((prev) => [...prev, verifyingReport.id])
+        if (verifyingReport.reportFileUrl) {
+          window.open(verifyingReport.reportFileUrl, '_blank')
+        }
+        setVerifyingReport(null)
+        setVerificationError(null)
+      } else {
+        setVerificationError('Name does not match records. Please check spelling.')
+      }
+    } else {
+      const enteredDigits = rawInput.replace(/\D/g, '')
+      const expectedPhone = (patientUser?.phone || '').replace(/\D/g, '')
+      if (
+        enteredDigits.length >= 7 &&
+        (!expectedPhone ||
+          enteredDigits.slice(-10) === expectedPhone.slice(-10) ||
+          enteredDigits === expectedPhone)
+      ) {
+        setUnlockedReportIds((prev) => [...prev, verifyingReport.id])
+        if (verifyingReport.reportFileUrl) {
+          window.open(verifyingReport.reportFileUrl, '_blank')
+        }
+        setVerifyingReport(null)
+        setVerificationError(null)
+      } else {
+        setVerificationError('Mobile number does not match the appointment record.')
+      }
+    }
+  }
+
+  // ==========================================
   // AUTHENTICATION HANDLERS (STRICTLY GOOGLE SIGN-IN ONLY)
   // ==========================================
   // Real Google Sign-In linked to Supabase patient database (strictly NO auto-fill of name/gender/age from Google)
@@ -797,6 +1166,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         localStorage.setItem('dactor_auth_role', 'patient')
         window.dispatchEvent(new Event('storage'))
         setShowAuthModal(false)
+        await restorePendingBookingRedirect()
       } else {
         // New or incomplete Google user: strictly do NOT auto-fill name, gender, or age from Google account
         const partial: PatientProfile = {
@@ -878,6 +1248,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         initProfileFields(updated)
         localStorage.setItem('dactor_patient_session', JSON.stringify(updated))
         setShowEditProfileModal(false)
+        await restorePendingBookingRedirect()
       }
     } finally {
       setIsUpdatingProfile(false)
@@ -1001,6 +1372,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 bg-rose-600 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center space-x-2 animate-bounce">
             <AlertCircle className="w-5 h-5" />
             <span className="font-bold text-sm">{transactionFailedNotice}</span>
+          </div>
+        )}
+
+        {/* Booking Selection Restored Toast */}
+        {bookingRestoredToast && (
+          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center space-x-2 animate-in fade-in slide-in-from-top-4">
+            <CheckCircle2 className="w-5 h-5" />
+            <span className="font-bold text-sm">{bookingRestoredToast}</span>
           </div>
         )}
 
@@ -1169,7 +1548,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         {activeTab === 'appointments' && (
           <div className="space-y-6">
             {/* Filter Sub-nav */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center space-x-2 bg-slate-200/80 p-1 rounded-xl">
                 <button
                   onClick={() => setAppointmentFilter('active')}
@@ -1189,16 +1568,29 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 </button>
               </div>
 
-              <button
-                onClick={() => {
-                  setActiveTab('book')
-                  setBookingStep(1)
-                }}
-                className="flex items-center space-x-1.5 text-sm font-bold text-brand-600 hover:text-brand-700 bg-brand-50 px-4 py-2 rounded-xl transition"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>+ Book Another</span>
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => {
+                    setClaimCodeInput('')
+                    setClaimCodeError(null)
+                    setShowClaimModal(true)
+                  }}
+                  className="flex items-center space-x-1.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl transition shadow-2xs cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-brand-600" />
+                  <span>Claim 10-Digit Code</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('book')
+                    setBookingStep(1)
+                  }}
+                  className="flex items-center space-x-1.5 text-xs font-bold text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-3.5 py-2 rounded-xl transition cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>+ Book Another</span>
+                </button>
+              </div>
             </div>
 
             {isLoadingAppointments ? (
@@ -1214,18 +1606,30 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">No {appointmentFilter} appointments found</h3>
                   <p className="text-sm text-slate-500 max-w-md mx-auto mt-1">
-                    You have no {appointmentFilter} tokens scheduled. Book an OPD slot or diagnostic lab test to get a live tracking token.
+                    You have no {appointmentFilter} tokens scheduled. Book an OPD slot or claim an existing 10-digit appointment code.
                   </p>
                 </div>
-                <button
-                  onClick={() => {
-                    setActiveTab('book')
-                    setBookingStep(1)
-                  }}
-                  className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl transition shadow-md shadow-brand-600/20"
-                >
-                  Book OPD or Lab Slot
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    onClick={() => {
+                      setActiveTab('book')
+                      setBookingStep(1)
+                    }}
+                    className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl transition shadow-md shadow-brand-600/20 cursor-pointer"
+                  >
+                    Book OPD or Lab Slot
+                  </button>
+                  <button
+                    onClick={() => {
+                      setClaimCodeInput('')
+                      setClaimCodeError(null)
+                      setShowClaimModal(true)
+                    }}
+                    className="px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-800 font-bold text-sm rounded-xl transition border border-slate-200 shadow-2xs cursor-pointer"
+                  >
+                    Claim with 10-Digit Code
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1348,13 +1752,26 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         </button>
 
                         {!isCancelled && appt.checkinStatus !== 'completed' && (
-                          <button
-                            onClick={() => handleCancelAppointment(appt.id)}
-                            disabled={cancellingApptId === appt.id}
-                            className="px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition border border-rose-200"
-                          >
-                            {cancellingApptId === appt.id ? 'Cancelling...' : 'Cancel'}
-                          </button>
+                          <div className="flex items-center space-x-1.5">
+                            <button
+                              onClick={() => {
+                                setRescheduleAppt(appt)
+                                setNewRescheduleDate(appt.appointmentDate)
+                                setNewRescheduleTime(appt.appointmentTime || '10:00 AM - 11:00 AM')
+                                setRescheduleReason('')
+                              }}
+                              className="px-3 py-2 text-xs font-bold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-xl transition border border-brand-200 cursor-pointer"
+                            >
+                              Reschedule
+                            </button>
+                            <button
+                              onClick={() => handleCancelAppointment(appt.id)}
+                              disabled={cancellingApptId === appt.id}
+                              className="px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition border border-rose-200 cursor-pointer disabled:opacity-50"
+                            >
+                              {cancellingApptId === appt.id ? 'Cancelling...' : 'Cancel'}
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1549,14 +1966,22 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   )}
                 </div>
 
-                <button
-                  onClick={() => setBookingStep(3)}
-                  disabled={!selectedSlot && availableSlots.length > 0}
-                  className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2"
-                >
-                  <span>Continue to Patient Details</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleProceedFromSlotStep}
+                    disabled={!selectedSlot && availableSlots.length > 0}
+                    className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2 cursor-pointer"
+                  >
+                    <span>Continue to Patient Details</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  {!patientUser && (
+                    <p className="text-[11px] text-center text-slate-500 font-medium">
+                      🔒 Sign-in required on next step. Your selected clinic, doctor, date, and slot will be saved automatically.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -2027,14 +2452,37 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         ========================================== */}
         {activeTab === 'reports' && (
           <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200 space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-black text-slate-900">Diagnostic Pathology Reports</h3>
                 <p className="text-xs text-slate-500">
-                  Access digital lab test results, blood work, and biochemistry PDFs securely.
+                  Access digital lab test results, blood work, and biochemistry PDFs securely with privacy verification.
                 </p>
               </div>
+              <form onSubmit={handleLookupLabReport} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Lookup 10-Digit Code..."
+                  value={reportSearchCode}
+                  onChange={(e) => setReportSearchCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-brand-500 w-44"
+                />
+                <button
+                  type="submit"
+                  disabled={isSearchingReport || reportSearchCode.length < 5}
+                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer"
+                >
+                  {isSearchingReport ? 'Searching...' : 'Search'}
+                </button>
+              </form>
             </div>
+
+            {reportSearchError && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-semibold flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>{reportSearchError}</span>
+              </div>
+            )}
 
             {isLoadingReports ? (
               <div className="p-8 text-center">
@@ -2046,59 +2494,94 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 <FileText className="w-10 h-10 mx-auto stroke-1" />
                 <p className="text-sm font-semibold">No lab test reports found</p>
                 <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  When you have diagnostic blood tests or urine samples collected at our partner labs, verified reports will appear here automatically.
+                  Enter your 10-digit tracking code above to look up any diagnostic test results, or book a lab test appointment.
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {patientLabReports.map((rep) => (
-                  <div key={rep.id} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-bold text-slate-500">
-                        Code: {rep.trackingCode10Digit}
-                      </span>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-                          rep.status === 'delivered' || rep.status === 'prepared'
-                            ? 'bg-brand-100 text-brand-800'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {rep.status.replace('_', ' ')}
-                      </span>
-                    </div>
+                {patientLabReports.map((rep) => {
+                  const isUnlocked =
+                    unlockedReportIds.includes(rep.id) ||
+                    Boolean(patientUser?.fullName && rep.patientName && rep.patientName.toLowerCase().includes(patientUser.fullName.toLowerCase()))
 
-                    <div>
-                      <h4 className="font-bold text-base text-slate-900">{rep.testName}</h4>
-                      <p className="text-xs text-slate-500">Patient: {rep.patientName}</p>
-                    </div>
+                  return (
+                    <div key={rep.id} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs font-bold text-slate-500">
+                          Code: {rep.trackingCode10Digit}
+                        </span>
+                        <div className="flex items-center space-x-2">
+                          {isUnlocked ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              <ShieldCheck className="w-3 h-3 mr-1" />
+                              Verified
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
+                              <Lock className="w-3 h-3 mr-1" />
+                              Protected
+                            </span>
+                          )}
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                              rep.status === 'delivered' || rep.status === 'prepared'
+                                ? 'bg-brand-100 text-brand-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {rep.status.replace('_', ' ')}
+                          </span>
+                        </div>
+                      </div>
 
-                    {rep.technicianNotes && (
-                      <p className="text-xs text-slate-600 italic bg-white p-2.5 rounded-xl border border-slate-200/60">
-                        "{rep.technicianNotes}"
-                      </p>
-                    )}
+                      <div>
+                        <h4 className="font-bold text-base text-slate-900">{rep.testName}</h4>
+                        <p className="text-xs text-slate-500">Patient: {rep.patientName}</p>
+                      </div>
 
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-[11px] text-slate-400">
-                        Uploaded: {rep.uploadedAt?.split('T')[0] || 'Recent'}
-                      </span>
-                      {rep.reportFileUrl ? (
-                        <a
-                          href={rep.reportFileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center space-x-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Download PDF</span>
-                        </a>
-                      ) : (
-                        <span className="text-xs text-amber-600 font-semibold">Processing at Lab</span>
+                      {rep.technicianNotes && (
+                        <p className="text-xs text-slate-600 italic bg-white p-2.5 rounded-xl border border-slate-200/60">
+                          "{rep.technicianNotes}"
+                        </p>
                       )}
+
+                      <div className="pt-2 flex items-center justify-between">
+                        <span className="text-[11px] text-slate-400">
+                          Uploaded: {rep.uploadedAt?.split('T')[0] || 'Recent'}
+                        </span>
+                        {rep.reportFileUrl ? (
+                          isUnlocked ? (
+                            <a
+                              href={rep.reportFileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center space-x-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download PDF</span>
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVerifyingReport(rep)
+                                setVerifyMethod('name')
+                                setVerificationInput('')
+                                setVerificationError(null)
+                              }}
+                              className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-900 hover:bg-brand-600 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                            >
+                              <Lock className="w-3.5 h-3.5 text-amber-300" />
+                              <span>Unlock & Download</span>
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-xs text-amber-600 font-semibold">Processing at Lab</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -2251,8 +2734,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-6 relative animate-in fade-in zoom-in-95">
             <button
-              onClick={() => setShowAuthModal(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700"
+              onClick={() => {
+                setShowAuthModal(false)
+                setPendingBookingRedirectNotice(false)
+              }}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -2268,6 +2754,21 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 Sign in with your verified Google account to track live queue tokens, access lab reports & manage appointments.
               </p>
             </div>
+
+            {/* Pending Booking Redirect Notice matching patient-app LoginScreen.kt lines 607-620 */}
+            {pendingBookingRedirectNotice && (
+              <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-left flex items-start space-x-3 animate-in fade-in">
+                <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-bold text-xs text-slate-900">
+                    Sign In Required to Book Appointment
+                  </div>
+                  <p className="text-[11px] text-blue-700 leading-snug">
+                    Your selected clinic, doctor, date, and slot position are saved. You'll return right where you left off after signing in.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {authError && (
               <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold space-y-2.5">
@@ -2539,6 +3040,283 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 Schedule 30-Day Archive
               </button>
             </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isDeletingPermanently}
+                onClick={handlePermanentDeletePatient}
+                className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                <span>{isDeletingPermanently ? 'Deleting Profile...' : 'Permanent Delete (Immediate)'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: CLAIM APPOINTMENT WITH 10-DIGIT CODE
+      ========================================== */}
+      {showClaimModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 relative animate-in fade-in zoom-in-95">
+            <button
+              onClick={() => setShowClaimModal(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center mx-auto mb-2 shadow-inner">
+                <KeyRound className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 tracking-tight">
+                Claim Appointment
+              </h3>
+              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                Enter your 10-digit universal tracking code to link an appointment booked offline or in guest mode to your account.
+              </p>
+            </div>
+
+            {claimCodeError && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{claimCodeError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleClaimAppointmentCode} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  10-Digit Tracking Code
+                </label>
+                <input
+                  type="text"
+                  maxLength={10}
+                  required
+                  placeholder="e.g. 8492018471"
+                  value={claimCodeInput}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '')
+                    setClaimCodeInput(digits)
+                    if (claimCodeError) setClaimCodeError(null)
+                  }}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-center text-lg font-bold tracking-widest text-slate-800 outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <span className="text-[11px] text-slate-400 block text-center">
+                  {claimCodeInput.length}/10 digits entered
+                </span>
+              </div>
+
+              <div className="flex items-center space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowClaimModal(false)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isClaimingCode || claimCodeInput.length !== 10}
+                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-md shadow-brand-600/20 cursor-pointer"
+                >
+                  {isClaimingCode ? 'Verifying...' : 'Claim & Link Token'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: RESCHEDULE APPOINTMENT
+      ========================================== */}
+      {rescheduleAppt && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 relative animate-in fade-in zoom-in-95">
+            <button
+              onClick={() => setRescheduleAppt(null)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
+                Token #{rescheduleAppt.trackingCode10Digit}
+              </span>
+              <h3 className="text-xl font-black text-slate-900">
+                Reschedule Appointment
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Shift appointment date or slot with {rescheduleAppt.doctor?.fullName || 'the clinic'}.
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmReschedule} className="space-y-4">
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700">New Appointment Date *</label>
+                <input
+                  type="date"
+                  required
+                  min={todayStr}
+                  value={newRescheduleDate}
+                  onChange={(e) => setNewRescheduleDate(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700">Preferred Time Slot *</label>
+                <select
+                  value={newRescheduleTime}
+                  onChange={(e) => setNewRescheduleTime(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none"
+                >
+                  <option value="09:00 AM - 10:00 AM">09:00 AM - 10:00 AM (Morning)</option>
+                  <option value="10:00 AM - 11:00 AM">10:00 AM - 11:00 AM (Morning)</option>
+                  <option value="11:00 AM - 12:00 PM">11:00 AM - 12:00 PM (Noon)</option>
+                  <option value="02:00 PM - 03:00 PM">02:00 PM - 03:00 PM (Afternoon)</option>
+                  <option value="03:00 PM - 04:00 PM">03:00 PM - 04:00 PM (Afternoon)</option>
+                  <option value="04:00 PM - 05:00 PM">04:00 PM - 05:00 PM (Evening)</option>
+                  <option value="05:00 PM - 06:00 PM">05:00 PM - 06:00 PM (Evening)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700">Reason for Rescheduling (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Schedule conflict, feeling better today..."
+                  value={rescheduleReason}
+                  onChange={(e) => setRescheduleReason(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRescheduleAppt(null)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Keep Existing
+                </button>
+                <button
+                  type="submit"
+                  disabled={isRescheduling}
+                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-md shadow-brand-600/20 cursor-pointer"
+                >
+                  {isRescheduling ? 'Shifting...' : 'Confirm Reschedule'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: LAB REPORT PRIVACY VERIFICATION GATE
+      ========================================== */}
+      {verifyingReport && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 relative animate-in fade-in zoom-in-95">
+            <button
+              onClick={() => {
+                setVerifyingReport(null)
+                setVerificationError(null)
+              }}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-2 shadow-inner">
+                <Lock className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 tracking-tight">
+                Health Privacy Verification
+              </h3>
+              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                To protect confidential clinical data, please verify the registered patient's identity before viewing or downloading this report.
+              </p>
+            </div>
+
+            {verificationError && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{verificationError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => {
+                  setVerifyMethod('name')
+                  setVerificationInput('')
+                  setVerificationError(null)
+                }}
+                className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
+                  verifyMethod === 'name' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                }`}
+              >
+                Patient Name
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setVerifyMethod('phone')
+                  setVerificationInput('')
+                  setVerificationError(null)
+                }}
+                className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
+                  verifyMethod === 'phone' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                }`}
+              >
+                Mobile Number
+              </button>
+            </div>
+
+            <form onSubmit={handleExecuteReportVerification} className="space-y-4">
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700">
+                  {verifyMethod === 'name' ? "Enter Patient's Full Name" : "Enter Patient's Mobile Number (10 digits)"}
+                </label>
+                <input
+                  type={verifyMethod === 'name' ? 'text' : 'tel'}
+                  required
+                  placeholder={verifyMethod === 'name' ? 'e.g. Ram Bahadur' : '98xxxxxxxx'}
+                  value={verificationInput}
+                  onChange={(e) => setVerificationInput(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerifyingReport(null)
+                    setVerificationError(null)
+                  }}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-brand-600/20 cursor-pointer"
+                >
+                  Verify & Unlock
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

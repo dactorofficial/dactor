@@ -2428,6 +2428,77 @@ export async function cancelClinicDeletion(clinicId: string): Promise<boolean> {
   })
 }
 
+/**
+ * Super Admin & Admin Portal Permission: Permanently Delete / Purge Clinic
+ * Cascades across queue entries, lab reports, billing invoices, appointments, slots, services, and clinic.
+ */
+export async function deleteClinicPermanently(clinicId: string): Promise<boolean> {
+  try {
+    // 1. Dependent clinical entities
+    await supabase.from('queue_entries').delete().eq('clinic_id', clinicId)
+    await supabase.from('lab_reports').delete().eq('clinic_id', clinicId)
+    await supabase.from('billing_invoices').delete().eq('clinic_id', clinicId)
+    await supabase.from('appointments').delete().eq('clinic_id', clinicId)
+    await supabase.from('slots').delete().eq('clinic_id', clinicId)
+    await supabase.from('clinic_services').delete().eq('clinic_id', clinicId)
+    await supabase.from('clinic_catalog').delete().eq('clinic_id', clinicId)
+    await supabase.from('clinic_invitations').delete().eq('clinic_id', clinicId)
+    
+    // 2. Clinic entity
+    const { error } = await supabase.from('clinics').delete().eq('id', clinicId)
+    return !error
+  } catch (err) {
+    console.error('Error permanently deleting clinic:', err)
+    return false
+  }
+}
+
+/**
+ * Super Admin & Admin Portal Permission: Delete Doctor
+ */
+export async function deleteDoctorPermanently(doctorId: string): Promise<boolean> {
+  try {
+    await supabase.from('queue_entries').delete().eq('doctor_id', doctorId)
+    await supabase.from('clinic_invitations').delete().eq('doctor_id', doctorId)
+    const { error } = await supabase.from('doctors').delete().eq('id', doctorId)
+    return !error
+  } catch (err) {
+    console.error('Error deleting doctor:', err)
+    return false
+  }
+}
+
+/**
+ * Super Admin & Admin Portal Permission: Delete Patient Profile
+ */
+export async function deletePatientProfilePermanently(patientId: string): Promise<boolean> {
+  try {
+    await supabase.from('notifications').delete().eq('user_id', patientId)
+    await supabase.from('fcm_tokens').delete().eq('user_id', patientId)
+    const { error } = await supabase.from('profiles').delete().eq('id', patientId)
+    return !error
+  } catch (err) {
+    console.error('Error deleting patient profile:', err)
+    return false
+  }
+}
+
+/**
+ * Super Admin & Admin Portal Permission: Purge Expired Archived Clinic Data
+ */
+export async function purgeExpiredClinicData(clinicId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('purge_expired_archived_clinic_data', { p_clinic_id: clinicId })
+    if (error) {
+      // Fallback to manual cascade
+      return await deleteClinicPermanently(clinicId)
+    }
+    return true
+  } catch {
+    return await deleteClinicPermanently(clinicId)
+  }
+}
+
 export async function updateAppointmentNotes(appointmentId: string, notes: string): Promise<boolean> {
   try {
     const { error } = await supabase
