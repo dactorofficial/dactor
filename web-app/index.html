@@ -157,6 +157,12 @@
             signInWithGoogle: function() {
               return auth.signInWithPopup(googleProvider);
             },
+            signInWithRedirect: function() {
+              return auth.signInWithRedirect(googleProvider);
+            },
+            getRedirectResult: function() {
+              return auth.getRedirectResult();
+            },
             signOut: function() {
               return auth.signOut();
             },

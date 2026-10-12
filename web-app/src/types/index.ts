@@ -223,6 +223,7 @@ export interface PatientProfile {
   phone?: string
   gender?: string
   age?: number
+  photoUrl?: string
   isArchived?: boolean
   archivedAt?: string
   deletionScheduledAt?: string

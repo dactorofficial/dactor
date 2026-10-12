@@ -1992,6 +1992,39 @@ export async function savePatientProfile(profile: Partial<PatientProfile>): Prom
   }
 }
 
+export async function schedulePatientArchive(profileId: string): Promise<boolean> {
+  try {
+    const scheduledAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        is_archived: true,
+        archived_at: new Date().toISOString(),
+        deletion_scheduled_at: scheduledAt,
+      })
+      .eq('id', profileId)
+    return !error
+  } catch {
+    return false
+  }
+}
+
+export async function cancelPatientArchive(profileId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        is_archived: false,
+        archived_at: null,
+        deletion_scheduled_at: null,
+      })
+      .eq('id', profileId)
+    return !error
+  } catch {
+    return false
+  }
+}
+
 export async function getAppointmentsByPatient(criteria: {
   email?: string
   phone?: string

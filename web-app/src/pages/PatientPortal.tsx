@@ -37,6 +37,7 @@ import {
   Timer,
   AlertTriangle,
   Info,
+  Lock,
 } from 'lucide-react'
 function triggerConfettiBurst() {
   try {
@@ -135,10 +136,13 @@ import {
   markNotificationAsRead,
   markAllNotificationsAsRead,
   checkEmailPortalAssociation,
+  schedulePatientArchive,
+  cancelPatientArchive,
 } from '../services/db'
 import {
   firebaseSignOut,
   signInWithFirebaseGoogle,
+  checkRedirectGoogleUser,
 } from '../lib/firebase'
 import { supabase } from '../lib/supabase'
 
@@ -287,16 +291,20 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     async function restoreSession() {
       setIsAuthLoading(true)
       try {
+        const redirectedUser = await checkRedirectGoogleUser()
         const storedEmail =
+          redirectedUser?.email ||
           localStorage.getItem('dactor_patient_email') ||
           localStorage.getItem('dactor_auth_email')
         if (storedEmail) {
           const profile = await getPatientProfileByEmail(storedEmail)
           if (profile) {
-            setPatientUser(profile)
-            initProfileFields(profile)
+            const photo = redirectedUser?.photoURL || profile.photoUrl
+            const fullProfile = { ...profile, photoUrl: photo }
+            setPatientUser(fullProfile)
+            initProfileFields(fullProfile)
             try {
-              localStorage.setItem('dactor_patient_session', JSON.stringify(profile))
+              localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
             } catch {}
           } else {
             // Do NOT auto-fill name, gender, or age from email/Google
@@ -304,6 +312,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               id: crypto.randomUUID(),
               email: storedEmail,
               fullName: '',
+              photoUrl: redirectedUser?.photoURL,
               role: 'patient',
             }
             setPatientUser(partial)
@@ -322,6 +331,47 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
     restoreSession()
   }, [])
+
+  const archiveDaysLeft = React.useMemo(() => {
+    if (!patientUser?.deletionScheduledAt) return 30
+    try {
+      const scheduled = new Date(patientUser.deletionScheduledAt).getTime()
+      const diff = Math.ceil((scheduled - Date.now()) / (1000 * 60 * 60 * 24))
+      return Math.max(1, Math.min(30, diff))
+    } catch {
+      return 30
+    }
+  }, [patientUser?.deletionScheduledAt])
+
+  const handleCancelPatientArchive = async () => {
+    if (!patientUser) return
+    const ok = await cancelPatientArchive(patientUser.id)
+    if (ok) {
+      const updated = { ...patientUser, isArchived: false, deletionScheduledAt: undefined }
+      setPatientUser(updated)
+      localStorage.setItem('dactor_patient_session', JSON.stringify(updated))
+    } else {
+      alert('Could not cancel deletion. Please try again.')
+    }
+  }
+
+  const handleSchedulePatientArchive = async () => {
+    if (!patientUser) return
+    const ok = await schedulePatientArchive(patientUser.id)
+    if (ok) {
+      const updated = {
+        ...patientUser,
+        isArchived: true,
+        deletionScheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      }
+      setPatientUser(updated)
+      localStorage.setItem('dactor_patient_session', JSON.stringify(updated))
+      setShowDeleteConfirmModal(false)
+      setShowEditProfileModal(false)
+    } else {
+      alert('Could not schedule account deletion. Please try again.')
+    }
+  }
 
   function initProfileFields(profile: PatientProfile) {
     setEditName(profile.fullName || '')
@@ -735,11 +785,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       }
 
       const profile = await getPatientProfileByEmail(gUser.email)
+      const photo = gUser.photoURL || undefined
       if (profile && profile.fullName && profile.phone && profile.age && profile.gender) {
-        setPatientUser(profile)
-        initProfileFields(profile)
+        const fullProfile = { ...profile, photoUrl: photo || profile.photoUrl }
+        setPatientUser(fullProfile)
+        initProfileFields(fullProfile)
         localStorage.setItem('dactor_patient_email', profile.email)
-        localStorage.setItem('dactor_patient_session', JSON.stringify(profile))
+        localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
         localStorage.setItem('dactor_auth_logged_in', 'true')
         localStorage.setItem('dactor_auth_email', profile.email)
         localStorage.setItem('dactor_auth_role', 'patient')
@@ -755,6 +807,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           phone: profile?.phone || '',
           age: profile?.age,
           gender: profile?.gender || '',
+          photoUrl: photo,
           role: 'patient',
         }
         setPatientUser(partial)
@@ -951,14 +1004,62 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           </div>
         )}
 
+        {/* 30-DAY ARCHIVE LOCK BANNER (ProfileScreen.kt lines 42-78) */}
+        {patientUser?.isArchived && (
+          <div className="p-6 rounded-3xl bg-rose-950 text-white border-2 border-rose-500 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-600 flex items-center justify-center shrink-0">
+                <Lock className="w-6 h-6 text-white" />
+              </div>
+              <div className="space-y-1 text-left">
+                <div className="flex items-center space-x-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-500 text-white">
+                    30-Day Deletion Grace Period
+                  </span>
+                  <span className="text-xs font-mono font-bold text-rose-200">
+                    {archiveDaysLeft} Days Remaining
+                  </span>
+                </div>
+                <h2 className="text-lg font-black">
+                  Patient Account Archived &amp; Scheduled for Deletion
+                </h2>
+                <p className="text-xs text-rose-200 max-w-2xl leading-relaxed">
+                  Your patient account is scheduled for permanent deletion on{' '}
+                  <strong>{patientUser.deletionScheduledAt?.split('T')[0] || '30 days from archive'}</strong>. You can restore full account access, health records, and booking history anytime before the countdown expires.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleCancelPatientArchive}
+              className="px-5 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl text-xs shadow-lg cursor-pointer shrink-0 transition"
+            >
+              Cancel Deletion &amp; Restore Account
+            </button>
+          </div>
+        )}
+
         {/* ==========================================
             PATIENT HEADER & PROFILE BAR
         ========================================== */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex items-start sm:items-center space-x-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-brand-500/20 font-black text-2xl flex-shrink-0">
-                {patientUser?.fullName ? patientUser.fullName.charAt(0).toUpperCase() : <User className="w-8 h-8" />}
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-brand-500/20 font-black text-2xl flex-shrink-0 overflow-hidden">
+                {patientUser?.photoUrl ? (
+                  <img
+                    src={patientUser.photoUrl}
+                    alt={patientUser.fullName || 'Patient Photo'}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      ;(e.target as HTMLElement).style.display = 'none'
+                    }}
+                  />
+                ) : patientUser?.fullName ? (
+                  patientUser.fullName.charAt(0).toUpperCase()
+                ) : (
+                  <User className="w-8 h-8" />
+                )}
               </div>
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -2291,6 +2392,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               >
                 {isUpdatingProfile ? 'Saving...' : 'Save Profile Changes'}
               </button>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-[11px] text-slate-500 font-medium">Account Settings</span>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirmModal(true)}
+                  className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                >
+                  Schedule 30-Day Account Deletion
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -2374,6 +2486,59 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 Save Family Member
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: 30-DAY REVERSIBLE ACCOUNT DELETION
+      ========================================== */}
+      {showDeleteConfirmModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-rose-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600">
+                  30-Day Reversible Archive
+                </span>
+                <h3 className="text-base font-black text-slate-900">
+                  Schedule Patient Account Deletion?
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirmModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900 space-y-1.5 leading-relaxed text-left">
+              <p className="font-bold">What happens when you schedule deletion:</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>Your profile enters a <strong>30-day reversible grace period</strong>.</li>
+                <li>You can cancel deletion anytime with 1 click during the next 30 days.</li>
+                <li>After 30 days, personal profile details are permanently removed.</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirmModal(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Keep Account Active
+              </button>
+              <button
+                type="button"
+                onClick={handleSchedulePatientArchive}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+              >
+                Schedule 30-Day Archive
+              </button>
+            </div>
           </div>
         </div>
       )}
