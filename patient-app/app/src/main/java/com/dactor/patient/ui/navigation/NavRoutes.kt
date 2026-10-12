@@ -17,8 +17,15 @@ sealed class NavRoutes(val route: String) {
     }
     object Booking : NavRoutes("booking/{clinicId}") {
         fun createRoute(clinicId: String) = "booking/$clinicId"
-        fun createRoute(clinicId: String, doctorId: String?) = 
-            if (!doctorId.isNullOrBlank()) "booking/$clinicId?doctorId=$doctorId" else "booking/$clinicId"
+        fun createRoute(clinicId: String, doctorId: String?, date: String? = null): String {
+            val params = mutableListOf<String>()
+            if (!doctorId.isNullOrBlank()) params.add("doctorId=$doctorId")
+            if (!date.isNullOrBlank()) params.add("date=$date")
+            return if (params.isNotEmpty()) "booking/$clinicId?${params.joinToString("&")}" else "booking/$clinicId"
+        }
+    }
+    object Search : NavRoutes("search") {
+        fun createRoute(date: String = "") = if (date.isNotBlank()) "search?date=$date" else "search"
     }
     object BookingForm : NavRoutes("booking_form/{slotId}") {
         fun createRoute(slotId: String) = "booking_form/$slotId"

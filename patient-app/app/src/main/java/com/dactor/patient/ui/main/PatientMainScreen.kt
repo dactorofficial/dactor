@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -320,7 +321,7 @@ fun PatientMainScreen(
     sessionManager: UserSessionManager? = null,
     initialTab: Int = 0
 ) {
-    var selectedTab by remember { mutableIntStateOf(initialTab.coerceIn(0, 3)) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(initialTab.coerceIn(0, 3)) }
 
     // ── Today's Appointment Top Popup Notification State ───────────────────
     var todayAppointment by remember { mutableStateOf<Appointment?>(null) }
@@ -632,14 +633,22 @@ fun HomeTab(
     val coroutineScope = rememberCoroutineScope()
 
     val today = remember { LocalDate.now() }
-    var viewedYearMonth by remember { mutableStateOf(YearMonth.from(today)) }
-    var selectedDate by remember { mutableStateOf(today) }
+    var viewedYearMonthStr by rememberSaveable { mutableStateOf(YearMonth.from(today).toString()) }
+    var viewedYearMonth: YearMonth
+        get() = try { YearMonth.parse(viewedYearMonthStr) } catch (_: Exception) { YearMonth.from(today) }
+        set(value) { viewedYearMonthStr = value.toString() }
 
-    var selectedLocation by remember { mutableStateOf("All Nepal") }
-    var detectedCityName by remember { mutableStateOf("") }
-    var userLatitude by remember { mutableStateOf<Double?>(null) }
-    var userLongitude by remember { mutableStateOf<Double?>(null) }
-    var isLiveGpsActive by remember { mutableStateOf(false) }
+    var selectedDateStr by rememberSaveable { mutableStateOf(today.toString()) }
+    var selectedDate: LocalDate
+        get() = try { LocalDate.parse(selectedDateStr) } catch (_: Exception) { today }
+        set(value) { selectedDateStr = value.toString() }
+
+    var selectedLocation by rememberSaveable { mutableStateOf("All Nepal") }
+    var detectedCityName by rememberSaveable { mutableStateOf("") }
+    var userLatitude by rememberSaveable { mutableStateOf<Double?>(null) }
+    var userLongitude by rememberSaveable { mutableStateOf<Double?>(null) }
+    var isLiveGpsActive by rememberSaveable { mutableStateOf(false) }
+    var hasInitializedGps by rememberSaveable { mutableStateOf(false) }
     var showLocationDialog by remember { mutableStateOf(false) }
     var showEnableGpsDialog by remember { mutableStateOf(false) }
 
@@ -685,26 +694,29 @@ fun HomeTab(
 
     // Proactively ask for location permission on launch if not granted, or fetch location if granted
     LaunchedEffect(Unit) {
-        val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (hasFine || hasCoarse) {
-            fetchCurrentLocation(
-                context = context,
-                onLocationDisabled = { showEnableGpsDialog = true }
-            ) { lat, lng, label, city ->
-                userLatitude = lat
-                userLongitude = lng
-                selectedLocation = label
-                detectedCityName = city
-                isLiveGpsActive = true
-            }
-        } else {
-            locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
+        if (!hasInitializedGps) {
+            hasInitializedGps = true
+            val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (hasFine || hasCoarse) {
+                fetchCurrentLocation(
+                    context = context,
+                    onLocationDisabled = { showEnableGpsDialog = true }
+                ) { lat, lng, label, city ->
+                    userLatitude = lat
+                    userLongitude = lng
+                    selectedLocation = label
+                    detectedCityName = city
+                    isLiveGpsActive = true
+                }
+            } else {
+                locationPermissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -721,16 +733,16 @@ fun HomeTab(
     }
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedSort by remember { mutableStateOf("default") }
+    var selectedSort by rememberSaveable { mutableStateOf("default") }
     var showSortMenu by remember { mutableStateOf(false) }
-    var selectedEntityFilter by remember { mutableStateOf("all") } // "all", "doctors", "clinics"
+    var selectedEntityFilter by rememberSaveable { mutableStateOf("all") } // "all", "doctors", "clinics"
 
     // ── Instant 0ms Stale-While-Revalidate (SWR) Initial Hydration from L1 Cache ──
     var allClinics by remember {
         val cachedClinics = clinicRepository?.getCachedClinics()
         val cachedRosterMap = doctorRepository?.getCachedDoctorsByClinicMap() ?: emptyMap()
         val cachedServicesMap = clinicRepository?.getCachedAllServicesByClinic() ?: emptyMap()
-        val cachedSlotsMap = slotRepository?.getCachedSlotsForDate(today.toString()) ?: emptyMap()
+        val cachedSlotsMap = slotRepository?.getCachedSlotsForDate(selectedDateStr) ?: emptyMap()
         val initialItems = if (!cachedClinics.isNullOrEmpty()) {
             cachedClinics.map { clinic ->
                 val docs = cachedRosterMap[clinic.id] ?: emptyList()
@@ -770,14 +782,11 @@ fun HomeTab(
     val dateListState = rememberLazyListState()
 
     // ── Date Options Calculation ──────────────────────────────────────────
-    val daysInMonth = remember(viewedYearMonth, today) {
-        val startDay = if (viewedYearMonth == YearMonth.from(today)) today.dayOfMonth else 1
-        val totalDays = viewedYearMonth.lengthOfMonth()
-        (startDay..totalDays).map { day -> viewedYearMonth.atDay(day) }
-    }
-
-    LaunchedEffect(viewedYearMonth) {
-        dateListState.scrollToItem(0)
+    val daysInMonth = remember(viewedYearMonthStr, today) {
+        val ym = try { YearMonth.parse(viewedYearMonthStr) } catch (_: Exception) { YearMonth.from(today) }
+        val startDay = if (ym == YearMonth.from(today)) today.dayOfMonth else 1
+        val totalDays = ym.lengthOfMonth()
+        (startDay..totalDays).map { day -> ym.atDay(day) }
     }
 
     // ── Single-Roundtrip Parallel Batch Load for Clinics, Doctors, Services & Initial Slots ──
@@ -1179,176 +1188,43 @@ fun HomeTab(
             }
         }
 
-        // ── SEARCH BAR ────────────────────────────────────────────────────
-        Box(
+        // ── SEARCH BAR (Pushes dedicated full-screen Search route on tap) ──
+        Surface(
+            onClick = {
+                navController.navigate(NavRoutes.Search.createRoute(selectedDate.toString())) {
+                    launchSingleTop = true
+                }
+            },
+            shape = RoundedCornerShape(26.dp),
+            color = Color.White,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            shadowElevation = 1.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
+                .height(50.dp)
         ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search skin, heart, child, clinic or doctor...", fontSize = 13.sp) },
-                leadingIcon = {
-                    if (isSearchFocused) {
-                        IconButton(onClick = {
-                            searchQuery = ""
-                            focusManager.clearFocus()
-                        }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Exit Search",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    } else {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                },
-                trailingIcon = {
-                    if (isSearching) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    } else if (searchQuery.isNotEmpty() || isSearchFocused) {
-                        IconButton(onClick = {
-                            searchQuery = ""
-                            focusManager.clearFocus()
-                        }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(26.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    focusedContainerColor = Color.White,
-                    unfocusedContainerColor = Color.White
-                ),
+            Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .onFocusChanged { focusState ->
-                        isSearchFocused = focusState.isFocused
-                    }
-            )
-        }
-
-        // ── SPECIALTY SUGGESTIONS (ONLY shown when user taps on search / is actively searching!) ──
-        AnimatedVisibility(
-            visible = isSearchFocused,
-            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
-        ) {
-            Column {
-                // Instant Symptom -> Specialist Suggestion Banner (e.g., "skin" -> "Dermatologist")
-                AnimatedVisibility(visible = searchQuery.isNotBlank() && suggestedSpecialties.isNotEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFFECFDF5),
-                        border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 6.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = Color(0xFF059669),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Text(
-                                    text = "Suggested Specialist for \"$searchQuery\":",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF065F46)
-                                )
-                            }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                suggestedSpecialties.forEach { spec ->
-                                    val isExact = searchQuery.equals(spec, ignoreCase = true)
-                                    Surface(
-                                        shape = RoundedCornerShape(20.dp),
-                                        color = if (isExact) Color(0xFF059669) else Color.White,
-                                        border = BorderStroke(1.dp, Color(0xFF059669)),
-                                        modifier = Modifier.clickable {
-                                            searchQuery = spec
-                                            focusManager.clearFocus()
-                                        }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.MedicalServices,
-                                                contentDescription = null,
-                                                tint = if (isExact) Color.White else Color(0xFF059669),
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                            Text(
-                                                text = spec,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isExact) Color.White else Color(0xFF065F46)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Quick Specialty Suggestions Row (Shown ONLY while search is active/focused)
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(MedicalSearchEngine.quickSpecialtySuggestions) { suggestion ->
-                        val cleanSug = suggestion.substringBefore(" /").substringBefore(" (").trim()
-                        val isSelected = searchQuery.equals(cleanSug, ignoreCase = true) ||
-                                (searchQuery.isNotBlank() && suggestion.lowercase(java.util.Locale.ROOT).contains(searchQuery.lowercase(java.util.Locale.ROOT)))
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                searchQuery = if (isSelected) "" else cleanSug
-                                focusManager.clearFocus()
-                            },
-                            label = { Text(suggestion, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        )
-                    }
-                }
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "Search skin, heart, child, clinic or doctor...",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
@@ -1376,6 +1252,7 @@ fun HomeTab(
                                 val prev = viewedYearMonth.minusMonths(1)
                                 viewedYearMonth = prev
                                 selectedDate = if (prev == YearMonth.from(today)) today else prev.atDay(1)
+                                coroutineScope.launch { dateListState.scrollToItem(0) }
                             }
                         },
                         enabled = !isCurrentMonth
@@ -1399,6 +1276,7 @@ fun HomeTab(
                             val next = viewedYearMonth.plusMonths(1)
                             viewedYearMonth = next
                             selectedDate = next.atDay(1)
+                            coroutineScope.launch { dateListState.scrollToItem(0) }
                         }
                     ) {
                         Icon(
@@ -2480,7 +2358,8 @@ fun HomeTab(
                                         navController.navigate(
                                             NavRoutes.Booking.createRoute(
                                                 clinicId = clinic.id,
-                                                doctorId = doctor.id
+                                                doctorId = doctor.id,
+                                                date = dateStr
                                             )
                                         )
                                     }
@@ -2535,7 +2414,8 @@ fun HomeTab(
                                             navController.navigate(
                                                 NavRoutes.Booking.createRoute(
                                                     clinicId = clinic.id,
-                                                    doctorId = doctor.id
+                                                    doctorId = doctor.id,
+                                                    date = dateStr
                                                 )
                                             )
                                         },

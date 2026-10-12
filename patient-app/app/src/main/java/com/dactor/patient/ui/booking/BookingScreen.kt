@@ -50,6 +50,7 @@ fun BookingScreen(
     navController: NavController,
     clinicId: String = "",
     initialDoctorId: String? = null,
+    initialDate: String? = null,
     slotRepository: SlotRepository? = null,
     doctorRepository: DoctorRepository? = null,
     clinicRepository: ClinicRepository? = null,
@@ -64,14 +65,16 @@ fun BookingScreen(
         sessionManager?.getPendingBookingRedirect()?.takeIf { it.clinicId == clinicId }
     }
 
+    val resolvedInitialDateStr = remember(pendingRedirect, initialDate, today) {
+        (pendingRedirect?.selectedDate ?: initialDate?.takeIf { it.isNotBlank() } ?: today)
+    }
+
     var viewedYearMonth by remember {
-        val initDate = pendingRedirect?.selectedDate?.let {
-            try { LocalDate.parse(it) } catch (e: Exception) { null }
-        } ?: todayDate
+        val initDate = try { LocalDate.parse(resolvedInitialDateStr) } catch (e: Exception) { null } ?: todayDate
         mutableStateOf(YearMonth.from(initDate))
     }
     var selectedDate by remember {
-        mutableStateOf(pendingRedirect?.selectedDate ?: today)
+        mutableStateOf(resolvedInitialDateStr)
     }
 
     val listState = rememberLazyListState()

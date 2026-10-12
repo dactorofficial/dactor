@@ -118,6 +118,63 @@ fun DactorNavHost(
                 initialTab = tab
             )
         }
+        composable(
+            route = "search?date={date}",
+            enterTransition = {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
+                    androidx.compose.animation.slideInVertically(
+                        animationSpec = androidx.compose.animation.core.tween(240),
+                        initialOffsetY = { it / 8 }
+                    )
+            },
+            exitTransition = {
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))
+            },
+            popEnterTransition = {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180))
+            },
+            popExitTransition = {
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) +
+                    androidx.compose.animation.slideOutVertically(
+                        animationSpec = androidx.compose.animation.core.tween(220),
+                        targetOffsetY = { it / 8 }
+                    )
+            }
+        ) { backStackEntry ->
+            val dateParam = backStackEntry.arguments?.getString("date") ?: ""
+            com.dactor.patient.ui.search.PatientSearchScreen(
+                navController = navController,
+                initialDate = dateParam,
+                clinicRepository = clinicRepository,
+                doctorRepository = doctorRepository,
+                slotRepository = slotRepository
+            )
+        }
+        composable(
+            route = NavRoutes.Search.route,
+            enterTransition = {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
+                    androidx.compose.animation.slideInVertically(
+                        animationSpec = androidx.compose.animation.core.tween(240),
+                        initialOffsetY = { it / 8 }
+                    )
+            },
+            popExitTransition = {
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) +
+                    androidx.compose.animation.slideOutVertically(
+                        animationSpec = androidx.compose.animation.core.tween(220),
+                        targetOffsetY = { it / 8 }
+                    )
+            }
+        ) {
+            com.dactor.patient.ui.search.PatientSearchScreen(
+                navController = navController,
+                initialDate = "",
+                clinicRepository = clinicRepository,
+                doctorRepository = doctorRepository,
+                slotRepository = slotRepository
+            )
+        }
         composable(NavRoutes.ClinicDetail.route) { backStackEntry ->
             val clinicId = backStackEntry.arguments?.getString("clinicId") ?: ""
             ClinicDetailScreen(navController = navController, clinicId = clinicId, clinicRepository = clinicRepository, doctorRepository = doctorRepository)
@@ -142,6 +199,37 @@ fun DactorNavHost(
                 navController = navController,
                 clinicId = clinicId,
                 initialDoctorId = doctorId,
+                slotRepository = slotRepository,
+                doctorRepository = doctorRepository,
+                clinicRepository = clinicRepository,
+                authRepository = authRepository,
+                sessionManager = sessionManager
+            )
+        }
+        composable("booking/{clinicId}?date={date}") { backStackEntry ->
+            val clinicId = backStackEntry.arguments?.getString("clinicId") ?: ""
+            val date = backStackEntry.arguments?.getString("date")
+            BookingScreen(
+                navController = navController,
+                clinicId = clinicId,
+                initialDoctorId = null,
+                initialDate = date,
+                slotRepository = slotRepository,
+                doctorRepository = doctorRepository,
+                clinicRepository = clinicRepository,
+                authRepository = authRepository,
+                sessionManager = sessionManager
+            )
+        }
+        composable("booking/{clinicId}?doctorId={doctorId}&date={date}") { backStackEntry ->
+            val clinicId = backStackEntry.arguments?.getString("clinicId") ?: ""
+            val doctorId = backStackEntry.arguments?.getString("doctorId")
+            val date = backStackEntry.arguments?.getString("date")
+            BookingScreen(
+                navController = navController,
+                clinicId = clinicId,
+                initialDoctorId = doctorId,
+                initialDate = date,
                 slotRepository = slotRepository,
                 doctorRepository = doctorRepository,
                 clinicRepository = clinicRepository,

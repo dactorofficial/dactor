@@ -446,24 +446,17 @@ object MedicalSearchEngine {
         val docBioLower = corpus.bioLower
         val docEduLower = corpus.eduLower
 
-        // 1. Direct Doctor Name Match
-        if (docNameLower.contains(q) || "dr. $docNameLower".contains(q)) {
-            score += 110
-            highlightReason = "Matched Doctor: Dr. ${doctor.fullName}"
-        }
-
-        // 2. Direct Specialty Match
+        // Ranked strictly in order:
+        // 1. Specialty or symptom keywords ("skin", "child", "eye")
         if (allDocSpecText.contains(q)) {
-            score += 100
+            score += 150
             if (highlightReason == null) {
                 highlightReason = "Specialist: ${doctor.specialty ?: doctor.specialties.firstOrNull() ?: "Specialist"}"
             }
         }
-
-        // 3. Semantic / Symptom Stem Match (e.g., "skin" -> "dermatol" -> matches "Dermatologist")
         for (stem in expandedStems) {
             if (allDocSpecText.contains(stem)) {
-                score += 90
+                score += 140
                 if (highlightReason == null) {
                     val matchedSug = suggestedSpecs.firstOrNull() ?: doctor.specialty ?: "Specialist"
                     highlightReason = "Suggested for '$query': $matchedSug"
@@ -471,42 +464,60 @@ object MedicalSearchEngine {
                 break
             }
             if (docBioLower.contains(stem) || docEduLower.contains(stem)) {
-                score += 65
+                score += 125
                 if (highlightReason == null) {
                     highlightReason = "Recommended ${doctor.specialty ?: "Specialist"} for '$query'"
                 }
                 break
             }
-            if (docNameLower.contains(stem)) {
-                score += 75
-                if (highlightReason == null) {
-                    highlightReason = "Matched Doctor: Dr. ${doctor.fullName}"
+        }
+
+        // 2. Doctor name
+        if (docNameLower.contains(q) || "dr. $docNameLower".contains(q)) {
+            score += 120
+            if (highlightReason == null) {
+                highlightReason = "Matched Doctor: Dr. ${doctor.fullName}"
+            }
+        } else {
+            for (stem in expandedStems) {
+                if (docNameLower.contains(stem)) {
+                    score += 110
+                    if (highlightReason == null) {
+                        highlightReason = "Matched Doctor: Dr. ${doctor.fullName}"
+                    }
+                    break
                 }
-                break
             }
         }
 
-        // 4. Associated Clinic Name / Location / Specialty Match
+        // 3. Clinic name & 4. Location or area
         if (corpus.clinicsJoinedLower.contains(q) || expandedStems.any { corpus.clinicsJoinedLower.contains(it) }) {
             for (clinic in clinics) {
                 val cName = clinic.name.lowercase(Locale.ROOT)
                 val cAddr = (clinic.addressText ?: "").lowercase(Locale.ROOT)
                 val cSpecs = clinic.specialties.joinToString(" ").lowercase(Locale.ROOT)
-                if (cName.contains(q) || cAddr.contains(q)) {
-                    score += 55
-                    if (highlightReason == null) {
-                        highlightReason = "Practices at ${clinic.name}"
-                    }
-                    break
-                }
                 for (stem in expandedStems) {
                     if (cSpecs.contains(stem)) {
-                        score += 45
+                        score += 130
                         if (highlightReason == null) {
                             highlightReason = "${doctor.specialty ?: "Doctor"} at ${clinic.name}"
                         }
                         break
                     }
+                }
+                if (cName.contains(q)) {
+                    score += 95
+                    if (highlightReason == null) {
+                        highlightReason = "Practices at ${clinic.name}"
+                    }
+                    break
+                }
+                if (cAddr.contains(q)) {
+                    score += 75
+                    if (highlightReason == null) {
+                        highlightReason = "Area: ${clinic.addressText ?: clinic.name}"
+                    }
+                    break
                 }
             }
         }
@@ -521,6 +532,11 @@ object MedicalSearchEngine {
 
     /**
      * Matches a clinic, its doctors, and its services against a user search query.
+     * Ranked in order:
+     * 1. Specialty or symptom keywords ("skin", "child", "eye")
+     * 2. Doctor name
+     * 3. Clinic name
+     * 4. Location or area
      */
     fun matchClinic(
         clinic: Clinic,
@@ -548,28 +564,17 @@ object MedicalSearchEngine {
         val clinicAddrLower = (clinic.addressText ?: "").lowercase(Locale.ROOT)
         val clinicTypeLower = (clinic.type ?: "").lowercase(Locale.ROOT)
         val clinicDescLower = (clinic.description ?: "").lowercase(Locale.ROOT)
-        val clinicSpecsLower = clinic.specialties.map { it.lowercase(Locale.ROOT) }
 
-        // 1. Direct Clinic Name or Address match (Highest priority)
-        if (clinicNameLower.contains(q)) {
-            score += 100
-            highlightReason = "Matched Clinic Name: ${clinic.name}"
-        }
-        if (clinicAddrLower.contains(q)) {
-            score += 80
-            if (highlightReason == null) highlightReason = "Matched Location: ${clinic.addressText}"
-        }
-
-        // 2. Clinic Specialties Match (Direct & Semantic Stems like "skin" -> "Dermatology")
+        // 1. Specialty or symptom keywords (Clinic & Doctor Specialties) — Highest rank
         for (cSpec in clinic.specialties) {
             val cSpecLower = cSpec.lowercase(Locale.ROOT)
             if (cSpecLower.contains(q)) {
-                score += 85
+                score += 150
                 if (highlightReason == null) highlightReason = "Specialty: $cSpec"
             } else {
                 for (stem in expandedStems) {
                     if (cSpecLower.contains(stem)) {
-                        score += 75
+                        score += 140
                         if (highlightReason == null) {
                             val sug = suggestedSpecs.firstOrNull() ?: cSpec
                             highlightReason = "Suggested ($sug): $cSpec"
@@ -580,7 +585,7 @@ object MedicalSearchEngine {
             }
         }
 
-        // 3. Doctor matching (Name, Specialty, Specialties list, Qualifications)
+        // 1b & 2. Doctor Specialty/Symptom Keywords (Rank 1) & Doctor Name (Rank 2)
         for (doc in doctors) {
             val docNameLower = doc.fullName.lowercase(Locale.ROOT)
             val docSpecLower = (doc.specialty ?: "").lowercase(Locale.ROOT)
@@ -590,32 +595,40 @@ object MedicalSearchEngine {
 
             var docMatched = false
 
-            // Direct name match
-            if (docNameLower.contains(q)) {
-                score += 90
-                docMatched = true
-                if (highlightReason == null) highlightReason = "Matched Doctor: Dr. ${doc.fullName}"
-            }
-
-            // Specialty exact match
+            // Rank 1: Doctor Specialty exact or symptom stem match
             if (allDocSpecs.contains(q)) {
-                score += 85
+                score += 145
                 docMatched = true
                 if (highlightReason == null) highlightReason = "Specialist: ${doc.specialty ?: doc.specialties.firstOrNull()} (Dr. ${doc.fullName})"
+            } else {
+                for (stem in expandedStems) {
+                    if (allDocSpecs.contains(stem) || docBioLower.contains(stem)) {
+                        score += 135
+                        docMatched = true
+                        if (highlightReason == null) {
+                            val displaySpec = doc.specialty?.takeIf { it.isNotBlank() }
+                                ?: suggestedSpecs.firstOrNull()
+                                ?: "Specialist"
+                            highlightReason = "Has $displaySpec: Dr. ${doc.fullName}"
+                        }
+                        break
+                    }
+                }
             }
 
-            // Semantic stems match (e.g. searching "skin" matching "Dermatologist")
-            for (stem in expandedStems) {
-                if (allDocSpecs.contains(stem) || docNameLower.contains(stem) || docBioLower.contains(stem)) {
-                    score += 75
-                    docMatched = true
-                    if (highlightReason == null) {
-                        val displaySpec = doc.specialty?.takeIf { it.isNotBlank() }
-                            ?: suggestedSpecs.firstOrNull()
-                            ?: "Specialist"
-                        highlightReason = "Has $displaySpec: Dr. ${doc.fullName}"
+            // Rank 2: Doctor Name match
+            if (docNameLower.contains(q) || "dr. $docNameLower".contains(q)) {
+                score += 120
+                docMatched = true
+                if (highlightReason == null) highlightReason = "Matched Doctor: Dr. ${doc.fullName}"
+            } else {
+                for (stem in expandedStems) {
+                    if (docNameLower.contains(stem)) {
+                        score += 110
+                        docMatched = true
+                        if (highlightReason == null) highlightReason = "Matched Doctor: Dr. ${doc.fullName}"
+                        break
                     }
-                    break
                 }
             }
 
@@ -624,7 +637,35 @@ object MedicalSearchEngine {
             }
         }
 
-        // 4. Service / Diagnostic Lab Test matching
+        // 3. Clinic Name (Rank 3)
+        if (clinicNameLower.contains(q)) {
+            score += 95
+            if (highlightReason == null) highlightReason = "Matched Clinic Name: ${clinic.name}"
+        } else {
+            for (stem in expandedStems) {
+                if (clinicNameLower.contains(stem)) {
+                    score += 85
+                    if (highlightReason == null) highlightReason = "Clinic Name Match: ${clinic.name}"
+                    break
+                }
+            }
+        }
+
+        // 4. Location or Area (Rank 4)
+        if (clinicAddrLower.contains(q)) {
+            score += 75
+            if (highlightReason == null) highlightReason = "Matched Location: ${clinic.addressText}"
+        } else {
+            for (stem in expandedStems) {
+                if (clinicAddrLower.contains(stem)) {
+                    score += 65
+                    if (highlightReason == null) highlightReason = "Location Match: ${clinic.addressText}"
+                    break
+                }
+            }
+        }
+
+        // 5. Service / Diagnostic Lab Test matching
         val isLabClinic = (clinic.type ?: "").contains("lab", ignoreCase = true) || (clinic.type ?: "").equals("diagnostic_lab", ignoreCase = true)
         val testServices = if (isLabClinic && services.isEmpty()) {
             listOf(
@@ -657,19 +698,11 @@ object MedicalSearchEngine {
             }
         }
 
-        // 5. Fallback: stem matching against clinic name, address, description, or type
+        // 6. Fallback: description or type
         for (stem in expandedStems) {
-            if (clinicNameLower.contains(stem)) {
-                score += 40
-                if (highlightReason == null) highlightReason = "Clinic Name Match: ${clinic.name}"
-            }
             if (clinicDescLower.contains(stem)) {
                 score += 35
                 if (highlightReason == null) highlightReason = "Clinic Specialty Match: ${clinic.name}"
-            }
-            if (clinicAddrLower.contains(stem)) {
-                score += 30
-                if (highlightReason == null) highlightReason = "Location Match: ${clinic.addressText}"
             }
             if (clinicTypeLower.contains(stem)) {
                 score += 20
