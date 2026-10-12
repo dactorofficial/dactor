@@ -3,6 +3,7 @@ import {
   Activity,
   Bell,
   LogIn,
+  LogOut,
   Menu,
   X,
   Stethoscope,
@@ -23,6 +24,7 @@ interface NavbarProps {
   unreadNotificationsCount?: number
   isLoggedIn?: boolean
   currentUserEmail?: string | null
+  authRole?: 'clinic_manager' | 'doctor' | 'patient' | null
   onLogout?: () => void
 }
 
@@ -34,17 +36,39 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenNotificationModal,
   unreadNotificationsCount = 0,
   isLoggedIn = false,
+  currentUserEmail,
+  authRole,
   onLogout,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  const navLinks = [
+  // Priority logic for portal association:
+  // 1. If actively viewing a portal tab, strictly associate with that portal!
+  // 2. Otherwise if logged in, use authRole.
+  const activePortalRole: 'clinic_manager' | 'doctor' | 'patient' | null =
+    activeTab === 'portal'
+      ? 'clinic_manager'
+      : activeTab === 'doctor-portal'
+      ? 'doctor'
+      : activeTab === 'patient-portal'
+      ? 'patient'
+      : authRole || null
+
+  const allNavLinks = [
     { id: 'home', label: 'Home', icon: Activity },
     { id: 'clinics', label: 'Find Clinics & OPD', icon: Stethoscope },
     { id: 'patient-portal', label: 'Patient Portal', icon: User },
     { id: 'lab-reports', label: 'Lab Reports', icon: FileText },
     { id: 'average-time', label: 'Wait Time', icon: Clock },
   ]
+
+  // Strictly remove unassociated portal links from navigation
+  const navLinks = allNavLinks.filter((item) => {
+    if (activePortalRole === 'clinic_manager' || activePortalRole === 'doctor') {
+      return item.id !== 'patient-portal'
+    }
+    return true
+  })
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs">
@@ -112,21 +136,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Track 10-Digit Code</span>
             </button>
 
-            {/* Patient Portal Quick Button */}
-            <button
-              onClick={() => setActiveTab('patient-portal')}
-              className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
-                activeTab === 'patient-portal'
-                  ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                  : 'bg-white text-slate-800 border-slate-200 hover:border-brand-400 hover:text-brand-700'
-              }`}
-              title="Open Patient Portal (Appointments, Family, Lab Reports & Bills)"
-            >
-              <User className="w-3.5 h-3.5" />
-              <span>My Health</span>
-            </button>
-
-            {/* Notification Bell (Top right, non-overlapping) */}
+            {/* Notification Bell */}
             <button
               onClick={onOpenNotificationModal}
               className="relative p-2.5 text-slate-600 hover:text-brand-600 hover:bg-slate-100 rounded-xl transition-colors duration-150 cursor-pointer"
@@ -140,44 +150,145 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
-            {/* Dedicated Doctor & Clinic Portal CTAs */}
-            <div className="flex items-center space-x-1.5">
-              <button
-                onClick={() => setActiveTab('doctor-portal')}
-                className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
-                  activeTab === 'doctor-portal'
-                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                    : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
-                }`}
-                title="Open Doctor Consultation Desk"
-              >
-                <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Doctor Desk</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('portal')}
-                className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
-                  activeTab === 'portal'
-                    ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                    : 'bg-white text-slate-800 border-slate-200 hover:bg-brand-50 hover:text-brand-700'
-                }`}
-                title="Open Clinic & Diagnostic Facility Portal"
-              >
-                <Building2 className="w-3.5 h-3.5 text-brand-600" />
-                <span>Clinic Center</span>
-              </button>
-
-              {isLoggedIn && onLogout && (
+            {/* ========================================================= */}
+            {/* ROLE-SPECIFIC PORTAL SEGREGATION                          */}
+            {/* ========================================================= */}
+            {activePortalRole === 'clinic_manager' ? (
+              /* CLINIC MANAGER DESK VIEW: ONLY Clinic Center button and Manager Logout */
+              <div className="flex items-center space-x-2">
                 <button
-                  onClick={onLogout}
-                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-xs font-semibold cursor-pointer"
-                  title="Log Out"
+                  onClick={() => setActiveTab('portal')}
+                  className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-brand-600 text-white shadow-sm border border-brand-600 cursor-pointer"
+                  title="Active Clinic & Diagnostic Facility Center"
                 >
-                  Logout
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>Clinic Center</span>
                 </button>
-              )}
-            </div>
+
+                {currentUserEmail && (
+                  <span
+                    className="hidden xl:inline-flex items-center px-2.5 py-1 text-[11px] font-bold bg-slate-100 text-slate-700 rounded-xl border border-slate-200 truncate max-w-[150px]"
+                    title={currentUserEmail}
+                  >
+                    {currentUserEmail}
+                  </span>
+                )}
+
+                {onLogout && (
+                  <button
+                    onClick={onLogout}
+                    className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-xs font-bold cursor-pointer"
+                    title="Sign Out of Clinic Center"
+                  >
+                    Logout
+                  </button>
+                )}
+              </div>
+            ) : activePortalRole === 'doctor' ? (
+              /* DOCTOR DESK VIEW: ONLY Doctor Desk button and Doctor Logout */
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setActiveTab('doctor-portal')}
+                  className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 text-white shadow-sm border border-emerald-600 cursor-pointer"
+                  title="Active Doctor Consultation Desk"
+                >
+                  <Stethoscope className="w-3.5 h-3.5" />
+                  <span>Doctor Desk</span>
+                </button>
+
+                {currentUserEmail && (
+                  <span
+                    className="hidden xl:inline-flex items-center px-2.5 py-1 text-[11px] font-bold bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 truncate max-w-[150px]"
+                    title={currentUserEmail}
+                  >
+                    {currentUserEmail}
+                  </span>
+                )}
+
+                {onLogout && (
+                  <button
+                    onClick={onLogout}
+                    className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-xs font-bold cursor-pointer"
+                    title="Sign Out of Doctor Desk"
+                  >
+                    Logout
+                  </button>
+                )}
+              </div>
+            ) : activePortalRole === 'patient' ? (
+              /* PATIENT PORTAL VIEW: ONLY Patient Health button and Logout */
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setActiveTab('patient-portal')}
+                  className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-brand-600 text-white shadow-sm border border-brand-600 cursor-pointer"
+                  title="Patient Health Records & Queue"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>My Health</span>
+                </button>
+
+                {currentUserEmail && (
+                  <span
+                    className="hidden xl:inline-flex items-center px-2.5 py-1 text-[11px] font-bold bg-brand-50 text-brand-800 rounded-xl border border-brand-200 truncate max-w-[150px]"
+                    title={currentUserEmail}
+                  >
+                    {currentUserEmail}
+                  </span>
+                )}
+
+                {onLogout && (
+                  <button
+                    onClick={onLogout}
+                    className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-xs font-bold cursor-pointer"
+                    title="Sign Out"
+                  >
+                    Logout
+                  </button>
+                )}
+              </div>
+            ) : (
+              /* PUBLIC VISITOR VIEW: Standard Portal Choice Buttons */
+              <div className="flex items-center space-x-1.5">
+                <button
+                  onClick={() => setActiveTab('patient-portal')}
+                  className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
+                    activeTab === 'patient-portal'
+                      ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                      : 'bg-white text-slate-800 border-slate-200 hover:border-brand-400 hover:text-brand-700'
+                  }`}
+                  title="Open Patient Portal (Appointments, Family, Lab Reports & Bills)"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>My Health</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('doctor-portal')}
+                  className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
+                    activeTab === 'doctor-portal'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                      : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
+                  }`}
+                  title="Open Doctor Consultation Desk"
+                >
+                  <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Doctor Desk</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('portal')}
+                  className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
+                    activeTab === 'portal'
+                      ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                      : 'bg-white text-slate-800 border-slate-200 hover:bg-brand-50 hover:text-brand-700'
+                  }`}
+                  title="Open Clinic & Diagnostic Facility Portal"
+                >
+                  <Building2 className="w-3.5 h-3.5 text-brand-600" />
+                  <span>Clinic Center</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Mobile menu button & top-right notification icon */}
@@ -246,27 +357,118 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Verify & View Lab Report</span>
               </button>
 
-              <button
-                onClick={() => {
-                  setActiveTab('doctor-portal')
-                  setMobileMenuOpen(false)
-                }}
-                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm"
-              >
-                <Stethoscope className="w-4 h-4" />
-                <span>Doctor Consultation Desk</span>
-              </button>
+              {/* STRICT ROLE-SPECIFIC MOBILE PORTAL BUTTONS */}
+              {activePortalRole === 'clinic_manager' ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setActiveTab('portal')
+                      setMobileMenuOpen(false)
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-brand-600 shadow-sm"
+                  >
+                    <Building2 className="w-4 h-4" />
+                    <span>Clinic & Lab Center</span>
+                  </button>
+                  {onLogout && (
+                    <button
+                      onClick={() => {
+                        onLogout()
+                        setMobileMenuOpen(false)
+                      }}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out from Clinic Center</span>
+                    </button>
+                  )}
+                </>
+              ) : activePortalRole === 'doctor' ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setActiveTab('doctor-portal')
+                      setMobileMenuOpen(false)
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-600 shadow-sm"
+                  >
+                    <Stethoscope className="w-4 h-4" />
+                    <span>Doctor Consultation Desk</span>
+                  </button>
+                  {onLogout && (
+                    <button
+                      onClick={() => {
+                        onLogout()
+                        setMobileMenuOpen(false)
+                      }}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out from Doctor Desk</span>
+                    </button>
+                  )}
+                </>
+              ) : activePortalRole === 'patient' ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setActiveTab('patient-portal')
+                      setMobileMenuOpen(false)
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-brand-600 shadow-sm"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>My Health Portal</span>
+                  </button>
+                  {onLogout && (
+                    <button
+                      onClick={() => {
+                        onLogout()
+                        setMobileMenuOpen(false)
+                      }}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setActiveTab('patient-portal')
+                      setMobileMenuOpen(false)
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-800 bg-slate-100 border border-slate-200"
+                  >
+                    <User className="w-4 h-4 text-brand-600" />
+                    <span>Patient Health Portal</span>
+                  </button>
 
-              <button
-                onClick={() => {
-                  setActiveTab('portal')
-                  setMobileMenuOpen(false)
-                }}
-                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-slate-900 hover:bg-brand-600 transition-colors shadow-sm"
-              >
-                <Building2 className="w-4 h-4" />
-                <span>Clinic & Lab Management Portal</span>
-              </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('doctor-portal')
+                      setMobileMenuOpen(false)
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm"
+                  >
+                    <Stethoscope className="w-4 h-4" />
+                    <span>Doctor Consultation Desk</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setActiveTab('portal')
+                      setMobileMenuOpen(false)
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-slate-900 hover:bg-brand-600 transition-colors shadow-sm"
+                  >
+                    <Building2 className="w-4 h-4" />
+                    <span>Clinic & Lab Management Portal</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}

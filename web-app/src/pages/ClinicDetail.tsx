@@ -752,12 +752,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-sm space-y-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100">
           <div className="flex items-start space-x-5">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-gradient-to-tr from-brand-600 to-teal-500 text-white flex items-center justify-center font-black text-2xl sm:text-3xl shadow-md shrink-0">
-              {clinic.logoUrl ? (
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-gradient-to-tr from-brand-600 to-teal-500 text-white flex items-center justify-center font-black text-2xl sm:text-3xl shadow-md shrink-0 overflow-hidden border border-slate-200">
+              {clinic.logoUrl || (clinic.pictures && clinic.pictures.length > 0) ? (
                 <img
-                  src={clinic.logoUrl}
+                  src={clinic.logoUrl || clinic.pictures![0]}
                   alt={clinic.name}
-                  className="w-full h-full object-cover rounded-3xl"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none'
+                  }}
                 />
               ) : clinic.type === 'diagnostic_lab' ? (
                 <FlaskConical className="w-10 h-10" />

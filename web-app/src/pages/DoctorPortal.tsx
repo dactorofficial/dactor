@@ -53,6 +53,7 @@ import {
   checkEmailPortalAssociation,
   sendManualNotification,
   getClinics,
+  uploadDoctorPhoto,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { supabase } from '../lib/supabase'
@@ -567,6 +568,35 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       console.error('Error saving doctor profile:', err)
     } finally {
       setSavingProfile(false)
+    }
+  }
+
+  // Photo Upload
+  const [updatingPhoto, setUpdatingPhoto] = useState(false)
+  const [photoUpdateMsg, setPhotoUpdateMsg] = useState<string | null>(null)
+
+  const handleUploadDoctorPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !currentDoctor) return
+    setUpdatingPhoto(true)
+    setPhotoUpdateMsg('Compressing & uploading photo...')
+    try {
+      const compressed = await compressImage(file, 400)
+      const publicUrl = await uploadDoctorPhoto(currentDoctor.id, compressed, file.name)
+      if (!publicUrl) throw new Error('Upload failed')
+      const ok = await updateDoctor(currentDoctor.id, { profilePictureUrl: publicUrl })
+      if (!ok) throw new Error('Failed to update doctor profile')
+      const updated = { ...currentDoctor, profilePictureUrl: publicUrl }
+      setCurrentDoctor(updated)
+      localStorage.setItem('dactor_doctor_session', JSON.stringify(updated))
+      setPhotoUpdateMsg('Profile photo updated!')
+      setTimeout(() => setPhotoUpdateMsg(null), 3000)
+    } catch (err: any) {
+      alert(err?.message || 'Failed to update photo')
+      setPhotoUpdateMsg(null)
+    } finally {
+      setUpdatingPhoto(false)
+      e.target.value = ''
     }
   }
 
@@ -1086,19 +1116,41 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       {/* Top Banner / Doctor Context Bar */}
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
-          <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-brand-200">
+          <div className="relative group w-16 h-16 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-brand-200 shadow-xs">
             {currentDoctor?.profilePictureUrl ? (
               <img
                 src={currentDoctor.profilePictureUrl}
-                alt=""
+                alt={currentDoctor.fullName}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none'
+                }}
               />
             ) : (
-              <Stethoscope className="w-7 h-7" />
+              <Stethoscope className="w-8 h-8" />
             )}
+            <label
+              className="absolute inset-0 bg-black/60 text-white opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity text-[9px] font-bold cursor-pointer"
+              title="Click to update your profile photo"
+            >
+              <Camera className="w-4 h-4" />
+              <span>{updatingPhoto ? '...' : 'Photo'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                disabled={updatingPhoto}
+                onChange={handleUploadDoctorPhoto}
+                className="hidden"
+              />
+            </label>
           </div>
 
           <div>
+            {photoUpdateMsg && (
+              <span className="inline-block mb-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                {photoUpdateMsg}
+              </span>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-black text-slate-900">
                 {currentDoctor?.fullName}

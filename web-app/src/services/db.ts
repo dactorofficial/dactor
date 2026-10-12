@@ -919,18 +919,32 @@ export async function uploadReportFile(fileName: string, fileBlob: Blob): Promis
 
 export async function uploadClinicDocument(fileName: string, fileBlob: Blob, folder = 'registration_docs'): Promise<string | null> {
   try {
-    const buckets = ['clinic_photos', 'clinic_files']
     const cleanName = fileName.replace(/\s+/g, '_')
     const path = `${folder}_${Date.now()}_${cleanName}`
 
-    for (const bucket of buckets) {
+    // Prioritize bucket based on target folder or filename
+    let primaryBucket = 'clinic_photos'
+    if (folder === 'doctor_photos' || fileName.includes('doc_photo') || folder.includes('doctor')) {
+      primaryBucket = 'doctor_photos'
+    } else if (folder === 'doctor_kyc_docs' || fileName.includes('nmc_') || folder.includes('kyc')) {
+      primaryBucket = 'doctor-kyc'
+    } else {
+      primaryBucket = 'clinic_photos'
+    }
+
+    const candidateBuckets = [primaryBucket, 'clinic_photos', 'doctor_photos', 'doctor-kyc']
+    const uniqueBuckets = Array.from(new Set(candidateBuckets))
+
+    for (const bucket of uniqueBuckets) {
       const { error } = await supabase.storage.from(bucket).upload(path, fileBlob, {
         upsert: true,
-        contentType: fileBlob.type || 'application/octet-stream',
+        contentType: fileBlob.type || 'image/jpeg',
       })
       if (!error) {
         const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(path)
-        return publicData.publicUrl
+        if (publicData?.publicUrl) {
+          return publicData.publicUrl
+        }
       }
     }
     return null
@@ -938,6 +952,18 @@ export async function uploadClinicDocument(fileName: string, fileBlob: Blob, fol
     console.error('Error uploading document:', err)
     return null
   }
+}
+
+export async function uploadClinicPhoto(clinicId: string, fileBlob: Blob, originalName = 'clinic_facility.jpg'): Promise<string | null> {
+  const cleanName = originalName.replace(/\s+/g, '_')
+  const fileName = `clinic_${clinicId}_${Date.now()}_${cleanName}`
+  return await uploadClinicDocument(fileName, fileBlob, 'clinic_photos')
+}
+
+export async function uploadDoctorPhoto(doctorId: string, fileBlob: Blob, originalName = 'doctor_avatar.jpg'): Promise<string | null> {
+  const cleanName = originalName.replace(/\s+/g, '_')
+  const fileName = `doc_${doctorId}_${Date.now()}_${cleanName}`
+  return await uploadClinicDocument(fileName, fileBlob, 'doctor_photos')
 }
 
 // ==========================================
@@ -1208,6 +1234,8 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
       declared_holidays: updates.declaredHolidays !== undefined ? updates.declaredHolidays : (currentMeta.declared_holidays ?? current?.declared_holidays),
       manual_avg_consultation_time_minutes: updates.manualAvgConsultationTimeMinutes !== undefined ? updates.manualAvgConsultationTimeMinutes : (currentMeta.manual_avg_consultation_time_minutes ?? current?.manual_avg_consultation_time_minutes),
       avg_time_mode: updates.avgTimeMode !== undefined ? updates.avgTimeMode : (currentMeta.avg_time_mode ?? current?.avg_time_mode),
+      pictures: updates.pictures !== undefined ? updates.pictures : (currentMeta.pictures ?? current?.pictures),
+      logo_url: updates.logoUrl !== undefined ? updates.logoUrl : (currentMeta.logo_url ?? current?.logo_url),
     }
 
     const payload: any = {
@@ -1223,6 +1251,7 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
     if (updates.latitude !== undefined) payload.latitude = updates.latitude
     if (updates.longitude !== undefined) payload.longitude = updates.longitude
     if (updates.logoUrl !== undefined) payload.logo_url = updates.logoUrl
+    if (updates.pictures !== undefined) payload.pictures = updates.pictures
     if (updates.panNumber !== undefined) payload.pan_number = updates.panNumber
     if (updates.managerPhone !== undefined) payload.manager_phone = updates.managerPhone
     if (updates.isOnBreak !== undefined) payload.is_on_break = updates.isOnBreak

@@ -61,6 +61,13 @@ export const App: React.FC = () => {
       return null
     }
   })
+  const [authRole, setAuthRole] = useState<'clinic_manager' | 'doctor' | 'patient' | null>(() => {
+    try {
+      return (localStorage.getItem('dactor_auth_role') as any) || null
+    } catch {
+      return null
+    }
+  })
 
   // Live unread notification count from Supabase (never hardcoded)
   const [unreadCount, setUnreadCount] = useState<number>(0)
@@ -100,6 +107,7 @@ export const App: React.FC = () => {
       try {
         setIsLoggedIn(localStorage.getItem('dactor_auth_logged_in') === 'true')
         setCurrentUserEmail(localStorage.getItem('dactor_auth_email') || null)
+        setAuthRole((localStorage.getItem('dactor_auth_role') as any) || null)
         refreshUnreadNotifications()
       } catch {}
     }
@@ -149,8 +157,14 @@ export const App: React.FC = () => {
       localStorage.removeItem('dactor_auth_logged_in')
       localStorage.removeItem('dactor_auth_email')
       localStorage.removeItem('dactor_auth_role')
+      localStorage.removeItem('dactor_doctor_session')
+      localStorage.removeItem('dactor_doctor_email')
+      localStorage.removeItem('dactor_doctor_pending_kyc')
+      localStorage.removeItem('dactor_patient_session')
+      localStorage.removeItem('dactor_patient_email')
       setIsLoggedIn(false)
       setCurrentUserEmail(null)
+      setAuthRole(null)
       window.dispatchEvent(new Event('storage'))
     } catch {}
   }
@@ -182,6 +196,7 @@ export const App: React.FC = () => {
         unreadNotificationsCount={unreadCount}
         isLoggedIn={isLoggedIn}
         currentUserEmail={currentUserEmail}
+        authRole={authRole}
         onLogout={handleLogout}
       />
 

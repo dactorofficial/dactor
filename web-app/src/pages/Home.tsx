@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Eye,
   Navigation,
+  Camera,
 } from 'lucide-react'
 import { Clinic, Doctor } from '../types'
 import { getClinics, getDoctors } from '../services/db'
@@ -557,16 +558,64 @@ export const Home: React.FC<HomeProps> = ({
                 } catch {}
               }
 
+              const coverPhoto = (clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures[0] : null) || clinic.logoUrl
+
               return (
                 <div
                   key={clinic.id}
-                  className="bg-white rounded-3xl border border-slate-200/90 hover:border-brand-400 p-5 shadow-sm hover:shadow-xl transition-all duration-200 flex flex-col justify-between space-y-4"
+                  className="group bg-white rounded-3xl border border-slate-200/90 hover:border-brand-400 shadow-sm hover:shadow-xl transition-all duration-200 flex flex-col justify-between overflow-hidden"
                 >
-                  {/* Top: Clinic Title & Multi-Visit Badge */}
                   <div>
-                    <div className="flex items-start justify-between gap-2">
+                    {/* Clinic Photo Banner */}
+                    <div className="relative w-full h-44 bg-slate-100 overflow-hidden">
+                      {coverPhoto ? (
+                        <img
+                          src={coverPhoto}
+                          alt={clinic.name}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none'
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-tr from-brand-600 via-brand-500 to-teal-500 flex items-center justify-center text-white">
+                          <div className="text-center space-y-1">
+                            <Building2 className="w-10 h-10 mx-auto opacity-80" />
+                            <span className="text-xs font-bold tracking-wider uppercase opacity-90">Dactor Certified Clinic</span>
+                          </div>
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-transparent to-black/20" />
+
+                      {/* Top Overlay Badges */}
+                      <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                        <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white/90 text-brand-900 backdrop-blur-md shadow-xs">
+                          {clinic.type === 'diagnostic_lab'
+                            ? 'Diagnostic Lab'
+                            : clinic.type === 'single_visit'
+                            ? 'Single-Visit'
+                            : 'Multi-Visit'}
+                        </span>
+
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500 text-white shadow-xs">
+                          <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+                          Verified
+                        </span>
+                      </div>
+
+                      {/* Photo Count Indicator */}
+                      {clinic.pictures && clinic.pictures.length > 1 && (
+                        <div className="absolute bottom-2.5 right-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-xs text-[10px] font-bold text-white flex items-center space-x-1">
+                          <Camera className="w-3 h-3" />
+                          <span>{clinic.pictures.length} Photos</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-5 space-y-3.5">
+                      {/* Clinic Title & Address */}
                       <div>
-                        <h3 className="text-base sm:text-lg font-black text-slate-900 line-clamp-1">
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 line-clamp-1 group-hover:text-brand-600 transition-colors">
                           {clinic.name}
                         </h3>
                         <p className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-1">
@@ -575,72 +624,79 @@ export const Home: React.FC<HomeProps> = ({
                         </p>
                       </div>
 
-                      <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
-                        {clinic.type === 'diagnostic_lab'
-                          ? 'Diagnostic Lab'
-                          : clinic.type === 'single_visit'
-                          ? 'Single-Visit'
-                          : 'Multi-Visit'}
-                      </span>
-                    </div>
-
-                    {/* LIVE DOCTOR PHYSICAL PRESENCE & BREAK BANNER */}
-                    <div className="mt-3.5 space-y-1.5">
-                      {clinic.isOnBreak ? (
-                        <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center space-x-2 text-amber-800">
-                          <div className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
-                          <span className="text-xs font-bold">
-                            Clinic Currently on Short Break • Queue Paused
-                          </span>
-                        </div>
-                      ) : isDocInClinic ? (
-                        <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center space-x-2 text-emerald-800">
-                          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 animate-ping" />
-                          <span className="text-xs font-bold">
-                            Doctor is Physically Inside Clinic Now
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center space-x-2 text-slate-600">
-                          <div className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
-                          <span className="text-xs font-semibold">
-                            {clinic.type === 'diagnostic_lab'
-                              ? 'Lab Open for Sample Collection'
-                              : 'Doctor Away • Available for Next OPD Slot'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Doctor & Schedule Info */}
-                    <div className="mt-3.5 space-y-2">
-                      {doc ? (
-                        <div className="flex items-center space-x-2 text-xs font-bold text-slate-800">
-                          <User className="w-4 h-4 text-brand-600 shrink-0" />
-                          <span>{doc.fullName}</span>
-                          {doc.specialty && (
-                            <span className="text-slate-500 font-normal">
-                              • {doc.specialty}
+                      {/* LIVE DOCTOR PHYSICAL PRESENCE & BREAK BANNER */}
+                      <div className="space-y-1.5">
+                        {clinic.isOnBreak ? (
+                          <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center space-x-2 text-amber-800">
+                            <div className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
+                            <span className="text-xs font-bold">
+                              Clinic Currently on Short Break • Queue Paused
                             </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex items-center space-x-2 text-xs font-semibold text-slate-600">
-                          <Stethoscope className="w-4 h-4 text-brand-600 shrink-0" />
-                          <span>
-                            {clinic.specialties && clinic.specialties.length > 0
-                              ? clinic.specialties.slice(0, 2).join(' • ')
-                              : 'OPD & Diagnostic Services'}
+                          </div>
+                        ) : isDocInClinic ? (
+                          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center space-x-2 text-emerald-800">
+                            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 animate-ping" />
+                            <span className="text-xs font-bold">
+                              Doctor is Physically Inside Clinic Now
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center space-x-2 text-slate-600">
+                            <div className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
+                            <span className="text-xs font-semibold">
+                              {clinic.type === 'diagnostic_lab'
+                                ? 'Lab Open for Sample Collection'
+                                : 'Doctor Away • Available for Next OPD Slot'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Doctor & Schedule Info */}
+                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                        {doc ? (
+                          <div className="flex items-center space-x-2.5 text-xs font-bold text-slate-800">
+                            <div className="w-8 h-8 rounded-xl bg-brand-100 text-brand-800 flex items-center justify-center font-black text-xs shrink-0 overflow-hidden border border-slate-200 shadow-2xs">
+                              {doc.profilePictureUrl ? (
+                                <img
+                                  src={doc.profilePictureUrl}
+                                  alt={doc.fullName}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none'
+                                  }}
+                                />
+                              ) : (
+                                doc.fullName.charAt(0)
+                              )}
+                            </div>
+                            <div>
+                              <span className="font-bold text-slate-900 line-clamp-1">{doc.fullName}</span>
+                              {doc.specialty && (
+                                <span className="text-brand-700 font-medium text-[11px] block">
+                                  {doc.specialty}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-2 text-xs font-semibold text-slate-600">
+                            <Stethoscope className="w-4 h-4 text-brand-600 shrink-0" />
+                            <span>
+                              {clinic.specialties && clinic.specialties.length > 0
+                                ? clinic.specialties.slice(0, 2).join(' • ')
+                                : 'OPD & Diagnostic Services'}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center space-x-2 text-xs font-medium text-slate-600">
+                          <Clock className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+                          <span>Schedule ({selectedDayShort}):</span>
+                          <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-800 font-mono font-bold text-[11px] border border-cyan-200">
+                            {scheduleLabel}
                           </span>
                         </div>
-                      )}
-
-                      <div className="flex items-center space-x-2 text-xs font-medium text-slate-600">
-                        <Clock className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
-                        <span>Schedule ({selectedDayShort}):</span>
-                        <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-800 font-mono font-bold text-[11px] border border-cyan-200">
-                          {scheduleLabel}
-                        </span>
                       </div>
                     </div>
                   </div>

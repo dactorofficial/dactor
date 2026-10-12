@@ -778,6 +778,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           localStorage.setItem('dactor_patient_email', profile.email)
           localStorage.setItem('dactor_patient_session', JSON.stringify(profile))
           localStorage.setItem('dactor_auth_logged_in', 'true')
+          localStorage.setItem('dactor_auth_email', profile.email)
+          localStorage.setItem('dactor_auth_role', 'patient')
+          window.dispatchEvent(new Event('storage'))
           setShowAuthModal(false)
         } else {
           // Do NOT auto-fill name, gender, or age — prompt user to complete profile
@@ -792,6 +795,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           initProfileFields(partial)
           localStorage.setItem('dactor_patient_email', partial.email)
           localStorage.setItem('dactor_auth_logged_in', 'true')
+          localStorage.setItem('dactor_auth_email', partial.email)
+          localStorage.setItem('dactor_auth_role', 'patient')
+          window.dispatchEvent(new Event('storage'))
           setShowAuthModal(false)
           setShowEditProfileModal(true)
         }
@@ -863,6 +869,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         localStorage.setItem('dactor_patient_session', JSON.stringify(profile))
         localStorage.setItem('dactor_auth_logged_in', 'true')
         localStorage.setItem('dactor_auth_email', profile.email)
+        localStorage.setItem('dactor_auth_role', 'patient')
         window.dispatchEvent(new Event('storage'))
         setShowAuthModal(false)
       } else {
@@ -885,6 +892,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         localStorage.setItem('dactor_patient_email', partial.email)
         localStorage.setItem('dactor_auth_logged_in', 'true')
         localStorage.setItem('dactor_auth_email', partial.email)
+        localStorage.setItem('dactor_auth_role', 'patient')
         window.dispatchEvent(new Event('storage'))
         setShowAuthModal(false)
         setShowEditProfileModal(true)
@@ -1005,10 +1013,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const handleLogout = () => {
     firebaseSignOut()
     localStorage.removeItem('dactor_patient_email')
+    localStorage.removeItem('dactor_patient_session')
     localStorage.removeItem('dactor_auth_logged_in')
+    localStorage.removeItem('dactor_auth_email')
+    localStorage.removeItem('dactor_auth_role')
     setPatientUser(null)
     setMyAppointments([])
     setTransactions([])
+    window.dispatchEvent(new Event('storage'))
   }
 
   // Family Members Management

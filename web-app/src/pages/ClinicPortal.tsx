@@ -103,6 +103,8 @@ import {
   reorderQueuePosition,
   shiftAppointmentDate,
   checkAndNotifyApproachingPatients,
+  uploadClinicPhoto,
+  uploadDoctorPhoto,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { supabase } from '../lib/supabase'
@@ -1886,6 +1888,139 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
+  // Doctor photo upload modal state & handler
+  const [doctorPhotoModalOpen, setDoctorPhotoModalOpen] = useState(false)
+  const [doctorPhotoTarget, setDoctorPhotoTarget] = useState<Doctor | null>(null)
+  const [doctorPhotoFile, setDoctorPhotoFile] = useState<File | null>(null)
+  const [doctorPhotoPreview, setDoctorPhotoPreview] = useState<string | null>(null)
+  const [uploadingDoctorPhoto, setUploadingDoctorPhoto] = useState(false)
+  const [doctorPhotoMsg, setDoctorPhotoMsg] = useState<string | null>(null)
+
+  const handleOpenDoctorPhotoUpload = (doc: Doctor) => {
+    setDoctorPhotoTarget(doc)
+    setDoctorPhotoFile(null)
+    setDoctorPhotoPreview(doc.profilePictureUrl || null)
+    setDoctorPhotoMsg(null)
+    setDoctorPhotoModalOpen(true)
+  }
+
+  const handleDoctorPhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setDoctorPhotoFile(file)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setDoctorPhotoPreview(ev.target?.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleSaveDoctorPhoto = async () => {
+    if (!doctorPhotoTarget) return
+    if (!doctorPhotoFile) {
+      alert('Please select an image file first.')
+      return
+    }
+    setUploadingDoctorPhoto(true)
+    setDoctorPhotoMsg('Compressing photo to <= 500 KB...')
+    try {
+      const compressed = await compressImage(doctorPhotoFile, 400)
+      setDoctorPhotoMsg('Uploading to Supabase doctor_photos storage...')
+      const publicUrl = await uploadDoctorPhoto(doctorPhotoTarget.id, compressed, doctorPhotoFile.name)
+      if (!publicUrl) throw new Error('Failed to upload doctor photo to Supabase storage.')
+
+      setDoctorPhotoMsg('Updating doctor profile in Supabase...')
+      const ok = await updateDoctor(doctorPhotoTarget.id, { profilePictureUrl: publicUrl })
+      if (!ok) throw new Error('Failed to update doctor profile picture in database.')
+
+      setClinicDoctors((prev) =>
+        prev.map((d) => (d.id === doctorPhotoTarget.id ? { ...d, profilePictureUrl: publicUrl } : d))
+      )
+      if (selectedDoctor?.id === doctorPhotoTarget.id) {
+        setSelectedDoctor({ ...selectedDoctor, profilePictureUrl: publicUrl })
+      }
+      setDoctorPhotoMsg('Doctor profile picture updated successfully!')
+      setTimeout(() => {
+        setDoctorPhotoModalOpen(false)
+        setDoctorPhotoMsg(null)
+      }, 1500)
+    } catch (err: any) {
+      console.error('Error saving doctor photo:', err)
+      alert(err?.message || 'Failed to save doctor photo')
+      setDoctorPhotoMsg(null)
+    } finally {
+      setUploadingDoctorPhoto(false)
+    }
+  }
+
+  // Clinic Facility Photos Upload & Management
+  const [uploadingClinicPhoto, setUploadingClinicPhoto] = useState(false)
+  const [clinicPhotoStatusMsg, setClinicPhotoStatusMsg] = useState<string | null>(null)
+
+  const handleUploadClinicPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedClinic) return
+    const currentPics = selectedClinic.pictures || []
+    if (currentPics.length >= 4) {
+      alert('A maximum of 4 clinic facility photos can be added. Please remove an existing photo first.')
+      return
+    }
+
+    setUploadingClinicPhoto(true)
+    setClinicPhotoStatusMsg('Compressing facility image...')
+    try {
+      const compressed = await compressImage(file, 500)
+      setClinicPhotoStatusMsg('Uploading to Supabase clinic_photos storage...')
+      const publicUrl = await uploadClinicPhoto(selectedClinic.id, compressed, file.name)
+      if (!publicUrl) throw new Error('Failed to upload photo to Supabase storage.')
+
+      const updatedPics = [...currentPics, publicUrl]
+      setClinicPhotoStatusMsg('Saving to clinic profile in Supabase...')
+      const ok = await updateClinic(selectedClinic.id, { pictures: updatedPics })
+      if (!ok) throw new Error('Failed to update clinic pictures in database.')
+
+      setSelectedClinic({ ...selectedClinic, pictures: updatedPics })
+      setClinicPhotoStatusMsg('Facility photo uploaded successfully!')
+      setTimeout(() => setClinicPhotoStatusMsg(null), 3000)
+    } catch (err: any) {
+      console.error('Error uploading clinic photo:', err)
+      alert(err?.message || 'Failed to upload clinic photo')
+      setClinicPhotoStatusMsg(null)
+    } finally {
+      setUploadingClinicPhoto(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleRemoveClinicPhoto = async (indexToRemove: number) => {
+    if (!selectedClinic) return
+    const currentPics = selectedClinic.pictures || []
+    if (!window.confirm('Are you sure you want to remove this facility photo?')) return
+
+    const updatedPics = currentPics.filter((_, idx) => idx !== indexToRemove)
+    try {
+      const ok = await updateClinic(selectedClinic.id, { pictures: updatedPics })
+      if (ok) {
+        setSelectedClinic({ ...selectedClinic, pictures: updatedPics })
+      }
+    } catch (err) {
+      console.error('Error removing clinic photo:', err)
+    }
+  }
+
+  const handleSetClinicCoverPhoto = async (photoUrl: string) => {
+    if (!selectedClinic) return
+    try {
+      const ok = await updateClinic(selectedClinic.id, { logoUrl: photoUrl })
+      if (ok) {
+        setSelectedClinic({ ...selectedClinic, logoUrl: photoUrl })
+        alert('Cover logo updated successfully!')
+      }
+    } catch (err) {
+      console.error('Error setting cover photo:', err)
+    }
+  }
+
   const isDiagnosticLab =
     selectedClinic?.type === 'diagnostic_lab' || selectedClinic?.type === 'polyclinic'
 
@@ -2538,15 +2673,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* Top Banner / Clinic Context Bar */}
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
-          <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden">
-            {selectedClinic?.logoUrl ? (
+          <div className="w-16 h-16 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-slate-200 shadow-xs relative">
+            {selectedClinic?.logoUrl || (selectedClinic?.pictures && selectedClinic.pictures.length > 0) ? (
               <img
-                src={selectedClinic.logoUrl}
-                alt=""
+                src={selectedClinic.logoUrl || selectedClinic.pictures![0]}
+                alt={selectedClinic?.name || 'Clinic Photo'}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none'
+                }}
               />
             ) : (
-              <Building2 className="w-7 h-7" />
+              <Building2 className="w-8 h-8" />
             )}
           </div>
 
@@ -2555,6 +2693,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <h1 className="text-xl sm:text-2xl font-black text-slate-900">
                 {selectedClinic?.name}
               </h1>
+              {selectedClinic?.pictures && selectedClinic.pictures.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setDeskTab('settings')}
+                  className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 hover:bg-brand-50 text-slate-700 hover:text-brand-800 border border-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Click to view and manage clinic facility photos in Settings"
+                >
+                  <Camera className="w-3.5 h-3.5 text-brand-600" />
+                  <span>{selectedClinic.pictures.length} {selectedClinic.pictures.length === 1 ? 'Photo' : 'Photos'}</span>
+                </button>
+              )}
               {clinics.length > 1 && (
                 <select
                   value={selectedClinic?.id || ''}
@@ -3932,12 +4081,40 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 rounded-2xl bg-brand-100 text-brand-800 flex items-center justify-center font-black text-lg">
-                      {doc.fullName.charAt(0)}
+                    <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-800 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-slate-200 shadow-xs relative group">
+                      {doc.profilePictureUrl ? (
+                        <img
+                          src={doc.profilePictureUrl}
+                          alt={doc.fullName}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none'
+                          }}
+                        />
+                      ) : (
+                        doc.fullName.charAt(0)
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDoctorPhotoUpload(doc)}
+                        className="absolute inset-0 bg-black/60 text-white opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity text-[9px] font-bold cursor-pointer"
+                        title="Upload or change doctor photo"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Photo</span>
+                      </button>
                     </div>
                     <div>
                       <h3 className="text-sm font-black text-slate-900">{doc.fullName}</h3>
                       <p className="text-xs text-brand-700 font-bold">{doc.specialty || 'General'}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDoctorPhotoUpload(doc)}
+                        className="mt-1 text-[10px] font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Camera className="w-3 h-3" />
+                        <span>{doc.profilePictureUrl ? 'Change Photo' : '+ Upload Photo'}</span>
+                      </button>
                     </div>
                   </div>
 
@@ -4715,6 +4892,121 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 {savingSettings ? 'Saving Settings...' : 'Save Clinic Settings'}
               </button>
             </form>
+          </div>
+
+          {/* CLINIC FACILITY PHOTOS & LOGO GALLERY (1-4 Photos) */}
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <Camera className="w-5 h-5 text-brand-600" />
+                  <span>Clinic Facility Photos (1–4 Photos)</span>
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Real photos of your clinic facility, reception, and consultation cabins. Synced directly to patient search and profile view.
+                </p>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-brand-50 text-brand-800 border border-brand-200 self-start sm:self-auto shrink-0">
+                {selectedClinic?.pictures?.length || 0} / 4 Photos
+              </span>
+            </div>
+
+            {clinicPhotoStatusMsg && (
+              <div className="p-3 bg-brand-50 border border-brand-200 rounded-2xl text-brand-800 text-xs font-bold flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-brand-600 shrink-0" />
+                <span>{clinicPhotoStatusMsg}</span>
+              </div>
+            )}
+
+            {/* Photo Gallery Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {selectedClinic?.pictures && selectedClinic.pictures.length > 0 ? (
+                selectedClinic.pictures.map((picUrl, idx) => {
+                  const isCover = (selectedClinic.logoUrl === picUrl) || (idx === 0 && !selectedClinic.logoUrl)
+                  return (
+                    <div
+                      key={idx}
+                      className="group relative rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 shadow-xs"
+                    >
+                      <div className="w-full h-44 overflow-hidden relative">
+                        <img
+                          src={picUrl}
+                          alt={`Facility Photo ${idx + 1}`}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
+                      </div>
+
+                      {/* Top Badges */}
+                      <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-black/60 text-white backdrop-blur-xs">
+                          Photo #{idx + 1}
+                        </span>
+                        {isCover && (
+                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-brand-600 text-white shadow-xs">
+                            Cover / Main Photo
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Bottom Actions */}
+                      <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between gap-2">
+                        {!isCover ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSetClinicCoverPhoto(picUrl)}
+                            className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-white/90 hover:bg-white text-slate-800 backdrop-blur-xs shadow-xs transition-colors cursor-pointer"
+                          >
+                            Set as Cover
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-white/90 font-bold drop-shadow-xs">Active Banner</span>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveClinicPhoto(idx)}
+                          className="p-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-700 text-white transition-colors cursor-pointer"
+                          title="Remove this photo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              ) : (
+                <div className="col-span-full p-8 border-2 border-dashed border-slate-200 rounded-3xl text-center space-y-2 bg-slate-50">
+                  <Camera className="w-10 h-10 text-slate-400 mx-auto" />
+                  <p className="text-xs font-bold text-slate-700">No Facility Photos Added Yet</p>
+                  <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                    Add up to 4 real photos of your facility entrance, OPD chambers, or reception to build trust with patients.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Add Photo Button / File Picker (if < 4 photos) */}
+            {(selectedClinic?.pictures?.length || 0) < 4 && (
+              <div className="pt-2">
+                <label className="flex items-center justify-center space-x-2 w-full py-4 px-6 border-2 border-dashed border-brand-300 hover:border-brand-500 rounded-2xl bg-brand-50/50 hover:bg-brand-50 transition-all cursor-pointer">
+                  <UploadCloud className="w-5 h-5 text-brand-600" />
+                  <span className="text-xs font-bold text-brand-800">
+                    {uploadingClinicPhoto ? 'Compressing & Uploading to Supabase...' : `+ Upload Facility Photo (${(selectedClinic?.pictures?.length || 0) + 1} of 4)`}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={uploadingClinicPhoto}
+                    onChange={handleUploadClinicPhoto}
+                    className="hidden"
+                  />
+                </label>
+                <p className="text-[10px] text-slate-400 text-center mt-1.5">
+                  Images are automatically compressed to ≤ 500 KB and uploaded to public Supabase storage.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -5626,6 +5918,91 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: DOCTOR PHOTO UPLOAD / UPDATE                       */}
+      {/* ========================================================= */}
+      {doctorPhotoModalOpen && doctorPhotoTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
+                  Practitioner Profile
+                </span>
+                <h3 className="text-base font-black text-slate-900">
+                  Update Photo for {doctorPhotoTarget.fullName}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDoctorPhotoModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Photo Preview */}
+            <div className="flex flex-col items-center justify-center space-y-3 py-2">
+              <div className="w-28 h-28 rounded-3xl bg-brand-50 border-2 border-brand-200 overflow-hidden flex items-center justify-center shadow-inner relative">
+                {doctorPhotoPreview ? (
+                  <img
+                    src={doctorPhotoPreview}
+                    alt={doctorPhotoTarget.fullName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-4xl font-black text-brand-700">
+                    {doctorPhotoTarget.fullName.charAt(0)}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 font-medium">
+                {doctorPhotoTarget.specialty || 'General Practitioner'} • NMC: {doctorPhotoTarget.nmcLicenseNumber || '–'}
+              </p>
+            </div>
+
+            {doctorPhotoMsg && (
+              <div className="p-3 bg-brand-50 border border-brand-200 rounded-xl text-brand-800 text-xs font-bold text-center">
+                {doctorPhotoMsg}
+              </div>
+            )}
+
+            {/* File Input */}
+            <div className="space-y-3">
+              <label className="flex items-center justify-center space-x-2 w-full py-3 px-4 border border-slate-200 hover:border-brand-400 rounded-xl bg-slate-50 hover:bg-brand-50 transition cursor-pointer text-xs font-bold text-slate-700">
+                <Camera className="w-4 h-4 text-brand-600" />
+                <span>{doctorPhotoFile ? doctorPhotoFile.name : 'Choose Image File (JPG, PNG, WEBP)'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleDoctorPhotoFileChange}
+                  className="hidden"
+                />
+              </label>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDoctorPhotoModalOpen(false)}
+                  className="w-1/2 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={uploadingDoctorPhoto || !doctorPhotoFile}
+                  onClick={handleSaveDoctorPhoto}
+                  className="w-1/2 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-xs transition disabled:opacity-50 cursor-pointer"
+                >
+                  {uploadingDoctorPhoto ? 'Uploading...' : 'Save & Publish Photo'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
