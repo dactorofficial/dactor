@@ -153,13 +153,6 @@ fun BookingFormScreen(
         Toast.makeText(context, "Filled details from saved profile: $filledDisplayName", Toast.LENGTH_SHORT).show()
     }
 
-    val defaultBookingTime = remember {
-        val plus5 = java.time.LocalTime.now().plusMinutes(5)
-        val formatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US)
-        plus5.format(formatter)
-    }
-    var appointmentTime by remember { mutableStateOf(defaultBookingTime) }
-
     var loadedSlot by remember { mutableStateOf<Slot?>(null) }
     var slotDoctorName by remember { mutableStateOf<String?>(null) }
     var slotDoctorSpecialty by remember { mutableStateOf<String?>(null) }
@@ -494,7 +487,7 @@ fun BookingFormScreen(
                                     var resolvedClinicId = clinicId.ifBlank { null }
                                     var resolvedDoctorId: String? = null
                                     var resolvedDate = java.time.LocalDate.now().toString()
-                                    var resolvedTime = com.dactor.patient.data.repository.AppointmentRepository.normalizeTimeForPostgres(appointmentTime)
+                                    var resolvedTime = "09:30"
 
                                     val isSyntheticSlot = slotId.startsWith("synth__") || slotId.startsWith("slot_") || slotId == "slot_1"
                                     val s = loadedSlot ?: (if (slotId.isNotBlank() && !isSyntheticSlot && slotRepository != null) slotRepository.getSlotById(slotId) else null)
@@ -511,7 +504,7 @@ fun BookingFormScreen(
                                             resolvedDoctorId = s.doctorId
                                         }
                                         resolvedDate = s.slotDate
-                                        resolvedTime = com.dactor.patient.data.repository.AppointmentRepository.normalizeTimeForPostgres(appointmentTime)
+                                        resolvedTime = com.dactor.patient.data.repository.AppointmentRepository.normalizeTimeForPostgres(s.startTime)
                                     }
 
                                     if (resolvedClinicId == null && clinicRepository != null) {
@@ -794,93 +787,6 @@ fun BookingFormScreen(
                                 fontSize = 12.sp,
                                 color = FormTealDark
                             )
-                        }
-                    }
-
-                    HorizontalDivider(color = FormTeal.copy(alpha = 0.14f))
-
-                    // ── Editable Appointment Time (Auto-set +5 min of current, editable) ──
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = FormTeal.copy(alpha = 0.08f),
-                        border = BorderStroke(1.dp, FormTeal.copy(alpha = 0.25f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                com.dactor.patient.domain.util.DateTimePickers.showClockTimePicker(context, appointmentTime) { picked ->
-                                    val parsed = com.dactor.patient.data.repository.SlotRepository.parseTimeToMinutes(picked)
-                                    if (parsed != null) {
-                                        val h = parsed / 60
-                                        val m = parsed % 60
-                                        val isPm = h >= 12
-                                        val displayH = when {
-                                            h == 0 -> 12
-                                            h > 12 -> h - 12
-                                            else -> h
-                                        }
-                                        appointmentTime = String.format(java.util.Locale.US, "%02d:%02d %s", displayH, m, if (isPm) "PM" else "AM")
-                                    } else {
-                                        appointmentTime = picked
-                                    }
-                                }
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 9.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.AccessTime,
-                                    contentDescription = null,
-                                    tint = FormTeal,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Column {
-                                    Text(
-                                        text = "Appointment Time (Auto +5m)",
-                                        fontSize = 11.sp,
-                                        color = SlateMuted,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = appointmentTime,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = FormTealDark
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = FormTeal.copy(alpha = 0.18f)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Edit,
-                                        contentDescription = null,
-                                        tint = FormTeal,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Text(
-                                        text = "Change Time",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = FormTealDark
-                                    )
-                                }
-                            }
                         }
                     }
                 }

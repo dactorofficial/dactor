@@ -1863,7 +1863,9 @@ fun PatientDirectoryScreen(
                                         patientMobile = newPatientPhone.trim(),
                                         patientEmail = newPatientEmail.trim().ifBlank { null },
                                         appointmentDate = today,
-                                        appointmentTime = "10:00 AM",
+                                        appointmentTime = try {
+                                            java.time.LocalTime.now().plusMinutes(5).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                                        } catch (e: Exception) { "10:00" },
                                         checkinStatus = "checked_in",
                                         paymentStatus = "unpaid",
                                         isWalkin = true

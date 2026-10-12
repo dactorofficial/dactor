@@ -85,7 +85,7 @@ fun WalkinBookingScreen(
 
     val defaultTime = remember {
         try {
-            java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+            java.time.LocalTime.now().plusMinutes(5).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
         } catch (e: Exception) {
             "10:00"
         }
@@ -104,32 +104,25 @@ fun WalkinBookingScreen(
     var publishedSlots by remember { mutableStateOf<List<com.dactor.clinic.data.model.Slot>>(emptyList()) }
     var selectedSlot by remember { mutableStateOf<com.dactor.clinic.data.model.Slot?>(null) }
 
-    // Check whether the selected slot's end time (or time window's end time) is over.
-    // If the end time is NOT over, it is NOT considered before current time.
+    // Check whether the entered timestamp or selected slot's end time is over.
     val isTimeInPast = remember(appointmentDate, appointmentTime, selectedSlot) {
         val slot = selectedSlot
+        val trimmedTime = appointmentTime.trim()
         when {
-            slot != null -> {
-                com.dactor.clinic.data.repository.SlotRepository.isSlotEndTimeOver(
-                    endTimeStr = slot.endTime,
-                    dateStr = appointmentDate,
-                    startTimeStr = slot.startTime
-                )
-            }
-            appointmentTime.contains("-") -> {
-                val startPart = appointmentTime.substringBefore("-").trim()
-                val endPart = appointmentTime.substringAfter("-").trim()
+            trimmedTime.contains("-") -> {
+                val startPart = trimmedTime.substringBefore("-").trim()
+                val endPart = trimmedTime.substringAfter("-").trim()
                 com.dactor.clinic.data.repository.SlotRepository.isSlotEndTimeOver(
                     endTimeStr = endPart,
                     dateStr = appointmentDate,
                     startTimeStr = startPart
                 )
             }
-            appointmentTime.isNotBlank() -> {
+            trimmedTime.isNotBlank() -> {
                 // Check if typed single time matches an active published slot whose end time is not over
                 val matchingSlot = publishedSlots.firstOrNull {
-                    it.startTime.startsWith(appointmentTime.trim()) ||
-                        "${it.startTime} - ${it.endTime}" == appointmentTime.trim()
+                    it.startTime.startsWith(trimmedTime) ||
+                        "${it.startTime} - ${it.endTime}" == trimmedTime
                 }
                 if (matchingSlot != null) {
                     com.dactor.clinic.data.repository.SlotRepository.isSlotEndTimeOver(
@@ -139,10 +132,17 @@ fun WalkinBookingScreen(
                     )
                 } else {
                     com.dactor.clinic.data.repository.SlotRepository.isSlotEndTimeOver(
-                        endTimeStr = appointmentTime.trim(),
+                        endTimeStr = trimmedTime,
                         dateStr = appointmentDate
                     )
                 }
+            }
+            slot != null -> {
+                com.dactor.clinic.data.repository.SlotRepository.isSlotEndTimeOver(
+                    endTimeStr = slot.endTime,
+                    dateStr = appointmentDate,
+                    startTimeStr = slot.startTime
+                )
             }
             else -> false
         }
@@ -203,11 +203,9 @@ fun WalkinBookingScreen(
             if (selectedSlot != null && activeSlots.none { it.id == selectedSlot?.id }) {
                 selectedSlot = null
             }
-            // Auto-select first active slot if none selected so walk-in uses active slot window by default
+            // Auto-select first active slot if none selected, while keeping the +5 min editable timestamp
             if (selectedSlot == null && activeSlots.isNotEmpty()) {
-                val firstSlot = activeSlots.first()
-                selectedSlot = firstSlot
-                appointmentTime = "${firstSlot.startTime} - ${firstSlot.endTime}"
+                selectedSlot = activeSlots.first()
             }
         } else {
             publishedSlots = emptyList()
@@ -397,7 +395,11 @@ fun WalkinBookingScreen(
                                         selectedSlot = null
                                     } else {
                                         selectedSlot = slot
-                                        appointmentTime = "${slot.startTime} - ${slot.endTime}"
+                                        if (appointmentTime.isBlank()) {
+                                            appointmentTime = try {
+                                                java.time.LocalTime.now().plusMinutes(5).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                                            } catch (e: Exception) { "10:00" }
+                                        }
                                     }
                                 },
                                 label = {
@@ -436,7 +438,6 @@ fun WalkinBookingScreen(
                 OutlinedTextField(
                     value = appointmentTime,
                     onValueChange = { 
-                        selectedSlot = null
                         appointmentTime = it 
                     },
                     label = { Text("Time Window") },
@@ -677,19 +678,19 @@ fun WalkinBookingScreen(
                     }
 
                     val currentHHmm = try {
-                        java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                        java.time.LocalTime.now().plusMinutes(5).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
                     } catch (e: Exception) { "10:00" }
 
-                    // Only block if a specific published slot was selected whose end time is over
-                    if (selectedSlot != null && isTimeInPast) {
-                        errorMessage = "Selected slot (${selectedSlot!!.startTime} - ${selectedSlot!!.endTime}) has ended. Please select an active slot."
+                    // Block if the selected time or slot end time is in the past
+                    if (isTimeInPast) {
+                        errorMessage = "Selected time ($appointmentTime) has already passed. Please set a current or future time."
                         coroutineScope.launch { scrollState.animateScrollTo(0) }
                         return@Button
                     }
 
                     val actualTime = when {
+                        appointmentTime.isNotBlank() && !isTimeInPast -> appointmentTime.trim()
                         selectedSlot != null -> "${selectedSlot!!.startTime} - ${selectedSlot!!.endTime}"
-                        appointmentTime.isNotBlank() && !isTimeInPast -> appointmentTime
                         else -> currentHHmm
                     }
 
@@ -819,7 +820,6 @@ fun WalkinBookingScreen(
                 title = "Select Walk-In Time",
                 onDismiss = { showTimeCarouselDialog = false },
                 onTimeSelected = { picked ->
-                    selectedSlot = null
                     appointmentTime = picked
                 }
             )
