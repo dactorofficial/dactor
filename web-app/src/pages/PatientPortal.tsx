@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   User,
   Calendar,
@@ -41,6 +41,12 @@ import {
   Unlock,
   KeyRound,
   CalendarRange,
+  FlaskConical,
+  Layers,
+  History,
+  CheckSquare,
+  Square,
+  Tag,
 } from 'lucide-react'
 function triggerConfettiBurst() {
   try {
@@ -216,12 +222,59 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // BOOKING WIZARD STATE
   // ==========================================
   const [clinics, setClinics] = useState<Clinic[]>([])
+  const [clinicSearchQuery, setClinicSearchQuery] = useState('')
+  const [clinicCategoryFilter, setClinicCategoryFilter] = useState<
+    'all' | 'single_doctor' | 'polyclinic' | 'diagnostic_lab'
+  >('all')
   const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null)
   const [clinicDoctors, setClinicDoctors] = useState<Doctor[]>([])
   const [clinicServices, setClinicServices] = useState<ClinicService[]>([])
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null)
   const [selectedService, setSelectedService] = useState<ClinicService | null>(null)
+  const [selectedLabTests, setSelectedLabTests] = useState<ClinicService[]>([])
   const [bookingMode, setBookingMode] = useState<'opd' | 'lab'>('opd')
+
+  // Polyclinic Follow-Up Visit State
+  const [isReturningPatient, setIsReturningPatient] = useState(false)
+  const [followupCodeInput, setFollowupCodeInput] = useState('')
+  const [retainedAppointment, setRetainedAppointment] = useState<Appointment | null>(null)
+  const [isLookingUpCode, setIsLookingUpCode] = useState(false)
+  const [followupLookupError, setFollowupLookupError] = useState<string | null>(null)
+
+  // 3 Clinic Types Classification for active clinic
+  const isLabClinic = useMemo(() => {
+    if (!selectedClinic) return false
+    const t = (selectedClinic.type || '').toLowerCase()
+    const n = (selectedClinic.name || '').toLowerCase()
+    return (
+      t === 'diagnostic_lab' ||
+      t.includes('lab') ||
+      n.includes('lab') ||
+      (selectedClinic.specialties?.some(
+        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+      ) ?? false)
+    )
+  }, [selectedClinic])
+
+  const isSingleDoctorClinic = useMemo(() => {
+    if (isLabClinic) return false
+    return (
+      selectedClinic?.type === 'single_visit' ||
+      selectedClinic?.type === 'single_doctor' ||
+      clinicDoctors.length === 1
+    )
+  }, [isLabClinic, selectedClinic?.type, clinicDoctors.length])
+
+  const isPolyclinic = useMemo(() => {
+    return !isLabClinic && !isSingleDoctorClinic
+  }, [isLabClinic, isSingleDoctorClinic])
+
+  // Auto-bind single doctor if Single Doctor Clinic
+  useEffect(() => {
+    if (isSingleDoctorClinic && clinicDoctors.length > 0) {
+      setSelectedDoctor(clinicDoctors[0])
+    }
+  }, [isSingleDoctorClinic, clinicDoctors])
 
   // Date & Slot Selection
   const [bookingDate, setBookingDate] = useState<string>(() => {
@@ -230,6 +283,51 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [availableSlots, setAvailableSlots] = useState<Slot[]>([])
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
   const [isLoadingSlots, setIsLoadingSlots] = useState(false)
+
+  // Follow-Up 10-Digit Code Realtime Lookup
+  useEffect(() => {
+    let active = true
+    const clean = followupCodeInput.trim()
+    if (isReturningPatient && clean.length === 10 && /^\d{10}$/.test(clean)) {
+      setIsLookingUpCode(true)
+      setFollowupLookupError(null)
+      getAppointmentByTrackingCode(clean)
+        .then((found) => {
+          if (!active) return
+          setIsLookingUpCode(false)
+          if (found) {
+            setRetainedAppointment(found)
+            setBookPatientName(found.patientName)
+            setBookPatientAge(String(found.patientAge || ''))
+            setBookPatientGender(found.patientGender || 'Male')
+            setBookPatientPhone(found.patientMobile || '')
+            if (found.doctorId && clinicDoctors.length > 0) {
+              const matchedDoc = clinicDoctors.find((d) => d.id === found.doctorId)
+              if (matchedDoc) setSelectedDoctor(matchedDoc)
+            }
+          } else {
+            setRetainedAppointment(null)
+            setFollowupLookupError(`No appointment record found for 10-digit code #${clean}.`)
+          }
+        })
+        .catch(() => {
+          if (!active) return
+          setIsLookingUpCode(false)
+          setRetainedAppointment(null)
+          setFollowupLookupError('Failed to lookup appointment tracking code.')
+        })
+    } else {
+      setRetainedAppointment(null)
+      if (clean.length > 0 && clean.length !== 10) {
+        setFollowupLookupError('Code must be exactly 10 digits.')
+      } else {
+        setFollowupLookupError(null)
+      }
+    }
+    return () => {
+      active = false
+    }
+  }, [isReturningPatient, followupCodeInput, clinicDoctors])
 
   // Patient Details for Booking
   const [bookFor, setBookFor] = useState<'self' | 'family'>('self')
@@ -696,7 +794,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setSelectedClinic(clinic)
     setSelectedDoctor(null)
     setSelectedService(null)
+    setSelectedLabTests([])
     setSelectedSlot(null)
+    setIsReturningPatient(false)
+    setFollowupCodeInput('')
+    setRetainedAppointment(null)
+    setFollowupLookupError(null)
 
     try {
       const [docs, servs, pCfg] = await Promise.all([
@@ -704,16 +807,31 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         getClinicServices(clinic.id),
         getClinicPaymentConfig(clinic.id),
       ])
-      setClinicDoctors(docs.filter((d) => d.isInClinic))
-      setClinicServices(servs.filter((s) => s.isAvailable))
+      const activeDocs = docs.filter((d) => d.isInClinic)
+      const validDocs = activeDocs.length > 0 ? activeDocs : docs
+      setClinicDoctors(validDocs)
+      const availServs = servs.filter((s) => s.isAvailable !== false)
+      setClinicServices(availServs)
       setClinicPaymentConfig(pCfg)
 
-      if (clinic.type === 'diagnostic_lab') {
+      const isLab =
+        clinic.type === 'diagnostic_lab' ||
+        clinic.type?.toLowerCase().includes('lab') ||
+        clinic.name.toLowerCase().includes('lab') ||
+        (clinic.specialties?.some(
+          (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+        ) ?? false)
+
+      if (isLab) {
         setBookingMode('lab')
-        if (servs.length > 0) setSelectedService(servs[0])
+        if (availServs.length > 0) {
+          setSelectedLabTests([availServs[0]])
+        } else {
+          setSelectedLabTests([])
+        }
       } else {
         setBookingMode('opd')
-        if (docs.length > 0) setSelectedDoctor(docs[0])
+        if (validDocs.length > 0) setSelectedDoctor(validDocs[0])
       }
 
       setBookingStep(2)
@@ -732,11 +850,38 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         const rawSlots = await getSlots(selectedClinic!.id, bookingDate)
 
         // FILTER: Remove slots whose end time has already expired!
-        const validSlots = rawSlots.filter((slot) => {
+        let validSlots = rawSlots.filter((slot) => {
           const isExpired = isSlotTimeExpired(bookingDate, slot.endTime)
           const hasCapacity = slot.bookedCount < slot.maxCapacity
           return !isExpired && hasCapacity && slot.isAvailable !== false
         })
+
+        // If diagnostic lab or no custom slots, provide standard operational sample collection slots
+        if (validSlots.length === 0 && isLabClinic) {
+          const fallbackTimes = [
+            { start: '07:00 AM', end: '08:00 AM' },
+            { start: '08:00 AM', end: '09:00 AM' },
+            { start: '09:00 AM', end: '10:00 AM' },
+            { start: '10:00 AM', end: '11:00 AM' },
+            { start: '11:00 AM', end: '12:00 PM' },
+            { start: '01:00 PM', end: '02:00 PM' },
+            { start: '02:00 PM', end: '03:00 PM' },
+            { start: '03:00 PM', end: '04:00 PM' },
+          ]
+          validSlots = fallbackTimes
+            .filter((t) => !isSlotTimeExpired(bookingDate, t.end))
+            .map((t, idx) => ({
+              id: `fallback-lab-slot-${idx}`,
+              clinicId: selectedClinic!.id,
+              doctorId: 'diagnostic_lab_collector',
+              slotDate: bookingDate,
+              startTime: t.start,
+              endTime: t.end,
+              maxCapacity: 20,
+              bookedCount: 0,
+              isAvailable: true,
+            }))
+        }
 
         setAvailableSlots(validSlots)
         if (validSlots.length > 0) {
@@ -752,13 +897,18 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
 
     loadSlotsForDate()
-  }, [selectedClinic, bookingDate, bookingStep])
+  }, [selectedClinic, bookingDate, bookingStep, isLabClinic])
 
-  // Calculate Fee
-  const calculatedFee =
-    bookingMode === 'lab'
-      ? selectedService?.price || 500
-      : selectedDoctor?.consultationFee || 500
+  // Calculate Fee strictly matching rules for all 3 clinic types
+  const calculatedFee = useMemo(() => {
+    if (isLabClinic) {
+      return selectedLabTests.reduce((acc, t) => acc + (t.price || 0), 0)
+    }
+    if (isReturningPatient && retainedAppointment) {
+      return 0 // 100% Free Follow-up
+    }
+    return selectedDoctor?.consultationFee || 500
+  }, [isLabClinic, selectedLabTests, isReturningPatient, retainedAppointment, selectedDoctor])
 
   // Confirm booking & launch payment
   const handleProceedToPayment = (e: React.FormEvent) => {
@@ -790,7 +940,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }, 2000)
   }
 
-  // Complete Payment (either Testing Bypass or Gateway Confirmation)
+  // Complete Payment (either Testing Bypass, Free Follow-up, or Gateway Confirmation)
   const handleExecutePayment = async (isBypass: boolean = false) => {
     if (isPaymentProcessing) return // Prevent double clicking!
     setIsPaymentProcessing(true)
@@ -801,12 +951,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         ? `${selectedSlot.startTime} - ${selectedSlot.endTime}`
         : '10:00 AM'
 
+      const isFreeFollowup = isReturningPatient && retainedAppointment && calculatedFee === 0
+
       // 1. Create Appointment in Supabase
       const newAppt = await createAppointment({
         trackingCode10Digit: code10,
         userId: patientUser?.id,
         clinicId: selectedClinic!.id,
-        doctorId: bookingMode === 'opd' ? selectedDoctor?.id : undefined,
+        doctorId: isLabClinic ? undefined : selectedDoctor?.id,
         patientName: bookPatientName.trim(),
         patientAge: parseInt(bookPatientAge) || 28,
         patientGender: bookPatientGender,
@@ -817,8 +969,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         checkinStatus: 'waiting',
         paymentStatus: 'paid',
         feeAmount: calculatedFee,
-        notes: bookPatientNotes.trim() || undefined,
-        selectedTests: bookingMode === 'lab' && selectedService ? [selectedService.serviceName] : [],
+        notes: isFreeFollowup
+          ? `Follow-Up Visit (Previous Code: #${retainedAppointment.trackingCode10Digit})`
+          : (bookPatientNotes.trim() || (isLabClinic ? 'Diagnostic Lab Sample Collection' : undefined)),
+        selectedTests: isLabClinic ? selectedLabTests.map((t) => t.serviceName) : [],
       })
 
       if (!newAppt) {
@@ -826,7 +980,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       }
 
       // 2. Record Transaction & Billing Invoice in Supabase
-      const methodLabel = isBypass
+      const methodLabel = isFreeFollowup
+        ? 'FREE FOLLOW-UP'
+        : isBypass
         ? 'Bypass Test'
         : selectedPaymentMethod.toUpperCase()
 
@@ -834,14 +990,18 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         appointmentId: newAppt.id,
         trackingCode: code10,
         clinicId: selectedClinic!.id,
-        doctorId: selectedDoctor?.id,
+        doctorId: isLabClinic ? undefined : selectedDoctor?.id,
         patientName: bookPatientName.trim(),
         appointmentDate: bookingDate,
         appointmentTime: slotTimeStr,
         amount: calculatedFee,
         paymentMethod: methodLabel,
         paymentStatus: 'paid',
-        notes: isBypass ? 'Confirmed via Testing Bypass button' : `Digital Wallet (${methodLabel})`,
+        notes: isFreeFollowup
+          ? `Free Follow-Up (Previous ID: #${retainedAppointment.trackingCode10Digit})`
+          : isBypass
+          ? 'Confirmed via Testing Bypass button'
+          : `Digital Wallet (${methodLabel})`,
       })
 
       // 3. Save tracking code locally
@@ -893,7 +1053,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // PENDING BOOKING RESTORE & ADVANCE HANDLERS
   // ==========================================
   const handleProceedFromSlotStep = () => {
-    if (!selectedSlot && availableSlots.length > 0) return
+    if (isLabClinic && selectedLabTests.length === 0) {
+      alert('Please select at least one diagnostic test or pathology package to continue.')
+      return
+    }
+    if (!selectedSlot && availableSlots.length > 0) {
+      alert('Please select a preferred time slot to continue.')
+      return
+    }
 
     // If unauthenticated (Guest / Demo mode), save booking position and prompt Google Sign-In
     if (!patientUser) {
@@ -901,9 +1068,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         clinicId: selectedClinic?.id,
         doctorId: selectedDoctor?.id,
         serviceId: selectedService?.id,
+        selectedLabTestIds: selectedLabTests.map((t) => t.id),
         bookingMode,
         bookingDate,
         selectedSlotId: selectedSlot?.id,
+        isReturningPatient,
+        followupCodeInput,
       }
       try {
         localStorage.setItem('dactor_pending_booking_redirect', JSON.stringify(pendingRedirect))
@@ -1823,92 +1993,601 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             {/* STEP 1: SELECT CLINIC & DOCTOR */}
             {bookingStep === 1 && (
               <div className="space-y-6">
-                <div className="text-center max-w-md mx-auto">
-                  <h3 className="text-xl font-black text-slate-900">Choose a Medical Center</h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Select a clinic or diagnostic pathology center to view certified doctors and live slot schedules.
+                <div className="text-center max-w-xl mx-auto space-y-2">
+                  <h3 className="text-2xl font-black text-slate-900">Choose a Medical Center</h3>
+                  <p className="text-xs text-slate-500">
+                    Select an OPD Clinic, Multi-Specialty Polyclinic, or Diagnostic Pathology Lab. All verified centers include real-time queue tokens and address directions.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {clinics.map((c) => (
-                    <div
-                      key={c.id}
-                      onClick={() => handleSelectClinic(c)}
-                      className="p-5 rounded-2xl border border-slate-200 hover:border-brand-500 bg-slate-50/50 hover:bg-brand-50/30 cursor-pointer transition flex flex-col justify-between group shadow-xs"
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                            {(c.type || 'clinic').replace('_', ' ')}
-                          </span>
-                          <span className="text-xs font-bold text-brand-600 flex items-center">
-                            Select <ChevronRight className="w-3.5 h-3.5 ml-0.5 group-hover:translate-x-1 transition-transform" />
-                          </span>
-                        </div>
-                        <h4 className="font-bold text-slate-900 text-base">{c.name}</h4>
-                        <p className="text-xs text-slate-500 flex items-center space-x-1">
-                          <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-                          <span className="truncate">{c.addressText || 'Nepal'}</span>
-                        </p>
-                      </div>
-                      <div className="pt-3 mt-3 border-t border-slate-200/60 text-xs text-slate-400 font-medium">
-                        Contact: {c.contactPhone || 'Available'}
-                      </div>
-                    </div>
-                  ))}
+                {/* Search & Clinic Category Filter Pills */}
+                <div className="space-y-3 max-w-3xl mx-auto">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={clinicSearchQuery}
+                      onChange={(e) => setClinicSearchQuery(e.target.value)}
+                      placeholder="Search clinic by name, address city, or medical specialty..."
+                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 transition"
+                    />
+                    {clinicSearchQuery && (
+                      <button
+                        onClick={() => setClinicSearchQuery('')}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 4 Category Filter Pills */}
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {[
+                      { id: 'all', label: 'All Centers', icon: Building2 },
+                      { id: 'single_doctor', label: 'Single-Visit OPD Clinics', icon: Stethoscope },
+                      { id: 'polyclinic', label: 'Multi-Specialty Polyclinics', icon: Users },
+                      { id: 'diagnostic_lab', label: 'Diagnostic Pathology Labs', icon: FlaskConical },
+                    ].map((pill) => {
+                      const Icon = pill.icon
+                      const isSel = clinicCategoryFilter === pill.id
+                      return (
+                        <button
+                          key={pill.id}
+                          onClick={() => setClinicCategoryFilter(pill.id as any)}
+                          className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                            isSel
+                              ? 'bg-slate-900 text-white shadow-xs'
+                              : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200'
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                          <span>{pill.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
+
+                {/* Filtered Clinics Grid */}
+                {(() => {
+                  const filtered = clinics.filter((c) => {
+                    const t = (c.type || '').toLowerCase()
+                    const n = (c.name || '').toLowerCase()
+                    const addr = (c.addressText || '').toLowerCase()
+                    const isLab =
+                      t === 'diagnostic_lab' ||
+                      t.includes('lab') ||
+                      n.includes('lab') ||
+                      (c.specialties?.some(
+                        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+                      ) ?? false)
+                    const isSingle = !isLab && (t === 'single_visit' || t === 'single_doctor')
+                    const isPoly = !isLab && !isSingle
+
+                    if (clinicCategoryFilter === 'diagnostic_lab' && !isLab) return false
+                    if (clinicCategoryFilter === 'single_doctor' && !isSingle) return false
+                    if (clinicCategoryFilter === 'polyclinic' && !isPoly) return false
+
+                    if (clinicSearchQuery.trim()) {
+                      const q = clinicSearchQuery.toLowerCase().trim()
+                      const matchesName = n.includes(q)
+                      const matchesAddr = addr.includes(q)
+                      const matchesSpec = c.specialties?.some((s) => s.toLowerCase().includes(q))
+                      return matchesName || matchesAddr || matchesSpec
+                    }
+                    return true
+                  })
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="p-12 text-center bg-slate-50 rounded-3xl border border-slate-200 max-w-md mx-auto space-y-2">
+                        <AlertCircle className="w-8 h-8 mx-auto text-slate-400" />
+                        <h4 className="font-bold text-slate-800 text-sm">No medical centers matched</h4>
+                        <p className="text-xs text-slate-500">
+                          Try adjusting your search keyword or selecting a different category filter.
+                        </p>
+                        <button
+                          onClick={() => {
+                            setClinicSearchQuery('')
+                            setClinicCategoryFilter('all')
+                          }}
+                          className="mt-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition cursor-pointer"
+                        >
+                          Reset Filters
+                        </button>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                      {filtered.map((c) => {
+                        const t = (c.type || '').toLowerCase()
+                        const n = (c.name || '').toLowerCase()
+                        const isLab =
+                          t === 'diagnostic_lab' ||
+                          t.includes('lab') ||
+                          n.includes('lab') ||
+                          (c.specialties?.some(
+                            (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+                          ) ?? false)
+                        const isSingle = !isLab && (t === 'single_visit' || t === 'single_doctor')
+                        const isPoly = !isLab && !isSingle
+
+                        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                          `${c.name} ${c.addressText || ''}`
+                        )}`
+
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => handleSelectClinic(c)}
+                            className="bg-white rounded-3xl border border-slate-200 hover:border-brand-500 hover:shadow-lg hover:shadow-brand-500/10 cursor-pointer transition flex flex-col justify-between group overflow-hidden"
+                          >
+                            {/* Card Header with Type Badge */}
+                            <div className="p-6 space-y-3">
+                              <div className="flex items-center justify-between">
+                                {isLab ? (
+                                  <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                                    <FlaskConical className="w-3 h-3 text-purple-600" />
+                                    <span>Diagnostic Pathology Lab</span>
+                                  </span>
+                                ) : isSingle ? (
+                                  <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    <Stethoscope className="w-3 h-3 text-emerald-600" />
+                                    <span>Single-Visit OPD Clinic</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                                    <Building2 className="w-3 h-3 text-blue-600" />
+                                    <span>Multi-Specialty Polyclinic</span>
+                                  </span>
+                                )}
+
+                                <span className="text-xs font-bold text-brand-600 flex items-center group-hover:translate-x-0.5 transition-transform">
+                                  Book <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                                </span>
+                              </div>
+
+                              <div>
+                                <h4 className="font-black text-slate-900 text-lg group-hover:text-brand-600 transition">
+                                  {c.name}
+                                </h4>
+                                <div className="mt-1 flex items-start space-x-1.5 text-xs text-slate-500">
+                                  <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                                  <span className="line-clamp-2">{c.addressText || 'Nepal'}</span>
+                                </div>
+                              </div>
+
+                              {/* Google Maps Directions Pill */}
+                              <div className="pt-1">
+                                <a
+                                  href={mapsUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center space-x-1 text-[11px] font-bold text-brand-600 hover:text-brand-700 hover:underline bg-brand-50 px-2.5 py-1 rounded-lg border border-brand-200/60"
+                                >
+                                  <span>Google Maps Directions</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              </div>
+                            </div>
+
+                            {/* Card Footer: Phone Numbers & Action */}
+                            <div className="px-6 py-4 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 font-semibold">
+                              <div className="flex items-center space-x-1.5 text-slate-500">
+                                <Phone className="w-3.5 h-3.5 text-slate-400" />
+                                <span>{c.contactPhone || c.managerPhone || 'Available'}</span>
+                              </div>
+                              <span className="text-brand-700 font-bold bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                                Select Center →
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
             {/* STEP 2: SELECT DATE & VALID SLOTS */}
             {bookingStep === 2 && selectedClinic && (
               <div className="space-y-6 max-w-2xl mx-auto">
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => setBookingStep(1)}
-                    className="flex items-center space-x-1 text-xs font-bold text-slate-500 hover:text-slate-800"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    <span>Back to Clinics</span>
-                  </button>
-                  <span className="text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1 rounded-full">
-                    {selectedClinic.name}
-                  </span>
+                {/* Back Button & Clinic Summary Banner */}
+                <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setBookingStep(1)}
+                      className="flex items-center space-x-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-white px-3 py-1.5 rounded-xl border border-slate-200 transition shadow-2xs cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Back to Medical Centers</span>
+                    </button>
+                    {isLabClinic ? (
+                      <span className="inline-flex items-center space-x-1 text-xs font-bold px-3 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                        <FlaskConical className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Diagnostic Pathology Lab</span>
+                      </span>
+                    ) : isSingleDoctorClinic ? (
+                      <span className="inline-flex items-center space-x-1 text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Single-Visit OPD Clinic</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center space-x-1 text-xs font-bold px-3 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                        <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Multi-Specialty Polyclinic</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900">{selectedClinic.name}</h3>
+                    <div className="mt-1 flex flex-wrap items-center gap-y-1 gap-x-3 text-xs text-slate-500">
+                      <div className="flex items-center space-x-1">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{selectedClinic.addressText || 'Nepal'}</span>
+                      </div>
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                          `${selectedClinic.name} ${selectedClinic.addressText || ''}`
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center space-x-1 text-brand-600 hover:underline font-bold"
+                      >
+                        <span>Google Maps</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                      {selectedClinic.contactPhone && (
+                        <div className="flex items-center space-x-1">
+                          <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{selectedClinic.contactPhone}</span>
+                        </div>
+                      )}
+                      {selectedClinic.managerPhone && (
+                        <div className="flex items-center space-x-1">
+                          <span className="text-slate-400 font-bold">• Reception:</span>
+                          <span>{selectedClinic.managerPhone}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
-                {/* Doctor Selection (for OPD clinics) */}
-                {bookingMode === 'opd' && clinicDoctors.length > 0 && (
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Select Doctor / Specialist *
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {clinicDoctors.map((doc) => (
-                        <div
-                          key={doc.id}
-                          onClick={() => setSelectedDoctor(doc)}
-                          className={`p-4 rounded-2xl border cursor-pointer transition ${
-                            selectedDoctor?.id === doc.id
-                              ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-500/20'
-                              : 'border-slate-200 bg-white hover:border-slate-300'
-                          }`}
-                        >
-                          <div className="font-bold text-sm text-slate-900">{doc.fullName}</div>
-                          <div className="text-xs text-brand-600 font-medium">{doc.specialty}</div>
-                          <div className="text-xs text-slate-400 mt-1">
-                            Fee: <strong>NPR {doc.consultationFee || 500}</strong>
-                          </div>
+                {/* ============================================================== */}
+                {/* CASE 1: DIAGNOSTIC PATHOLOGY LAB */}
+                {/* ============================================================== */}
+                {isLabClinic && (
+                  <div className="space-y-6">
+                    {/* Notice Banner */}
+                    <div className="p-4 bg-purple-50 border border-purple-200 rounded-2xl flex items-start space-x-3 text-purple-900">
+                      <FlaskConical className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
+                      <div className="text-xs space-y-0.5">
+                        <strong className="block font-bold">Diagnostic Pathology Lab Booking</strong>
+                        <p className="text-purple-700">
+                          Select the tests or pathology packages you need, then pick your preferred sample collection slot. Verified digital reports will be uploaded directly to your portal once processed.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Test Catalog Checkboxes */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                          Select Diagnostic Tests & Packages *
+                        </label>
+                        <span className="text-xs font-bold text-purple-700">
+                          {selectedLabTests.length} tests selected
+                        </span>
+                      </div>
+
+                      {clinicServices.length === 0 ? (
+                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600 space-y-2">
+                          <p className="font-semibold text-slate-800">Standard Pathology Service Catalog:</p>
+                          {[
+                            { id: 's1', serviceName: 'Complete Blood Count (CBC)', price: 450 },
+                            { id: 's2', serviceName: 'Lipid Profile (Cholesterol / Triglycerides)', price: 900 },
+                            { id: 's3', serviceName: 'Liver Function Test (LFT)', price: 1100 },
+                            { id: 's4', serviceName: 'Thyroid Function Test (TSH, T3, T4)', price: 1200 },
+                            { id: 's5', serviceName: 'Fasting Blood Sugar (FBS)', price: 200 },
+                            { id: 's6', serviceName: 'Urine Routine Examination', price: 250 },
+                          ].map((item) => {
+                            const isChecked = selectedLabTests.some((t) => t.id === item.id)
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => {
+                                  if (isChecked) {
+                                    setSelectedLabTests(selectedLabTests.filter((t) => t.id !== item.id))
+                                  } else {
+                                    setSelectedLabTests([...selectedLabTests, item as any])
+                                  }
+                                }}
+                                className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition ${
+                                  isChecked
+                                    ? 'bg-purple-50/70 border-purple-500 ring-1 ring-purple-500'
+                                    : 'bg-white border-slate-200 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2.5">
+                                  {isChecked ? (
+                                    <CheckSquare className="w-4 h-4 text-purple-600" />
+                                  ) : (
+                                    <Square className="w-4 h-4 text-slate-400" />
+                                  )}
+                                  <span className="font-bold text-slate-800 text-xs">{item.serviceName}</span>
+                                </div>
+                                <span className="font-black text-slate-900 text-xs">NPR {item.price}</span>
+                              </div>
+                            )
+                          })}
                         </div>
-                      ))}
+                      ) : (
+                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                          {clinicServices.map((service) => {
+                            const isChecked = selectedLabTests.some((t) => t.id === service.id)
+                            return (
+                              <div
+                                key={service.id}
+                                onClick={() => {
+                                  if (isChecked) {
+                                    setSelectedLabTests(selectedLabTests.filter((t) => t.id !== service.id))
+                                  } else {
+                                    setSelectedLabTests([...selectedLabTests, service])
+                                  }
+                                }}
+                                className={`p-3.5 rounded-2xl border flex items-center justify-between cursor-pointer transition ${
+                                  isChecked
+                                    ? 'bg-purple-50/70 border-purple-500 ring-1 ring-purple-500 shadow-2xs'
+                                    : 'bg-white border-slate-200 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-3">
+                                  {isChecked ? (
+                                    <CheckSquare className="w-4 h-4 text-purple-600 shrink-0" />
+                                  ) : (
+                                    <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                                  )}
+                                  <div>
+                                    <div className="font-bold text-slate-800 text-xs">{service.serviceName}</div>
+                                    {service.description && (
+                                      <div className="text-[11px] text-slate-400 line-clamp-1">{service.description}</div>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className="font-black text-slate-900 text-xs">
+                                  NPR {service.price || 500}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+
+                      {/* Selected Tests Summary Pill */}
+                      {selectedLabTests.length > 0 && (
+                        <div className="p-3 bg-purple-50/80 border border-purple-200 rounded-xl flex items-center justify-between text-xs">
+                          <span className="font-semibold text-purple-900">Total Diagnostic Tests Cost:</span>
+                          <span className="font-black text-purple-900 text-sm">NPR {calculatedFee}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {/* Date Picker */}
+                {/* ============================================================== */}
+                {/* CASE 2: SINGLE-DOCTOR / SINGLE-VISIT CLINIC */}
+                {/* ============================================================== */}
+                {isSingleDoctorClinic && (
+                  <div className="space-y-6">
+                    {/* Notice Banner */}
+                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start space-x-3 text-emerald-900">
+                      <Stethoscope className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                      <div className="text-xs space-y-0.5">
+                        <strong className="block font-bold">Single-Visit Consultation Clinic</strong>
+                        <p className="text-emerald-700">
+                          Each booking generates a dedicated single-use OPD token with our verified attending specialist. Arrive at the clinic during your chosen slot.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Single Doctor Profile Card */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Attending Specialist Doctor
+                      </label>
+                      <div className="p-5 rounded-3xl border-2 border-emerald-500 bg-emerald-50/30 flex items-start space-x-4">
+                        <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden">
+                          {selectedDoctor?.profilePictureUrl ? (
+                            <img
+                              src={selectedDoctor.profilePictureUrl}
+                              alt={selectedDoctor.fullName}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <User className="w-7 h-7" />
+                          )}
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-black text-slate-900 text-base">
+                              {selectedDoctor?.fullName || 'Certified Specialist'}
+                            </h4>
+                            <span className="text-xs font-black text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg">
+                              NPR {selectedDoctor?.consultationFee || 500}
+                            </span>
+                          </div>
+                          <p className="text-xs font-bold text-emerald-700">
+                            {selectedDoctor?.specialty || 'General OPD Medicine'}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-500 font-medium">
+                            <span>{selectedDoctor?.education || 'MBBS, MD'}</span>
+                            {selectedDoctor?.startingPracticingYear && (
+                              <span>• {new Date().getFullYear() - selectedDoctor.startingPracticingYear} Yrs Exp</span>
+                            )}
+                            {selectedDoctor?.nmcLicenseNumber && <span>• NMC #{selectedDoctor.nmcLicenseNumber}</span>}
+                          </div>
+                          <div className="pt-1.5 flex items-center space-x-2">
+                            <span
+                              className={`inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                selectedDoctor?.isInClinic !== false
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                              <span>{selectedDoctor?.isInClinic !== false ? 'In Clinic Chamber' : 'Scheduled'}</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ============================================================== */}
+                {/* CASE 3: POLYCLINIC / MULTI-SPECIALTY CLINIC */}
+                {/* ============================================================== */}
+                {isPolyclinic && (
+                  <div className="space-y-6">
+                    {/* Notice Banner */}
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-start space-x-3 text-blue-900">
+                      <Building2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                      <div className="text-xs space-y-0.5">
+                        <strong className="block font-bold">Multi-Specialty Polyclinic</strong>
+                        <p className="text-blue-700">
+                          Choose between a New Patient Consultation or a 100% Free Follow-Up Visit with your previous 10-digit Appointment ID.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Visit Type Toggle: New vs Follow-up */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Consultation Type
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsReturningPatient(false)
+                            setFollowupCodeInput('')
+                            setRetainedAppointment(null)
+                          }}
+                          className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+                            !isReturningPatient
+                              ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-500/20 font-bold'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="text-xs font-bold text-slate-900">New Patient Consultation</div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">Standard consultation fee applies</div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsReturningPatient(true)}
+                          className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+                            isReturningPatient
+                              ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20 font-bold'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="text-xs font-bold text-emerald-800 flex items-center justify-between">
+                            <span>Follow-Up Visit</span>
+                            <span className="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full uppercase">
+                              FREE
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-emerald-700 mt-0.5">100% Free with 10-digit ID</div>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Follow-up 10-Digit Code Input Box */}
+                    {isReturningPatient && (
+                      <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-3">
+                        <label className="block text-xs font-bold text-emerald-900">
+                          Enter 10-Digit Previous Appointment Token ID *
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            maxLength={10}
+                            value={followupCodeInput}
+                            onChange={(e) => setFollowupCodeInput(e.target.value.replace(/\D/g, ''))}
+                            placeholder="Enter 10-digit token (e.g. 8472910384)"
+                            className="w-full px-4 py-2.5 bg-white border border-emerald-300 rounded-xl text-sm font-mono font-black text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                          />
+                          {isLookingUpCode && (
+                            <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2" />
+                          )}
+                        </div>
+
+                        {followupLookupError && (
+                          <p className="text-[11px] text-rose-600 font-bold">{followupLookupError}</p>
+                        )}
+
+                        {retainedAppointment && (
+                          <div className="p-3 bg-white rounded-xl border border-emerald-300 flex items-start space-x-3 text-xs text-emerald-900">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                            <div>
+                              <div className="font-bold">Verified Retained Patient: {retainedAppointment.patientName}</div>
+                              <div className="text-[11px] text-slate-500">
+                                Previous Visit: {retainedAppointment.appointmentDate} • Token #{retainedAppointment.trackingCode10Digit}
+                              </div>
+                              <div className="text-[11px] font-bold text-emerald-700 mt-0.5">
+                                ✓ 100% Free Follow-Up Visit Activated (NPR 0)
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Doctor Selection Roster for Polyclinic */}
+                    {clinicDoctors.length > 0 && (
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                          Select Specialist Doctor *
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {clinicDoctors.map((doc) => (
+                            <div
+                              key={doc.id}
+                              onClick={() => setSelectedDoctor(doc)}
+                              className={`p-4 rounded-2xl border cursor-pointer transition ${
+                                selectedDoctor?.id === doc.id
+                                  ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-500/20 shadow-xs'
+                                  : 'border-slate-200 bg-white hover:border-slate-300'
+                              }`}
+                            >
+                              <div className="font-bold text-sm text-slate-900">{doc.fullName}</div>
+                              <div className="text-xs text-brand-600 font-medium">{doc.specialty}</div>
+                              <div className="text-xs text-slate-400 mt-1 flex items-center justify-between">
+                                <span>{doc.education || 'MBBS, MD'}</span>
+                                <strong className="text-slate-800">
+                                  {isReturningPatient && retainedAppointment ? 'Free Follow-Up' : `NPR ${doc.consultationFee || 500}`}
+                                </strong>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Common Date Picker */}
                 <div className="space-y-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Select Appointment Date *
+                    {isLabClinic ? 'Select Sample Collection Date *' : 'Select Appointment Date *'}
                   </label>
                   <input
                     type="date"
@@ -1919,11 +2598,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   />
                 </div>
 
-                {/* Slots with strictly filtered expired slots */}
+                {/* Common Slots Grid */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Available Time Slots *
+                      {isLabClinic ? 'Available Sample Collection Slots *' : 'Available Time Slots *'}
                     </label>
                     <span className="text-[11px] text-slate-400">
                       (Past slots ending before now are hidden)
@@ -1950,7 +2629,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           key={slot.id}
                           type="button"
                           onClick={() => setSelectedSlot(slot)}
-                          className={`p-3 rounded-xl border text-center transition ${
+                          className={`p-3 rounded-xl border text-center transition cursor-pointer ${
                             selectedSlot?.id === slot.id
                               ? 'border-brand-600 bg-brand-600 text-white shadow-md shadow-brand-600/20 font-bold'
                               : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700 font-semibold'
@@ -1966,11 +2645,15 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   )}
                 </div>
 
-                <div className="space-y-2">
+                {/* Continue Action */}
+                <div className="space-y-2 pt-2">
                   <button
                     type="button"
                     onClick={handleProceedFromSlotStep}
-                    disabled={!selectedSlot && availableSlots.length > 0}
+                    disabled={
+                      (!selectedSlot && availableSlots.length > 0) ||
+                      (isLabClinic && selectedLabTests.length === 0)
+                    }
                     className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2 cursor-pointer"
                   >
                     <span>Continue to Patient Details</span>
@@ -1978,7 +2661,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </button>
                   {!patientUser && (
                     <p className="text-[11px] text-center text-slate-500 font-medium">
-                      🔒 Sign-in required on next step. Your selected clinic, doctor, date, and slot will be saved automatically.
+                      🔒 Sign-in required on next step. Your selected clinic, services, date, and slot will be saved automatically.
                     </p>
                   )}
                 </div>
@@ -2179,109 +2862,167 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <span>Medical Center</span>
                     <strong className="text-slate-800">{selectedClinic?.name}</strong>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>Consultant / Specialist</span>
-                    <strong className="text-slate-800">{selectedDoctor?.fullName || 'General OPD'}</strong>
-                  </div>
+                  {isLabClinic ? (
+                    <div className="flex items-start justify-between text-xs text-slate-500">
+                      <span>Diagnostic Tests ({selectedLabTests.length})</span>
+                      <strong className="text-slate-800 text-right max-w-[240px] truncate">
+                        {selectedLabTests.map((t) => t.serviceName).join(', ')}
+                      </strong>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span>Attending Specialist</span>
+                      <strong className="text-slate-800">{selectedDoctor?.fullName || 'General OPD'}</strong>
+                    </div>
+                  )}
+                  {isReturningPatient && retainedAppointment && (
+                    <div className="flex items-center justify-between text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">
+                      <span>Visit Type</span>
+                      <strong className="font-bold">Follow-Up (Previous Token #{retainedAppointment.trackingCode10Digit})</strong>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-xs text-slate-500">
                     <span>Patient</span>
                     <strong className="text-slate-800">{bookPatientName}</strong>
                   </div>
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>Slot</span>
+                    <span>{isLabClinic ? 'Sample Collection Slot' : 'Appointment Slot'}</span>
                     <strong className="text-slate-800">{bookingDate} • {selectedSlot?.startTime}</strong>
                   </div>
                   <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
-                    <span className="text-sm font-bold text-slate-900">Total Consultation Fee</span>
-                    <span className="text-lg font-black text-brand-700">NPR {calculatedFee}</span>
+                    <span className="text-sm font-bold text-slate-900">
+                      {isLabClinic ? 'Total Pathology Lab Fee' : 'Total Consultation Fee'}
+                    </span>
+                    <span className="text-lg font-black text-brand-700">
+                      {calculatedFee === 0 ? 'FREE (NPR 0)' : `NPR ${calculatedFee}`}
+                    </span>
                   </div>
                 </div>
 
-                {/* Select Payment Method */}
-                <div className="space-y-3">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Select Digital Payment Method
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { id: 'esewa', name: 'eSewa Wallet', color: 'bg-brand-500' },
-                      { id: 'khalti', name: 'Khalti Digital', color: 'bg-purple-600' },
-                      { id: 'fonepay', name: 'Fonepay QR', color: 'bg-rose-500' },
-                      { id: 'cash', name: 'Pay at Clinic', color: 'bg-slate-700' },
-                    ].map((pm) => (
-                      <button
-                        key={pm.id}
-                        type="button"
-                        onClick={() => setSelectedPaymentMethod(pm.id as any)}
-                        className={`p-4 rounded-2xl border text-left transition flex items-center space-x-3 ${
-                          selectedPaymentMethod === pm.id
-                            ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-500/20'
-                            : 'border-slate-200 bg-white hover:border-slate-300'
-                        }`}
-                      >
-                        <div className={`w-3.5 h-3.5 rounded-full ${pm.color}`} />
-                        <div>
-                          <div className="text-xs font-bold text-slate-900">{pm.name}</div>
-                          <div className="text-[10px] text-slate-400">Instant verification</div>
+                {/* 100% Free Follow-Up Visit Card OR Digital Payment Gateways */}
+                {calculatedFee === 0 ? (
+                  <div className="bg-emerald-50 border-2 border-emerald-500 rounded-3xl p-6 space-y-4">
+                    <div className="flex items-center space-x-3 text-emerald-900">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                      </div>
+                      <div>
+                        <div className="text-base font-black">100% Free Follow-Up Visit (NPR 0)</div>
+                        <div className="text-xs text-emerald-700">
+                          Verified with Previous Appointment #{retainedAppointment?.trackingCode10Digit}
                         </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-emerald-800 font-medium">
+                      Your follow-up visit with Dr. {selectedDoctor?.fullName} is eligible for zero consultation charge. No digital payment gateway fee will be charged.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={isPaymentProcessing}
+                      onClick={() => handleExecutePayment(true)}
+                      className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-2xl shadow-lg shadow-emerald-600/30 transition flex items-center justify-center space-x-2 cursor-pointer"
+                    >
+                      <Check className="w-5 h-5 stroke-[3]" />
+                      <span>{isPaymentProcessing ? 'Confirming Follow-Up...' : 'Confirm Free Follow-Up Appointment'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCancelPaymentSession('User cancelled follow-up')}
+                      disabled={isPaymentProcessing}
+                      className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition"
+                    >
+                      Cancel & Choose Different Slot
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Select Payment Method */}
+                    <div className="space-y-3">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Select Digital Payment Method
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { id: 'esewa', name: 'eSewa Wallet', color: 'bg-brand-500' },
+                          { id: 'khalti', name: 'Khalti Digital', color: 'bg-purple-600' },
+                          { id: 'fonepay', name: 'Fonepay QR', color: 'bg-rose-500' },
+                          { id: 'cash', name: 'Pay at Clinic', color: 'bg-slate-700' },
+                        ].map((pm) => (
+                          <button
+                            key={pm.id}
+                            type="button"
+                            onClick={() => setSelectedPaymentMethod(pm.id as any)}
+                            className={`p-4 rounded-2xl border text-left transition flex items-center space-x-3 cursor-pointer ${
+                              selectedPaymentMethod === pm.id
+                                ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-500/20'
+                                : 'border-slate-200 bg-white hover:border-slate-300'
+                            }`}
+                          >
+                            <div className={`w-3.5 h-3.5 rounded-full ${pm.color}`} />
+                            <div>
+                              <div className="text-xs font-bold text-slate-900">{pm.name}</div>
+                              <div className="text-[10px] text-slate-400">Instant verification</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Real Gateway Credential display from clinic config */}
+                      <div className="p-4 bg-slate-100 rounded-xl text-xs space-y-1 text-slate-600">
+                        <div className="font-semibold text-slate-800">
+                          Merchant Account: {selectedClinic?.name}
+                        </div>
+                        <div>
+                          Gateway ID:{' '}
+                          <code className="font-mono text-slate-800 bg-white px-1.5 py-0.5 rounded">
+                            {clinicPaymentConfig?.esewa?.merchantCode || 'EPAYTEST'}
+                          </code>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ACTION BUTTONS (With double-click prevention) */}
+                    <div className="space-y-3 pt-2">
+                      {/* Testing Bypass Button requested by user */}
+                      <button
+                        type="button"
+                        disabled={isPaymentProcessing}
+                        onClick={() => handleExecutePayment(true)}
+                        className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md transition flex items-center justify-center space-x-2 cursor-pointer"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>
+                          {isPaymentProcessing ? 'Confirming...' : 'Bypass Payment for Testing (Confirm Appointment)'}
+                        </span>
                       </button>
-                    ))}
-                  </div>
 
-                  {/* Real Gateway Credential display from clinic config */}
-                  <div className="p-4 bg-slate-100 rounded-xl text-xs space-y-1 text-slate-600">
-                    <div className="font-semibold text-slate-800">
-                      Merchant Account: {selectedClinic?.name}
+                      {/* Standard Pay & Confirm Button */}
+                      <button
+                        type="button"
+                        disabled={isPaymentProcessing}
+                        onClick={() => handleExecutePayment(false)}
+                        className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2 cursor-pointer"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>
+                          {isPaymentProcessing
+                            ? 'Processing Payment...'
+                            : `Pay NPR ${calculatedFee} via ${selectedPaymentMethod.toUpperCase()} & Book`}
+                        </span>
+                      </button>
+
+                      {/* Cancel Transaction Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleCancelPaymentSession('User clicked cancel button')}
+                        disabled={isPaymentProcessing}
+                        className="w-full py-2.5 text-xs font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                      >
+                        Cancel Transaction & Choose Different Slot
+                      </button>
                     </div>
-                    <div>
-                      Gateway ID:{' '}
-                      <code className="font-mono text-slate-800 bg-white px-1.5 py-0.5 rounded">
-                        {clinicPaymentConfig?.esewa?.merchantCode || 'EPAYTEST'}
-                      </code>
-                    </div>
-                  </div>
-                </div>
-
-                {/* ACTION BUTTONS (With double-click prevention) */}
-                <div className="space-y-3 pt-2">
-                  {/* Testing Bypass Button requested by user */}
-                  <button
-                    type="button"
-                    disabled={isPaymentProcessing}
-                    onClick={() => handleExecutePayment(true)}
-                    className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md transition flex items-center justify-center space-x-2"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>
-                      {isPaymentProcessing ? 'Confirming...' : 'Bypass Payment for Testing (Confirm Appointment)'}
-                    </span>
-                  </button>
-
-                  {/* Standard Pay & Confirm Button */}
-                  <button
-                    type="button"
-                    disabled={isPaymentProcessing}
-                    onClick={() => handleExecutePayment(false)}
-                    className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2"
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                    <span>
-                      {isPaymentProcessing
-                        ? 'Processing Payment...'
-                        : `Pay NPR ${calculatedFee} via ${selectedPaymentMethod.toUpperCase()} & Book`}
-                    </span>
-                  </button>
-
-                  {/* Cancel Transaction Button (Redirects to slot booking & shows 2-second failed toast) */}
-                  <button
-                    type="button"
-                    onClick={() => handleCancelPaymentSession('User clicked cancel button')}
-                    disabled={isPaymentProcessing}
-                    className="w-full py-2.5 text-xs font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
-                  >
-                    Cancel Transaction & Choose Different Slot
-                  </button>
-                </div>
+                  </>
+                )}
               </div>
             )}
 

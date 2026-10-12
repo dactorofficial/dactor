@@ -88,6 +88,7 @@ import {
   getMedicalSpecialties,
   getMedicalQualifications,
   generate10DigitTrackingCode,
+  getAppointmentByTrackingCode,
   getBillingInvoicesByClinic,
   saveOrUpdateInvoicePayment,
   uploadReceiptFile,
@@ -660,6 +661,86 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [walkinDoctorId, setWalkinDoctorId] = useState('')
   const [walkinErrors, setWalkinErrors] = useState<{ [key: string]: string }>({})
   const [walkinSuccessCode, setWalkinSuccessCode] = useState<string | null>(null)
+  const [walkinSelectedTests, setWalkinSelectedTests] = useState<ClinicService[]>([])
+  const [walkinIsFollowup, setWalkinIsFollowup] = useState(false)
+  const [walkinFollowupCode, setWalkinFollowupCode] = useState('')
+  const [walkinRetainedAppt, setWalkinRetainedAppt] = useState<Appointment | null>(null)
+  const [walkinLookupLoading, setWalkinLookupLoading] = useState(false)
+  const [walkinLookupError, setWalkinLookupError] = useState<string | null>(null)
+
+  // 3 Clinic Types Classification for active clinic
+  const isLabClinic = useMemo(() => {
+    if (!selectedClinic) return false
+    const t = (selectedClinic.type || '').toLowerCase()
+    const n = (selectedClinic.name || '').toLowerCase()
+    return (
+      t === 'diagnostic_lab' ||
+      t.includes('lab') ||
+      n.includes('lab') ||
+      (selectedClinic.specialties?.some(
+        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+      ) ?? false)
+    )
+  }, [selectedClinic])
+
+  const isSingleDoctorClinic = useMemo(() => {
+    if (isLabClinic) return false
+    return (
+      selectedClinic?.type === 'single_visit' ||
+      selectedClinic?.type === 'single_doctor' ||
+      clinicDoctors.length === 1
+    )
+  }, [isLabClinic, selectedClinic?.type, clinicDoctors.length])
+
+  const isPolyclinic = useMemo(() => {
+    return !isLabClinic && !isSingleDoctorClinic
+  }, [isLabClinic, isSingleDoctorClinic])
+
+  // Walk-in 10-digit follow-up code lookup
+  useEffect(() => {
+    let active = true
+    const clean = walkinFollowupCode.trim()
+    if (walkinIsFollowup && clean.length === 10 && /^\d{10}$/.test(clean)) {
+      setWalkinLookupLoading(true)
+      setWalkinLookupError(null)
+      getAppointmentByTrackingCode(clean)
+        .then((found) => {
+          if (!active) return
+          setWalkinLookupLoading(false)
+          if (found) {
+            setWalkinRetainedAppt(found)
+            setWalkinName(found.patientName)
+            setWalkinAge(String(found.patientAge || ''))
+            setWalkinGender(found.patientGender || 'Male')
+            setWalkinMobile(found.patientMobile || '')
+            if (found.patientEmail) setWalkinEmail(found.patientEmail)
+            if (found.doctorId && clinicDoctors.length > 0) {
+              const matched = clinicDoctors.find((d) => d.id === found.doctorId)
+              if (matched) setWalkinDoctorId(matched.id)
+            }
+          } else {
+            setWalkinRetainedAppt(null)
+            setWalkinLookupError(`No appointment record found for 10-digit code #${clean}.`)
+          }
+        })
+        .catch(() => {
+          if (!active) return
+          setWalkinLookupLoading(false)
+          setWalkinRetainedAppt(null)
+          setWalkinLookupError('Failed to lookup 10-digit tracking code.')
+        })
+    } else {
+      setWalkinRetainedAppt(null)
+      if (clean.length > 0 && clean.length !== 10) {
+        setWalkinLookupError('Tracking code must be exactly 10 digits.')
+      } else {
+        setWalkinLookupError(null)
+      }
+    }
+    return () => {
+      active = false
+    }
+  }, [walkinIsFollowup, walkinFollowupCode, clinicDoctors])
 
   // Diagnostic Lab Management State
   const [labUploadModalOpen, setLabUploadModalOpen] = useState(false)
@@ -1600,15 +1681,31 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     if (!walkinMobile.trim() || walkinMobile.replace(/\D/g, '').length < 8) {
       errors.mobile = 'Valid 8-10 digit mobile number is required.'
     }
+    if (isLabClinic && walkinSelectedTests.length === 0) {
+      errors.tests = 'Please select at least one diagnostic lab test.'
+    }
 
     setWalkinErrors(errors)
     if (Object.keys(errors).length > 0 || !selectedClinic) return
 
     try {
       const code10 = generate10DigitTrackingCode()
+
+      const labFee = walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)
+      const assignedDoc = clinicDoctors.find((d) => d.id === walkinDoctorId) || clinicDoctors[0]
+      const docFee = assignedDoc?.consultationFee || 500
+      const isFreeFollowup = walkinIsFollowup && walkinRetainedAppt
+      const finalFee = isLabClinic ? labFee : isFreeFollowup ? 0 : docFee
+
+      const walkinNotes = isLabClinic
+        ? 'Walk-In Diagnostic Lab Sample Registration'
+        : isFreeFollowup
+        ? `Walk-In Free Follow-Up Visit (Previous Token #${walkinRetainedAppt.trackingCode10Digit})`
+        : 'Walk-In Reception Registration'
+
       const created = await createAppointment({
         clinicId: selectedClinic.id,
-        doctorId: walkinDoctorId || undefined,
+        doctorId: isLabClinic ? undefined : (walkinDoctorId || clinicDoctors[0]?.id || undefined),
         trackingCode10Digit: code10,
         patientName: walkinName.trim(),
         patientAge: Number(walkinAge),
@@ -1619,8 +1716,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         appointmentTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         checkinStatus: 'waiting',
         paymentStatus: 'paid',
-        feeAmount: selectedDoctor?.consultationFee || 500,
-        notes: 'Walk-In Reception Registration',
+        feeAmount: finalFee,
+        notes: walkinNotes,
+        selectedTests: isLabClinic ? walkinSelectedTests.map((t) => t.serviceName) : [],
       })
 
       if (created) {
@@ -1630,6 +1728,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         setWalkinAge('')
         setWalkinMobile('')
         setWalkinEmail('')
+        setWalkinSelectedTests([])
+        setWalkinIsFollowup(false)
+        setWalkinFollowupCode('')
+        setWalkinRetainedAppt(null)
         setRefreshKey((k) => k + 1)
       }
     } catch (err) {
@@ -3928,6 +4030,99 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             )}
 
             <form onSubmit={handleWalkinSubmit} className="space-y-4">
+              {/* Type-Specific Notice Header */}
+              {isLabClinic ? (
+                <div className="p-3.5 bg-purple-50 border border-purple-200 rounded-2xl flex items-center space-x-2.5 text-xs text-purple-900">
+                  <FlaskConical className="w-4 h-4 text-purple-600 shrink-0" />
+                  <span className="font-semibold">
+                    Diagnostic Pathology Center Desk: Select tests to register sample collection token.
+                  </span>
+                </div>
+              ) : isSingleDoctorClinic ? (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center space-x-2.5 text-xs text-emerald-900">
+                  <Stethoscope className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-semibold">
+                    Single-Visit Clinic: Auto-assigning verified attending specialist.
+                  </span>
+                </div>
+              ) : (
+                /* Polyclinic Consultation Type Toggle */
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 block">Consultation Type</label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWalkinIsFollowup(false)
+                        setWalkinFollowupCode('')
+                        setWalkinRetainedAppt(null)
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                        !walkinIsFollowup
+                          ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-500/20 font-bold text-slate-900'
+                          : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">New Patient</div>
+                      <div className="text-[10px] text-slate-400">Normal OPD Fee</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWalkinIsFollowup(true)}
+                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                        walkinIsFollowup
+                          ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20 font-bold text-emerald-900'
+                          : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-between">
+                        <span>Follow-Up Visit</span>
+                        <span className="bg-emerald-600 text-white text-[9px] px-1.5 py-0.5 rounded font-black">FREE</span>
+                      </div>
+                      <div className="text-[10px] text-emerald-700">10-Digit ID lookup</div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Polyclinic Follow-Up 10-Digit Code Lookup */}
+              {isPolyclinic && walkinIsFollowup && (
+                <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-2">
+                  <label className="text-xs font-bold text-emerald-900 block">
+                    Enter Previous 10-Digit Appointment ID *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      maxLength={10}
+                      value={walkinFollowupCode}
+                      onChange={(e) => setWalkinFollowupCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="e.g. 8472910384"
+                      className="w-full px-3.5 py-2 rounded-xl text-sm font-mono font-black border border-emerald-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                    {walkinLookupLoading && (
+                      <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2" />
+                    )}
+                  </div>
+                  {walkinLookupError && (
+                    <p className="text-[11px] text-rose-600 font-bold">{walkinLookupError}</p>
+                  )}
+                  {walkinRetainedAppt && (
+                    <div className="p-2.5 bg-white border border-emerald-300 rounded-xl flex items-start space-x-2 text-xs text-emerald-900">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong>Verified Patient: {walkinRetainedAppt.patientName}</strong>
+                        <div className="text-[10px] text-slate-500">
+                          Previous Visit: {walkinRetainedAppt.appointmentDate} • Token #{walkinRetainedAppt.trackingCode10Digit}
+                        </div>
+                        <div className="text-[10px] font-bold text-emerald-700">✓ 100% Free Follow-Up Fee (Rs. 0)</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Patient Full Name */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
                   Patient Full Name <span className="text-rose-500">*</span>
@@ -3949,6 +4144,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 )}
               </div>
 
+              {/* Age and Gender */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">
@@ -3985,6 +4181,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
               </div>
 
+              {/* Mobile Number */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
                   Mobile Number <span className="text-rose-500">*</span>
@@ -4006,6 +4203,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 )}
               </div>
 
+              {/* Email Address */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
                   Email Address <span className="text-slate-400 font-normal">(Optional - auto-links to patient Google account)</span>
@@ -4019,26 +4217,127 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Attending Doctor</label>
-                <select
-                  value={walkinDoctorId}
-                  onChange={(e) => setWalkinDoctorId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  {clinicDoctors.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.fullName} ({d.specialty || 'General'}) – Rs. {d.consultationFee || 500}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Diagnostic Lab Tests Checklist vs Doctor Selector */}
+              {isLabClinic ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      Select Diagnostic Pathology Tests <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-xs font-bold text-purple-700">
+                      Total: Rs. {walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)}
+                    </span>
+                  </div>
 
+                  {services.length === 0 ? (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1.5">
+                      {[
+                        { id: 's1', serviceName: 'Complete Blood Count (CBC)', price: 450 },
+                        { id: 's2', serviceName: 'Lipid Profile', price: 900 },
+                        { id: 's3', serviceName: 'Liver Function Test (LFT)', price: 1100 },
+                        { id: 's4', serviceName: 'Thyroid Function Test (TSH)', price: 1200 },
+                        { id: 's5', serviceName: 'Fasting Blood Sugar (FBS)', price: 200 },
+                      ].map((item) => {
+                        const isChecked = walkinSelectedTests.some((t) => t.id === item.id)
+                        return (
+                          <div
+                            key={item.id}
+                            onClick={() => {
+                              if (isChecked) {
+                                setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== item.id))
+                              } else {
+                                setWalkinSelectedTests([...walkinSelectedTests, item as any])
+                              }
+                            }}
+                            className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
+                              isChecked ? 'bg-purple-50 border-purple-400' : 'bg-white border-slate-200'
+                            }`}
+                          >
+                            <span className="font-semibold text-xs text-slate-800">{item.serviceName}</span>
+                            <span className="font-bold text-xs text-slate-900">Rs. {item.price}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {services.map((s) => {
+                        const isChecked = walkinSelectedTests.some((t) => t.id === s.id)
+                        return (
+                          <div
+                            key={s.id}
+                            onClick={() => {
+                              if (isChecked) {
+                                setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== s.id))
+                              } else {
+                                setWalkinSelectedTests([...walkinSelectedTests, s])
+                              }
+                            }}
+                            className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
+                              isChecked ? 'bg-purple-50 border-purple-400' : 'bg-white border-slate-200'
+                            }`}
+                          >
+                            <span className="font-semibold text-xs text-slate-800">{s.serviceName}</span>
+                            <span className="font-bold text-xs text-slate-900">Rs. {s.price || 500}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {walkinErrors.tests && (
+                    <p className="text-[11px] text-rose-600 font-bold">{walkinErrors.tests}</p>
+                  )}
+                </div>
+              ) : isSingleDoctorClinic ? (
+                /* Single Doctor Card */
+                <div className="p-3.5 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 block">
+                    Attending Specialist Doctor
+                  </span>
+                  <div className="flex items-center justify-between text-xs">
+                    <div>
+                      <strong className="text-slate-900 text-sm">
+                        {clinicDoctors[0]?.fullName || 'Verified Attending Specialist'}
+                      </strong>
+                      <div className="text-emerald-700 font-semibold">
+                        {clinicDoctors[0]?.specialty || 'General Medicine'} • {clinicDoctors[0]?.education || 'MBBS, MD'}
+                      </div>
+                    </div>
+                    <span className="font-black text-emerald-900 text-sm bg-white px-2.5 py-1 rounded-lg border border-emerald-200">
+                      Rs. {clinicDoctors[0]?.consultationFee || 500}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                /* Polyclinic Doctor Dropdown */
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Attending Specialist Doctor</label>
+                  <select
+                    value={walkinDoctorId}
+                    onChange={(e) => setWalkinDoctorId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    {clinicDoctors.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.fullName} ({d.specialty || 'General'}) – {walkinIsFollowup && walkinRetainedAppt ? 'FREE' : `Rs. ${d.consultationFee || 500}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Submit Button */}
               <button
                 type="submit"
                 className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer"
               >
-                <span>Issue Live OPD Token</span>
+                <span>
+                  {isLabClinic
+                    ? `Issue Diagnostic Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
+                    : walkinIsFollowup && walkinRetainedAppt
+                    ? 'Issue Live OPD Token (100% FREE Follow-Up)'
+                    : 'Issue Live OPD Token'}
+                </span>
                 <ChevronRight className="w-4 h-4" />
               </button>
             </form>

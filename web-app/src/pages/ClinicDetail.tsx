@@ -16,6 +16,12 @@ import {
   Download,
   RefreshCw,
   Building2,
+  ExternalLink,
+  UserCheck,
+  History,
+  Info,
+  Check,
+  Layers,
 } from 'lucide-react'
 import { Clinic, Doctor, ClinicService, Slot, Appointment, PaymentGatewaysConfig } from '../types'
 import {
@@ -29,6 +35,7 @@ import {
   getClinicPaymentConfig,
   recordPaymentTransaction,
   getPatientProfileByEmail,
+  getAppointmentByTrackingCode,
 } from '../services/db'
 import { supabase } from '../lib/supabase'
 
@@ -74,6 +81,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   )
   const [selectedSlotTime, setSelectedSlotTime] = useState<string>('')
   const [selectedSlotId, setSelectedSlotId] = useState<string | undefined>(undefined)
+
+  // Follow-Up (Multi-Visit Polyclinic)
+  const [isReturningPatient, setIsReturningPatient] = useState(false)
+  const [followupCodeInput, setFollowupCodeInput] = useState('')
+  const [retainedAppointment, setRetainedAppointment] = useState<Appointment | null>(null)
+  const [isLookingUpCode, setIsLookingUpCode] = useState(false)
+  const [followupLookupError, setFollowupLookupError] = useState<string | null>(null)
 
   // Diagnostic Lab Selection
   const [selectedTests, setSelectedTests] = useState<{ [serviceId: string]: boolean }>({})
@@ -126,7 +140,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       setServices(sData)
       setPaymentConfig(payCfg)
 
-      if (cData?.type === 'diagnostic_lab') {
+      const isLab =
+        cData?.type === 'diagnostic_lab' ||
+        cData?.type?.toLowerCase().includes('lab') ||
+        cData?.name.toLowerCase().includes('lab') ||
+        (cData?.specialties?.some(
+          (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+        ) ?? false)
+
+      if (isLab) {
         setActiveTab('lab')
       } else {
         setActiveTab('opd')
@@ -141,6 +163,93 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       setLoading(false)
     }
   }
+
+  // 3 Clinic Types Classification
+  const isLabClinic = useMemo(() => {
+    if (!clinic) return false
+    const t = (clinic.type || '').toLowerCase()
+    const n = (clinic.name || '').toLowerCase()
+    return (
+      t === 'diagnostic_lab' ||
+      t.includes('lab') ||
+      n.includes('lab') ||
+      (clinic.specialties?.some(
+        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+      ) ?? false)
+    )
+  }, [clinic])
+
+  const isSingleDoctorClinic = useMemo(() => {
+    if (isLabClinic) return false
+    return (
+      clinic?.type === 'single_visit' ||
+      clinic?.type === 'single_doctor' ||
+      doctors.length === 1
+    )
+  }, [isLabClinic, clinic?.type, doctors.length])
+
+  const isPolyclinic = useMemo(() => {
+    return !isLabClinic && !isSingleDoctorClinic
+  }, [isLabClinic, isSingleDoctorClinic])
+
+  // Auto-bind single doctor if Single Doctor clinic
+  useEffect(() => {
+    if (isSingleDoctorClinic && doctors.length > 0) {
+      setSelectedDoctor(doctors[0])
+    }
+  }, [isSingleDoctorClinic, doctors])
+
+  // Reset returning patient if not polyclinic
+  useEffect(() => {
+    if (!isPolyclinic && isReturningPatient) {
+      setIsReturningPatient(false)
+      setFollowupCodeInput('')
+      setRetainedAppointment(null)
+    }
+  }, [isPolyclinic, isReturningPatient])
+
+  // Lookup 10-digit Appointment ID for Follow-up
+  useEffect(() => {
+    let active = true
+    const clean = followupCodeInput.trim()
+    if (isReturningPatient && clean.length === 10 && /^\d{10}$/.test(clean)) {
+      setIsLookingUpCode(true)
+      setFollowupLookupError(null)
+      getAppointmentByTrackingCode(clean)
+        .then((found) => {
+          if (!active) return
+          setIsLookingUpCode(false)
+          if (found) {
+            setRetainedAppointment(found)
+            setPatientName(found.patientName)
+            setPatientAge(String(found.patientAge || ''))
+            setPatientGender(found.patientGender || '')
+            setPatientMobile(found.patientMobile || '')
+            if (found.patientEmail) setPatientEmail(found.patientEmail)
+            setFormErrors({})
+          } else {
+            setRetainedAppointment(null)
+            setFollowupLookupError(`No appointment record found for 10-digit code #${clean}.`)
+          }
+        })
+        .catch(() => {
+          if (!active) return
+          setIsLookingUpCode(false)
+          setRetainedAppointment(null)
+          setFollowupLookupError('Failed to lookup appointment tracking code.')
+        })
+    } else {
+      setRetainedAppointment(null)
+      if (clean.length > 0 && clean.length !== 10) {
+        setFollowupLookupError('Code must be exactly 10 digits.')
+      } else {
+        setFollowupLookupError(null)
+      }
+    }
+    return () => {
+      active = false
+    }
+  }, [isReturningPatient, followupCodeInput])
 
   useEffect(() => {
     setLoading(true)
@@ -339,7 +448,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   // Calculate total lab tests fee
   const selectedTestList = services.filter((s) => selectedTests[s.id])
   const calculatedLabFee = selectedTestList.reduce((acc, curr) => acc + curr.price, 0)
-  const totalBookingFee = activeTab === 'lab' ? calculatedLabFee : (selectedDoctor?.consultationFee || 500)
+  const totalBookingFee = useMemo(() => {
+    if (activeTab === 'lab') {
+      return calculatedLabFee
+    }
+    if (isReturningPatient && retainedAppointment) {
+      return 0
+    }
+    return selectedDoctor?.consultationFee || 500
+  }, [activeTab, calculatedLabFee, isReturningPatient, retainedAppointment, selectedDoctor?.consultationFee])
 
   // Live criteria validation helpers
   const isNameValid = (val: string) => val.trim().length >= 2
@@ -404,8 +521,9 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       const code10 = generate10DigitTrackingCode()
       const testsSelectedNames = activeTab === 'lab' ? selectedTestList.map((t) => t.serviceName) : []
       const cleanMobile = patientMobile.replace(/\D/g, '')
-      const isPaidNow = selectedPaymentMethod !== 'pay_at_clinic'
-      const payStatus = isPaidNow ? 'paid' : 'unpaid'
+      const isFreeBooking = totalBookingFee === 0
+      const isPaidNow = isFreeBooking || selectedPaymentMethod !== 'pay_at_clinic'
+      const payStatus = isFreeBooking ? 'paid' : isPaidNow ? 'paid' : 'unpaid'
 
       const created = await createAppointment({
         clinicId,
@@ -424,21 +542,27 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         paymentStatus: payStatus,
         feeAmount: totalBookingFee,
         selectedTests: testsSelectedNames,
-        notes: patientNotes.trim() || undefined,
+        notes:
+          activeTab === 'lab'
+            ? `Lab Tests: ${testsSelectedNames.join(', ')}`
+            : isReturningPatient && retainedAppointment
+            ? `Follow-Up Consultation (Previous Ref: ${retainedAppointment.trackingCode10Digit})`
+            : patientNotes.trim() || undefined,
       })
 
       if (created) {
         const txnId = `TXN-${code10}-${Date.now().toString().slice(-4)}`
-        const methodLabel =
-          selectedPaymentMethod === 'esewa'
-            ? 'eSewa Mobile Wallet'
-            : selectedPaymentMethod === 'khalti'
-            ? 'Khalti Digital Wallet'
-            : selectedPaymentMethod === 'fonepay'
-            ? 'Fonepay QR'
-            : selectedPaymentMethod === 'bypass'
-            ? 'Bypass Test Gateway'
-            : 'Pay at Clinic Counter'
+        const methodLabel = isFreeBooking
+          ? 'Free Follow-Up (Retained 10-Digit ID)'
+          : selectedPaymentMethod === 'esewa'
+          ? 'eSewa Mobile Wallet'
+          : selectedPaymentMethod === 'khalti'
+          ? 'Khalti Digital Wallet'
+          : selectedPaymentMethod === 'fonepay'
+          ? 'Fonepay QR'
+          : selectedPaymentMethod === 'bypass'
+          ? 'Bypass Test Gateway'
+          : 'Pay at Clinic Counter'
 
         await recordPaymentTransaction({
           appointmentId: created.id,
@@ -783,17 +907,45 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 font-medium">
-                <span className="flex items-center space-x-1">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{clinic.addressText || 'Nepal'}</span>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 font-medium pt-0.5">
+                <span className="flex items-center space-x-1.5 bg-slate-100 px-3 py-1 rounded-xl">
+                  <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="font-semibold">{clinic.addressText || 'Nepal'}</span>
                 </span>
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                    `${clinic.name} ${clinic.addressText || ''}`.trim()
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center space-x-1 px-3 py-1 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold border border-blue-200 transition text-[11px]"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Google Maps Directions</span>
+                </a>
                 {clinic.contactPhone && (
-                  <span className="flex items-center space-x-1">
-                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                  <a
+                    href={`tel:${clinic.contactPhone}`}
+                    className="flex items-center space-x-1 bg-slate-100 px-3 py-1 rounded-xl hover:bg-slate-200 transition"
+                  >
+                    <Phone className="w-3.5 h-3.5 text-brand-600" />
                     <span>{clinic.contactPhone}</span>
+                  </a>
+                )}
+                {clinic.managerPhone && (
+                  <span className="flex items-center space-x-1 bg-slate-100 px-3 py-1 rounded-xl">
+                    <Phone className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Desk: {clinic.managerPhone}</span>
                   </span>
                 )}
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 uppercase tracking-wider">
+                  <Layers className="w-3 h-3 mr-1" />
+                  {isLabClinic
+                    ? 'Diagnostic Pathology Lab'
+                    : isSingleDoctorClinic
+                    ? 'Single-Visit OPD Clinic'
+                    : 'Multi-Specialty Polyclinic'}
+                </span>
               </div>
               {clinic.description && (
                 <p className="text-xs text-slate-600 max-w-2xl pt-1">{clinic.description}</p>
@@ -803,7 +955,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
           {/* Quick Action Pills */}
           <div className="flex items-center space-x-2">
-            {clinic.type !== 'diagnostic_lab' && (
+            {!isLabClinic && (
               <button
                 onClick={() => setActiveTab('opd')}
                 className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
@@ -813,7 +965,11 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 }`}
               >
                 <Stethoscope className="w-4 h-4" />
-                <span>OPD Doctor Desk ({doctors.length})</span>
+                <span>
+                  {isSingleDoctorClinic
+                    ? 'Attending Doctor'
+                    : `Specialists (${doctors.length})`}
+                </span>
               </button>
             )}
             <button
@@ -891,53 +1047,40 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column: Doctor Selection & Details */}
           <div className="lg:col-span-2 space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black text-slate-900">Available Doctors & Specialists</h2>
-              <span className="text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1 rounded-full">
-                {doctors.length} Doctors on Roster
-              </span>
-            </div>
-
-            {doctors.length === 0 ? (
-              <div className="p-8 bg-white rounded-3xl border border-slate-200 text-center text-slate-500 space-y-2">
-                <Stethoscope className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                <p className="font-bold text-slate-800">No doctors registered under this clinic yet.</p>
-                <p className="text-xs text-slate-500">
-                  Once the clinic registers or links doctors in the Doctor/Clinic Portal, they appear here in real time.
-                </p>
-              </div>
-            ) : (
+            {/* 1. SINGLE-VISIT CLINIC BANNER & DEDICATED DOCTOR CARD */}
+            {isSingleDoctorClinic ? (
               <div className="space-y-4">
-                {doctors.map((doc) => {
-                  const isSelected = selectedDoctor?.id === doc.id
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start space-x-3">
+                  <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider">
+                      Single-Visit Consultation Clinic
+                    </h4>
+                    <p className="text-xs text-amber-800 mt-0.5">
+                      Each booking generates a dedicated single-use OPD token with our certified attending specialist. Published slots below are dedicated to this doctor.
+                    </p>
+                  </div>
+                </div>
 
-                  return (
-                    <div
-                      key={doc.id}
-                      onClick={() => setSelectedDoctor(doc)}
-                      className={`p-5 rounded-3xl border transition-all cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
-                        isSelected
-                          ? 'bg-brand-50/50 border-brand-400 shadow-md shadow-brand-500/10 ring-2 ring-brand-400/30'
-                          : 'bg-white border-slate-200/80 hover:border-brand-300'
-                      }`}
-                    >
+                {selectedDoctor ? (
+                  <div className="p-6 rounded-3xl bg-white border border-brand-300 shadow-sm space-y-4">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                       <div className="flex items-center space-x-4">
-                        <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xl shrink-0">
-                          {doc.profilePictureUrl ? (
+                        <div className="w-16 h-16 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-2xl shrink-0">
+                          {selectedDoctor.profilePictureUrl ? (
                             <img
-                              src={doc.profilePictureUrl}
-                              alt={doc.fullName}
+                              src={selectedDoctor.profilePictureUrl}
+                              alt={selectedDoctor.fullName}
                               className="w-full h-full object-cover rounded-2xl"
                             />
                           ) : (
-                            doc.fullName.charAt(0)
+                            selectedDoctor.fullName.charAt(0)
                           )}
                         </div>
-
                         <div>
                           <div className="flex items-center space-x-2">
-                            <h3 className="text-base font-black text-slate-900">{doc.fullName}</h3>
-                            {doc.isInClinic ? (
+                            <h3 className="text-lg font-black text-slate-900">{selectedDoctor.fullName}</h3>
+                            {selectedDoctor.isInClinic ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-ping" />
                                 In Clinic Now
@@ -949,38 +1092,239 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                             )}
                           </div>
                           <p className="text-xs font-bold text-brand-700">
-                            {doc.specialty || 'Consultant Physician'}
+                            {selectedDoctor.specialty || 'General Practitioner'}
                           </p>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            {doc.education || 'MBBS'} •{' '}
-                            {doc.startingPracticingYear
-                              ? `Practicing since ${doc.startingPracticingYear}`
-                              : `${doc.experienceYears || 1}+ Years Exp`}
-                            {doc.nmcLicenseNumber ? ` • NMC: ${doc.nmcLicenseNumber}` : ''}
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {selectedDoctor.education || 'MBBS'} •{' '}
+                            {selectedDoctor.startingPracticingYear
+                              ? `Practicing since ${selectedDoctor.startingPracticingYear}`
+                              : `${selectedDoctor.experienceYears || 1}+ Years Exp`}
+                            {selectedDoctor.nmcLicenseNumber ? ` • NMC: ${selectedDoctor.nmcLicenseNumber}` : ''}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center sm:flex-col items-end justify-between w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-slate-100">
-                        <div className="text-left sm:text-right">
-                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Consultation Fee</span>
-                          <span className="text-base font-black text-slate-900">
-                            Rs. {doc.consultationFee || 500}
-                          </span>
-                        </div>
-                        <span
-                          className={`mt-1 text-xs font-bold px-3 py-1 rounded-xl ${
-                            isSelected
-                              ? 'bg-brand-600 text-white'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {isSelected ? 'Selected' : 'Select'}
+                      <div className="text-left sm:text-right">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Consultation Fee</span>
+                        <span className="text-lg font-black text-slate-900">
+                          Rs. {selectedDoctor.consultationFee || 500}
                         </span>
                       </div>
                     </div>
-                  )
-                })}
+
+                    {selectedDoctor.description && (
+                      <p className="text-xs text-slate-600 border-t border-slate-100 pt-3">
+                        {selectedDoctor.description}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-8 bg-white rounded-3xl border border-slate-200 text-center text-slate-500">
+                    <Stethoscope className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                    <p className="font-bold text-slate-800">No doctor profile available for this clinic.</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* 2. MULTI-VISIT POLYCLINIC: VISIT TYPE + SPECIALISTS ROSTER */
+              <div className="space-y-6">
+                {/* Visit Type Toggle: New Consultation vs Free Follow-Up */}
+                <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                        Visit Type (Multi-Visit Polyclinic)
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Choose New Consultation or claim a 100% Free Follow-Up with your 10-digit Appointment ID.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsReturningPatient(false)
+                        setFollowupLookupError(null)
+                      }}
+                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+                        !isReturningPatient
+                          ? 'border-brand-600 bg-brand-50/60 ring-2 ring-brand-500/20'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-slate-900">New Patient</span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-600 text-white">
+                          Rs. {selectedDoctor?.consultationFee || 500}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">Standard initial consultation</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsReturningPatient(true)
+                        setFollowupLookupError(null)
+                      }}
+                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+                        isReturningPatient
+                          ? 'border-emerald-600 bg-emerald-50/60 ring-2 ring-emerald-500/20'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-slate-900">Follow-Up Visit</span>
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white uppercase tracking-wider">
+                          FREE
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">Free with 10-digit Appointment ID</p>
+                    </button>
+                  </div>
+
+                  {/* Follow-Up 10-digit Input and Retained Box */}
+                  {isReturningPatient && (
+                    <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-3 animate-in fade-in duration-150">
+                      <div>
+                        <label className="text-xs font-bold text-emerald-900 block mb-1">
+                          Enter 10-Digit Appointment ID for Follow-Up *
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={10}
+                          value={followupCodeInput}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '').slice(0, 10)
+                            setFollowupCodeInput(val)
+                          }}
+                          placeholder="e.g. 8492049182 (10 digits)"
+                          className="w-full px-3.5 py-2.5 rounded-xl text-sm font-mono font-bold bg-white border border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                        />
+                      </div>
+
+                      {isLookingUpCode && (
+                        <div className="flex items-center space-x-2 text-xs text-emerald-700">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Looking up previous appointment details in Supabase...</span>
+                        </div>
+                      )}
+
+                      {retainedAppointment && (
+                        <div className="p-3 rounded-xl bg-white border border-emerald-300 text-xs text-emerald-950 flex items-center justify-between">
+                          <div>
+                            <span className="font-bold text-sm block text-emerald-900">
+                              ✓ Patient Retained: {retainedAppointment.patientName}
+                            </span>
+                            <span className="text-[11px] text-emerald-700 font-medium">
+                              {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
+                            </span>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-800">
+                            Verified
+                          </span>
+                        </div>
+                      )}
+
+                      {followupLookupError && (
+                        <p className="text-xs text-rose-600 font-bold">{followupLookupError}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Specialists Roster Header */}
+                <div className="flex items-center justify-between pt-2">
+                  <h3 className="text-lg font-black text-slate-900">Specialist Doctors on Roster</h3>
+                  <span className="text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1 rounded-full">
+                    {doctors.length} Doctors
+                  </span>
+                </div>
+
+                {doctors.length === 0 ? (
+                  <div className="p-8 bg-white rounded-3xl border border-slate-200 text-center text-slate-500 space-y-2">
+                    <Stethoscope className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                    <p className="font-bold text-slate-800">No doctors registered under this polyclinic yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {doctors.map((doc) => {
+                      const isSelected = selectedDoctor?.id === doc.id
+
+                      return (
+                        <div
+                          key={doc.id}
+                          onClick={() => setSelectedDoctor(doc)}
+                          className={`p-5 rounded-3xl border transition-all cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                            isSelected
+                              ? 'bg-brand-50/50 border-brand-400 shadow-md shadow-brand-500/10 ring-2 ring-brand-400/30'
+                              : 'bg-white border-slate-200/80 hover:border-brand-300'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-4">
+                            <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-xl shrink-0">
+                              {doc.profilePictureUrl ? (
+                                <img
+                                  src={doc.profilePictureUrl}
+                                  alt={doc.fullName}
+                                  className="w-full h-full object-cover rounded-2xl"
+                                />
+                              ) : (
+                                doc.fullName.charAt(0)
+                              )}
+                            </div>
+
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <h3 className="text-base font-black text-slate-900">{doc.fullName}</h3>
+                                {doc.isInClinic ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-ping" />
+                                    In Clinic Now
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
+                                    Away
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs font-bold text-brand-700">
+                                {doc.specialty || 'Specialist Consultant'}
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                {doc.education || 'MBBS'} •{' '}
+                                {doc.startingPracticingYear
+                                  ? `Practicing since ${doc.startingPracticingYear}`
+                                  : `${doc.experienceYears || 1}+ Years Exp`}
+                                {doc.nmcLicenseNumber ? ` • NMC: ${doc.nmcLicenseNumber}` : ''}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center sm:flex-col items-end justify-between w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-slate-100">
+                            <div className="text-left sm:text-right">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Consultation Fee</span>
+                              <span className="text-base font-black text-slate-900">
+                                Rs. {doc.consultationFee || 500}
+                              </span>
+                            </div>
+                            <span
+                              className={`mt-1 text-xs font-bold px-3 py-1 rounded-xl ${
+                                isSelected
+                                  ? 'bg-brand-600 text-white'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {isSelected ? 'Selected' : 'Select'}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1119,6 +1463,19 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         /* ========================================================= */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
+            {/* Lab Diagnostic Notice Banner */}
+            <div className="p-4 rounded-2xl bg-teal-50 border border-teal-200 flex items-start space-x-3">
+              <FlaskConical className="w-5 h-5 text-teal-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs font-bold text-teal-900 uppercase tracking-wider">
+                  Diagnostic Pathology Lab Booking
+                </h4>
+                <p className="text-xs text-teal-800 mt-0.5">
+                  Select required diagnostic tests and choose a sample collection time slot. Once tests are processed, verified digital reports will be issued online.
+                </p>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-black text-slate-900">Select Diagnostic Tests</h2>
@@ -1192,7 +1549,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               <h3 className="text-lg font-black text-slate-900">Lab Booking Summary</h3>
 
               {/* Selected Tests List */}
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="space-y-2 max-h-40 overflow-y-auto">
                 {selectedTestList.length === 0 ? (
                   <p className="text-xs text-slate-400 italic">
                     No tests selected yet. Please select at least one test from the left.
@@ -1210,13 +1567,89 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               {/* Date selection for Lab */}
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-700 block">Sample Collection Date</label>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  min={new Date().toISOString().split('T')[0]}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
-                />
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  {[0, 1, 2].map((offset) => {
+                    const d = new Date()
+                    d.setDate(d.getDate() + offset)
+                    const iso = d.toISOString().split('T')[0]
+                    const label =
+                      offset === 0
+                        ? 'Today'
+                        : offset === 1
+                        ? 'Tomorrow'
+                        : d.toLocaleDateString([], { weekday: 'short' })
+                    const isSelected = selectedDate === iso
+
+                    return (
+                      <button
+                        key={iso}
+                        type="button"
+                        onClick={() => setSelectedDate(iso)}
+                        className={`p-2 rounded-xl border font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="block text-[10px] opacity-80 uppercase">{label}</span>
+                        <span className="text-xs font-black">
+                          {d.getDate()} {d.toLocaleDateString([], { month: 'short' })}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Sample Collection Time Slot Picker */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Sample Collection Slot *
+                  </label>
+                  {slotsLoading && <RefreshCw className="w-3.5 h-3.5 text-teal-600 animate-spin" />}
+                </div>
+
+                {isSelectedDateHoliday ? (
+                  <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700">
+                    This lab has declared {selectedDate} as an official holiday. Please pick another date.
+                  </div>
+                ) : displaySlots.length === 0 ? (
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
+                    No collection slots available for this date.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {displaySlots.map((slotItem) => {
+                      const isSelected = selectedSlotTime === slotItem.timeLabel && !slotItem.disabled
+                      return (
+                        <button
+                          key={slotItem.timeLabel}
+                          type="button"
+                          disabled={slotItem.disabled}
+                          onClick={() => {
+                            setSelectedSlotTime(slotItem.timeLabel)
+                            setSelectedSlotId(slotItem.id)
+                          }}
+                          className={`p-2 rounded-xl border font-bold transition-all text-center ${
+                            slotItem.disabled
+                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed line-through'
+                              : isSelected
+                              ? 'bg-teal-600 text-white border-teal-600 shadow-xs cursor-pointer'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 cursor-pointer'
+                          }`}
+                        >
+                          <span className="block">{slotItem.timeLabel}</span>
+                          {slotItem.reason && (
+                            <span className="text-[9px] uppercase font-semibold opacity-75">
+                              {slotItem.reason}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Total Calculation */}
@@ -1224,6 +1657,10 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 <div className="flex justify-between text-slate-600">
                   <span>Selected Tests ({selectedTestList.length}):</span>
                   <span>Rs. {calculatedLabFee}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Collection Slot:</span>
+                  <span className="font-bold text-slate-900">{selectedSlotTime || 'Select a slot'}</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-teal-200/80 font-black text-sm text-teal-900">
                   <span>Total Payable:</span>
@@ -1233,7 +1670,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
               <button
                 type="button"
-                disabled={selectedTestList.length === 0 || isSelectedDateHoliday}
+                disabled={selectedTestList.length === 0 || !selectedSlotTime || isSelectedDateHoliday}
                 onClick={() => {
                   setBookingStep('details')
                   setShowBookingModal(true)
@@ -1452,15 +1889,21 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-xl font-black text-slate-900">Complete Payment</h3>
+                    <h3 className="text-xl font-black text-slate-900">
+                      {totalBookingFee === 0 ? 'Confirm Free Follow-Up' : 'Complete Payment'}
+                    </h3>
                     <p className="text-xs text-slate-500">
-                      Select payment gateway to issue your live queue token
+                      {totalBookingFee === 0
+                        ? 'Zero-cost consultation linked to verified 10-digit Appointment ID'
+                        : 'Select payment gateway to issue your live queue token'}
                     </p>
                   </div>
-                  <div className="px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-mono font-bold">
-                    {Math.floor(paymentCountdown / 60)}:
-                    {String(paymentCountdown % 60).padStart(2, '0')}
-                  </div>
+                  {totalBookingFee > 0 && (
+                    <div className="px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-mono font-bold">
+                      {Math.floor(paymentCountdown / 60)}:
+                      {String(paymentCountdown % 60).padStart(2, '0')}
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
@@ -1474,94 +1917,144 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     <span className="text-slate-500">Mobile:</span>
                     <span className="font-bold text-slate-900">{patientMobile}</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Date & Slot:</span>
+                    <span className="font-bold text-slate-900">
+                      {selectedDate} at {selectedSlotTime}
+                    </span>
+                  </div>
+                  {activeTab === 'lab' && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Diagnostic Tests:</span>
+                      <span className="font-bold text-teal-700 truncate max-w-[200px]">
+                        {selectedTestList.map((t) => t.serviceName).join(', ')}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between pt-1.5 border-t border-slate-200 text-sm font-black">
                     <span className="text-slate-800">Amount Payable:</span>
-                    <span className="text-brand-700">Rs. {totalBookingFee}</span>
+                    <span className={totalBookingFee === 0 ? 'text-emerald-700' : 'text-brand-700'}>
+                      {totalBookingFee === 0 ? 'FREE (Follow-Up)' : `Rs. ${totalBookingFee}`}
+                    </span>
                   </div>
                 </div>
 
-                <div className="space-y-2.5">
-                  <label className="text-xs font-bold text-slate-700 block">
-                    Choose Payment Method
-                  </label>
-
-                  {[
-                    {
-                      id: 'esewa',
-                      title: paymentConfig?.esewa?.title || 'eSewa Mobile Wallet',
-                      sub: `Merchant ID: ${paymentConfig?.esewa?.merchantCode || 'EPAYTEST'}`,
-                    },
-                    {
-                      id: 'khalti',
-                      title: paymentConfig?.khalti?.title || 'Khalti Digital Wallet',
-                      sub: 'Instant Wallet / Banking Checkout',
-                    },
-                    {
-                      id: 'fonepay',
-                      title: paymentConfig?.fonepay?.title || 'Fonepay QR / Direct Banking',
-                      sub: 'Nepal Interbank QR Payment',
-                    },
-                    {
-                      id: 'bypass',
-                      title: 'Instant Bypass Test Payment (Mark Paid)',
-                      sub: 'Records immediate verified paid invoice in Supabase',
-                    },
-                    {
-                      id: 'pay_at_clinic',
-                      title: 'Pay at Clinic Reception Counter',
-                      sub: 'Book token now and pay cash/QR at reception',
-                    },
-                  ].map((opt) => (
-                    <div
-                      key={opt.id}
-                      onClick={() => setSelectedPaymentMethod(opt.id as any)}
-                      className={`p-3.5 rounded-2xl border cursor-pointer flex items-center justify-between transition-all ${
-                        selectedPaymentMethod === opt.id
-                          ? 'bg-brand-50/70 border-brand-500 ring-2 ring-brand-500/20'
-                          : 'bg-white border-slate-200 hover:border-brand-300'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-3">
-                        <CreditCard className="w-4 h-4 text-brand-600 shrink-0" />
-                        <div>
-                          <p className="text-xs font-black text-slate-900">{opt.title}</p>
-                          <p className="text-[10px] text-slate-500">{opt.sub}</p>
-                        </div>
+                {totalBookingFee === 0 ? (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs space-y-1.5">
+                      <div className="flex items-center space-x-2 text-emerald-900 font-black text-sm">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>100% Free Follow-Up Visit</span>
                       </div>
-                      <div
-                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                          selectedPaymentMethod === opt.id
-                            ? 'border-brand-600 bg-brand-600'
-                            : 'border-slate-300'
-                        }`}
-                      >
-                        {selectedPaymentMethod === opt.id && (
-                          <div className="w-1.5 h-1.5 rounded-full bg-white" />
-                        )}
-                      </div>
+                      <p className="text-emerald-700 leading-relaxed">
+                        This follow-up consultation is retained under previous Appointment ID #{retainedAppointment?.trackingCode10Digit || followupCodeInput}. No payment is charged.
+                      </p>
                     </div>
-                  ))}
-                </div>
 
-                <div className="flex items-center space-x-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setBookingStep('details')}
-                    className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                  >
-                    Back
-                  </button>
-                  <button
-                    type="button"
-                    disabled={submitting || paymentCountdown === 0}
-                    onClick={handleConfirmBookingAndPayment}
-                    className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20 cursor-pointer"
-                  >
-                    {submitting
-                      ? 'Recording in Supabase...'
-                      : `Confirm & Issue Token (Rs. ${totalBookingFee})`}
-                  </button>
-                </div>
+                    <div className="flex items-center space-x-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setBookingStep('details')}
+                        className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={handleConfirmBookingAndPayment}
+                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-black rounded-xl text-xs transition-colors shadow-md shadow-emerald-600/20 cursor-pointer"
+                      >
+                        {submitting ? 'Issuing Free Follow-Up Token...' : 'Confirm Free Follow-Up Booking'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2.5">
+                      <label className="text-xs font-bold text-slate-700 block">
+                        Choose Payment Method
+                      </label>
+
+                      {[
+                        {
+                          id: 'esewa',
+                          title: paymentConfig?.esewa?.title || 'eSewa Mobile Wallet',
+                          sub: `Merchant ID: ${paymentConfig?.esewa?.merchantCode || 'EPAYTEST'}`,
+                        },
+                        {
+                          id: 'khalti',
+                          title: paymentConfig?.khalti?.title || 'Khalti Digital Wallet',
+                          sub: 'Instant Wallet / Banking Checkout',
+                        },
+                        {
+                          id: 'fonepay',
+                          title: paymentConfig?.fonepay?.title || 'Fonepay QR / Direct Banking',
+                          sub: 'Nepal Interbank QR Payment',
+                        },
+                        {
+                          id: 'bypass',
+                          title: 'Instant Bypass Test Payment (Mark Paid)',
+                          sub: 'Records immediate verified paid invoice in Supabase',
+                        },
+                        {
+                          id: 'pay_at_clinic',
+                          title: 'Pay at Clinic Reception Counter',
+                          sub: 'Book token now and pay cash/QR at reception',
+                        },
+                      ].map((opt) => (
+                        <div
+                          key={opt.id}
+                          onClick={() => setSelectedPaymentMethod(opt.id as any)}
+                          className={`p-3.5 rounded-2xl border cursor-pointer flex items-center justify-between transition-all ${
+                            selectedPaymentMethod === opt.id
+                              ? 'bg-brand-50/70 border-brand-500 ring-2 ring-brand-500/20'
+                              : 'bg-white border-slate-200 hover:border-brand-300'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-3">
+                            <CreditCard className="w-4 h-4 text-brand-600 shrink-0" />
+                            <div>
+                              <p className="text-xs font-black text-slate-900">{opt.title}</p>
+                              <p className="text-[10px] text-slate-500">{opt.sub}</p>
+                            </div>
+                          </div>
+                          <div
+                            className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                              selectedPaymentMethod === opt.id
+                                ? 'border-brand-600 bg-brand-600'
+                                : 'border-slate-300'
+                            }`}
+                          >
+                            {selectedPaymentMethod === opt.id && (
+                              <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center space-x-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setBookingStep('details')}
+                        className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitting || paymentCountdown === 0}
+                        onClick={handleConfirmBookingAndPayment}
+                        className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20 cursor-pointer"
+                      >
+                        {submitting
+                          ? 'Recording in Supabase...'
+                          : `Confirm & Issue Token (Rs. ${totalBookingFee})`}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
