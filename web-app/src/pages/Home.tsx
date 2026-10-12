@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { Clinic, Doctor } from '../types'
 import { getClinics, getDoctors } from '../services/db'
+import { matchClinic } from '../utils/searchEngine'
 import dactorLogo from '../assets/logo.png'
 
 interface HomeProps {
@@ -157,20 +158,12 @@ export const Home: React.FC<HomeProps> = ({
       )
     }
 
-    // Search query filter
+    // Search query filter with MedicalSearchEngine symptom & organ matching
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim()
-      result = result.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          (c.addressText && c.addressText.toLowerCase().includes(q)) ||
-          c.specialties?.some((s) => s.toLowerCase().includes(q)) ||
-          c.doctorsList.some(
-            (d) =>
-              d.fullName.toLowerCase().includes(q) ||
-              d.specialty?.toLowerCase().includes(q)
-          )
-      )
+      result = result.filter((c) => {
+        const match = matchClinic(c, c.doctorsList, [], searchQuery)
+        return match.isMatch
+      })
     }
 
     // Specialty chip filter

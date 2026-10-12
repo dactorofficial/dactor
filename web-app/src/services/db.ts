@@ -153,7 +153,7 @@ export async function getDoctorsByClinic(clinicId: string): Promise<Doctor[]> {
     const { data, error } = await supabase
       .from('doctors')
       .select('*')
-      .or(`clinic_id.eq.${clinicId},active_clinic_id.eq.${clinicId}`)
+      .or(`clinic_id.eq.${clinicId},active_clinic_id.eq.${clinicId},primary_clinic_id.eq.${clinicId}`)
       .order('full_name', { ascending: true })
 
     if (error) throw error

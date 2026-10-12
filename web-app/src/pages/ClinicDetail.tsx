@@ -410,19 +410,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       })
     }
 
-    // Derive from clinic's day schedule and filter out expired times via isSlotTimeExpired
-    const candidateTimes = ['09:30 AM', '10:30 AM', '11:30 AM', '12:30 PM', '02:00 PM', '03:30 PM', '04:30 PM', '05:30 PM']
-    return candidateTimes.map((t) => {
-      const expired = isSlotTimeExpired(selectedDate, t)
-      return {
-        id: undefined,
-        timeLabel: t,
-        rawStart: t,
-        remaining: 10,
-        disabled: expired,
-        reason: expired ? 'Passed' : '',
-      }
-    })
+    // Strictly rely on clinic-published slots from Supabase (NEVER generate fake/fallback slots)
+    return []
   }, [slots, selectedDoctor, selectedDate, isSelectedDateHoliday])
 
   // Auto-select first available non-disabled slot
@@ -955,7 +944,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
           {/* Quick Action Pills */}
           <div className="flex items-center space-x-2">
-            {!isLabClinic && (
+            {(!isLabClinic || doctors.length > 0) && (
               <button
                 onClick={() => setActiveTab('opd')}
                 className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
@@ -1383,8 +1372,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     This clinic has declared {selectedDate} as an official holiday. Please pick another date.
                   </div>
                 ) : displaySlots.length === 0 ? (
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
-                    No slots available for this date.
+                  <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800 space-y-1">
+                    <div className="font-bold flex items-center space-x-1.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>No Slots Published for This Date</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700">
+                      The center has not published OPD consultation slots for {selectedDate}. Please select another date or contact the clinic reception desk.
+                    </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1615,8 +1610,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     This lab has declared {selectedDate} as an official holiday. Please pick another date.
                   </div>
                 ) : displaySlots.length === 0 ? (
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
-                    No collection slots available for this date.
+                  <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800 space-y-1">
+                    <div className="font-bold flex items-center space-x-1.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>No Collection Slots Published</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700">
+                      The diagnostic laboratory has not published sample collection slots for {selectedDate}. Please choose another date or contact the lab directly.
+                    </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2 text-xs">

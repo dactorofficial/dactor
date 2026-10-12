@@ -231,14 +231,13 @@ export const App: React.FC = () => {
           />
         )}
 
-        {activeTab === 'live-queue' && (
+        {(activeTab === 'live-queue' || activeTab === 'lab-reports') && (
           <LiveQueue
             initialCode={activeTrackingCode}
             onOpenReportModal={handleOpenReportModal}
+            onNavigateHome={() => handleNavigate('home')}
           />
         )}
-
-        {activeTab === 'lab-reports' && <LabReports />}
 
         {activeTab === 'average-time' && (
           <AverageTime

@@ -158,6 +158,12 @@ import {
   deleteFirebaseUserAccount,
 } from '../lib/firebase'
 import { supabase } from '../lib/supabase'
+import {
+  matchClinic,
+  QUICK_SPECIALTY_SUGGESTIONS,
+  getRecentSearches,
+  saveRecentSearch,
+} from '../utils/searchEngine'
 
 interface PatientPortalProps {
   onNavigateHome?: () => void
@@ -480,7 +486,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   getClinicServices(clinicMatch.id),
                   getClinicPaymentConfig(clinicMatch.id),
                 ])
-                setClinicDoctors(docs.filter((d) => d.isInClinic))
+                setClinicDoctors(docs)
                 setClinicServices(servs.filter((s) => s.isAvailable))
                 setClinicPaymentConfig(pCfg)
 
@@ -807,9 +813,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         getClinicServices(clinic.id),
         getClinicPaymentConfig(clinic.id),
       ])
-      const activeDocs = docs.filter((d) => d.isInClinic)
-      const validDocs = activeDocs.length > 0 ? activeDocs : docs
-      setClinicDoctors(validDocs)
+      setClinicDoctors(docs)
       const availServs = servs.filter((s) => s.isAvailable !== false)
       setClinicServices(availServs)
       setClinicPaymentConfig(pCfg)
@@ -831,7 +835,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         }
       } else {
         setBookingMode('opd')
-        if (validDocs.length > 0) setSelectedDoctor(validDocs[0])
+        if (docs.length > 0) setSelectedDoctor(docs[0])
       }
 
       setBookingStep(2)
@@ -850,38 +854,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         const rawSlots = await getSlots(selectedClinic!.id, bookingDate)
 
         // FILTER: Remove slots whose end time has already expired!
-        let validSlots = rawSlots.filter((slot) => {
+        const validSlots = rawSlots.filter((slot) => {
           const isExpired = isSlotTimeExpired(bookingDate, slot.endTime)
           const hasCapacity = slot.bookedCount < slot.maxCapacity
           return !isExpired && hasCapacity && slot.isAvailable !== false
         })
-
-        // If diagnostic lab or no custom slots, provide standard operational sample collection slots
-        if (validSlots.length === 0 && isLabClinic) {
-          const fallbackTimes = [
-            { start: '07:00 AM', end: '08:00 AM' },
-            { start: '08:00 AM', end: '09:00 AM' },
-            { start: '09:00 AM', end: '10:00 AM' },
-            { start: '10:00 AM', end: '11:00 AM' },
-            { start: '11:00 AM', end: '12:00 PM' },
-            { start: '01:00 PM', end: '02:00 PM' },
-            { start: '02:00 PM', end: '03:00 PM' },
-            { start: '03:00 PM', end: '04:00 PM' },
-          ]
-          validSlots = fallbackTimes
-            .filter((t) => !isSlotTimeExpired(bookingDate, t.end))
-            .map((t, idx) => ({
-              id: `fallback-lab-slot-${idx}`,
-              clinicId: selectedClinic!.id,
-              doctorId: 'diagnostic_lab_collector',
-              slotDate: bookingDate,
-              startTime: t.start,
-              endTime: t.end,
-              maxCapacity: 20,
-              bookedCount: 0,
-              isAvailable: true,
-            }))
-        }
 
         setAvailableSlots(validSlots)
         if (validSlots.length > 0) {
@@ -1105,7 +1082,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             getClinicServices(clinicMatch.id),
             getClinicPaymentConfig(clinicMatch.id),
           ])
-          setClinicDoctors(docs.filter((d) => d.isInClinic))
+          setClinicDoctors(docs)
           setClinicServices(servs.filter((s) => s.isAvailable))
           setClinicPaymentConfig(pCfg)
 
@@ -2047,45 +2024,74 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       )
                     })}
                   </div>
+                  {/* Quick Symptoms Suggestion Chips */}
+                  <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs justify-center pt-1">
+                    <span className="font-bold text-slate-400 shrink-0 text-[11px] uppercase tracking-wider">
+                      Quick Symptoms:
+                    </span>
+                    {QUICK_SPECIALTY_SUGGESTIONS.slice(0, 7).map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => {
+                          const keyword = suggestion.split('/')[0].split('&')[0].replace(/\(.*\)/, '').trim()
+                          setClinicSearchQuery(keyword)
+                          saveRecentSearch(keyword)
+                        }}
+                        className="px-2.5 py-1 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-700 font-semibold shrink-0 cursor-pointer transition border border-brand-200/60 text-[11px]"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* Filtered Clinics Grid */}
+                {/* Filtered Clinics Grid with MedicalSearchEngine Scoring */}
                 {(() => {
-                  const filtered = clinics.filter((c) => {
-                    const t = (c.type || '').toLowerCase()
-                    const n = (c.name || '').toLowerCase()
-                    const addr = (c.addressText || '').toLowerCase()
-                    const isLab =
-                      t === 'diagnostic_lab' ||
-                      t.includes('lab') ||
-                      n.includes('lab') ||
-                      (c.specialties?.some(
-                        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
-                      ) ?? false)
-                    const isSingle = !isLab && (t === 'single_visit' || t === 'single_doctor')
-                    const isPoly = !isLab && !isSingle
+                  const scored = clinics
+                    .map((c) => {
+                      const t = (c.type || '').toLowerCase()
+                      const n = (c.name || '').toLowerCase()
+                      const isLab =
+                        t === 'diagnostic_lab' ||
+                        t.includes('lab') ||
+                        n.includes('lab') ||
+                        (c.specialties?.some(
+                          (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+                        ) ?? false)
+                      const isSingle = !isLab && (t === 'single_visit' || t === 'single_doctor')
+                      const isPoly = !isLab && !isSingle
 
-                    if (clinicCategoryFilter === 'diagnostic_lab' && !isLab) return false
-                    if (clinicCategoryFilter === 'single_doctor' && !isSingle) return false
-                    if (clinicCategoryFilter === 'polyclinic' && !isPoly) return false
+                      if (clinicCategoryFilter === 'diagnostic_lab' && !isLab) return null
+                      if (clinicCategoryFilter === 'single_doctor' && !isSingle) return null
+                      if (clinicCategoryFilter === 'polyclinic' && !isPoly) return null
 
-                    if (clinicSearchQuery.trim()) {
-                      const q = clinicSearchQuery.toLowerCase().trim()
-                      const matchesName = n.includes(q)
-                      const matchesAddr = addr.includes(q)
-                      const matchesSpec = c.specialties?.some((s) => s.toLowerCase().includes(q))
-                      return matchesName || matchesAddr || matchesSpec
-                    }
-                    return true
-                  })
+                      if (!clinicSearchQuery.trim()) {
+                        return { c, isLab, isSingle, isPoly, score: 10, matchReason: undefined }
+                      }
 
-                  if (filtered.length === 0) {
+                      const match = matchClinic(c, [], [], clinicSearchQuery)
+                      if (!match.isMatch) return null
+
+                      return {
+                        c,
+                        isLab,
+                        isSingle,
+                        isPoly,
+                        score: match.score,
+                        matchReason: match.matchHighlightReason,
+                      }
+                    })
+                    .filter(Boolean)
+                    .sort((a, b) => (b?.score || 0) - (a?.score || 0))
+
+                  if (scored.length === 0) {
                     return (
                       <div className="p-12 text-center bg-slate-50 rounded-3xl border border-slate-200 max-w-md mx-auto space-y-2">
                         <AlertCircle className="w-8 h-8 mx-auto text-slate-400" />
                         <h4 className="font-bold text-slate-800 text-sm">No medical centers matched</h4>
                         <p className="text-xs text-slate-500">
-                          Try adjusting your search keyword or selecting a different category filter.
+                          Try adjusting your symptom keyword or selecting a different category filter.
                         </p>
                         <button
                           onClick={() => {
@@ -2102,18 +2108,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                      {filtered.map((c) => {
-                        const t = (c.type || '').toLowerCase()
-                        const n = (c.name || '').toLowerCase()
-                        const isLab =
-                          t === 'diagnostic_lab' ||
-                          t.includes('lab') ||
-                          n.includes('lab') ||
-                          (c.specialties?.some(
-                            (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
-                          ) ?? false)
-                        const isSingle = !isLab && (t === 'single_visit' || t === 'single_doctor')
-                        const isPoly = !isLab && !isSingle
+                      {scored.map((item) => {
+                        if (!item) return null
+                        const { c, isLab, isSingle, matchReason } = item
 
                         const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
                           `${c.name} ${c.addressText || ''}`
@@ -2146,9 +2143,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                 )}
 
                                 <span className="text-xs font-bold text-brand-600 flex items-center group-hover:translate-x-0.5 transition-transform">
-                                  Book <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                                  Select <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
                                 </span>
                               </div>
+
+                              {/* Search Match Reason Pill */}
+                              {matchReason && (
+                                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-emerald-800">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span className="truncate">{matchReason}</span>
+                                </div>
+                              )}
 
                               <div>
                                 <h4 className="font-black text-slate-900 text-lg group-hover:text-brand-600 transition">
@@ -2175,15 +2180,27 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               </div>
                             </div>
 
-                            {/* Card Footer: Phone Numbers & Action */}
-                            <div className="px-6 py-4 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 font-semibold">
-                              <div className="flex items-center space-x-1.5 text-slate-500">
-                                <Phone className="w-3.5 h-3.5 text-slate-400" />
-                                <span>{c.contactPhone || c.managerPhone || 'Available'}</span>
-                              </div>
-                              <span className="text-brand-700 font-bold bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
-                                Select Center →
-                              </span>
+                            {/* Card Footer: Type-Specific Action Buttons */}
+                            <div className="px-6 py-4 bg-slate-50/80 border-t border-slate-100 space-y-2">
+                              {isLab ? (
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-purple-700 font-bold bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200">
+                                    Book Lab Tests (No Doctor Required) →
+                                  </span>
+                                </div>
+                              ) : isSingle ? (
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                    Book Specialist (Single OPD Token) →
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-brand-700 font-bold bg-brand-50 px-2.5 py-1 rounded-lg border border-brand-200">
+                                    Consult Specialists (Choose Doctor) →
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )
@@ -2617,9 +2634,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   ) : availableSlots.length === 0 ? (
                     <div className="p-6 text-center bg-amber-50/60 rounded-2xl border border-amber-200 text-amber-900 space-y-1">
                       <Clock className="w-5 h-5 mx-auto text-amber-600 mb-1" />
-                      <p className="text-xs font-bold">No available slots for this date</p>
+                      <p className="text-xs font-bold">No Slots Published for {bookingDate}</p>
                       <p className="text-[11px] text-amber-700">
-                        All slots for today have either ended or reached full capacity. Please select tomorrow or a future date.
+                        This center has not published time slots for this date. Please pick another date or contact clinic reception directly.
                       </p>
                     </div>
                   ) : (
@@ -2651,7 +2668,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     type="button"
                     onClick={handleProceedFromSlotStep}
                     disabled={
-                      (!selectedSlot && availableSlots.length > 0) ||
+                      !selectedSlot ||
+                      availableSlots.length === 0 ||
                       (isLabClinic && selectedLabTests.length === 0)
                     }
                     className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2 cursor-pointer"

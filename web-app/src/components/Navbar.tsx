@@ -58,7 +58,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'home', label: 'Home', icon: Activity },
     { id: 'clinics', label: 'Find Clinics & OPD', icon: Stethoscope },
     { id: 'patient-portal', label: 'Patient Portal', icon: User },
-    { id: 'lab-reports', label: 'Lab Reports', icon: FileText },
+    { id: 'live-queue', label: 'Live Queue & Reports', icon: Activity },
     { id: 'average-time', label: 'Wait Time', icon: Clock },
   ]
 

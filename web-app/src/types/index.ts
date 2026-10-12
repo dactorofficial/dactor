@@ -26,6 +26,7 @@ export interface Clinic {
   weeklyScheduleJson?: string
   declaredHolidays?: string[]
   avgConsultationTimeMinutes?: number
+  averageConsultationMinutes?: number
   manualAvgConsultationTimeMinutes?: number
   calculatedAvgConsultationTimeMinutes?: number
   avgTimeMode?: string
@@ -88,6 +89,7 @@ export interface Doctor {
   kycStatus?: string // approved, pending, rejected
   profilePictureUrl?: string
   description?: string
+  bio?: string
   practitionerRole?: string // doctor or lab_technician
   isLabTechnician?: boolean
 }
@@ -131,11 +133,13 @@ export interface Appointment {
   paymentStatus: string // unpaid, paid, partial
   feeAmount: number
   queueNumber?: number
+  queuePosition?: number
   notes?: string
   isWalkin?: boolean
   createdAt?: string
   updatedAt?: string
   selectedTests?: string[]
+  selectedLabTests?: string[] | string
   // Joined fields for display
   clinic?: Clinic
   doctor?: Doctor
