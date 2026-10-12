@@ -633,15 +633,11 @@ fun HomeTab(
     val coroutineScope = rememberCoroutineScope()
 
     val today = remember { LocalDate.now() }
-    var viewedYearMonthStr by rememberSaveable { mutableStateOf(YearMonth.from(today).toString()) }
-    var viewedYearMonth: YearMonth
-        get() = try { YearMonth.parse(viewedYearMonthStr) } catch (_: Exception) { YearMonth.from(today) }
-        set(value) { viewedYearMonthStr = value.toString() }
+    var viewedYearMonth by remember { mutableStateOf(YearMonth.from(today)) }
+    val viewedYearMonthStr = viewedYearMonth.toString()
 
-    var selectedDateStr by rememberSaveable { mutableStateOf(today.toString()) }
-    var selectedDate: LocalDate
-        get() = try { LocalDate.parse(selectedDateStr) } catch (_: Exception) { today }
-        set(value) { selectedDateStr = value.toString() }
+    var selectedDate by remember { mutableStateOf(today) }
+    val selectedDateStr = selectedDate.toString()
 
     var selectedLocation by rememberSaveable { mutableStateOf("All Nepal") }
     var detectedCityName by rememberSaveable { mutableStateOf("") }
@@ -2355,13 +2351,24 @@ fun HomeTab(
                                     .fillMaxWidth()
                                     .clickable {
                                         selectedDoctorForClinicPicker = null
-                                        navController.navigate(
-                                            NavRoutes.Booking.createRoute(
+                                        val isDemo = sessionManager?.isGuestMode() == true || sessionManager?.isLoggedIn() != true
+                                        val targetRoute = NavRoutes.Booking.createRoute(
+                                            clinicId = clinic.id,
+                                            doctorId = doctor.id,
+                                            date = dateStr
+                                        )
+                                        if (isDemo) {
+                                            sessionManager?.savePendingBookingRedirect(
+                                                route = targetRoute,
                                                 clinicId = clinic.id,
                                                 doctorId = doctor.id,
-                                                date = dateStr
+                                                selectedDate = dateStr
                                             )
-                                        )
+                                            Toast.makeText(context, "Please sign in with Google to book an appointment", Toast.LENGTH_SHORT).show()
+                                            navController.navigate(NavRoutes.Login.route)
+                                        } else {
+                                            navController.navigate(targetRoute)
+                                        }
                                     }
                             ) {
                                 Row(
@@ -2411,13 +2418,24 @@ fun HomeTab(
                                     Button(
                                         onClick = {
                                             selectedDoctorForClinicPicker = null
-                                            navController.navigate(
-                                                NavRoutes.Booking.createRoute(
+                                            val isDemo = sessionManager?.isGuestMode() == true || sessionManager?.isLoggedIn() != true
+                                            val targetRoute = NavRoutes.Booking.createRoute(
+                                                clinicId = clinic.id,
+                                                doctorId = doctor.id,
+                                                date = dateStr
+                                            )
+                                            if (isDemo) {
+                                                sessionManager?.savePendingBookingRedirect(
+                                                    route = targetRoute,
                                                     clinicId = clinic.id,
                                                     doctorId = doctor.id,
-                                                    date = dateStr
+                                                    selectedDate = dateStr
                                                 )
-                                            )
+                                                Toast.makeText(context, "Please sign in with Google to book an appointment", Toast.LENGTH_SHORT).show()
+                                                navController.navigate(NavRoutes.Login.route)
+                                            } else {
+                                                navController.navigate(targetRoute)
+                                            }
                                         },
                                         shape = RoundedCornerShape(10.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
@@ -2651,6 +2669,7 @@ fun RecordsTab(
     suspend fun loadDirectoryRecords() {
         isLoading = true
         try {
+            sessionManager?.awaitIdentityResolved(timeoutMs = 2500)
             // Load clinics & doctors into lookup maps
             if (clinicRepository != null) {
                 val clinics = clinicRepository.getClinics()
@@ -2850,9 +2869,12 @@ fun RecordsTab(
         }
 
         if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color(0xFF00796B))
-            }
+            com.dactor.patient.ui.common.ShimmerListPlaceholder(
+                count = 4,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            )
         } else if (displayedRecords.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -5078,7 +5100,20 @@ fun ProfileTab(
     val coroutineScope = rememberCoroutineScope()
 
     var isUserLoggedIn by remember {
-        mutableStateOf(sessionManager?.isLoggedIn() == true || (authRepository?.isLoggedIn() == true))
+        mutableStateOf(
+            sessionManager?.isLoggedIn() == true ||
+            (authRepository?.isLoggedIn() == true) ||
+            (try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null } catch (_: Exception) { false })
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        val currentLoginState = sessionManager?.isLoggedIn() == true ||
+            (authRepository?.isLoggedIn() == true) ||
+            (try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null } catch (_: Exception) { false })
+        if (currentLoginState != isUserLoggedIn) {
+            isUserLoggedIn = currentLoginState
+        }
     }
 
     if (!isUserLoggedIn) {

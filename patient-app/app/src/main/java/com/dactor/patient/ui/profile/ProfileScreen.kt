@@ -94,8 +94,9 @@ fun ProfileScreen(
     var userName by remember { mutableStateOf<String?>(null) }
     var userPhone by remember { mutableStateOf<String?>(null) }
     var userGender by remember { mutableStateOf<String?>(null) }
-    var userAge by remember { mutableStateOf<Int?>(null) }
-    var isLoggedIn by remember { mutableStateOf(false) }
+    var isLoggedIn by remember {
+        mutableStateOf(sessionManager?.isLoggedIn() == true || (authRepository?.isLoggedIn() == true) || (try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null } catch (_: Exception) { false }))
+    }
 
     // Account archive & scheduled deletion states
     var isArchived by remember { mutableStateOf(false) }

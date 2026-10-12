@@ -149,7 +149,8 @@ fun PatientSearchScreen(
     initialDate: String = "",
     clinicRepository: ClinicRepository? = null,
     doctorRepository: DoctorRepository? = null,
-    slotRepository: SlotRepository? = null
+    slotRepository: SlotRepository? = null,
+    sessionManager: com.dactor.patient.data.local.UserSessionManager? = null
 ) {
     val context = LocalContext.current
     val focusRequester = remember { FocusRequester() }
@@ -1694,13 +1695,24 @@ fun PatientSearchScreen(
                                         navController.navigate(NavRoutes.ClinicDetail.createRoute(item.clinic.id))
                                     },
                                     onBookClick = {
-                                        navController.navigate(
-                                            NavRoutes.Booking.createRoute(
+                                        val isDemo = sessionManager?.isGuestMode() == true || sessionManager?.isLoggedIn() != true
+                                        val targetRoute = NavRoutes.Booking.createRoute(
+                                            clinicId = item.clinic.id,
+                                            doctorId = null,
+                                            date = chosenDateStr
+                                        )
+                                        if (isDemo) {
+                                            sessionManager?.savePendingBookingRedirect(
+                                                route = targetRoute,
                                                 clinicId = item.clinic.id,
                                                 doctorId = null,
-                                                date = chosenDateStr
+                                                selectedDate = chosenDateStr
                                             )
-                                        )
+                                            android.widget.Toast.makeText(context, "Please sign in with Google to book an appointment", android.widget.Toast.LENGTH_SHORT).show()
+                                            navController.navigate(NavRoutes.Login.route)
+                                        } else {
+                                            navController.navigate(targetRoute)
+                                        }
                                     },
                                     onCallClick = { phone ->
                                         if (phone.isNotBlank()) {
@@ -2002,7 +2014,7 @@ fun PatientSearchScreen(
                         Text("Qualifications: ${doctor.education}", fontSize = 13.sp, color = Color(0xFF334155))
                     }
                     if (!doctor.bio.isNullOrBlank()) {
-                        Text(doctor.bio, fontSize = 12.5.sp, color = Color(0xFF475569))
+                        Text(doctor.bio.orEmpty(), fontSize = 12.5.sp, color = Color(0xFF475569))
                     }
                     Text(
                         "Consultation Fee: ${CurrencyFormatter.formatNPR(doctor.consultationFee ?: 500.0)}",
@@ -2092,13 +2104,24 @@ fun PatientSearchScreen(
                                     .fillMaxWidth()
                                     .clickable {
                                         selectedDoctorForClinicPicker = null
-                                        navController.navigate(
-                                            NavRoutes.Booking.createRoute(
+                                        val isDemo = sessionManager?.isGuestMode() == true || sessionManager?.isLoggedIn() != true
+                                        val targetRoute = NavRoutes.Booking.createRoute(
+                                            clinicId = clinic.id,
+                                            doctorId = doctor.id,
+                                            date = bookingDateStr
+                                        )
+                                        if (isDemo) {
+                                            sessionManager?.savePendingBookingRedirect(
+                                                route = targetRoute,
                                                 clinicId = clinic.id,
                                                 doctorId = doctor.id,
-                                                date = bookingDateStr
+                                                selectedDate = bookingDateStr
                                             )
-                                        )
+                                            android.widget.Toast.makeText(context, "Please sign in with Google to book an appointment", android.widget.Toast.LENGTH_SHORT).show()
+                                            navController.navigate(NavRoutes.Login.route)
+                                        } else {
+                                            navController.navigate(targetRoute)
+                                        }
                                     }
                             ) {
                                 Row(
@@ -2148,13 +2171,24 @@ fun PatientSearchScreen(
                                     Button(
                                         onClick = {
                                             selectedDoctorForClinicPicker = null
-                                            navController.navigate(
-                                                NavRoutes.Booking.createRoute(
+                                            val isDemo = sessionManager?.isGuestMode() == true || sessionManager?.isLoggedIn() != true
+                                            val targetRoute = NavRoutes.Booking.createRoute(
+                                                clinicId = clinic.id,
+                                                doctorId = doctor.id,
+                                                date = bookingDateStr
+                                            )
+                                            if (isDemo) {
+                                                sessionManager?.savePendingBookingRedirect(
+                                                    route = targetRoute,
                                                     clinicId = clinic.id,
                                                     doctorId = doctor.id,
-                                                    date = bookingDateStr
+                                                    selectedDate = bookingDateStr
                                                 )
-                                            )
+                                                android.widget.Toast.makeText(context, "Please sign in with Google to book an appointment", android.widget.Toast.LENGTH_SHORT).show()
+                                                navController.navigate(NavRoutes.Login.route)
+                                            } else {
+                                                navController.navigate(targetRoute)
+                                            }
                                         },
                                         shape = RoundedCornerShape(10.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),

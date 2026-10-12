@@ -35,6 +35,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.AccountPicker
 import com.google.android.gms.common.api.ApiException
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -57,15 +59,12 @@ fun GuestAccountView(
         val defaultWebClientId = try {
             val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
             if (resId != 0) context.getString(resId) else null
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { null } ?: "429529188002-58s8gufhr6fheu6dd7hfnqi7i5dh4163.apps.googleusercontent.com"
 
         val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
             .requestProfile()
-
-        if (!defaultWebClientId.isNullOrBlank()) {
-            gsoBuilder.requestIdToken(defaultWebClientId)
-        }
+            .requestIdToken(defaultWebClientId)
         GoogleSignIn.getClient(context, gsoBuilder.build())
     }
 
@@ -179,29 +178,28 @@ fun GuestAccountView(
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val emailFromExtra = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
-        if (!emailFromExtra.isNullOrBlank()) {
-            handleSelectedGoogleEmail(emailFromExtra)
-            return@rememberLauncherForActivityResult
-        }
-
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
                 val account = task.getResult(ApiException::class.java)
                 if (account != null && !account.email.isNullOrBlank()) {
+                    val idToken = account.idToken
+                    if (!idToken.isNullOrBlank()) {
+                        try {
+                            val credential = GoogleAuthProvider.getCredential(idToken, null)
+                            FirebaseAuth.getInstance().signInWithCredential(credential)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
                     handleSelectedGoogleEmail(account.email!!)
                     return@rememberLauncherForActivityResult
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
-
-        val lastAccount = GoogleSignIn.getLastSignedInAccount(context)
-        if (lastAccount != null && !lastAccount.email.isNullOrBlank()) {
-            handleSelectedGoogleEmail(lastAccount.email!!)
-        } else {
-            isGoogleLoading = false
-        }
+        isGoogleLoading = false
     }
 
     fun launchDirectGoogleLogin() {
@@ -212,12 +210,9 @@ fun GuestAccountView(
         if (isGoogleLoading) return
         isGoogleLoading = true
         try {
-            val pickerIntent = AccountPicker.newChooseAccountIntent(
-                AccountPicker.AccountChooserOptions.Builder()
-                    .setAllowableAccountsTypes(listOf("com.google"))
-                    .build()
-            )
-            accountPickerLauncher.launch(pickerIntent)
+            googleSignInClient.signOut().addOnCompleteListener {
+                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+            }
         } catch (e: Exception) {
             try {
                 googleSignInLauncher.launch(googleSignInClient.signInIntent)

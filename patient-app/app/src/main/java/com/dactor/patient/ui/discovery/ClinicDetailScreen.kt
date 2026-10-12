@@ -46,7 +46,8 @@ fun ClinicDetailScreen(
     navController: NavController,
     clinicId: String? = null,
     clinicRepository: com.dactor.patient.data.repository.ClinicRepository? = null,
-    doctorRepository: com.dactor.patient.data.repository.DoctorRepository? = null
+    doctorRepository: com.dactor.patient.data.repository.DoctorRepository? = null,
+    sessionManager: com.dactor.patient.data.local.UserSessionManager? = null
 ) {
     val context = LocalContext.current
     var clinic by remember { mutableStateOf<com.dactor.patient.data.model.Clinic?>(null) }
@@ -175,7 +176,20 @@ fun ClinicDetailScreen(
                     Button(
                         onClick = {
                             val targetId = clinicId ?: clinic?.id ?: ""
-                            navController.navigate(NavRoutes.Booking.createRoute(targetId))
+                            val isDemo = sessionManager?.isGuestMode() == true || sessionManager?.isLoggedIn() != true
+                            val targetRoute = NavRoutes.Booking.createRoute(targetId)
+                            if (isDemo) {
+                                sessionManager?.savePendingBookingRedirect(
+                                    route = targetRoute,
+                                    clinicId = targetId,
+                                    doctorId = null,
+                                    selectedDate = ""
+                                )
+                                Toast.makeText(context, "Please sign in with Google to book an appointment", Toast.LENGTH_SHORT).show()
+                                navController.navigate(NavRoutes.Login.route)
+                            } else {
+                                navController.navigate(targetRoute)
+                            }
                         },
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),

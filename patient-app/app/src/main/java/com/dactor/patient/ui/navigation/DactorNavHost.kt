@@ -147,7 +147,8 @@ fun DactorNavHost(
                 initialDate = dateParam,
                 clinicRepository = clinicRepository,
                 doctorRepository = doctorRepository,
-                slotRepository = slotRepository
+                slotRepository = slotRepository,
+                sessionManager = sessionManager
             )
         }
         composable(
@@ -172,12 +173,19 @@ fun DactorNavHost(
                 initialDate = "",
                 clinicRepository = clinicRepository,
                 doctorRepository = doctorRepository,
-                slotRepository = slotRepository
+                slotRepository = slotRepository,
+                sessionManager = sessionManager
             )
         }
         composable(NavRoutes.ClinicDetail.route) { backStackEntry ->
             val clinicId = backStackEntry.arguments?.getString("clinicId") ?: ""
-            ClinicDetailScreen(navController = navController, clinicId = clinicId, clinicRepository = clinicRepository, doctorRepository = doctorRepository)
+            ClinicDetailScreen(
+                navController = navController,
+                clinicId = clinicId,
+                clinicRepository = clinicRepository,
+                doctorRepository = doctorRepository,
+                sessionManager = sessionManager
+            )
         }
         composable(NavRoutes.Booking.route) { backStackEntry ->
             val clinicId = backStackEntry.arguments?.getString("clinicId") ?: ""

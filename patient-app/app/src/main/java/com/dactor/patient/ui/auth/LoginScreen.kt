@@ -108,15 +108,12 @@ fun LoginScreen(
         val defaultWebClientId = try {
             val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
             if (resId != 0) context.getString(resId) else null
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { null } ?: "429529188002-58s8gufhr6fheu6dd7hfnqi7i5dh4163.apps.googleusercontent.com"
 
         val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
             .requestProfile()
-
-        if (!defaultWebClientId.isNullOrBlank()) {
-            gsoBuilder.requestIdToken(defaultWebClientId)
-        }
+            .requestIdToken(defaultWebClientId)
         GoogleSignIn.getClient(context, gsoBuilder.build())
     }
 
@@ -308,32 +305,35 @@ fun LoginScreen(
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val emailFromExtra = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
-        if (!emailFromExtra.isNullOrBlank()) {
-            proceedWithGoogleAccount(emailFromExtra)
-            return@rememberLauncherForActivityResult
-        }
-
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
                 val account = task.getResult(ApiException::class.java)
                 if (account != null && !account.email.isNullOrBlank()) {
+                    val idToken = account.idToken
+                    if (!idToken.isNullOrBlank()) {
+                        try {
+                            val credential = GoogleAuthProvider.getCredential(idToken, null)
+                            FirebaseAuth.getInstance().signInWithCredential(credential)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                    googleAccount = account
+                    verifiedDisplayName = account.displayName ?: ""
                     proceedWithGoogleAccount(account.email!!)
                     return@rememberLauncherForActivityResult
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                isLoading = false
+                statusInfo = null
+                errorMessage = "Google Sign-In failed: ${e.message ?: "Code ${(e as? ApiException)?.statusCode}"}"
+                return@rememberLauncherForActivityResult
             }
         }
-
-        val lastAccount = GoogleSignIn.getLastSignedInAccount(context)
-        if (lastAccount != null && !lastAccount.email.isNullOrBlank()) {
-            proceedWithGoogleAccount(lastAccount.email!!)
-        } else {
-            isLoading = false
-            statusInfo = null
-        }
+        isLoading = false
+        statusInfo = null
     }
 
     fun launchGoogleSignInFlow() {
@@ -343,12 +343,9 @@ fun LoginScreen(
         statusInfo = "Opening Google Sign-In..."
 
         try {
-            val pickerIntent = AccountPicker.newChooseAccountIntent(
-                AccountPicker.AccountChooserOptions.Builder()
-                    .setAllowableAccountsTypes(listOf("com.google"))
-                    .build()
-            )
-            accountPickerLauncher.launch(pickerIntent)
+            googleSignInClient.signOut().addOnCompleteListener {
+                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+            }
         } catch (e: Exception) {
             try {
                 googleSignInLauncher.launch(googleSignInClient.signInIntent)

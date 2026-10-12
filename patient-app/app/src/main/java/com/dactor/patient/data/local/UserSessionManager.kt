@@ -61,14 +61,22 @@ class UserSessionManager @Inject constructor(
     fun getSavedEmail(): String? = prefs.getString("user_email", null)
     fun getSavedName(): String? = prefs.getString("user_name", null)
     fun getSavedPhone(): String? = prefs.getString("user_phone", null)
-    fun isLoggedIn(): Boolean = prefs.getBoolean("is_logged_in", false)
+    fun isLoggedIn(): Boolean {
+        val prefLoggedIn = prefs.getBoolean("is_logged_in", false)
+        val hasEmail = !prefs.getString("user_email", null).isNullOrBlank()
+        val fbUser = try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
+        return (prefLoggedIn && hasEmail) || (fbUser != null && !fbUser.email.isNullOrBlank())
+    }
 
     fun hasSeenOnboarding(): Boolean = prefs.getBoolean("has_seen_onboarding", false)
     fun setHasSeenOnboarding(seen: Boolean) {
         prefs.edit().putBoolean("has_seen_onboarding", seen).apply()
     }
 
-    fun isGuestMode(): Boolean = prefs.getBoolean("is_guest_mode", false) || !isLoggedIn()
+    fun isGuestMode(): Boolean {
+        if (isLoggedIn()) return false
+        return prefs.getBoolean("is_guest_mode", false)
+    }
     fun setGuestMode(isGuest: Boolean) {
         prefs.edit().putBoolean("is_guest_mode", isGuest).apply()
     }
@@ -334,5 +342,16 @@ class UserSessionManager @Inject constructor(
         if (!txs.isNullOrBlank()) {
             prefs.edit().putString("local_cached_transactions", txs).apply()
         }
+    }
+
+    suspend fun awaitIdentityResolved(timeoutMs: Long = 3000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (!getSavedPatientId().isNullOrBlank() || !getSavedEmail().isNullOrBlank()) {
+                return true
+            }
+            kotlinx.coroutines.delay(100)
+        }
+        return !getSavedPatientId().isNullOrBlank() || !getSavedEmail().isNullOrBlank()
     }
 }
