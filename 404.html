@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -44,7 +44,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <!-- Schema.org JSON-LD Structured Data for Google Knowledge Graph & Rich Snippets -->
+    <!-- Schema.org JSON-LD Structured Data for Google Knowledge Graph, Rich Snippets & AI Search -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -68,7 +68,8 @@
             "Pediatric",
             "Dermatologic",
             "Orthopedic",
-            "Gynecologic"
+            "Gynecologic",
+            "Radiology"
           ]
         },
         {
@@ -80,11 +81,60 @@
           "publisher": {
             "@id": "https://dactorofficial.github.io/#organization"
           },
-          "potentialAction": {
-            "@type": "SearchAction",
-            "target": "https://dactorofficial.github.io/?search={search_term_string}",
-            "query-input": "required name=search_term_string"
-          }
+          "potentialAction": [
+            {
+              "@type": "SearchAction",
+              "target": "https://dactorofficial.github.io/?tab=clinics&q={search_term_string}",
+              "query-input": "required name=search_term_string"
+            },
+            {
+              "@type": "ReserveAction",
+              "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "https://dactorofficial.github.io/?clinic={clinic_id}&action=book",
+                "inLanguage": "en",
+                "actionPlatform": [
+                  "http://schema.org/DesktopWebPlatform",
+                  "http://schema.org/MobileWebPlatform",
+                  "http://schema.org/AndroidPlatform"
+                ]
+              },
+              "result": {
+                "@type": "MedicalReservation",
+                "name": "Book OPD Doctor Appointment"
+              }
+            }
+          ]
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://dactorofficial.github.io/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "How do I book a doctor appointment online in Nepal on Dactor?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Search for your preferred clinic, polyclinic, or specialist doctor on Dactor, choose an available date and time slot, enter patient details, and confirm your booking. You will instantly receive a live 10-digit OPD tracking code to monitor real-time queue position."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How does Dactor live OPD queue tracking work?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Every booked patient receives a 10-digit tracking code. Enter this code into the Dactor Live Queue tracker to view current consulting token numbers, estimated wait time in minutes, doctor availability, and real-time live delays."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I book diagnostic lab tests like MRI, CT Scan, and Blood Tests on Dactor?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes, Dactor supports verified diagnostic pathology laboratories across Nepal. Select your required scans or tests, book a time slot, and download certified medical reports directly from the portal."
+              }
+            }
+          ]
         },
         {
           "@type": "SoftwareApplication",
@@ -114,8 +164,8 @@
         }
       }(window.location));
     </script>
-    <script type="module" crossorigin src="./assets/index-5Bqfp1QS.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BqKEUt8N.css">
+    <script type="module" crossorigin src="./assets/index-EoJx34aI.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CbnzgiNk.css">
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-500 selection:text-white font-sans">
     <div id="root"></div>

@@ -1,15 +1,44 @@
-# Robots.txt for Dactor Healthcare Platform
-User-agent: *
-Allow: /
+# Robots.txt for Dactor Healthcare Platform (Nepal)
+# Optimized for Google Search, Rich Results, and Generative AI Search Engines
 
-# Googlebot specific directives
-User-agent: Googlebot
+User-agent: *
 Allow: /
 Allow: /assets/
 Allow: /*.png
 Allow: /*.jpg
 Allow: /*.svg
 
-# Sitemaps
+# Googlebot & Google Gemini AI Crawler
+User-agent: Googlebot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+# OpenAI ChatGPT & SearchGPT Crawlers
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+# Perplexity AI Search Crawler
+User-agent: PerplexityBot
+Allow: /
+
+# Anthropic Claude Crawler
+User-agent: ClaudeBot
+Allow: /
+
+# Apple Intelligence Crawler
+User-agent: Applebot-Extended
+Allow: /
+
+# Microsoft Bing
+User-agent: Bingbot
+Allow: /
+
+# Sitemaps & Semantic AI Indices
 Sitemap: https://dactorofficial.github.io/sitemap.xml
-Sitemap: https://dactor.health/sitemap.xml
+# LLM Knowledge Index
+# https://dactorofficial.github.io/llms.txt
