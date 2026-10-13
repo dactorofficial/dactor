@@ -191,29 +191,31 @@ export const Home: React.FC<HomeProps> = ({
   }, [clinics, doctors, selectedLocation, searchQuery, selectedSpecialty, selectedSort])
 
   return (
-    <div className="min-h-screen bg-slate-50 space-y-12 pb-24 font-sans text-slate-900 selection:bg-brand-500 selection:text-white">
+    <div className="min-h-screen space-y-8 sm:space-y-12 pb-24 font-sans text-slate-900 selection:bg-brand-500 selection:text-white">
       {/* ========================================================= */}
       {/* TOP LOCATION & REAL APP BRAND BAR */}
       {/* ========================================================= */}
-      <section className="bg-white border-b border-slate-200/80 sticky top-20 z-40 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+      <section className="liquid-glass-elevated border-b border-white/60 sticky top-16 sm:top-20 z-40 shadow-glass-sm">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3.5">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3">
             {/* Location Selector (matches real app's "All Nepal" dropdown) */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setShowLocationDropdown(!showLocationDropdown)}
-                className="flex items-center space-x-2 text-slate-800 hover:text-brand-600 transition-colors group cursor-pointer"
+                className="w-full sm:w-auto flex items-center justify-between sm:justify-start space-x-2 text-slate-800 hover:text-brand-600 transition-colors group cursor-pointer py-1 px-1"
               >
-                <MapPin className="w-4 h-4 text-brand-600" />
-                <span className="text-base sm:text-lg font-black tracking-tight text-slate-900">
-                  {selectedLocation}
-                </span>
+                <div className="flex items-center space-x-2">
+                  <MapPin className="w-4 h-4 text-brand-600 shrink-0" />
+                  <span className="text-base sm:text-lg font-black tracking-tight text-slate-900">
+                    {selectedLocation}
+                  </span>
+                </div>
                 <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${showLocationDropdown ? 'rotate-180' : ''}`} />
               </button>
 
               {showLocationDropdown && (
-                <div className="absolute left-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute left-0 mt-2 w-full sm:w-64 liquid-glass-elevated rounded-2xl shadow-glass-lg border border-white/80 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
                   <div className="px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                     Select City / Region
                   </div>
@@ -226,10 +228,10 @@ export const Home: React.FC<HomeProps> = ({
                           setSelectedLocation(loc)
                           setShowLocationDropdown(false)
                         }}
-                        className={`w-full text-left px-4 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${
+                        className={`w-full text-left px-4 py-2.5 text-xs font-semibold flex items-center justify-between transition-colors ${
                           selectedLocation === loc
-                            ? 'bg-brand-50 text-brand-700 font-bold'
-                            : 'text-slate-700 hover:bg-slate-50'
+                            ? 'bg-brand-50/90 text-brand-700 font-bold'
+                            : 'text-slate-700 hover:bg-white/60'
                         }`}
                       >
                         <span>{loc}</span>
@@ -244,7 +246,7 @@ export const Home: React.FC<HomeProps> = ({
             {/* Live 10-Digit Quick Code Tracker Form (Pill styled like real app) */}
             <form
               onSubmit={handleTrackSubmit}
-              className="w-full sm:w-auto flex items-center gap-2 bg-slate-100/90 hover:bg-slate-100 p-1 rounded-2xl border border-slate-200"
+              className="w-full sm:w-auto flex items-center gap-2 liquid-glass-input p-1 rounded-2xl border border-white/70 shadow-glass-sm"
             >
               <div className="relative flex-1 sm:w-60">
                 <input
@@ -253,13 +255,13 @@ export const Home: React.FC<HomeProps> = ({
                   onChange={(e) => setTrackingCode(e.target.value)}
                   placeholder="10-Digit Token Code..."
                   maxLength={10}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs font-bold text-slate-900 bg-transparent focus:outline-none placeholder:text-slate-400 placeholder:font-normal"
+                  className="w-full pl-8 pr-3 py-1.5 text-sm sm:text-xs font-bold text-slate-900 bg-transparent focus:outline-none placeholder:text-slate-400 placeholder:font-normal"
                 />
                 <Sparkles className="w-3.5 h-3.5 text-brand-600 absolute left-2.5 top-2.5" />
               </div>
               <button
                 type="submit"
-                className="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs shrink-0 cursor-pointer"
+                className="px-4 py-1.5 bg-gradient-to-r from-brand-600 to-cyan-500 hover:brightness-105 text-white font-bold rounded-xl text-xs transition-all shadow-glass-brand shrink-0 cursor-pointer active:scale-[0.97]"
               >
                 Track Queue
               </button>
@@ -271,37 +273,40 @@ export const Home: React.FC<HomeProps> = ({
       {/* ========================================================= */}
       {/* HERO SECTION WITH AUTHENTIC DACTOR LOGO & MEDICAL THEME */}
       {/* ========================================================= */}
-      <section className="relative overflow-hidden pt-4 pb-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-br from-brand-50/70 via-slate-50 to-white border border-brand-200/60 rounded-3xl p-6 sm:p-10 shadow-sm relative overflow-hidden">
+      <section className="relative overflow-hidden pt-2 sm:pt-4 pb-4 sm:pb-6 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="liquid-glass-elevated border border-white/80 rounded-3xl p-5 sm:p-10 shadow-glass-lg relative overflow-hidden">
+          {/* Specular Perimeter Line */}
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[1.5px] rounded-t-3xl bg-gradient-to-r from-transparent via-white/80 to-transparent" aria-hidden="true" />
+
           {/* Subtle medical shield background watermark */}
           <div className="absolute right-0 top-1/2 -translate-y-1/2 w-80 h-80 opacity-5 pointer-events-none -mr-16">
             <img src={dactorLogo} alt="" className="w-full h-full object-contain" />
           </div>
 
-          <div className="flex flex-col lg:flex-row items-center justify-between gap-8 relative z-10">
+          <div className="flex flex-col lg:flex-row items-center justify-between gap-6 sm:gap-8 relative z-10">
             {/* Left: Branding & Message */}
-            <div className="space-y-4 max-w-2xl text-left">
-              <div className="inline-flex items-center space-x-2.5 px-3.5 py-1.5 rounded-full bg-brand-100/90 border border-brand-300 text-brand-900 text-xs font-bold tracking-wide shadow-xs">
+            <div className="space-y-3 sm:space-y-4 max-w-2xl text-left">
+              <div className="inline-flex items-center space-x-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full liquid-glass-subtle border border-brand-200/60 text-brand-900 text-[11px] sm:text-xs font-bold tracking-wide shadow-glass-sm">
                 <img src={dactorLogo} alt="Dactor" className="w-4 h-4 object-contain rounded-full" />
                 <span>Nepal's Realtime OPD Queue & Diagnostic Ecosystem</span>
               </div>
 
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 tracking-tight leading-tight">
+              <h1 className="text-2xl sm:text-4xl lg:text-5xl font-black text-slate-900 tracking-tight leading-tight">
                 Live OPD Tokens.{' '}
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-sky-500">
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 via-sky-500 to-cyan-500">
                   Zero Waiting Room Hassle.
                 </span>
               </h1>
 
-              <p className="text-sm sm:text-base text-slate-600 font-medium leading-relaxed">
+              <p className="text-xs sm:text-base text-slate-600 font-medium leading-relaxed">
                 Check whether your doctor is physically inside the clinic right now, book your slot, track real-time queue position with a 10-digit code, and unlock name-verified lab reports.
               </p>
 
-              <div className="flex flex-wrap items-center gap-3 pt-1">
+              <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2.5 sm:gap-3 pt-1">
                 <button
                   type="button"
                   onClick={() => onNavigate('patient-portal')}
-                  className="px-5 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-lg shadow-brand-600/20 flex items-center space-x-2 transition-all cursor-pointer"
+                  className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-glass-brand border border-white/30 flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
                 >
                   <User className="w-4 h-4" />
                   <span>Patient Portal & My Bookings</span>
@@ -310,7 +315,7 @@ export const Home: React.FC<HomeProps> = ({
                 <button
                   type="button"
                   onClick={() => onNavigate('live-queue')}
-                  className="px-4 py-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-bold rounded-2xl text-xs sm:text-sm shadow-xs flex items-center space-x-2 transition-all cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-3 liquid-glass-subtle hover:bg-white/90 text-slate-800 border border-white/80 font-bold rounded-2xl text-xs sm:text-sm shadow-glass-sm flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
                 >
                   <Activity className="w-4 h-4 text-brand-600" />
                   <span>Live Queue Tracker</span>
@@ -318,7 +323,7 @@ export const Home: React.FC<HomeProps> = ({
                 <button
                   type="button"
                   onClick={() => onNavigate('lab-reports')}
-                  className="px-4 py-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-bold rounded-2xl text-xs sm:text-sm shadow-xs flex items-center space-x-2 transition-all cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-3 liquid-glass-subtle hover:bg-white/90 text-slate-800 border border-white/80 font-bold rounded-2xl text-xs sm:text-sm shadow-glass-sm flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
                 >
                   <FlaskConical className="w-4 h-4 text-emerald-600" />
                   <span>3-Stage Lab Reports</span>
@@ -327,24 +332,24 @@ export const Home: React.FC<HomeProps> = ({
             </div>
 
             {/* Right: Authentic Logo Showcase & Quick Highlights */}
-            <div className="flex flex-col sm:flex-row items-center gap-5 shrink-0 bg-white/80 backdrop-blur-xs p-5 rounded-3xl border border-brand-100 shadow-sm">
+            <div className="w-full sm:w-auto flex flex-col sm:flex-row items-center gap-4 sm:gap-5 shrink-0 liquid-glass-base p-5 rounded-3xl border border-white/80 shadow-glass-md">
               <img
                 src={dactorLogo}
                 alt="Dactor Shield"
-                className="w-24 h-24 object-contain drop-shadow-md rounded-2xl"
+                className="w-16 h-16 sm:w-24 sm:h-24 object-contain drop-shadow-md rounded-2xl shadow-glass-sm"
               />
-              <div className="space-y-2 text-xs text-slate-600 font-medium text-left">
+              <div className="space-y-1.5 sm:space-y-2 text-xs text-slate-600 font-medium text-left w-full sm:w-auto">
                 <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="font-bold text-slate-800">Live Doctor Physical Presence</span>
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0 shadow-xs shadow-emerald-500/50" />
+                  <span className="font-bold text-slate-800 text-[11px] sm:text-xs">Live Doctor Physical Presence</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-                  <span>10-Digit Universal Queue Code</span>
+                  <span className="text-[11px] sm:text-xs font-semibold">10-Digit Universal Queue Code</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-                  <span>3-Stage Diagnostic Lab Pipeline</span>
+                  <span className="text-[11px] sm:text-xs font-semibold">3-Stage Diagnostic Lab Pipeline</span>
                 </div>
               </div>
             </div>
@@ -363,7 +368,7 @@ export const Home: React.FC<HomeProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search skin, heart, child, clinic or doctor..."
-            className="w-full pl-12 pr-10 py-3.5 bg-white border border-slate-300 rounded-full text-sm font-semibold text-slate-900 shadow-xs focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 placeholder:text-slate-400 placeholder:font-normal"
+            className="w-full pl-12 pr-10 py-3.5 liquid-glass-input rounded-full text-sm font-semibold text-slate-900 shadow-glass-sm border border-white/80 placeholder:text-slate-400 placeholder:font-normal"
           />
           <Search className="w-5 h-5 text-brand-600 absolute left-4 top-3.5" />
           {searchQuery && (
@@ -376,8 +381,8 @@ export const Home: React.FC<HomeProps> = ({
           )}
         </div>
 
-        {/* Scrollable Specialty Chips */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+        {/* Scrollable Specialty Chips with smooth edge-to-edge swiping */}
+        <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-2 scrollbar-none -mx-3 px-3 sm:mx-0 sm:px-0">
           {SPECIALTY_CHIPS.map((chip) => {
             const isSelected = selectedSpecialty === chip.id
             return (
@@ -385,10 +390,10 @@ export const Home: React.FC<HomeProps> = ({
                 key={chip.id}
                 type="button"
                 onClick={() => setSelectedSpecialty(chip.id)}
-                className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer border ${
+                className={`px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer border ${
                   isSelected
-                    ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                    : 'bg-white text-slate-700 border-slate-200 hover:border-brand-300 hover:bg-brand-50/50'
+                    ? 'bg-gradient-to-r from-brand-600 to-cyan-500 text-white border-white/40 shadow-glass-brand scale-[1.02]'
+                    : 'liquid-glass-subtle text-slate-700 border-white/60 hover:bg-white/90 shadow-glass-sm'
                 }`}
               >
                 {chip.label}
@@ -401,21 +406,21 @@ export const Home: React.FC<HomeProps> = ({
       {/* ========================================================= */}
       {/* HORIZONTAL DATE PICKER STRIP (Matches 01_home_dashboard.png) */}
       {/* ========================================================= */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
-        {/* Month Header with < > buttons */}
+      <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 space-y-3 sm:space-y-4">
+        {/* Month Header with badge */}
         <div className="flex items-center justify-between px-1">
-          <span className="text-base sm:text-lg font-black text-slate-900">
+          <span className="text-sm sm:text-lg font-black text-slate-900">
             {today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
           </span>
           <div className="flex items-center space-x-1 text-slate-400">
-            <span className="text-xs font-semibold text-brand-700 bg-brand-50 px-2.5 py-1 rounded-full">
+            <span className="text-[11px] sm:text-xs font-semibold text-brand-700 liquid-glass-subtle border border-brand-200/60 px-2.5 py-0.5 sm:py-1 rounded-full shadow-xs">
               7-Day Availability
             </span>
           </div>
         </div>
 
         {/* 7 Days Strip */}
-        <div className="grid grid-cols-7 gap-2 sm:gap-3">
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-3">
           {dateList.map((item, idx) => {
             const isSelected = selectedDateIndex === idx
             return (
@@ -423,16 +428,16 @@ export const Home: React.FC<HomeProps> = ({
                 key={idx}
                 type="button"
                 onClick={() => setSelectedDateIndex(idx)}
-                className={`py-3.5 sm:py-4 rounded-2xl flex flex-col items-center justify-center transition-all cursor-pointer border ${
+                className={`py-2.5 sm:py-4 px-0.5 sm:px-2 rounded-2xl flex flex-col items-center justify-center transition-all cursor-pointer border ${
                   isSelected
-                    ? 'bg-brand-600 text-white border-brand-600 shadow-md shadow-brand-600/25 scale-[1.02]'
-                    : 'bg-white text-slate-700 border-slate-200 hover:border-brand-200 hover:bg-slate-50'
+                    ? 'bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 text-white border-white/40 shadow-glass-brand scale-[1.03]'
+                    : 'liquid-glass-subtle text-slate-700 border-white/60 hover:bg-white/80 shadow-glass-sm'
                 }`}
               >
-                <span className={`text-[11px] sm:text-xs font-bold ${isSelected ? 'text-white/90' : 'text-slate-500'}`}>
+                <span className={`text-[10px] sm:text-xs font-bold leading-tight ${isSelected ? 'text-white/90' : 'text-slate-500'}`}>
                   {item.dayName}
                 </span>
-                <span className="text-lg sm:text-2xl font-black mt-0.5">
+                <span className="text-sm sm:text-2xl font-black mt-0.5 leading-none">
                   {item.dayNum}
                 </span>
               </button>
@@ -441,8 +446,8 @@ export const Home: React.FC<HomeProps> = ({
         </div>
 
         {/* Selected Day Status & Sort Filter Bar */}
-        <div className="flex items-center justify-between pt-2 px-1">
-          <h2 className="text-base sm:text-lg font-black text-slate-900">
+        <div className="flex items-center justify-between pt-1 sm:pt-2 px-1 gap-2">
+          <h2 className="text-xs sm:text-lg font-black text-slate-900 truncate">
             {dateList[selectedDateIndex]?.fullDateStr}
           </h2>
 
@@ -450,14 +455,14 @@ export const Home: React.FC<HomeProps> = ({
             <button
               type="button"
               onClick={() => setShowSortDropdown(!showSortDropdown)}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition-colors cursor-pointer shadow-xs"
+              className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-gradient-to-r from-brand-600 to-cyan-500 text-white rounded-xl text-xs font-bold hover:brightness-105 transition-all cursor-pointer shadow-glass-brand border border-white/30"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
               <span>Sort</span>
             </button>
 
             {showSortDropdown && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+              <div className="absolute right-0 mt-2 w-48 liquid-glass-elevated rounded-2xl shadow-glass-lg border border-white/80 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
                 <button
                   type="button"
                   onClick={() => {
@@ -465,7 +470,7 @@ export const Home: React.FC<HomeProps> = ({
                     setShowSortDropdown(false)
                   }}
                   className={`w-full text-left px-3.5 py-2 text-xs font-semibold ${
-                    selectedSort === 'default' ? 'bg-brand-50 text-brand-700 font-bold' : 'text-slate-700 hover:bg-slate-50'
+                    selectedSort === 'default' ? 'bg-brand-50/90 text-brand-700 font-bold' : 'text-slate-700 hover:bg-white/60'
                   }`}
                 >
                   Recommended
@@ -477,7 +482,7 @@ export const Home: React.FC<HomeProps> = ({
                     setShowSortDropdown(false)
                   }}
                   className={`w-full text-left px-3.5 py-2 text-xs font-semibold ${
-                    selectedSort === 'in_clinic' ? 'bg-brand-50 text-brand-700 font-bold' : 'text-slate-700 hover:bg-slate-50'
+                    selectedSort === 'in_clinic' ? 'bg-brand-50/90 text-brand-700 font-bold' : 'text-slate-700 hover:bg-white/60'
                   }`}
                 >
                   🟢 Doctor In Clinic First
@@ -489,7 +494,7 @@ export const Home: React.FC<HomeProps> = ({
                     setShowSortDropdown(false)
                   }}
                   className={`w-full text-left px-3.5 py-2 text-xs font-semibold ${
-                    selectedSort === 'fee_asc' ? 'bg-brand-50 text-brand-700 font-bold' : 'text-slate-700 hover:bg-slate-50'
+                    selectedSort === 'fee_asc' ? 'bg-brand-50/90 text-brand-700 font-bold' : 'text-slate-700 hover:bg-white/60'
                   }`}
                 >
                   Lowest Fee First
@@ -503,15 +508,15 @@ export const Home: React.FC<HomeProps> = ({
       {/* ========================================================= */}
       {/* CLINIC & DOCTOR OPD CARDS (Matches 01_home_dashboard.png) */}
       {/* ========================================================= */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+      <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 space-y-4 sm:space-y-6">
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {[1, 2, 3].map((i) => (
               <div key={i} className="h-64 bg-slate-100 rounded-3xl animate-pulse" />
             ))}
           </div>
         ) : filteredClinics.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center max-w-md mx-auto space-y-3">
+          <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center max-w-md mx-auto space-y-3">
             <Building2 className="w-12 h-12 text-slate-300 mx-auto" />
             <h3 className="text-base font-bold text-slate-800">No clinics found matching criteria</h3>
             <p className="text-xs text-slate-500">
@@ -523,13 +528,13 @@ export const Home: React.FC<HomeProps> = ({
                 setSelectedSpecialty('all')
                 setSelectedLocation('All Nepal')
               }}
-              className="px-4 py-2 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition-colors"
+              className="px-4 py-2 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition-colors cursor-pointer"
             >
               Reset Filters
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {filteredClinics.map((clinic) => {
               const doc = clinic.primaryDoctor
               const isDocInClinic = clinic.hasDocInClinic || doc?.isInClinic
@@ -556,11 +561,11 @@ export const Home: React.FC<HomeProps> = ({
               return (
                 <div
                   key={clinic.id}
-                  className="group bg-white rounded-3xl border border-slate-200/90 hover:border-brand-400 shadow-sm hover:shadow-xl transition-all duration-200 flex flex-col justify-between overflow-hidden"
+                  className="group liquid-glass-card rounded-3xl border border-white/80 shadow-glass-md hover:shadow-glass-lg transition-all duration-300 flex flex-col justify-between overflow-hidden"
                 >
                   <div>
                     {/* Clinic Photo Banner */}
-                    <div className="relative w-full h-44 bg-slate-100 overflow-hidden">
+                    <div className="relative w-full h-40 sm:h-44 bg-slate-100 overflow-hidden">
                       {coverPhoto ? (
                         <img
                           src={coverPhoto}
@@ -581,8 +586,8 @@ export const Home: React.FC<HomeProps> = ({
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-transparent to-black/20" />
 
                       {/* Top Overlay Badges */}
-                      <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
-                        <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white/90 text-brand-900 backdrop-blur-md shadow-xs">
+                      <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex flex-wrap items-center justify-between gap-1.5">
+                        <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-bold bg-white/90 text-brand-900 backdrop-blur-md shadow-glass-sm border border-white/80">
                           {clinic.type === 'diagnostic_lab'
                             ? 'Diagnostic Lab'
                             : clinic.type === 'single_visit'
@@ -590,22 +595,22 @@ export const Home: React.FC<HomeProps> = ({
                             : 'Multi-Visit'}
                         </span>
 
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500 text-white shadow-xs">
-                          <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+                        <span className="inline-flex items-center px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-500 text-white shadow-xs border border-white/30">
+                          <ShieldCheck className="w-3 sm:w-3.5 h-3 sm:h-3.5 mr-1" />
                           Verified
                         </span>
                       </div>
 
                       {/* Photo Count Indicator */}
                       {clinic.pictures && clinic.pictures.length > 1 && (
-                        <div className="absolute bottom-2.5 right-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-xs text-[10px] font-bold text-white flex items-center space-x-1">
+                        <div className="absolute bottom-2.5 right-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-xs text-[10px] font-bold text-white flex items-center space-x-1 border border-white/20">
                           <Camera className="w-3 h-3" />
                           <span>{clinic.pictures.length} Photos</span>
                         </div>
                       )}
                     </div>
 
-                    <div className="p-5 space-y-3.5">
+                    <div className="p-4 sm:p-5 space-y-3 sm:space-y-3.5">
                       {/* Clinic Title & Address */}
                       <div>
                         <h3 className="text-base sm:text-lg font-black text-slate-900 line-clamp-1 group-hover:text-brand-600 transition-colors">
@@ -613,30 +618,30 @@ export const Home: React.FC<HomeProps> = ({
                         </h3>
                         <p className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-1">
                           <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{clinic.addressText || 'Nepal'}</span>
+                          <span className="truncate">{clinic.addressText || 'Nepal'}</span>
                         </p>
                       </div>
 
                       {/* LIVE DOCTOR PHYSICAL PRESENCE & BREAK BANNER */}
                       <div className="space-y-1.5">
                         {clinic.isOnBreak ? (
-                          <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center space-x-2 text-amber-800">
+                          <div className="p-2 sm:p-2.5 rounded-xl bg-amber-500/10 border border-amber-300/60 flex items-center space-x-2 text-amber-800 backdrop-blur-xs">
                             <div className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
-                            <span className="text-xs font-bold">
+                            <span className="text-[11px] sm:text-xs font-bold leading-tight">
                               Clinic Currently on Short Break • Queue Paused
                             </span>
                           </div>
                         ) : isDocInClinic ? (
-                          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center space-x-2 text-emerald-800">
+                          <div className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-300/60 flex items-center space-x-2 text-emerald-800 backdrop-blur-xs">
                             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 animate-ping" />
-                            <span className="text-xs font-bold">
+                            <span className="text-[11px] sm:text-xs font-bold leading-tight">
                               Doctor is Physically Inside Clinic Now
                             </span>
                           </div>
                         ) : (
-                          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center space-x-2 text-slate-600">
+                          <div className="p-2 sm:p-2.5 rounded-xl liquid-glass-subtle border border-white/60 flex items-center space-x-2 text-slate-600">
                             <div className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
-                            <span className="text-xs font-semibold">
+                            <span className="text-[11px] sm:text-xs font-semibold leading-tight">
                               {clinic.type === 'diagnostic_lab'
                                 ? 'Lab Open for Sample Collection'
                                 : 'Doctor Away • Available for Next OPD Slot'}
@@ -646,10 +651,10 @@ export const Home: React.FC<HomeProps> = ({
                       </div>
 
                       {/* Doctor & Schedule Info */}
-                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="space-y-2 pt-2 border-t border-slate-100/70">
                         {doc ? (
                           <div className="flex items-center space-x-2.5 text-xs font-bold text-slate-800">
-                            <div className="w-8 h-8 rounded-xl bg-brand-100 text-brand-800 flex items-center justify-center font-black text-xs shrink-0 overflow-hidden border border-slate-200 shadow-2xs">
+                            <div className="w-8 h-8 rounded-xl bg-brand-50/80 text-brand-800 flex items-center justify-center font-black text-xs shrink-0 overflow-hidden border border-white/80 shadow-xs">
                               {doc.profilePictureUrl ? (
                                 <img
                                   src={doc.profilePictureUrl}
@@ -663,10 +668,10 @@ export const Home: React.FC<HomeProps> = ({
                                 doc.fullName.charAt(0)
                               )}
                             </div>
-                            <div>
+                            <div className="truncate">
                               <span className="font-bold text-slate-900 line-clamp-1">{doc.fullName}</span>
                               {doc.specialty && (
-                                <span className="text-brand-700 font-medium text-[11px] block">
+                                <span className="text-brand-700 font-medium text-[11px] block truncate">
                                   {doc.specialty}
                                 </span>
                               )}
@@ -675,7 +680,7 @@ export const Home: React.FC<HomeProps> = ({
                         ) : (
                           <div className="flex items-center space-x-2 text-xs font-semibold text-slate-600">
                             <Stethoscope className="w-4 h-4 text-brand-600 shrink-0" />
-                            <span>
+                            <span className="truncate">
                               {clinic.specialties && clinic.specialties.length > 0
                                 ? clinic.specialties.slice(0, 2).join(' • ')
                                 : 'OPD & Diagnostic Services'}
@@ -683,10 +688,10 @@ export const Home: React.FC<HomeProps> = ({
                           </div>
                         )}
 
-                        <div className="flex items-center space-x-2 text-xs font-medium text-slate-600">
+                        <div className="flex items-center space-x-1.5 text-xs font-medium text-slate-600">
                           <Clock className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
-                          <span>Schedule ({selectedDayShort}):</span>
-                          <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-800 font-mono font-bold text-[11px] border border-cyan-200">
+                          <span className="shrink-0">Schedule:</span>
+                          <span className="px-2 py-0.5 rounded-md bg-cyan-50/80 text-cyan-800 font-mono font-bold text-[10px] sm:text-[11px] border border-cyan-200/60 truncate">
                             {scheduleLabel}
                           </span>
                         </div>
@@ -695,21 +700,21 @@ export const Home: React.FC<HomeProps> = ({
                   </div>
 
                   {/* Bottom: Fee & Book OPD Action */}
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                    <div>
+                  <div className="p-4 pt-3 border-t border-slate-100/70 flex items-center justify-between gap-2">
+                    <div className="truncate">
                       <span className="text-xs font-bold text-slate-800">
                         {doc?.consultationFee
                           ? `Fee: Rs. ${doc.consultationFee}`
-                          : `Avg Wait: ~${clinic.avgConsultationTimeMinutes || 10}m`}
+                          : `Avg: ~${clinic.avgConsultationTimeMinutes || 10}m`}
                       </span>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => onNavigate('clinic-detail', { clinicId: clinic.id })}
-                      className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-brand-600/20 hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-1.5 cursor-pointer"
+                      className="px-3.5 py-2 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white font-bold rounded-xl text-xs transition-all shadow-glass-brand border border-white/30 hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-1.5 cursor-pointer shrink-0"
                     >
-                      <span>{clinic.type === 'diagnostic_lab' ? 'Book Lab Test' : 'Book OPD'}</span>
+                      <span>{clinic.type === 'diagnostic_lab' ? 'Book Lab' : 'Book OPD'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -723,25 +728,25 @@ export const Home: React.FC<HomeProps> = ({
       {/* ========================================================= */}
       {/* 4 QUICK ACTION TILES (Medical Cyan & Deep Navy Themed) */}
       {/* ========================================================= */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
           {/* Card 1: Find Clinics */}
           <div
             onClick={() => onNavigate('clinics')}
-            className="group p-6 bg-white rounded-3xl border border-slate-200/80 hover:border-brand-400 shadow-xs hover:shadow-xl transition-all duration-200 cursor-pointer flex flex-col justify-between"
+            className="group p-5 sm:p-6 liquid-glass-card rounded-3xl border border-white/80 shadow-glass-md hover:shadow-glass-lg transition-all duration-300 cursor-pointer flex flex-col justify-between"
           >
             <div>
-              <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 group-hover:bg-brand-600 group-hover:text-white transition-colors flex items-center justify-center mb-4">
-                <Building2 className="w-6 h-6 stroke-[2]" />
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-brand-50/80 text-brand-600 group-hover:bg-brand-600 group-hover:text-white transition-colors flex items-center justify-center mb-3 sm:mb-4 border border-brand-200/50 shadow-glass-sm backdrop-blur-md">
+                <Building2 className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
               </div>
-              <h3 className="text-lg font-black text-slate-900 group-hover:text-brand-600 transition-colors">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-brand-600 transition-colors">
                 Find Clinics & OPD
               </h3>
-              <p className="text-xs text-slate-500 font-medium mt-1.5 leading-relaxed">
+              <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
                 Browse polyclinics, check doctor rosters, and inspect transparent working & break hours.
               </p>
             </div>
-            <div className="mt-5 flex items-center text-xs font-bold text-brand-600 group-hover:translate-x-1 transition-transform">
+            <div className="mt-4 sm:mt-5 flex items-center text-xs font-bold text-brand-600 group-hover:translate-x-1 transition-transform">
               <span>Browse Clinics</span>
               <ArrowRight className="w-3.5 h-3.5 ml-1" />
             </div>
@@ -750,20 +755,20 @@ export const Home: React.FC<HomeProps> = ({
           {/* Card 2: Book Doctor Slot */}
           <div
             onClick={() => onNavigate('clinics')}
-            className="group p-6 bg-white rounded-3xl border border-slate-200/80 hover:border-brand-400 shadow-xs hover:shadow-xl transition-all duration-200 cursor-pointer flex flex-col justify-between"
+            className="group p-5 sm:p-6 liquid-glass-card rounded-3xl border border-white/80 shadow-glass-md hover:shadow-glass-lg transition-all duration-300 cursor-pointer flex flex-col justify-between"
           >
             <div>
-              <div className="w-12 h-12 rounded-2xl bg-cyan-50 text-cyan-600 group-hover:bg-cyan-600 group-hover:text-white transition-colors flex items-center justify-center mb-4">
-                <Stethoscope className="w-6 h-6 stroke-[2]" />
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-cyan-50/80 text-cyan-600 group-hover:bg-cyan-600 group-hover:text-white transition-colors flex items-center justify-center mb-3 sm:mb-4 border border-cyan-200/50 shadow-glass-sm backdrop-blur-md">
+                <Stethoscope className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
               </div>
-              <h3 className="text-lg font-black text-slate-900 group-hover:text-cyan-600 transition-colors">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-cyan-600 transition-colors">
                 Doctor Consultations
               </h3>
-              <p className="text-xs text-slate-500 font-medium mt-1.5 leading-relaxed">
+              <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
                 Book appointment slots with NMC verified specialists. Pay at reception or directly.
               </p>
             </div>
-            <div className="mt-5 flex items-center text-xs font-bold text-cyan-600 group-hover:translate-x-1 transition-transform">
+            <div className="mt-4 sm:mt-5 flex items-center text-xs font-bold text-cyan-600 group-hover:translate-x-1 transition-transform">
               <span>Book Doctor Slot</span>
               <ArrowRight className="w-3.5 h-3.5 ml-1" />
             </div>
@@ -772,20 +777,20 @@ export const Home: React.FC<HomeProps> = ({
           {/* Card 3: Diagnostic Lab Tests */}
           <div
             onClick={() => onNavigate('clinics', { filter: 'diagnostic_lab' })}
-            className="group p-6 bg-white rounded-3xl border border-slate-200/80 hover:border-brand-400 shadow-xs hover:shadow-xl transition-all duration-200 cursor-pointer flex flex-col justify-between"
+            className="group p-5 sm:p-6 liquid-glass-card rounded-3xl border border-white/80 shadow-glass-md hover:shadow-glass-lg transition-all duration-300 cursor-pointer flex flex-col justify-between"
           >
             <div>
-              <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 group-hover:bg-sky-600 group-hover:text-white transition-colors flex items-center justify-center mb-4">
-                <FlaskConical className="w-6 h-6 stroke-[2]" />
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-sky-50/80 text-sky-600 group-hover:bg-sky-600 group-hover:text-white transition-colors flex items-center justify-center mb-3 sm:mb-4 border border-sky-200/50 shadow-glass-sm backdrop-blur-md">
+                <FlaskConical className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
               </div>
-              <h3 className="text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">
                 Diagnostic Lab Tests
               </h3>
-              <p className="text-xs text-slate-500 font-medium mt-1.5 leading-relaxed">
+              <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
                 Pathology tests with upfront clinic prices and rapid sample collection.
               </p>
             </div>
-            <div className="mt-5 flex items-center text-xs font-bold text-sky-600 group-hover:translate-x-1 transition-transform">
+            <div className="mt-4 sm:mt-5 flex items-center text-xs font-bold text-sky-600 group-hover:translate-x-1 transition-transform">
               <span>Select Lab Tests</span>
               <ArrowRight className="w-3.5 h-3.5 ml-1" />
             </div>
@@ -794,20 +799,20 @@ export const Home: React.FC<HomeProps> = ({
           {/* Card 4: Verified Lab Reports */}
           <div
             onClick={() => onOpenReportModal()}
-            className="group p-6 bg-white rounded-3xl border border-slate-200/80 hover:border-brand-400 shadow-xs hover:shadow-xl transition-all duration-200 cursor-pointer flex flex-col justify-between"
+            className="group p-5 sm:p-6 liquid-glass-card rounded-3xl border border-white/80 shadow-glass-md hover:shadow-glass-lg transition-all duration-300 cursor-pointer flex flex-col justify-between"
           >
             <div>
-              <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 group-hover:bg-brand-600 group-hover:text-white transition-colors flex items-center justify-center mb-4">
-                <ShieldCheck className="w-6 h-6 stroke-[2]" />
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-brand-50/80 text-brand-600 group-hover:bg-brand-600 group-hover:text-white transition-colors flex items-center justify-center mb-3 sm:mb-4 border border-brand-200/50 shadow-glass-sm backdrop-blur-md">
+                <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
               </div>
-              <h3 className="text-lg font-black text-slate-900 group-hover:text-brand-600 transition-colors">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-brand-600 transition-colors">
                 Name-Verified Reports
               </h3>
-              <p className="text-xs text-slate-500 font-medium mt-1.5 leading-relaxed">
-                Track 3-stage lab status (Collected $\rightarrow$ Processing $\rightarrow$ Ready) and download in-app.
+              <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
+                Track 3-stage lab status (Collected &rarr; Processing &rarr; Ready) and download in-app.
               </p>
             </div>
-            <div className="mt-5 flex items-center text-xs font-bold text-brand-600 group-hover:translate-x-1 transition-transform">
+            <div className="mt-4 sm:mt-5 flex items-center text-xs font-bold text-brand-600 group-hover:translate-x-1 transition-transform">
               <span>Verify & Download</span>
               <ArrowRight className="w-3.5 h-3.5 ml-1" />
             </div>
@@ -818,46 +823,49 @@ export const Home: React.FC<HomeProps> = ({
       {/* ========================================================= */}
       {/* 3-STAGE LAB SYSTEM EXPLAINER SECTION */}
       {/* ========================================================= */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-br from-brand-50 via-slate-50 to-white border border-brand-200 rounded-3xl p-8 sm:p-12">
-          <div className="max-w-3xl space-y-3">
-            <span className="text-xs font-bold tracking-wider uppercase text-brand-700">
+      <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="liquid-glass-elevated border border-white/80 rounded-3xl p-6 sm:p-12 shadow-glass-lg relative overflow-hidden">
+          {/* Specular Perimeter Line */}
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[1.5px] rounded-t-3xl bg-gradient-to-r from-transparent via-white/80 to-transparent" aria-hidden="true" />
+
+          <div className="max-w-3xl space-y-2 sm:space-y-3">
+            <span className="text-xs font-bold tracking-wider uppercase text-brand-700 liquid-glass-subtle px-3 py-1 rounded-full border border-brand-200/60 shadow-xs">
               For Diagnostic Lab Clinics & Patients
             </span>
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+            <h2 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight">
               3-Stage Diagnostic Pipeline with Name-Verified Delivery
             </h2>
-            <p className="text-sm text-slate-600 leading-relaxed font-medium">
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium">
               Diagnostic centers on Dactor operate on an integrated laboratory pipeline specifically engineered for specimen collection, test pricing, and digital report delivery.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-            <div className="bg-white p-6 rounded-2xl border border-brand-100 shadow-xs space-y-2">
-              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 mt-6 sm:mt-8">
+            <div className="liquid-glass-subtle p-5 sm:p-6 rounded-2xl border border-white/70 shadow-glass-sm space-y-2 hover:bg-white/80 transition-all">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-100/80 text-amber-800 border border-amber-200/50 flex items-center justify-center font-bold text-sm shadow-xs">
                 1
               </div>
-              <h4 className="font-black text-slate-900 text-base">Sample Collected</h4>
+              <h4 className="font-black text-slate-900 text-sm sm:text-base">Sample Collected</h4>
               <p className="text-xs text-slate-500 leading-relaxed">
                 When patient arrives, lab technician marks sample collected with a single tap in operational management.
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-brand-100 shadow-xs space-y-2">
-              <div className="w-10 h-10 rounded-xl bg-cyan-100 text-cyan-800 flex items-center justify-center font-bold">
+            <div className="liquid-glass-subtle p-5 sm:p-6 rounded-2xl border border-white/70 shadow-glass-sm space-y-2 hover:bg-white/80 transition-all">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-cyan-100/80 text-cyan-800 border border-cyan-200/50 flex items-center justify-center font-bold text-sm shadow-xs">
                 2
               </div>
-              <h4 className="font-black text-slate-900 text-base">Processing in Lab</h4>
+              <h4 className="font-black text-slate-900 text-sm sm:text-base">Processing in Lab</h4>
               <p className="text-xs text-slate-500 leading-relaxed">
                 Patient tracking updates automatically to 'Processing'. Real-time progress is shown without calling the lab.
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-brand-100 shadow-xs space-y-2">
-              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+            <div className="liquid-glass-subtle p-5 sm:p-6 rounded-2xl border border-white/70 shadow-glass-sm space-y-2 hover:bg-white/80 transition-all">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-100/80 text-emerald-800 border border-emerald-200/50 flex items-center justify-center font-bold text-sm shadow-xs">
                 3
               </div>
-              <h4 className="font-black text-slate-900 text-base">Prepared & Uploaded</h4>
+              <h4 className="font-black text-slate-900 text-sm sm:text-base">Prepared & Uploaded</h4>
               <p className="text-xs text-slate-500 leading-relaxed">
                 Lab technician marks prepared and uploads report. Patient unlocks the file with their verified full name.
               </p>
@@ -869,12 +877,12 @@ export const Home: React.FC<HomeProps> = ({
       {/* ========================================================= */}
       {/* DEDICATED HEALTHCARE PORTALS SECTION */}
       {/* ========================================================= */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+      <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 space-y-5 sm:space-y-6">
         <div className="text-center max-w-2xl mx-auto space-y-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-brand-600 bg-brand-50 px-3 py-1 rounded-full border border-brand-200">
+          <span className="text-xs font-bold uppercase tracking-wider text-brand-600 liquid-glass-subtle px-3 py-1 rounded-full border border-brand-200/60 shadow-xs">
             Dedicated Role Desks
           </span>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+          <h2 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight">
             Dactor Healthcare Portals
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 font-medium">
@@ -882,29 +890,29 @@ export const Home: React.FC<HomeProps> = ({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
           {/* 1. Patient Portal Card */}
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-6 group">
-            <div className="space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-700 flex items-center justify-center font-bold shadow-xs group-hover:scale-105 transition-transform">
-                <User className="w-7 h-7" />
+          <div className="liquid-glass-card rounded-3xl p-5 sm:p-8 border border-white/80 shadow-glass-md hover:shadow-glass-lg transition-all flex flex-col justify-between space-y-5 sm:space-y-6 group">
+            <div className="space-y-3 sm:space-y-4">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-brand-50/80 text-brand-700 flex items-center justify-center font-bold shadow-glass-sm border border-brand-200/50 group-hover:scale-105 transition-transform backdrop-blur-md">
+                <User className="w-6 h-6 sm:w-7 sm:h-7" />
               </div>
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
                   Patients & Citizens
                 </span>
-                <h3 className="text-xl font-black text-slate-900 mt-1">
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 mt-0.5 tracking-tight">
                   Patient Health Portal
                 </h3>
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
+              <p className="text-xs text-slate-600 leading-relaxed font-normal">
                 Track live OPD queue tokens in real time, view appointment schedules, manage family health profiles, and download name-verified diagnostic lab reports.
               </p>
             </div>
             <button
               type="button"
               onClick={() => onNavigate('patient-portal')}
-              className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+              className="w-full py-3 sm:py-3.5 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center space-x-2 shadow-glass-brand border border-white/30 cursor-pointer active:scale-[0.98]"
             >
               <span>Enter Patient Portal</span>
               <ArrowRight className="w-4 h-4" />
@@ -912,27 +920,27 @@ export const Home: React.FC<HomeProps> = ({
           </div>
 
           {/* 2. Doctor Portal Card */}
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-6 group">
-            <div className="space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold shadow-xs group-hover:scale-105 transition-transform">
-                <Stethoscope className="w-7 h-7" />
+          <div className="liquid-glass-card rounded-3xl p-5 sm:p-8 border border-white/80 shadow-glass-md hover:shadow-glass-lg transition-all flex flex-col justify-between space-y-5 sm:space-y-6 group">
+            <div className="space-y-3 sm:space-y-4">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-emerald-50/80 text-emerald-700 flex items-center justify-center font-bold shadow-glass-sm border border-emerald-200/50 group-hover:scale-105 transition-transform backdrop-blur-md">
+                <Stethoscope className="w-6 h-6 sm:w-7 sm:h-7" />
               </div>
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">
                   Medical Practitioners
                 </span>
-                <h3 className="text-xl font-black text-slate-900 mt-1">
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 mt-0.5 tracking-tight">
                   Doctor Consultation Desk
                 </h3>
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
+              <p className="text-xs text-slate-600 leading-relaxed font-normal">
                 Live in-cabin physical presence toggle, calling waiting patients, token queue status updates, push alerts, and direct consultation records with NMC credentials.
               </p>
             </div>
             <button
               type="button"
               onClick={() => onNavigate('doctor-portal')}
-              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+              className="w-full py-3 sm:py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-105 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center space-x-2 shadow-md shadow-emerald-600/20 border border-white/30 cursor-pointer active:scale-[0.98]"
             >
               <span>Enter Doctor Desk</span>
               <ArrowRight className="w-4 h-4" />
@@ -940,27 +948,27 @@ export const Home: React.FC<HomeProps> = ({
           </div>
 
           {/* 3. Clinic & Lab Portal Card */}
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-6 group">
-            <div className="space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold shadow-xs group-hover:scale-105 transition-transform">
-                <Building2 className="w-7 h-7" />
+          <div className="liquid-glass-card rounded-3xl p-5 sm:p-8 border border-white/80 shadow-glass-md hover:shadow-glass-lg transition-all flex flex-col justify-between space-y-5 sm:space-y-6 group">
+            <div className="space-y-3 sm:space-y-4">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-indigo-50/80 text-indigo-700 flex items-center justify-center font-bold shadow-glass-sm border border-indigo-200/50 group-hover:scale-105 transition-transform backdrop-blur-md">
+                <Building2 className="w-6 h-6 sm:w-7 sm:h-7" />
               </div>
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
                   Clinics, Hospitals & Labs
                 </span>
-                <h3 className="text-xl font-black text-slate-900 mt-1">
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 mt-0.5 tracking-tight">
                   Clinic & Lab Center
                 </h3>
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
+              <p className="text-xs text-slate-600 leading-relaxed font-normal">
                 Reception walk-in token generation with 10-digit codes, doctor rosters, patient directories, 3-stage pathology pipelines, and billing invoice printing.
               </p>
             </div>
             <button
               type="button"
               onClick={() => onNavigate('portal')}
-              className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+              className="w-full py-3 sm:py-3.5 bg-gradient-to-r from-indigo-600 to-brand-700 hover:brightness-105 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center space-x-2 shadow-md shadow-indigo-600/20 border border-white/30 cursor-pointer active:scale-[0.98]"
             >
               <span>Enter Clinic Center</span>
               <ArrowRight className="w-4 h-4" />
@@ -972,21 +980,24 @@ export const Home: React.FC<HomeProps> = ({
       {/* ========================================================= */}
       {/* PROVIDER ONBOARDING CTA BANNER */}
       {/* ========================================================= */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-r from-brand-900 via-brand-800 to-cyan-900 text-white rounded-3xl p-8 sm:p-12 shadow-xl flex flex-col lg:flex-row items-center justify-between gap-8">
-          <div className="space-y-3 max-w-xl text-left">
-            <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
+      <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="relative overflow-hidden bg-slate-950/90 backdrop-blur-2xl text-white rounded-3xl p-6 sm:p-12 shadow-glass-modal border border-white/20 flex flex-col lg:flex-row items-center justify-between gap-6 sm:gap-8">
+          {/* Specular Perimeter Line */}
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[1.5px] rounded-t-3xl bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" aria-hidden="true" />
+
+          <div className="space-y-2 sm:space-y-3 max-w-xl text-left">
+            <h2 className="text-xl sm:text-3xl font-black tracking-tight">
               Empower Your Medical Practice with Dactor
             </h2>
-            <p className="text-sm text-cyan-100 font-medium leading-relaxed">
+            <p className="text-xs sm:text-sm text-cyan-100 font-medium leading-relaxed">
               Connect your clinic or join as an accredited doctor. Real-time token synchronization, zero waiting room clutter, and name-verified lab delivery with pure Google authentication.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="w-full lg:w-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3">
             <button
               onClick={() => onNavigate('doctor-portal')}
-              className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center space-x-2 text-xs cursor-pointer"
+              className="w-full sm:w-auto justify-center px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-105 text-white font-black rounded-2xl shadow-md border border-white/30 transition-transform active:scale-95 flex items-center space-x-2 text-xs cursor-pointer"
             >
               <Stethoscope className="w-4 h-4" />
               <span>Doctor Portal</span>
@@ -994,7 +1005,7 @@ export const Home: React.FC<HomeProps> = ({
 
             <button
               onClick={() => onNavigate('portal')}
-              className="px-6 py-3.5 bg-white text-brand-900 hover:bg-slate-100 font-black rounded-2xl shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center space-x-2 text-xs cursor-pointer"
+              className="w-full sm:w-auto justify-center px-6 py-3.5 bg-white/95 text-brand-900 hover:bg-white font-black rounded-2xl shadow-glass-md border border-white/80 transition-transform active:scale-95 flex items-center space-x-2 text-xs cursor-pointer"
             >
               <Building2 className="w-4 h-4" />
               <span>Clinic Portal</span>

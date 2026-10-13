@@ -331,8 +331,10 @@ class UserSessionManager @Inject constructor(
         val fcm = prefs.getString("fcm_token", null)
         val txs = prefs.getString("local_cached_transactions", null)
         val hasSeen = prefs.getBoolean("has_seen_onboarding", false)
+        val hasAcceptedTerms = prefs.getBoolean("has_accepted_terms_v1", false)
         prefs.edit().clear().apply()
         prefs.edit().putBoolean("has_seen_onboarding", hasSeen).apply()
+        prefs.edit().putBoolean("has_accepted_terms_v1", hasAcceptedTerms).apply()
         if (!savedCodes.isNullOrBlank()) {
             prefs.edit().putString("saved_tracking_codes", savedCodes).apply()
         }
@@ -353,5 +355,11 @@ class UserSessionManager @Inject constructor(
             kotlinx.coroutines.delay(100)
         }
         return !getSavedPatientId().isNullOrBlank() || !getSavedEmail().isNullOrBlank()
+    }
+
+    fun hasAcceptedTerms(): Boolean = prefs.getBoolean("has_accepted_terms_v1", false)
+
+    fun setTermsAccepted(accepted: Boolean) {
+        prefs.edit().putBoolean("has_accepted_terms_v1", accepted).apply()
     }
 }

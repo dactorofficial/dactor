@@ -131,7 +131,12 @@ fun DactorClinicNavHost(
             return if (!argCid.isNullOrBlank() && argCid != "c1") {
                 argCid
             } else {
-                sessionManager?.getSavedClinicId().orEmpty()
+                val clinicPref = sessionManager?.getSavedClinicId().orEmpty()
+                if (clinicPref.isNotBlank() && clinicPref != "c1") {
+                    clinicPref
+                } else {
+                    sessionManager?.getSavedActiveClinicIdForDoctor().orEmpty()
+                }
             }
         }
 

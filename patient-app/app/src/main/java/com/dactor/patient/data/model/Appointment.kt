@@ -22,5 +22,6 @@ data class Appointment(
     @SerialName("appointment_time") val appointmentTime: String = "",
     @SerialName("fee_amount") val feeAmount: Double = 0.0,
     @SerialName("is_walkin") val isWalkin: Boolean = false,
+    @SerialName("opt_in_early_call") val optInEarlyCall: Boolean = false,
     @kotlinx.serialization.Transient val selectedLabTests: String? = null
 )

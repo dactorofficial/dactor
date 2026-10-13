@@ -136,6 +136,7 @@ export interface Appointment {
   queuePosition?: number
   notes?: string
   isWalkin?: boolean
+  optInEarlyCall?: boolean
   createdAt?: string
   updatedAt?: string
   selectedTests?: string[]

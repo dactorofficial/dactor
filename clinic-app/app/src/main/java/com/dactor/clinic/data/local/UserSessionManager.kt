@@ -118,7 +118,15 @@ class UserSessionManager @Inject constructor(
     }
 
     fun clearSession() {
+        val hasAcceptedTerms = prefs.getBoolean("has_accepted_terms_v1", false)
         prefs.edit().clear().apply()
+        prefs.edit().putBoolean("has_accepted_terms_v1", hasAcceptedTerms).apply()
+    }
+
+    fun hasAcceptedTerms(): Boolean = prefs.getBoolean("has_accepted_terms_v1", false)
+
+    fun setTermsAccepted(accepted: Boolean) {
+        prefs.edit().putBoolean("has_accepted_terms_v1", accepted).apply()
     }
 
     fun saveAverageConsultationTimeMinutes(clinicId: String, minutes: Int) {
@@ -152,6 +160,17 @@ class UserSessionManager @Inject constructor(
 
     fun getAverageTimeMode(clinicId: String): String {
         return prefs.getString("avg_time_mode_${clinicId}", "auto") ?: "auto"
+    }
+
+    suspend fun awaitIdentityResolved(timeoutMs: Long = 3000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (!getSavedClinicId().isNullOrBlank() || !getSavedDoctorId().isNullOrBlank() || !getSavedEmail().isNullOrBlank()) {
+                return true
+            }
+            kotlinx.coroutines.delay(100)
+        }
+        return !getSavedClinicId().isNullOrBlank() || !getSavedDoctorId().isNullOrBlank() || !getSavedEmail().isNullOrBlank()
     }
 }
 

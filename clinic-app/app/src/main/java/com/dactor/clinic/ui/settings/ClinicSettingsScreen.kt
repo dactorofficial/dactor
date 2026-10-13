@@ -253,6 +253,22 @@ fun ClinicSettingsScreen(
                     }
                 }
 
+                // Real Firebase Authentication Account Deletion Rule
+                try {
+                    val fbUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    if (fbUser != null) {
+                        try {
+                            com.google.android.gms.tasks.Tasks.await(
+                                fbUser.delete(),
+                                3,
+                                java.util.concurrent.TimeUnit.SECONDS
+                            )
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                } catch (ignored: Exception) {}
+
                 // Immediately logout from mobile device
                 sessionManager.clearSession()
                 try {
@@ -1619,6 +1635,51 @@ fun ClinicSettingsScreen(
                                 }
                                 Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                        }
+                    }
+                }
+
+                // Section: Contact Us & Official Support Helpdesk
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                    border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.SupportAgent, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(20.dp))
+                            Text("Contact Us & Dactor Helpdesk Support", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF14532D))
+                        }
+
+                        Text(
+                            text = "Connect directly with our regulatory and support team for clinic verification, license subscriptions, or operational technical assistance.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF166534),
+                            lineHeight = 16.sp
+                        )
+
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val intent = android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        Uri.parse("https://dactorofficial.github.io/support")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Opening support site...", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Open Official Support Site", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }

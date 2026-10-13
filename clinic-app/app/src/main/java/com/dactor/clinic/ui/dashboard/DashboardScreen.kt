@@ -78,10 +78,31 @@ fun DashboardScreen(
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
+    // ── Mandatory Non-Skippable Terms & Regulatory Policy Gate ──────────
+    var showMandatoryTermsDialog by remember {
+        mutableStateOf(!sessionManager.hasAcceptedTerms())
+    }
+
+    if (showMandatoryTermsDialog) {
+        com.dactor.clinic.ui.legal.ClinicTermsAndConditionsDialog(
+            isMandatory = true,
+            onAccept = {
+                sessionManager.setTermsAccepted(true)
+                showMandatoryTermsDialog = false
+            },
+            onDismiss = {
+                if (sessionManager.hasAcceptedTerms()) {
+                    showMandatoryTermsDialog = false
+                }
+            }
+        )
+    }
+
     fun loadClinic() {
         coroutineScope.launch {
             if (clinicRepository != null) {
-                val currentEmail = authRepository?.getCurrentUserEmail()
+                sessionManager.awaitIdentityResolved(timeoutMs = 2500)
+                val currentEmail = authRepository?.getCurrentUserEmail() ?: sessionManager.getSavedEmail()
                 val sessionClinicId = sessionManager.getSavedClinicId()
                 val targetCid = when {
                     !clinicId.isNullOrBlank() && clinicId != "c1" -> clinicId
@@ -711,7 +732,9 @@ fun DashboardScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (clinic == null && !isLoading) {
+                if (clinic == null && isLoading) {
+                    com.dactor.clinic.ui.common.ShimmerListPlaceholder(count = 3)
+                } else if (clinic == null && !isLoading) {
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))

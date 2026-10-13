@@ -237,6 +237,9 @@ fun PatientSearchScreen(
     var upcomingSlotsByDate by remember {
         mutableStateOf<Map<String, Map<String, List<Slot>>>>(emptyMap())
     }
+    var clinicsNextAvailableDates by remember {
+        mutableStateOf<Map<String, String>>(emptyMap())
+    }
 
     var isSearchingSkeleton by remember { mutableStateOf(false) }
     var isOfflineError by remember { mutableStateOf(false) }
@@ -361,6 +364,9 @@ fun PatientSearchScreen(
                         map[dStr] = slotsForD
                     }
                     upcomingSlotsByDate = map
+                    if (clinicsNextAvailableDates.isEmpty()) {
+                        clinicsNextAvailableDates = slotRepository.getAllClinicsNextAvailableDates()
+                    }
                 } catch (_: Exception) {}
             }
         }
@@ -561,17 +567,10 @@ fun PatientSearchScreen(
         chosenDateStr,
         selectedFeeFilter,
         selectedDistanceFilter,
-        selectedSort
+        selectedSort,
+        browseMode
     ) {
         var list = allClinics
-            .filter { item ->
-                // Clinic should be shown to book only if the clinic has published slot for that day
-                item.availableSlots.any { slot ->
-                    slot.isPublished &&
-                        (slot.maxCapacity - slot.bookedCount) > 0 &&
-                        !SlotRepository.isSlotEndTimeOver(slot.endTime, chosenDateStr, slot.startTime)
-                }
-            }
             .map { item ->
                 val match = if (effectiveQuery.isBlank()) {
                     SearchMatchResult(isMatch = true, score = 50)
@@ -581,6 +580,17 @@ fun PatientSearchScreen(
                 Pair(item, match)
             }
             .filter { it.second.isMatch }
+
+        // Only filter by availability if the user explicitly selected "today" in the filter sheet and not in browseMode
+        if (selectedAvailabilityFilter == "today" && browseMode != "all_clinics") {
+            list = list.filter { (item, _) ->
+                item.availableSlots.any { slot ->
+                    slot.isPublished &&
+                        (slot.maxCapacity - slot.bookedCount) > 0 &&
+                        !SlotRepository.isSlotEndTimeOver(slot.endTime, chosenDateStr, slot.startTime)
+                }
+            }
+        }
 
         if (selectedSpecialtyFilter.isNotBlank()) {
             val specStems = MedicalSearchEngine.expandQuery(selectedSpecialtyFilter)
@@ -1691,6 +1701,7 @@ fun PatientSearchScreen(
                                     item = item,
                                     matchResult = matchResult,
                                     query = effectiveQuery,
+                                    nextAvailableDate = clinicsNextAvailableDates[item.clinic.id],
                                     onCardClick = {
                                         navController.navigate(NavRoutes.ClinicDetail.createRoute(item.clinic.id))
                                     },
@@ -2041,6 +2052,7 @@ fun PatientSearchScreen(
             },
             confirmButton = {
                 if (docItem.practicingClinics.isNotEmpty()) {
+                    val (isAvailOnDate, _) = getDoctorAvailabilityInfo(docItem)
                     Button(
                         onClick = {
                             selectedDoctorForProfileView = null
@@ -2048,7 +2060,7 @@ fun PatientSearchScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B))
                     ) {
-                        Text("Select Clinic & Book", fontWeight = FontWeight.Bold)
+                        Text(if (isAvailOnDate) "Select Clinic & Book" else "Book on another date", fontWeight = FontWeight.Bold)
                     }
                 }
             },
@@ -2472,7 +2484,11 @@ private fun SearchDoctorResultCard(
                         ) {
                             Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Select Clinic & Book", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                text = if (isAvailableOnSelectedDate) "Select Clinic & Book" else "Book on another date",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = if (isAvailableOnSelectedDate) 13.sp else 12.sp
+                            )
                         }
                     }
                 }
@@ -2489,6 +2505,7 @@ private fun SearchClinicResultCard(
     item: ClinicHomeItem,
     matchResult: SearchMatchResult,
     query: String,
+    nextAvailableDate: String? = null,
     onCardClick: () -> Unit,
     onBookClick: () -> Unit,
     onCallClick: (String) -> Unit
@@ -2623,6 +2640,36 @@ private fun SearchClinicResultCard(
                     }
                 }
 
+                val hasAvailableSlotsOnDate = item.availableSlots.any { slot ->
+                    slot.isPublished && (slot.maxCapacity - slot.bookedCount) > 0
+                }
+
+                // Small text just above book button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    modifier = Modifier.padding(bottom = 4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(
+                                if (hasAvailableSlotsOnDate) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                CircleShape
+                            )
+                    )
+                    Text(
+                        text = if (hasAvailableSlotsOnDate) {
+                            "Available today"
+                        } else {
+                            SlotRepository.formatNextAvailableDate(nextAvailableDate)
+                        },
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (hasAvailableSlotsOnDate) Color(0xFF15803D) else Color(0xFFB45309)
+                    )
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2650,8 +2697,14 @@ private fun SearchClinicResultCard(
                             .weight(1f)
                             .height(42.dp)
                     ) {
-                        Text("Book", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = if (hasAvailableSlotsOnDate) "Book" else "Book on another date",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = if (hasAvailableSlotsOnDate) 13.sp else 11.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.width(4.dp))
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(15.dp))
                     }
                 }

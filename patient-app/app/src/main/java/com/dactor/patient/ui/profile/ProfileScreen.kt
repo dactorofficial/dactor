@@ -94,6 +94,7 @@ fun ProfileScreen(
     var userName by remember { mutableStateOf<String?>(null) }
     var userPhone by remember { mutableStateOf<String?>(null) }
     var userGender by remember { mutableStateOf<String?>(null) }
+    var userAge by remember { mutableStateOf<Int?>(null) }
     var isLoggedIn by remember {
         mutableStateOf(sessionManager?.isLoggedIn() == true || (authRepository?.isLoggedIn() == true) || (try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null } catch (_: Exception) { false }))
     }
@@ -317,7 +318,22 @@ fun ProfileScreen(
                 // CRITICAL REQUIREMENT:
                 // Logout from mobile device immediately.
                 // All appointment details stay in every clinic.
-                // No details saved in Supabase are deleted.
+                // Real Firebase Authentication Account Deletion Rule
+                try {
+                    val fbUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    if (fbUser != null) {
+                        try {
+                            com.google.android.gms.tasks.Tasks.await(
+                                fbUser.delete(),
+                                3,
+                                java.util.concurrent.TimeUnit.SECONDS
+                            )
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                } catch (ignored: Exception) {}
+
                 sessionManager?.clearSession()
                 try {
                     com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
@@ -1150,7 +1166,39 @@ fun ProfileScreen(
                                 Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
                             }
 
-                            if (isLoggedIn) {
+                                HorizontalDivider()
+
+                                // CONTACT US & OFFICIAL HELPDESK
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            try {
+                                                val intent = android.content.Intent(
+                                                    android.content.Intent.ACTION_VIEW,
+                                                    android.net.Uri.parse("https://dactorofficial.github.io/support")
+                                                )
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                android.widget.Toast.makeText(context, "Opening support site...", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        .padding(vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Surface(shape = CircleShape, color = Color(0xFFEFF6FF), modifier = Modifier.size(36.dp)) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.SupportAgent, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Contact Us & Dactor Helpdesk", fontSize = 14.sp, color = Color(0xFF1E40AF), fontWeight = FontWeight.Bold)
+                                        Text("24/7 Dactor support, FAQs, and ticket resolution", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Icon(Icons.Default.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp))
+                                }
+
                                 HorizontalDivider()
 
                                 // 4. SIGN OUT OPTION

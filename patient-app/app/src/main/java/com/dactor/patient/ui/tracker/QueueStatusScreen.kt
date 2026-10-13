@@ -231,6 +231,7 @@ fun QueueStatusScreen(
                         (!savedPid.isNullOrBlank() && appt.userId == savedPid)
                 if (matchesAccount && !isUnlocked) {
                     isUnlocked = true
+                    isReportIdentityVerified = true
                     isSavedToProfile = true
                 }
 
@@ -324,7 +325,9 @@ fun QueueStatusScreen(
                         isDoctorInClinic = isDoctorInClinic,
                         allClinicQueueEntries = clinicEntries,
                         targetEntry = qEntry,
-                        fallbackPatientsAhead = liveAhead
+                        fallbackPatientsAhead = liveAhead,
+                        appointmentTime = appt.appointmentTime,
+                        optInEarlyCall = appt.optInEarlyCall
                     )
                     liveTimingEstimate = timing
 
@@ -454,8 +457,7 @@ fun QueueStatusScreen(
     }
 
     val isConsultancyCompleted = queueStatus in listOf("done", "completed") ||
-        appointment?.checkinStatus?.lowercase() in listOf("done", "completed") ||
-        appointment?.status?.equals("COMPLETED", ignoreCase = true) == true
+        appointment?.checkinStatus?.lowercase() in listOf("done", "completed")
 
     val isMultiVisitClinic = clinicType.equals("multi_visit", ignoreCase = true) ||
         clinicObj?.type?.equals("multi_visit", ignoreCase = true) == true
@@ -488,10 +490,19 @@ fun QueueStatusScreen(
     }
     val isSampleProcessing = queueStatus == "processing" ||
         queueStatus == "sample_collected" ||
+        appointment?.checkinStatus?.lowercase() in listOf("processing", "sample_collected") ||
         labReports.any { it.stage == "processing" || it.stage == "in_lab" || it.stage == "sample_collected" }
+
     val isReportReady = queueStatus == "report_prepared" ||
-        (isLabClinic && queueStatus == "done") ||
+        (isLabClinic && queueStatus in listOf("done", "completed")) ||
+        appointment?.checkinStatus?.lowercase() in listOf("report_prepared") ||
         labReports.any { it.stage == "prepared" }
+
+    val isLabSampleDone = isLabClinic && (isSampleProcessing || isReportReady || labReports.isNotEmpty() ||
+        queueStatus in listOf("sample_collected", "processing", "report_prepared", "done", "completed") ||
+        appointment?.checkinStatus?.lowercase() in listOf("sample_collected", "processing", "report_prepared", "done", "completed"))
+
+    val shouldShowSlotAndCallCards = !isConsultancyCompleted && !isLabSampleDone && queueStatus != "inside"
 
     fun triggerDirectReportDownload() {
         val primaryReport = labReports.firstOrNull { it.stage == "prepared" }
@@ -717,7 +728,7 @@ fun QueueStatusScreen(
                 }
 
                 // ── A. CLINIC ON BREAK ALERT BANNER ───────────────────
-                if (!isCompleted && clinicObj?.isOnBreak == true) {
+                if (!isConsultancyCompleted && clinicObj?.isOnBreak == true) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = Color(0xFFFEE2E2),
@@ -770,7 +781,7 @@ fun QueueStatusScreen(
 
                 // ── B. DOCTOR PRESENCE / IDLE BANNER ───────────────────
                 val doctorBannerMsg = liveTimingEstimate?.doctorStatusBanner
-                if (!isCompleted && !doctorBannerMsg.isNullOrBlank() && clinicObj?.isOnBreak != true) {
+                if (!isConsultancyCompleted && !doctorBannerMsg.isNullOrBlank() && clinicObj?.isOnBreak != true) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = if (liveTimingEstimate?.isDoctorNotInside == true) Color(0xFFFEF2F2) else Color(0xFFFFFBEB),
@@ -800,7 +811,7 @@ fun QueueStatusScreen(
 
                 // ── C. BREAK HOURS INFORMATIONAL CARD ─
                 val todaySched = clinicObj?.getTodaySchedule()
-                if (!isCompleted && todaySched?.hasBreak == true && !todaySched.breakStart.isNullOrBlank() && !todaySched.breakEnd.isNullOrBlank()) {
+                if (!isConsultancyCompleted && todaySched?.hasBreak == true && !todaySched.breakStart.isNullOrBlank() && !todaySched.breakEnd.isNullOrBlank()) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = Color(0xFFFFF7ED),
@@ -967,6 +978,7 @@ fun QueueStatusScreen(
                                         isLabClinic && patientsAhead == 0 -> "Proceed for sample collection"
                                         queueStatus == "inside" -> "With doctor in consultation room"
                                         queueStatus == "done" -> "Thank you for visiting"
+                                        !liveTimingEstimate?.slotNoticeText.isNullOrBlank() -> liveTimingEstimate!!.slotNoticeText
                                         patientsAhead == 0 -> "0 patients ahead in line • Stay close to the clinic"
                                         else -> "$patientsAhead ahead in line • Est. wait: ~${patientsAhead * clinicAvgTimeMinutes} mins"
                                     },
@@ -1141,8 +1153,8 @@ fun QueueStatusScreen(
                             }
                         }
 
-                        // Two info cards: Your slot & Expected call (Hidden when consultancy is completed)
-                        if (!isConsultancyCompleted) {
+                        // Two info cards: Your slot & Expected call (Hidden when consultancy is completed OR when lab sample collected)
+                        if (shouldShowSlotAndCallCards) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1175,13 +1187,13 @@ fun QueueStatusScreen(
                                             )
                                         }
                                         Text(
-                                            text = appointment?.appointmentTime?.ifBlank { "09:59:00" } ?: if (isDataLoaded) "09:59:00" else "Loading...",
+                                            text = appointment?.appointmentTime?.takeIf { it.isNotBlank() } ?: if (isDataLoaded) "Live Turn" else "Loading...",
                                             fontSize = 17.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFF0F172A)
                                         )
                                         Text(
-                                            text = "Booked window",
+                                            text = if (appointment?.appointmentTime.isNullOrBlank()) "Real-time queue" else "Booked window",
                                             fontSize = 11.5.sp,
                                             color = Color(0xFF64748B)
                                         )
@@ -1191,15 +1203,20 @@ fun QueueStatusScreen(
                                 // Expected call card
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
-                                    color = Color(0xFFE0F2FE),
+                                    color = if (liveTimingEstimate?.canOfferEarlyArrival == true) Color(0xFFDCFCE7) else Color(0xFFE0F2FE),
+                                    border = if (liveTimingEstimate?.canOfferEarlyArrival == true) BorderStroke(1.dp, Color(0xFF86EFAC)) else null,
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     val timing = liveTimingEstimate
-                                    val estWaitMins = if (patientsAhead > 0) patientsAhead * clinicAvgTimeMinutes else 259
-                                    val estTimeFormatted = try {
-                                        java.time.LocalTime.now().plusMinutes(estWaitMins.toLong())
-                                            .format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
-                                    } catch (e: Exception) { "08:00 AM" }
+                                    val displayWait = timing?.estimatedTimeLeftText?.takeIf { it.isNotBlank() }
+                                        ?: (if (patientsAhead > 0) "~${patientsAhead * clinicAvgTimeMinutes} min" else "< 5 min")
+                                    val displayWindow = when {
+                                        !timing?.timeWindowText.isNullOrBlank() -> timing!!.timeWindowText
+                                        !timing?.approxTimeText.isNullOrBlank() -> timing!!.approxTimeText
+                                        !timing?.expectedExactTimeText.isNullOrBlank() && timing.expectedExactTimeText != "Soon, be ready" -> "Approx. ${timing.expectedExactTimeText}"
+                                        patientsAhead == 0 -> "You're next in line"
+                                        else -> "In active queue"
+                                    }
 
                                     Column(
                                         modifier = Modifier.padding(12.dp),
@@ -1210,28 +1227,200 @@ fun QueueStatusScreen(
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Icon(
-                                                Icons.Default.PhoneCallback,
+                                                if (timing?.canOfferEarlyArrival == true) Icons.Default.Bolt else Icons.Default.PhoneCallback,
                                                 contentDescription = null,
-                                                tint = Color(0xFF0284C7),
+                                                tint = if (timing?.canOfferEarlyArrival == true) Color(0xFF16A34A) else Color(0xFF0284C7),
                                                 modifier = Modifier.size(15.dp)
                                             )
                                             Text(
-                                                text = "Expected call",
+                                                text = if (timing?.canOfferEarlyArrival == true) "Doctor Free Early" else "Expected window",
                                                 fontSize = 12.sp,
-                                                color = Color(0xFF0284C7),
+                                                color = if (timing?.canOfferEarlyArrival == true) Color(0xFF16A34A) else Color(0xFF0284C7),
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
                                         Text(
-                                            text = "~$estWaitMins min",
+                                            text = displayWait,
                                             fontSize = 17.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF0284C7)
+                                            color = if (timing?.canOfferEarlyArrival == true) Color(0xFF15803D) else Color(0xFF0284C7)
                                         )
                                         Text(
-                                            text = "Approx. $estTimeFormatted",
+                                            text = displayWindow,
                                             fontSize = 11.5.sp,
                                             color = Color(0xFF64748B)
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (liveTimingEstimate?.canOfferEarlyArrival == true) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFF0FDF4),
+                                    border = BorderStroke(1.dp, Color(0xFF86EFAC)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Bolt,
+                                            contentDescription = null,
+                                            tint = Color(0xFF16A34A),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "⚡ Doctor is Free Now! Come in early?",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF166534)
+                                            )
+                                            Text(
+                                                text = "The doctor finished earlier consultations ahead of schedule. Since you opted in, you can proceed to the clinic now!",
+                                                fontSize = 11.sp,
+                                                lineHeight = 15.sp,
+                                                color = Color(0xFF15803D)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (isLabClinic && isLabSampleDone) {
+                            // Dedicated Lab Processing / Prepared Status Banner replacing doctor call card
+                            if (isSampleProcessing && !isReportReady) {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFFFEF3C7),
+                                    border = BorderStroke(1.dp, Color(0xFFFCD34D)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .background(Color(0xFFFDE68A), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.HourglassTop,
+                                                contentDescription = null,
+                                                tint = Color(0xFFB45309),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = "Sample Collected • Preparing Report",
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF92400E)
+                                            )
+                                            Text(
+                                                text = "Please wait while your lab report is being prepared in the laboratory. You will be able to view and download it here once prepared.",
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFFB45309),
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            } else if (isReportReady) {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFFECFDF5),
+                                    border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .background(Color(0xFFD1FAE5), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF059669),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = "Lab Report Prepared & Ready",
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF065F46)
+                                            )
+                                            Text(
+                                                text = "Your diagnostic test report is prepared. Check the Lab Report section below to view or download.",
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFF047857),
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (isConsultancyCompleted) {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFFECFDF5),
+                                border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .background(Color(0xFFD1FAE5), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = Color(0xFF059669),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = "Consultation Completed",
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF065F46)
+                                        )
+                                        Text(
+                                            text = "Your consultation is completed. Prescription summary and billing receipt are available below.",
+                                            fontSize = 11.5.sp,
+                                            color = Color(0xFF047857),
+                                            lineHeight = 16.sp
                                         )
                                     }
                                 }
@@ -1418,8 +1607,8 @@ fun QueueStatusScreen(
                             }
                         }
 
-                        // Doctor Presence Banner INSIDE this card (matching reference - hidden on completed visits)
-                        if (!isConsultancyCompleted) {
+                        // Doctor Presence Banner INSIDE this card (matching reference - hidden on completed visits & lab sample collected)
+                        if (!isConsultancyCompleted && !isLabSampleDone) {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isDoctorInClinic) Color(0xFFECFDF5) else Color(0xFFFEF2F2),
@@ -1623,30 +1812,33 @@ fun QueueStatusScreen(
                                     Text("Prescription & Bill", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
 
-                                OutlinedButton(
-                                    onClick = {
-                                        val targetAppt = appointment
-                                        if (targetAppt != null) {
-                                            com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
-                                                context = context,
-                                                appointment = targetAppt,
-                                                invoice = billingInvoice,
-                                                clinicName = clinicName,
-                                                doctorName = doctorName,
-                                                doctorSpecialty = doctorSpecialty,
-                                                clinicalRemarks = clinicalRemarks
-                                            )
-                                        } else {
-                                            Toast.makeText(context, "Loading appointment details...", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF059669)),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.FileDownload, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(14.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Download Bill PDF", fontSize = 11.sp, color = Color(0xFF059669), fontWeight = FontWeight.Bold)
+                                val hasInvoiceRecord = billingInvoice != null && (billingInvoice!!.totalAmount > 0.0 || billingInvoice!!.items.isNotEmpty())
+                                if (hasInvoiceRecord) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val targetAppt = appointment
+                                            if (targetAppt != null) {
+                                                com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
+                                                    context = context,
+                                                    appointment = targetAppt,
+                                                    invoice = billingInvoice,
+                                                    clinicName = clinicName,
+                                                    doctorName = doctorName,
+                                                    doctorSpecialty = doctorSpecialty,
+                                                    clinicalRemarks = clinicalRemarks
+                                                )
+                                            } else {
+                                                Toast.makeText(context, "Loading appointment details...", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF059669)),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.FileDownload, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Download Bill PDF", fontSize = 11.sp, color = Color(0xFF059669), fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
@@ -1800,11 +1992,20 @@ fun QueueStatusScreen(
                                 ) {
                                     Button(
                                         onClick = {
-                                            if (!isReportIdentityVerified) {
+                                            if (!isReportIdentityVerified && !isUnlocked) {
                                                 pendingVerificationAction = "view_report"
                                                 showVerificationDialog = true
                                             } else {
-                                                showLabReportDialog = true
+                                                coroutineScope.launch {
+                                                    val appt = appointment
+                                                    if (appt != null && labReports.isEmpty()) {
+                                                        val reps = labReportRepository?.getLabReportsForAppointment(appt.id, appt.trackingCode10Digit) ?: emptyList()
+                                                        if (reps.isNotEmpty()) {
+                                                            labReports = reps
+                                                        }
+                                                    }
+                                                    showLabReportDialog = true
+                                                }
                                             }
                                         },
                                         shape = RoundedCornerShape(12.dp),
@@ -1824,33 +2025,35 @@ fun QueueStatusScreen(
                                         )
                                     }
 
-                                    OutlinedButton(
-                                        onClick = {
-                                            if (!isReportIdentityVerified) {
-                                                pendingVerificationAction = "download_report"
-                                                showVerificationDialog = true
-                                            } else {
-                                                triggerDirectReportDownload()
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.5.dp, Color(0xFF059669)),
-                                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.FileDownload,
-                                            contentDescription = null,
-                                            tint = Color(0xFF059669),
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        Spacer(Modifier.width(5.dp))
-                                        Text(
-                                            text = if (isReportIdentityVerified) "Download File" else "Verify & Download",
-                                            fontSize = 11.5.sp,
-                                            color = Color(0xFF059669),
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                    if (hasUploadedFile) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                if (!isReportIdentityVerified) {
+                                                    pendingVerificationAction = "download_report"
+                                                    showVerificationDialog = true
+                                                } else {
+                                                    triggerDirectReportDownload()
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.5.dp, Color(0xFF059669)),
+                                            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.FileDownload,
+                                                contentDescription = null,
+                                                tint = Color(0xFF059669),
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Spacer(Modifier.width(5.dp))
+                                            Text(
+                                                text = if (isReportIdentityVerified) "Download File" else "Verify & Download",
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFF059669),
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
                                 }
                             } else {
@@ -2058,7 +2261,7 @@ fun QueueStatusScreen(
                                 val isSelected = expandedAppointmentId == apptItem.id ||
                                     (expandedAppointmentId == null && apptItem.id == appointment?.id)
                                 val itemStatus = apptItem.checkinStatus.lowercase()
-                                val isItemCompleted = itemStatus == "completed" || itemStatus == "done" || apptItem.status.equals("COMPLETED", ignoreCase = true)
+                                val isItemCompleted = itemStatus == "completed" || itemStatus == "done"
                                 val isItemActive = itemStatus == "waiting" || itemStatus == "inside"
                                 val isItemCurrentLive = apptItem.id == appointment?.id
 
@@ -2267,7 +2470,8 @@ fun QueueStatusScreen(
                                                         }
                                                     }
 
-                                                    if (isItemCompleted) {
+                                                    val hasInvoiceForItem = itemInvoice != null && (itemInvoice.totalAmount > 0.0 || itemInvoice.items.isNotEmpty())
+                                                    if (isItemCompleted && hasInvoiceForItem) {
                                                         Button(
                                                             onClick = {
                                                                 com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
@@ -2812,6 +3016,18 @@ fun QueueStatusScreen(
     // MODAL DIALOG 3: IN-APP DIGITAL LAB REPORT VIEWER (PDF & PICTURE SUPPORT)
     // =========================================================================
     if (showLabReportDialog) {
+        LaunchedEffect(appointment?.id) {
+            val appt = appointment
+            if (appt != null && labReports.isEmpty()) {
+                try {
+                    val reps = labReportRepository?.getLabReportsForAppointment(appt.id, appt.trackingCode10Digit) ?: emptyList()
+                    if (reps.isNotEmpty()) {
+                        labReports = reps
+                    }
+                } catch (ignored: Exception) {}
+            }
+        }
+
         AlertDialog(
             onDismissRequest = { showLabReportDialog = false },
             title = {
@@ -2837,7 +3053,7 @@ fun QueueStatusScreen(
                             if (!appointment?.selectedLabTests.isNullOrBlank()) {
                                 Text("Tests: ${appointment!!.selectedLabTests}", fontSize = 10.sp, color = Color(0xFF047857))
                             }
-                            Text("Status: Prepared & Identity Verified", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF059669))
+                            Text("Status: Prepared & Verified", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF059669))
                         }
                     }
 
@@ -2892,16 +3108,22 @@ fun QueueStatusScreen(
 
                                     // In-app picture preview if the clinic uploaded an image/photo of the report
                                     if (hasRemoteFile && isImg) {
-                                        AsyncImage(
-                                            model = rep.fileUrl,
-                                            contentDescription = "Uploaded Lab Report Image",
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .heightIn(min = 160.dp, max = 320.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(Color(0xFFE2E8F0)),
-                                            contentScale = ContentScale.Fit
-                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            AsyncImage(
+                                                model = rep.fileUrl,
+                                                contentDescription = "Uploaded Lab Report Image",
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(min = 180.dp, max = 340.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color(0xFFE2E8F0)),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                        }
                                     }
 
                                     if (hasRemoteFile) {
@@ -2945,7 +3167,7 @@ fun QueueStatusScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "Your diagnostic test status is marked Prepared by the laboratory. Tap 'Download File' below to save the verified report PDF directly to your device.",
+                                text = "Your diagnostic test status is marked Prepared by the laboratory. However, no digital report file (picture or PDF) has been uploaded yet by the clinic. Please collect your physical report from the clinic reception.",
                                 fontSize = 11.sp,
                                 color = Color(0xFF334155),
                                 modifier = Modifier.padding(10.dp)
@@ -2955,16 +3177,19 @@ fun QueueStatusScreen(
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        triggerDirectReportDownload()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Download File", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                val hasAnyUploadedFile = labReports.any { !it.fileUrl.isNullOrBlank() }
+                if (hasAnyUploadedFile) {
+                    Button(
+                        onClick = {
+                            triggerDirectReportDownload()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Download File", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             },
             dismissButton = {

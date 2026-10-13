@@ -2967,6 +2967,28 @@ fun ClinicLoginScreen(
                     }
                 }
 
+                // Contact Support Desk Button
+                Button(
+                    onClick = {
+                        try {
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                Uri.parse("https://dactorofficial.github.io/support")
+                            )
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "Opening support site...", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706))
+                ) {
+                    Icon(Icons.Default.SupportAgent, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Contact Dactor Support & Onboarding Desk", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                }
+
                 Button(
                     onClick = { checkVerificationStatus() },
                     modifier = Modifier.fillMaxWidth().height(52.dp),

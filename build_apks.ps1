@@ -77,16 +77,11 @@ function Bump-App {
     $updatedContent = $updatedContent -replace 'versionName\s*=\s*"[^"]+"', "versionName = `"$newName`""
     Set-Content -Path $gradlePath -Value $updatedContent -NoNewline
 
-    # Sync source files to local SSD workspace to bypass cloud drive locks & KSP path issues
-    $localWorkDir = Join-Path $env:TEMP "dactor_build_src_$($AppName -replace '\s','_')"
-    Write-Host "Syncing source files to local SSD at $localWorkDir..." -ForegroundColor Yellow
-    robocopy $AppDir $localWorkDir /XD build* .gradle .idea /E /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
-
-    # Run Gradle build on local SSD
-    Push-Location $localWorkDir
+    # Run Gradle build directly in AppDir
+    Push-Location $AppDir
     try {
-        Write-Host "Running Gradle assembleDebug in $localWorkDir..." -ForegroundColor Yellow
-        & .\gradlew.bat assembleDebug --console=plain --no-daemon
+        Write-Host "Running Gradle assembleDebug in $AppDir..." -ForegroundColor Yellow
+        & .\gradlew.bat assembleDebug --console=plain
         if ($LASTEXITCODE -ne 0) {
             throw "Gradle build failed with exit code $LASTEXITCODE"
         }
@@ -94,13 +89,8 @@ function Bump-App {
         Pop-Location
     }
 
-    # Locate freshest generated APK across local SSD work dir and AppDir
-    $searchLocations = @(
-        (Join-Path $localWorkDir "app"),
-        (Join-Path $AppDir "app")
-    ) | Where-Object { Test-Path $_ }
-
-    $found = Get-ChildItem -Path $searchLocations -Filter "*.apk" -Recurse -ErrorAction SilentlyContinue |
+    # Locate freshest generated APK in AppDir
+    $found = Get-ChildItem -Path (Join-Path $AppDir "app") -Filter "*.apk" -Recurse -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
     if (-not $found) {

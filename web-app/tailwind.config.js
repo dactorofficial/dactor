@@ -30,8 +30,19 @@ export default {
           greenBg: '#ecfdf5',
         },
       },
-      fontFamily: {
-        sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
+      boxShadow: {
+        'glass-sm': 'var(--glass-specular-top), var(--glass-shadow-sm)',
+        'glass-base': 'var(--glass-specular-card), var(--glass-shadow-md)',
+        'glass-elevated': 'var(--glass-specular-all), var(--glass-shadow-lg)',
+        'glass-modal': 'var(--glass-specular-all), var(--glass-shadow-modal)',
+        'glass-brand': 'var(--glass-shadow-brand)',
+        'specular-top': 'var(--glass-specular-top)',
+      },
+      borderRadius: {
+        'glass-sm': 'var(--glass-radius-sm)',
+        'glass-md': 'var(--glass-radius-md)',
+        'glass-lg': 'var(--glass-radius-lg)',
+        'glass-xl': 'var(--glass-radius-xl)',
       },
     },
   },

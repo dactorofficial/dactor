@@ -43,7 +43,8 @@ data class ClinicExtendedMeta(
     val is_on_break: Boolean? = false,
     val break_updated_at: String? = null,
     val weekly_schedule_json: String? = null,
-    val declared_holidays: List<String> = emptyList()
+    val declared_holidays: List<String> = emptyList(),
+    val verification_status: String? = null
 )
 
 @Singleton
@@ -84,6 +85,7 @@ class ClinicRepository @Inject constructor(
                 }
                 return clinic.copy(
                     description = cleanDesc,
+                    verificationStatus = clinic.verificationStatus ?: meta.verification_status,
                     panNumber = clinic.panNumber ?: meta.pan_number,
                     managerPhone = clinic.managerPhone ?: meta.manager_phone,
                     pictures = if (clinic.pictures.isNotEmpty()) clinic.pictures else meta.pictures,
@@ -121,6 +123,14 @@ class ClinicRepository @Inject constructor(
     fun isClinicActivated(clinic: Clinic): Boolean {
         if (clinic.isArchived == true) return false
         if (clinic.isActivated == false) return false
+
+        // ── Admin Verification Check ──
+        // Clinic must be approved/verified by admin before it can appear for booking to patient
+        val vStatus = clinic.verificationStatus?.trim()?.lowercase()
+        if (vStatus != "approved" && vStatus != "verified") {
+            return false
+        }
+
         val exp = clinic.activationExpiresAt
         if (!exp.isNullOrBlank()) {
             try {

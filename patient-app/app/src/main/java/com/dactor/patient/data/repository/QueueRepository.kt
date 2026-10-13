@@ -36,7 +36,14 @@ data class LiveQueueTimingEstimate(
     val isDoctorIdleFiveMins: Boolean = false,
     val isDoctorNotInside: Boolean = false,
     val isClinicOnBreak: Boolean = false,
-    val isSoonBeReady: Boolean = false
+    val isSoonBeReady: Boolean = false,
+    val timeWindowText: String = "",
+    val approxTimeText: String = "",
+    val slotStartTimeText: String = "",
+    val suggestedArrivalText: String = "",
+    val slotNoticeText: String = "",
+    val canOfferEarlyArrival: Boolean = false,
+    val earlyArrivalOfferText: String? = null
 )
 
 @Singleton
@@ -148,57 +155,156 @@ class QueueRepository @Inject constructor(
         }
     }
 
+    /**
+     * Sends an early arrival invite push notification to a patient who opted into early calls
+     * when the doctor is free ahead of schedule.
+     */
+    suspend fun sendEarlyArrivalInvite(
+        appointmentId: String,
+        userId: String?,
+        patientName: String,
+        trackingCode: String,
+        originalSlot: String
+    ): Boolean {
+        return try {
+            val validUuidApptId = appointmentId.takeIf { it.length == 36 && it.contains("-") }
+            val title = com.dactor.patient.data.model.NotificationTemplate.EarlyArrivalInvite.buildTitle()
+            val msg = com.dactor.patient.data.model.NotificationTemplate.EarlyArrivalInvite.buildMessage(
+                patientName = patientName,
+                code = trackingCode,
+                originalSlot = originalSlot
+            )
+            val dto = NotificationInsertDto(
+                id = UUID.randomUUID().toString(),
+                userId = userId?.takeIf { it.isNotBlank() },
+                appointmentId = validUuidApptId,
+                title = title,
+                message = msg,
+                type = "early_arrival",
+                targetAudience = "specific",
+                isRead = false
+            )
+            try {
+                supabaseClient.postgrest["notifications"].insert(dto)
+            } catch (e: Exception) {
+                supabaseClient.postgrest["notifications"].insert(dto.copy(id = UUID.randomUUID().toString(), userId = null))
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     companion object {
+        fun parseSlotStartTime(slotStr: String?): LocalTime? {
+            if (slotStr.isNullOrBlank()) return null
+            val token = slotStr.split("-", "–", "to").firstOrNull()?.trim() ?: return null
+            val clean = token.uppercase()
+            val formatters = listOf(
+                DateTimeFormatter.ofPattern("hh:mm a", Locale.US),
+                DateTimeFormatter.ofPattern("h:mm a", Locale.US),
+                DateTimeFormatter.ofPattern("HH:mm", Locale.US),
+                DateTimeFormatter.ofPattern("H:mm", Locale.US),
+                DateTimeFormatter.ofPattern("h:mma", Locale.US),
+                DateTimeFormatter.ofPattern("hh:mma", Locale.US)
+            )
+            for (fmt in formatters) {
+                try {
+                    return LocalTime.parse(clean, fmt)
+                } catch (_: Exception) {}
+            }
+            return null
+        }
+
+        fun formatTimeWindow(time: LocalTime, spreadMinutes: Int = 15): String {
+            val fmt = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+            val start = time.minusMinutes(5)
+            val end = time.plusMinutes((spreadMinutes - 5).coerceAtLeast(5).toLong())
+            return "${start.format(fmt)} – ${end.format(fmt)}"
+        }
+
+        fun formatApproxTime(time: LocalTime): String {
+            val fmt = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+            return "around ${time.format(fmt)}"
+        }
+
         fun calculateLiveQueueTimingEstimate(
             clinic: Clinic?,
             isDoctorInClinic: Boolean,
             allClinicQueueEntries: List<QueueEntry>,
             targetEntry: QueueEntry?,
-            fallbackPatientsAhead: Int = 0
+            fallbackPatientsAhead: Int = 0,
+            appointmentTime: String? = null,
+            optInEarlyCall: Boolean = false
         ): LiveQueueTimingEstimate {
             val avgMins = (clinic?.getEffectiveAvgMinutes() ?: 10).coerceAtLeast(1)
             val todaySchedule = clinic?.getTodaySchedule()
             val openLocalTime = ClinicScheduleHelper.parseTimeToLocalTime(todaySchedule?.openTime ?: "08:00 AM")
-            val timeFormatter = DateTimeFormatter.ofPattern("hh:mm a", Locale.US)
+            val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
             val nowTime = LocalTime.now()
             val nowInstant = Instant.now()
             val zoneId = ZoneId.systemDefault()
 
+            // Count ONLY active people. Strictly exclude completed, cancelled and no-show patients.
             val activeEntries = allClinicQueueEntries
-                .filter { it.status == "waiting" || it.status == "inside" }
+                .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
                 .sortedBy { it.queuePosition }
 
-            val insideEntry = activeEntries.firstOrNull { it.status == "inside" }
+            val insideEntry = activeEntries.firstOrNull { it.status == "inside" || it.status == "in_consultation" }
 
-            // Total people ahead of the target patient (including anyone currently inside)
             val totalPeopleAhead = if (targetEntry != null) {
                 activeEntries.count { it.queuePosition < targetEntry.queuePosition }
             } else {
                 fallbackPatientsAhead.coerceAtLeast(0)
             }
 
-            // 0. If target patient is already COMPLETED / DONE
-            if (targetEntry?.status == "done" || targetEntry?.status == "completed") {
+            // Parse slot details
+            val slotStartTime = parseSlotStartTime(appointmentTime)
+            val slotStartStr = slotStartTime?.format(timeFormatter) ?: ""
+            val suggestedArrivalStr = slotStartTime?.minusMinutes(15)?.format(timeFormatter) ?: ""
+            val arrivalAdvice = if (suggestedArrivalStr.isNotBlank()) "Please arrive by $suggestedArrivalStr." else ""
+
+            val slotNotice = when {
+                slotStartTime != null && totalPeopleAhead == 0 -> {
+                    "No one ahead of you. Your slot starts at $slotStartStr. $arrivalAdvice".trim()
+                }
+                slotStartTime != null && totalPeopleAhead > 0 -> {
+                    val personWord = if (totalPeopleAhead == 1) "person" else "people"
+                    "$totalPeopleAhead $personWord ahead. Your slot starts at $slotStartStr. $arrivalAdvice".trim()
+                }
+                totalPeopleAhead == 0 -> "No one ahead of you. You are up next!"
+                else -> "$totalPeopleAhead ${if (totalPeopleAhead == 1) "person" else "people"} ahead in line."
+            }
+
+            // 0. Completed / Done
+            if (targetEntry?.status in listOf("done", "completed")) {
                 return LiveQueueTimingEstimate(
                     estimatedTimeLeftText = "Completed",
                     expectedExactTimeText = "Done",
                     doctorStatusBanner = null,
                     isClinicOnBreak = false,
-                    isDoctorNotInside = false
+                    isDoctorNotInside = false,
+                    slotNoticeText = "Consultation completed",
+                    slotStartTimeText = slotStartStr,
+                    suggestedArrivalText = suggestedArrivalStr
                 )
             }
 
-            // 1. If target patient is currently INSIDE
-            if (targetEntry?.status == "inside") {
+            // 1. Currently inside
+            if (targetEntry?.status in listOf("inside", "in_consultation")) {
                 return LiveQueueTimingEstimate(
                     estimatedTimeLeftText = "Now Inside",
                     expectedExactTimeText = "In Consultation",
                     doctorStatusBanner = null,
-                    isClinicOnBreak = clinic?.isOnBreak == true
+                    isClinicOnBreak = clinic?.isOnBreak == true,
+                    slotNoticeText = "You are currently inside for consultation",
+                    slotStartTimeText = slotStartStr,
+                    suggestedArrivalText = suggestedArrivalStr
                 )
             }
 
-            // 2. If Clinic is on Break
+            // 2. Clinic on break
             if (clinic?.isOnBreak == true) {
                 val breakDesc = if (todaySchedule?.hasBreak == true) {
                     "${todaySchedule.breakStart} - ${todaySchedule.breakEnd}"
@@ -209,11 +315,24 @@ class QueueRepository @Inject constructor(
                     estimatedTimeLeftText = "Clinic on Break",
                     expectedExactTimeText = breakDesc,
                     doctorStatusBanner = "Clinic is currently on a break ($breakDesc)",
-                    isClinicOnBreak = true
+                    isClinicOnBreak = true,
+                    slotNoticeText = "Queue paused: clinic on break ($breakDesc)",
+                    slotStartTimeText = slotStartStr,
+                    suggestedArrivalText = suggestedArrivalStr
                 )
             }
 
-            // 3. Check if someone is currently INSIDE the consultation room
+            // Check doctor availability & early arrival eligibility:
+            // Doctor is free when: doctor is in clinic, no patient is currently inside, and clinic not on break
+            val isDoctorFree = isDoctorInClinic && insideEntry == null && clinic?.isOnBreak != true
+            val isSlotInFuture = slotStartTime != null && nowTime.isBefore(slotStartTime)
+            val canOfferEarly = isDoctorFree && isSlotInFuture && optInEarlyCall && totalPeopleAhead == 0
+            val earlyArrivalMsg = if (canOfferEarly) "Doctor is free now. Come in early?" else null
+
+            // Calculate dynamic queue expected time
+            var dynamicExpectedTime: LocalTime
+            var minsWaitCalc: Int
+
             if (insideEntry != null) {
                 val insideInstant = try {
                     if (!insideEntry.insideAt.isNullOrBlank()) Instant.parse(insideEntry.insideAt) else nowInstant
@@ -223,123 +342,125 @@ class QueueRepository @Inject constructor(
                 val multiplier = totalPeopleAhead.coerceAtLeast(1)
                 val expectedInstant = insideInstant.plusSeconds(multiplier * avgMins * 60L)
                 val diffSec = expectedInstant.epochSecond - nowInstant.epochSecond
-
-                return if (diffSec <= 0) {
-                    // Exact calculated time has already passed while patient is still waiting
-                    LiveQueueTimingEstimate(
-                        estimatedTimeLeftText = "Soon, be ready",
-                        expectedExactTimeText = "Soon, be ready",
-                        doctorStatusBanner = null,
-                        isSoonBeReady = true
-                    )
-                } else {
-                    val minsLeft = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
-                    val exactTimeStr = expectedInstant.atZone(zoneId).toLocalTime().format(timeFormatter)
-                    LiveQueueTimingEstimate(
-                        estimatedTimeLeftText = "~ $minsLeft min",
-                        expectedExactTimeText = exactTimeStr,
-                        doctorStatusBanner = null
-                    )
-                }
-            }
-
-            // 4. No patient is currently INSIDE
-            val hasAnyActivityToday = allClinicQueueEntries.any {
-                !it.insideAt.isNullOrBlank() || !it.completedAt.isNullOrBlank() ||
-                    it.status in listOf("done", "processing", "sample_collected", "report_prepared")
-            }
-
-            // 4a. Before clinic starts (either current time is before opening time, or clinic hasn't started yet and opening time is used)
-            if (nowTime.isBefore(openLocalTime) || (!hasAnyActivityToday && !isDoctorInClinic)) {
-                val preOpenExpectedTime = openLocalTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
-                val exactStr = preOpenExpectedTime.format(timeFormatter)
-                val minsUntilOpenExpected = java.time.Duration.between(nowTime, preOpenExpectedTime).toMinutes().toInt()
-                val waitText = if (minsUntilOpenExpected > 0) {
-                    "~ $minsUntilOpenExpected min"
-                } else {
-                    "~ ${(totalPeopleAhead.coerceAtLeast(1)) * avgMins} min"
-                }
-                val docBanner = if (!isDoctorInClinic) "Doctor is not inside clinic (He/She is not in yet)" else null
-                return LiveQueueTimingEstimate(
-                    estimatedTimeLeftText = waitText,
-                    expectedExactTimeText = exactStr,
-                    doctorStatusBanner = docBanner,
-                    isDoctorNotInside = !isDoctorInClinic
-                )
-            }
-
-            // 4b. If doctor is NOT inside the clinic after opening time
-            if (!isDoctorInClinic) {
-                val preOpenExpectedTime = openLocalTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
-                val exactStr = if (nowTime.isBefore(preOpenExpectedTime)) {
-                    preOpenExpectedTime.format(timeFormatter)
-                } else {
-                    "Doctor not inside"
-                }
-                return LiveQueueTimingEstimate(
-                    estimatedTimeLeftText = "Doctor not inside",
-                    expectedExactTimeText = exactStr,
-                    doctorStatusBanner = "Doctor is not inside the clinic (He/She is not in)",
-                    isDoctorNotInside = true
-                )
-            }
-
-            // 4c. Doctor IS inside the clinic, waiting patients exist, and NO patient is currently "inside":
-            // Check if >= 5 minutes have elapsed with no patient inside
-            val latestActivityInstant = allClinicQueueEntries.mapNotNull { entry ->
-                val ts = entry.completedAt ?: entry.insideAt ?: entry.calledAt
-                if (!ts.isNullOrBlank()) {
-                    try { Instant.parse(ts) } catch (_: Exception) { null }
-                } else null
-            }.maxOrNull()
-
-            val idleMinutes = if (latestActivityInstant != null) {
-                java.time.Duration.between(latestActivityInstant, nowInstant).toMinutes()
+                minsWaitCalc = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
+                dynamicExpectedTime = expectedInstant.atZone(zoneId).toLocalTime()
             } else {
-                val minsSinceOpen = java.time.Duration.between(openLocalTime, nowTime).toMinutes()
-                minsSinceOpen.coerceAtLeast(0)
+                // No patient currently inside
+                val hasAnyActivityToday = allClinicQueueEntries.any {
+                    !it.insideAt.isNullOrBlank() || !it.completedAt.isNullOrBlank() ||
+                        it.status in listOf("done", "processing", "sample_collected", "report_prepared")
+                }
+
+                if (nowTime.isBefore(openLocalTime) || (!hasAnyActivityToday && !isDoctorInClinic)) {
+                    dynamicExpectedTime = openLocalTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
+                    val diff = java.time.Duration.between(nowTime, dynamicExpectedTime).toMinutes().toInt()
+                    minsWaitCalc = diff.coerceAtLeast((totalPeopleAhead.coerceAtLeast(1)) * avgMins)
+                } else if (!isDoctorInClinic) {
+                    dynamicExpectedTime = openLocalTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
+                    val diff = java.time.Duration.between(nowTime, dynamicExpectedTime).toMinutes().toInt()
+                    minsWaitCalc = diff.coerceAtLeast(1)
+                } else {
+                    // Doctor is in clinic, no one inside
+                    val latestActivityInstant = allClinicQueueEntries.mapNotNull { entry ->
+                        val ts = entry.completedAt ?: entry.insideAt ?: entry.calledAt
+                        if (!ts.isNullOrBlank()) {
+                            try { Instant.parse(ts) } catch (_: Exception) { null }
+                        } else null
+                    }.maxOrNull()
+
+                    val idleMinutes = if (latestActivityInstant != null) {
+                        java.time.Duration.between(latestActivityInstant, nowInstant).toMinutes()
+                    } else {
+                        java.time.Duration.between(openLocalTime, nowTime).toMinutes().coerceAtLeast(0)
+                    }
+
+                    if (idleMinutes >= 5 && activeEntries.isNotEmpty()) {
+                        dynamicExpectedTime = nowTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
+                        minsWaitCalc = (totalPeopleAhead * avgMins)
+                    } else if (totalPeopleAhead == 0) {
+                        dynamicExpectedTime = nowTime
+                        minsWaitCalc = 0
+                    } else {
+                        val anchorInstant = latestActivityInstant ?: nowInstant
+                        val expectedInstant = anchorInstant.plusSeconds(totalPeopleAhead * avgMins * 60L)
+                        val diffSec = expectedInstant.epochSecond - nowInstant.epochSecond
+                        minsWaitCalc = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
+                        dynamicExpectedTime = expectedInstant.atZone(zoneId).toLocalTime()
+                    }
+                }
             }
 
-            if (idleMinutes >= 5 && activeEntries.isNotEmpty()) {
-                val fallbackMins = (totalPeopleAhead * avgMins)
-                val estWait = if (fallbackMins == 0) "Wait a few moments" else "~ $fallbackMins min"
-                return LiveQueueTimingEstimate(
-                    estimatedTimeLeftText = estWait,
-                    expectedExactTimeText = "Wait a few moments",
-                    doctorStatusBanner = "Doctor is not seeing patients — wait a few moments",
-                    isDoctorIdleFiveMins = true
-                )
-            }
+            // Apply Rule 2: Never show a time earlier than the slot start, unless the patient opted into early calls
+            val effectiveExpectedTime: LocalTime
+            val effectiveTimeLeftText: String
 
-            // Less than 5 minutes between consultations:
-            if (totalPeopleAhead == 0) {
-                return LiveQueueTimingEstimate(
-                    estimatedTimeLeftText = "Soon, be ready",
-                    expectedExactTimeText = "Soon, be ready",
-                    doctorStatusBanner = null,
-                    isSoonBeReady = true
-                )
-            }
-
-            val anchorInstant = latestActivityInstant ?: nowInstant
-            val expectedInstant = anchorInstant.plusSeconds(totalPeopleAhead * avgMins * 60L)
-            val diffSec = expectedInstant.epochSecond - nowInstant.epochSecond
-            return if (diffSec <= 0) {
-                LiveQueueTimingEstimate(
-                    estimatedTimeLeftText = "Soon, be ready",
-                    expectedExactTimeText = "Soon, be ready",
-                    doctorStatusBanner = null,
-                    isSoonBeReady = true
-                )
+            if (slotStartTime != null && isSlotInFuture) {
+                if (canOfferEarly) {
+                    // Opted in and doctor is free now:
+                    effectiveExpectedTime = nowTime
+                    effectiveTimeLeftText = "Doctor is Free Now"
+                } else {
+                    // Standard slot enforcement: floor at slotStartTime
+                    // If queue runs late and dynamicExpectedTime > slotStartTime, show dynamicExpectedTime!
+                    if (dynamicExpectedTime.isAfter(slotStartTime)) {
+                        effectiveExpectedTime = dynamicExpectedTime
+                        val diff = java.time.Duration.between(nowTime, dynamicExpectedTime).toMinutes().toInt()
+                        effectiveTimeLeftText = if (diff > 0) "~ $diff min" else "Soon, be ready"
+                    } else {
+                        effectiveExpectedTime = slotStartTime
+                        val diff = java.time.Duration.between(nowTime, slotStartTime).toMinutes().toInt()
+                        effectiveTimeLeftText = if (diff > 60) {
+                            val hours = diff / 60
+                            val rem = diff % 60
+                            if (rem == 0) "~ $hours hr" else "~ ${hours}h ${rem}m"
+                        } else if (diff > 0) {
+                            "~ $diff min"
+                        } else {
+                            "Starts at $slotStartStr"
+                        }
+                    }
+                }
+            } else if (slotStartTime != null && !isSlotInFuture) {
+                // Current time is at or after slotStartTime (e.g. running late at 3:20 PM)
+                // Calculation becomes: people ahead * avgMins
+                if (dynamicExpectedTime.isBefore(nowTime)) {
+                    dynamicExpectedTime = nowTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
+                    minsWaitCalc = (totalPeopleAhead * avgMins)
+                }
+                effectiveExpectedTime = dynamicExpectedTime
+                effectiveTimeLeftText = if (totalPeopleAhead == 0) "Soon, be ready" else "~ $minsWaitCalc min"
             } else {
-                val minsLeft = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
-                val exactTimeStr = expectedInstant.atZone(zoneId).toLocalTime().format(timeFormatter)
-                LiveQueueTimingEstimate(
-                    estimatedTimeLeftText = "~ $minsLeft min",
-                    expectedExactTimeText = exactTimeStr,
-                    doctorStatusBanner = null
-                )
+                // No slot specified (e.g. walk-in)
+                effectiveExpectedTime = dynamicExpectedTime
+                effectiveTimeLeftText = if (totalPeopleAhead == 0) "Soon, be ready" else "~ $minsWaitCalc min"
             }
+
+            val windowText = formatTimeWindow(effectiveExpectedTime)
+            val approxText = formatApproxTime(effectiveExpectedTime)
+            val exactTimeStr = effectiveExpectedTime.format(timeFormatter)
+
+            val docBanner = when {
+                !isDoctorInClinic -> "Doctor is not inside the clinic (He/She is not in yet)"
+                canOfferEarly -> "Doctor is free now. Since you opted into early calls, you can come in early!"
+                else -> null
+            }
+
+            return LiveQueueTimingEstimate(
+                estimatedTimeLeftText = effectiveTimeLeftText,
+                expectedExactTimeText = exactTimeStr,
+                doctorStatusBanner = docBanner,
+                isDoctorNotInside = !isDoctorInClinic,
+                isDoctorIdleFiveMins = false,
+                isClinicOnBreak = false,
+                isSoonBeReady = totalPeopleAhead == 0 || effectiveTimeLeftText.contains("Soon"),
+                timeWindowText = windowText,
+                approxTimeText = approxText,
+                slotStartTimeText = slotStartStr,
+                suggestedArrivalText = suggestedArrivalStr,
+                slotNoticeText = slotNotice,
+                canOfferEarlyArrival = canOfferEarly,
+                earlyArrivalOfferText = earlyArrivalMsg
+            )
         }
     }
 }

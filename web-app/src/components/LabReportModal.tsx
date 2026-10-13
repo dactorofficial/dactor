@@ -159,31 +159,34 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
   const StatusIcon = statusInfo.icon
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/45 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="liquid-glass-modal rounded-2xl sm:rounded-3xl max-w-xl w-full p-4 sm:p-8 shadow-glass-modal border border-white/80 relative max-h-[92vh] overflow-y-auto">
+        {/* Specular Perimeter Line */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[1.5px] rounded-t-3xl bg-gradient-to-r from-transparent via-white/80 to-transparent" aria-hidden="true" />
+
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
+          className="absolute top-4 sm:top-5 right-4 sm:right-5 p-1.5 sm:p-2 text-slate-400 hover:text-slate-700 bg-white/60 hover:bg-white/90 border border-white/60 rounded-full transition-colors cursor-pointer shadow-glass-sm"
         >
-          <X className="w-5 h-5" />
+          <X className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
 
         {/* Modal Header */}
-        <div className="flex items-center space-x-3 mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center">
-            <FlaskConical className="w-6 h-6 stroke-[2.5]" />
+        <div className="flex items-center space-x-3 mb-5 sm:mb-6 pr-8">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-teal-50/80 text-teal-700 flex items-center justify-center border border-teal-200/50 shadow-glass-sm backdrop-blur-md shrink-0">
+            <FlaskConical className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
           </div>
           <div>
-            <h3 className="text-xl font-black text-slate-900">Diagnostic Lab Reports</h3>
-            <p className="text-xs text-slate-500 font-medium">
+            <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">Diagnostic Lab Reports</h3>
+            <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
               3-Stage live status & name-verified report retrieval
             </p>
           </div>
         </div>
 
         {/* Input Form */}
-        <form onSubmit={handleSearch} className="space-y-4">
+        <form onSubmit={handleSearch} className="space-y-3 sm:space-y-4">
           <div className="relative">
             <input
               type="text"
@@ -191,20 +194,20 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
               onChange={(e) => setCode(e.target.value)}
               placeholder="Enter 10-digit code (e.g. 9812345678)"
               maxLength={10}
-              className="w-full px-4 py-3.5 pl-11 text-lg font-bold tracking-widest text-slate-900 bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400"
+              className="w-full px-3.5 sm:px-4 py-3 sm:py-3.5 pl-10 sm:pl-11 text-base sm:text-lg font-bold tracking-widest text-slate-900 liquid-glass-input rounded-2xl transition-all placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 font-mono shadow-glass-sm"
               autoFocus
             />
-            <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-4" />
+            <Search className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600 absolute left-3.5 top-3.5 sm:top-4" />
           </div>
 
           <button
             type="submit"
             disabled={loading || !code.trim()}
-            className="w-full py-3.5 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-bold rounded-2xl transition-all shadow-md shadow-teal-600/20 flex items-center justify-center space-x-2"
+            className="w-full py-3 sm:py-3.5 bg-gradient-to-r from-teal-600 via-emerald-600 to-cyan-600 hover:brightness-105 disabled:opacity-50 text-white font-bold rounded-2xl transition-all shadow-md shadow-teal-600/20 border border-white/30 flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98] text-xs sm:text-sm"
           >
             {loading ? (
               <span className="flex items-center space-x-2">
-                <Clock className="w-5 h-5 animate-spin" />
+                <Clock className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                 <span>Checking Lab Status...</span>
               </span>
             ) : (
@@ -214,7 +217,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
         </form>
 
         {errorMsg && (
-          <div className="mt-4 p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs flex items-center space-x-2">
+          <div className="mt-4 p-3.5 bg-rose-50/80 border border-rose-200/70 text-rose-700 rounded-2xl text-xs flex items-center space-x-2 backdrop-blur-md shadow-xs">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
@@ -224,7 +227,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
         {searched && (reports.length > 0 || appointment) && (
           <div className="mt-6 space-y-5 animate-in slide-in-from-bottom duration-200">
             {/* 3-Stage Progress Indicator */}
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+            <div className="liquid-glass-base p-4 rounded-3xl border border-white/80 shadow-glass-sm">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                   Diagnostic Pipeline

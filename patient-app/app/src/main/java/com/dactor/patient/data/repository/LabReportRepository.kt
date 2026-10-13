@@ -31,12 +31,38 @@ class LabReportRepository @Inject constructor(
         trackingCode: String? = null
     ): List<LabReport> = withContext(Dispatchers.IO) {
         try {
+            val cleanApptId = appointmentId.trim()
+            val cleanTracking = trackingCode?.trim()
+
+            // 1. Direct query by appointment_id (primary UUID)
+            if (cleanApptId.isNotBlank()) {
+                val directReports = supabaseClient.postgrest["lab_reports"]
+                    .select {
+                        filter {
+                            eq("appointment_id", cleanApptId)
+                        }
+                    }.decodeList<LabReport>()
+                if (directReports.isNotEmpty()) return@withContext directReports
+            }
+
+            // 2. Direct query by trackingCode if different
+            if (!cleanTracking.isNullOrBlank() && cleanTracking != cleanApptId) {
+                val reportsByCode = supabaseClient.postgrest["lab_reports"]
+                    .select {
+                        filter {
+                            eq("appointment_id", cleanTracking)
+                        }
+                    }.decodeList<LabReport>()
+                if (reportsByCode.isNotEmpty()) return@withContext reportsByCode
+            }
+
+            // 3. Fallback: query all reports and filter
             val allReports = supabaseClient.postgrest["lab_reports"]
                 .select()
                 .decodeList<LabReport>()
             val targetIds = listOfNotNull(
-                appointmentId.trim().takeIf { it.isNotBlank() },
-                trackingCode?.trim()?.takeIf { it.isNotBlank() }
+                cleanApptId.takeIf { it.isNotBlank() },
+                cleanTracking?.takeIf { it.isNotBlank() }
             ).toSet()
             allReports.filter { it.appointmentId in targetIds }
         } catch (e: Exception) {

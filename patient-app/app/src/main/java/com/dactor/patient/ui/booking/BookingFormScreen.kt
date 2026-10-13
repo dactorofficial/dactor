@@ -104,6 +104,7 @@ fun BookingFormScreen(
     var mobile by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var visitNotes by remember { mutableStateOf("") }
+    var optInEarlyCall by remember { mutableStateOf(false) }
 
     var validationTriggered by remember { mutableStateOf(false) }
     val nameFocusRequester = remember { FocusRequester() }
@@ -592,6 +593,7 @@ fun BookingFormScreen(
                                             checkinStatus = "checked_in",
                                             feeAmount = consultationFee,
                                             isWalkin = false,
+                                            optInEarlyCall = optInEarlyCall,
                                             selectedLabTests = selectedTestsStr
                                         )
 
@@ -1853,6 +1855,55 @@ fun BookingFormScreen(
                                 unfocusedBorderColor = CardBorderColor
                             )
                         )
+
+                        // Early Consultation Call Opt-In Switch Card
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (optInEarlyCall) Color(0xFFF0FDF4) else Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, if (optInEarlyCall) Color(0xFF86EFAC) else CardBorderColor),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { optInEarlyCall = !optInEarlyCall }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "⚡ Allow Early Consultation Call",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (optInEarlyCall) Color(0xFF166534) else SlateDark
+                                        )
+                                    }
+                                    Text(
+                                        text = "If the doctor finishes ahead of schedule, receive an instant push notification to come in early. If turned off, your scheduled slot time remains strictly unchanged.",
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp,
+                                        color = SlateMuted
+                                    )
+                                }
+                                Switch(
+                                    checked = optInEarlyCall,
+                                    onCheckedChange = { optInEarlyCall = it },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = Color(0xFF16A34A),
+                                        uncheckedThumbColor = Color.White,
+                                        uncheckedTrackColor = Color(0xFFCBD5E1)
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
             }

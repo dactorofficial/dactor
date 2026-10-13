@@ -15,5 +15,7 @@ data class LabReport(
     @SerialName("file_type") val fileType: String? = null,
     @SerialName("patient_name_verification") val patientNameVerification: String = "",
     @SerialName("sample_collected_at") val sampleCollectedAt: String = "",
-    @SerialName("prepared_at") val preparedAt: String? = null
+    @SerialName("prepared_at") val preparedAt: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null
 )

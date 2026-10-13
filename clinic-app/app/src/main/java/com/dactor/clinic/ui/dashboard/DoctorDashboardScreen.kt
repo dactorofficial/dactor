@@ -52,6 +52,7 @@ fun DoctorDashboardScreen(
     clinicRepository: ClinicRepository? = null
 ) {
     val context = LocalContext.current
+    val sessionManager = remember { com.dactor.clinic.data.local.UserSessionManager(context) }
     var doctor by remember { mutableStateOf<Doctor?>(null) }
     var clinic by remember { mutableStateOf<Clinic?>(null) }
     var affiliatedClinics by remember { mutableStateOf<List<Clinic>>(emptyList()) }
@@ -61,6 +62,26 @@ fun DoctorDashboardScreen(
     var invitingClinics by remember { mutableStateOf<Map<String, Clinic>>(emptyMap()) }
     var isLoading by remember { mutableStateOf(true) }
     var activeConsultationSeconds by remember { mutableIntStateOf(0) }
+
+    // ── Mandatory Non-Skippable Terms & Regulatory Policy Gate ──────────
+    var showMandatoryTermsDialog by remember {
+        mutableStateOf(!sessionManager.hasAcceptedTerms())
+    }
+
+    if (showMandatoryTermsDialog) {
+        com.dactor.clinic.ui.legal.ClinicTermsAndConditionsDialog(
+            isMandatory = true,
+            onAccept = {
+                sessionManager.setTermsAccepted(true)
+                showMandatoryTermsDialog = false
+            },
+            onDismiss = {
+                if (sessionManager.hasAcceptedTerms()) {
+                    showMandatoryTermsDialog = false
+                }
+            }
+        )
+    }
 
     // Settings & Profile Dialog state
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -113,8 +134,10 @@ fun DoctorDashboardScreen(
 
     suspend fun loadDoctorData() {
         if (doctorRepository != null) {
-            val sessionDocId = com.dactor.clinic.data.local.UserSessionManager(context).getSavedDoctorId()
-            val sessionDocEmail = com.dactor.clinic.data.local.UserSessionManager(context).getSavedEmail()
+            val sessionManager = com.dactor.clinic.data.local.UserSessionManager(context)
+            sessionManager.awaitIdentityResolved(timeoutMs = 2500)
+            val sessionDocId = sessionManager.getSavedDoctorId()
+            val sessionDocEmail = sessionManager.getSavedEmail()
 
             val targetDoc = if (!doctorId.isNullOrBlank() && doctorId != "d1") {
                 doctorRepository.getDoctorById(doctorId)
@@ -288,6 +311,9 @@ fun DoctorDashboardScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (doctor == null && isLoading) {
+                com.dactor.clinic.ui.common.ShimmerListPlaceholder(count = 4)
+            } else {
             // KYC STATUS BANNER
             if (kycStatus.equals("pending", ignoreCase = true)) {
                 Card(
@@ -880,7 +906,14 @@ fun DoctorDashboardScreen(
                     modifier = Modifier.weight(1f).height(100.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    onClick = { navController.navigate(NavRoutes.FutureAppointments) }
+                    onClick = {
+                        val targetCid = clinic?.id ?: com.dactor.clinic.data.local.UserSessionManager(context).getSavedActiveClinicIdForDoctor() ?: ""
+                        if (targetCid.isNotBlank()) {
+                            navController.navigate("${NavRoutes.FutureAppointments}/$targetCid")
+                        } else {
+                            navController.navigate(NavRoutes.FutureAppointments)
+                        }
+                    }
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp).fillMaxSize(),
@@ -933,6 +966,7 @@ fun DoctorDashboardScreen(
                         }
                     }
                 }
+            }
             }
         }
     }

@@ -75,8 +75,10 @@ data class NotificationTemplateData(
             val waitMatch = Regex("""(~?\s*\d+\s*(?:min|mins|minute|minutes)|Soon,?\s*be\s*ready!?|Now\s*Inside)""", RegexOption.IGNORE_CASE).find(cleanMsg)
             val timeMatch = Regex("""(\d{1,2}:\d{2}\s*(?:AM|PM))""", RegexOption.IGNORE_CASE).find(cleanMsg)
 
+            val notifType = NotificationType.from(type)
+
             return when {
-                type == "lab_report" || title.contains("Report", ignoreCase = true) -> NotificationTemplateData(
+                notifType in listOf(NotificationType.LAB_REPORT, NotificationType.LAB_PROCESSING) || title.contains("Report", ignoreCase = true) -> NotificationTemplateData(
                     title = title.ifBlank { "Lab Report Prepared" },
                     cleanMessage = cleanMsg,
                     leftLabel = "Report Status",
@@ -84,13 +86,21 @@ data class NotificationTemplateData(
                     rightLabel = "Availability",
                     rightValue = "Ready to View"
                 )
-                type == "clinic_break" || title.contains("Break", ignoreCase = true) -> NotificationTemplateData(
+                notifType == NotificationType.CLINIC_BREAK || title.contains("Break", ignoreCase = true) -> NotificationTemplateData(
                     title = title.ifBlank { "Clinic is on Break" },
                     cleanMessage = cleanMsg,
                     leftLabel = "Estimated Time Left",
                     leftValue = "Clinic on Break",
                     rightLabel = "Your Appointment Time",
                     rightValue = timeMatch?.groupValues?.get(1) ?: "Paused Briefly"
+                )
+                notifType in listOf(NotificationType.BROADCAST, NotificationType.ANNOUNCEMENT) -> NotificationTemplateData(
+                    title = title.ifBlank { "Dactor Announcement" },
+                    cleanMessage = cleanMsg,
+                    leftLabel = "",
+                    leftValue = "",
+                    rightLabel = "",
+                    rightValue = ""
                 )
                 else -> NotificationTemplateData(
                     title = title.ifBlank { "Your Turn is Coming Soon!" },

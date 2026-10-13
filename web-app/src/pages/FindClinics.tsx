@@ -114,37 +114,37 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
   }, [clinics, searchTerm, filterType])
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-6 sm:space-y-8">
       {/* Page Header */}
-      <div className="space-y-3">
-        <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-brand-100 text-brand-800 text-xs font-bold uppercase tracking-wider">
-          <Sparkles className="w-3.5 h-3.5 text-brand-600" />
+      <div className="space-y-2 sm:space-y-3">
+        <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-teal-500/10 dark:bg-teal-400/10 border border-teal-500/20 text-teal-800 dark:text-teal-300 text-[11px] sm:text-xs font-bold uppercase tracking-wider backdrop-blur-md">
+          <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
           <span>Intelligent Medical Search</span>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+        <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
           Verified Clinics & Diagnostic Labs
         </h1>
-        <p className="text-sm text-slate-500 font-medium max-w-2xl">
+        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 font-medium max-w-2xl">
           Search polyclinics for specialist OPD consultations, single-doctor chambers, or diagnostic pathology labs for tests and packages.
         </p>
       </div>
 
       {/* Filter and Search Bar Container */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+      <div className="liquid-glass-elevated p-4 sm:p-6 rounded-3xl space-y-4">
         {/* Search Input */}
         <div className="relative w-full">
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search symptoms (skin, heart, fever, bone), doctors, or diagnostic tests..."
-            className="w-full px-4 py-3.5 pl-11 pr-10 bg-slate-50 rounded-2xl border border-slate-200 text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all placeholder:font-normal placeholder:text-slate-400"
+            placeholder="Search symptoms (skin, heart, fever), doctors, or labs..."
+            className="w-full px-4 py-3 sm:py-3.5 pl-11 pr-10 liquid-glass-input rounded-2xl text-sm sm:text-base font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all placeholder:font-normal placeholder:text-slate-400"
           />
           <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           {searchTerm && (
             <button
               onClick={() => setSearchTerm('')}
-              className="p-1 text-slate-400 hover:text-slate-600 absolute right-3 top-1/2 -translate-y-1/2 rounded-full cursor-pointer"
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 absolute right-3 top-1/2 -translate-y-1/2 rounded-full cursor-pointer transition"
             >
               <X className="w-4 h-4" />
             </button>
@@ -153,7 +153,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
 
         {/* Recent Search Chips (if available) */}
         {recentSearches.length > 0 && (
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs text-slate-500">
+          <div className="flex items-center space-x-1.5 sm:space-x-2 overflow-x-auto pb-1 text-xs text-slate-500 scrollbar-none -mx-1 px-1 sm:mx-0 sm:px-0">
             <span className="font-bold flex items-center space-x-1 shrink-0 text-slate-400">
               <History className="w-3.5 h-3.5" />
               <span>Recent:</span>
@@ -162,7 +162,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
               <button
                 key={keyword}
                 onClick={() => handleSearchChange(keyword)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold shrink-0 cursor-pointer transition text-[11px]"
+                className="px-2.5 py-1 rounded-xl liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-200 font-semibold shrink-0 cursor-pointer transition text-[11px] active:scale-95"
               >
                 {keyword}
               </button>
@@ -171,15 +171,15 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
         )}
 
         {/* Quick Specialty Suggestions Chips */}
-        <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
-          <span className="font-bold text-slate-400 shrink-0 text-[11px] uppercase tracking-wider">
+        <div className="flex items-center space-x-1.5 sm:space-x-2 overflow-x-auto pb-1 text-xs scrollbar-none -mx-1 px-1 sm:mx-0 sm:px-0">
+          <span className="font-bold text-slate-400 dark:text-slate-500 shrink-0 text-[10px] sm:text-[11px] uppercase tracking-wider">
             Quick Symptoms:
           </span>
           {QUICK_SPECIALTY_SUGGESTIONS.map((suggestion) => (
             <button
               key={suggestion}
               onClick={() => handleSelectQuickSuggestion(suggestion)}
-              className="px-3 py-1 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-700 font-semibold shrink-0 cursor-pointer transition border border-brand-200/60 text-[11px]"
+              className="px-2.5 sm:px-3 py-1 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-teal-800 dark:text-teal-300 font-semibold shrink-0 cursor-pointer transition border border-teal-500/20 text-[11px] active:scale-95 backdrop-blur-sm"
             >
               {suggestion}
             </button>
@@ -187,7 +187,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
         </div>
 
         {/* 4 Clinic Category Filter Tabs */}
-        <div className="pt-2 border-t border-slate-100 flex items-center space-x-2 overflow-x-auto pb-1">
+        <div className="pt-2 border-t border-slate-200/40 dark:border-white/10 flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1 sm:mx-0 sm:px-0">
           {[
             { id: 'all', label: `All Centers (${clinics.length})`, icon: Building2 },
             { id: 'single_doctor', label: 'Single-Visit OPD Clinics', icon: Stethoscope },
@@ -200,10 +200,10 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
               <button
                 key={pill.id}
                 onClick={() => setFilterType(pill.id)}
-                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center space-x-1.5 cursor-pointer ${
+                className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center space-x-1.5 cursor-pointer active:scale-95 ${
                   isSelected
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    ? 'bg-slate-900 text-white shadow-glass-base dark:bg-white dark:text-slate-950 border border-slate-700/50 dark:border-white'
+                    : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:text-slate-900 hover:bg-white/60 dark:hover:bg-slate-800/60'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -218,14 +218,14 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="h-72 bg-slate-100 rounded-3xl animate-pulse" />
+            <div key={i} className="h-72 liquid-glass-card rounded-3xl animate-pulse" />
           ))}
         </div>
       ) : scoredClinics.length === 0 ? (
-        <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 space-y-3">
-          <Building2 className="w-12 h-12 text-slate-300 mx-auto" />
-          <h3 className="text-lg font-bold text-slate-800">No medical centers matched</h3>
-          <p className="text-xs text-slate-500">
+        <div className="p-12 text-center liquid-glass-card rounded-3xl space-y-3">
+          <Building2 className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto" />
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white">No medical centers matched</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             Try adjusting your symptom keyword or clearing category filters.
           </p>
           <button
@@ -233,7 +233,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
               setSearchTerm('')
               setFilterType('all')
             }}
-            className="px-4 py-2 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition"
+            className="px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-xs font-bold hover:shadow-glass-brand active:scale-95 transition cursor-pointer"
           >
             Reset Search
           </button>
@@ -266,22 +266,22 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
             return (
               <div
                 key={clinic.id}
-                className="group bg-white rounded-3xl border border-slate-200/80 hover:border-brand-400 shadow-sm hover:shadow-xl hover:shadow-brand-500/10 transition-all duration-200 flex flex-col justify-between overflow-hidden"
+                className="group liquid-glass-card rounded-3xl flex flex-col justify-between overflow-hidden transition-all duration-300 hover:-translate-y-1"
               >
                 <div>
                   {/* Clinic Photo Banner */}
-                  <div className="relative w-full h-44 bg-slate-100 overflow-hidden">
+                  <div className="relative w-full h-44 bg-slate-900/10 overflow-hidden">
                     {coverPhoto ? (
                       <img
                         src={coverPhoto}
                         alt={clinic.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         onError={(e) => {
                           ;(e.target as HTMLElement).style.display = 'none'
                         }}
                       />
                     ) : (
-                      <div className="w-full h-full bg-gradient-to-tr from-brand-700 via-brand-600 to-teal-600 flex items-center justify-center text-white">
+                      <div className="w-full h-full bg-gradient-to-tr from-teal-800 via-teal-700 to-cyan-700 flex items-center justify-center text-white">
                         <div className="text-center space-y-1">
                           <Building2 className="w-10 h-10 mx-auto opacity-80" />
                           <span className="text-xs font-bold tracking-wider uppercase opacity-90">
@@ -292,34 +292,34 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                     )}
 
                     {/* Gradient Overlay for Legibility */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-transparent to-black/20" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-black/25" />
 
                     {/* Top Overlay Badges */}
-                    <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                    <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex flex-wrap items-center justify-between gap-1.5">
                       <span
-                        className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider backdrop-blur-md shadow-sm ${
+                        className={`px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-wider backdrop-blur-md border border-white/20 shadow-glass-sm ${
                           isLab
                             ? 'bg-purple-600/90 text-white'
                             : isSingle
                             ? 'bg-emerald-600/90 text-white'
-                            : 'bg-brand-600/90 text-white'
+                            : 'bg-teal-600/90 text-white'
                         }`}
                       >
                         {isLab
-                          ? 'Diagnostic Pathology Lab'
+                          ? 'Diagnostic Lab'
                           : isSingle
-                          ? 'Single-Visit OPD'
-                          : 'Multi-Specialty Polyclinic'}
+                          ? 'Single-Visit'
+                          : 'Multi-Specialty'}
                       </span>
 
                       <div className="flex items-center space-x-1.5">
                         {clinic.isOnBreak && (
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500 text-white shadow-sm">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/90 text-white shadow-glass-sm border border-white/20 backdrop-blur-md">
                             On Break
                           </span>
                         )}
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500 text-white shadow-sm">
-                          <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-500/90 text-white shadow-glass-sm border border-white/20 backdrop-blur-md">
+                          <ShieldCheck className="w-3 sm:w-3.5 h-3 sm:h-3.5 mr-1" />
                           Verified
                         </span>
                       </div>
@@ -327,52 +327,52 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
 
                     {/* Bottom Left Photo Count Indicator */}
                     {clinic.pictures && clinic.pictures.length > 1 && (
-                      <div className="absolute bottom-2.5 right-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-sm text-[10px] font-bold text-white flex items-center space-x-1">
+                      <div className="absolute bottom-2.5 right-3 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-bold text-white flex items-center space-x-1">
                         <span>📷 {clinic.pictures.length} Photos</span>
                       </div>
                     )}
                   </div>
 
                   {/* Card Content */}
-                  <div className="p-6 space-y-3">
+                  <div className="p-4 sm:p-6 space-y-2.5 sm:space-y-3">
                     {/* Match Reason Highlight Pill */}
                     {matchReason && (
-                      <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-emerald-800">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 backdrop-blur-sm">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span className="truncate">{matchReason}</span>
                       </div>
                     )}
 
                     <div>
-                      <h3 className="text-xl font-black text-slate-900 group-hover:text-brand-700 transition-colors line-clamp-1">
+                      <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors line-clamp-1">
                         {clinic.name}
                       </h3>
 
-                      <div className="flex items-center space-x-1.5 text-xs text-slate-500 mt-1 line-clamp-1">
+                      <div className="flex items-center space-x-1.5 text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">
                         <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span>{clinic.addressText || 'Nepal'}</span>
                       </div>
                     </div>
 
                     {/* Operational Hours Strip */}
-                    <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-600 flex items-center space-x-2">
-                      <Clock className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-                      <span>{hoursText}</span>
+                    <div className="p-2 sm:p-2.5 liquid-glass-subtle rounded-xl text-[11px] text-slate-700 dark:text-slate-300 flex items-center space-x-2">
+                      <Clock className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                      <span className="truncate font-medium">{hoursText}</span>
                     </div>
 
                     {/* Specialties Pills */}
                     {clinic.specialties && clinic.specialties.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-1">
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
                         {clinic.specialties.slice(0, 3).map((s, idx) => (
                           <span
                             key={idx}
-                            className="px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold"
+                            className="px-2.5 py-0.5 rounded-lg liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[10px] sm:text-[11px] font-semibold"
                           >
                             {s}
                           </span>
                         ))}
                         {clinic.specialties.length > 3 && (
-                          <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500 text-[11px] font-medium">
+                          <span className="px-2 py-0.5 rounded-lg liquid-glass-subtle text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-medium">
                             +{clinic.specialties.length - 3} more
                           </span>
                         )}
@@ -382,12 +382,12 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                 </div>
 
                 {/* Bottom Distinct Action Buttons for the 3 Clinic Types */}
-                <div className="p-6 pt-0 space-y-2">
+                <div className="p-4 sm:p-6 pt-0 space-y-2">
                   {isLab ? (
                     <div className="space-y-2">
                       <button
                         onClick={() => onSelectClinic(clinic.id, 'lab')}
-                        className="w-full py-3 bg-purple-700 hover:bg-purple-800 text-white rounded-2xl text-xs font-bold transition shadow-md shadow-purple-700/20 flex items-center justify-center space-x-2 cursor-pointer"
+                        className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-2xl text-xs font-bold transition shadow-glass-base active:scale-[0.98] flex items-center justify-center space-x-2 cursor-pointer border-t border-white/20"
                       >
                         <FlaskConical className="w-4 h-4" />
                         <span>Book Lab Tests (No Doctor Required)</span>
@@ -395,7 +395,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                       </button>
                       <button
                         onClick={() => onSelectClinic(clinic.id, 'lab')}
-                        className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-[11px] font-bold border border-slate-200 transition cursor-pointer"
+                        className="w-full py-2 liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-200 rounded-xl text-[11px] font-bold transition cursor-pointer active:scale-[0.98]"
                       >
                         View Test Catalog & Prices
                       </button>
@@ -404,7 +404,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                     <div className="space-y-2">
                       <button
                         onClick={() => onSelectClinic(clinic.id, 'opd')}
-                        className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-2xl text-xs font-bold transition shadow-md shadow-emerald-700/20 flex items-center justify-center space-x-2 cursor-pointer"
+                        className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl text-xs font-bold transition shadow-glass-base active:scale-[0.98] flex items-center justify-center space-x-2 cursor-pointer border-t border-white/20"
                       >
                         <Stethoscope className="w-4 h-4" />
                         <span>Book Specialist Consultation</span>
@@ -412,7 +412,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                       </button>
                       <button
                         onClick={() => onSelectClinic(clinic.id, 'opd')}
-                        className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-[11px] font-bold border border-slate-200 transition cursor-pointer"
+                        className="w-full py-2 liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-200 rounded-xl text-[11px] font-bold transition cursor-pointer active:scale-[0.98]"
                       >
                         Single OPD Token
                       </button>
@@ -421,7 +421,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                     <div className="space-y-2">
                       <button
                         onClick={() => onSelectClinic(clinic.id, 'opd')}
-                        className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-2xl text-xs font-bold transition shadow-md shadow-brand-600/20 flex items-center justify-center space-x-2 cursor-pointer"
+                        className="w-full py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-2xl text-xs font-bold transition shadow-glass-base active:scale-[0.98] flex items-center justify-center space-x-2 cursor-pointer border-t border-white/20"
                       >
                         <Users className="w-4 h-4" />
                         <span>Consult Specialists (Choose Doctor)</span>
@@ -429,7 +429,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                       </button>
                       <button
                         onClick={() => onSelectClinic(clinic.id, 'opd')}
-                        className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-[11px] font-bold border border-slate-200 transition cursor-pointer"
+                        className="w-full py-2 liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-200 rounded-xl text-[11px] font-bold transition cursor-pointer active:scale-[0.98]"
                       >
                         Follow-Up Visit (FREE with Code)
                       </button>

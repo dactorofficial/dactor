@@ -16,16 +16,19 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
   return (
-    <footer className="bg-slate-900 text-slate-300 pt-16 pb-12 border-t border-slate-800">
+    <footer className="relative bg-slate-950/85 backdrop-blur-2xl text-slate-300 pt-12 sm:pt-16 pb-28 lg:pb-12 border-t border-white/10 shadow-2xl overflow-hidden">
+      {/* Specular Perimeter Line */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" aria-hidden="true" />
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 pb-12 border-b border-slate-800">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 sm:gap-10 pb-10 border-b border-white/10">
           {/* Brand Info */}
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center space-x-3">
               <img
                 src={dactorLogo}
                 alt="Dactor Logo"
-                className="w-10 h-10 rounded-2xl object-contain shadow-md shadow-sky-600/20 bg-white p-0.5 border border-slate-800"
+                className="w-10 h-10 rounded-2xl object-contain shadow-glass-brand bg-white/90 p-0.5 border border-white/30 backdrop-blur-md"
               />
               <span className="text-2xl font-black tracking-tight text-white">Dactor</span>
             </div>
@@ -33,11 +36,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               Empowering healthcare facilities with real-time OPD queue transparency, seamless doctor consultations, and 3-stage diagnostic lab tracking with verified report delivery.
             </p>
             <div className="pt-2 flex items-center space-x-3 text-xs text-slate-400">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-cyan-950/60 text-cyan-400 border border-cyan-800/60 font-medium">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-cyan-950/70 text-cyan-300 border border-cyan-500/30 font-medium shadow-xs backdrop-blur-md">
                 <ShieldCheck className="w-3.5 h-3.5 mr-1" />
                 Verified Clinics & Doctors
               </span>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 font-medium">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-white/10 text-slate-200 border border-white/10 font-medium shadow-xs backdrop-blur-md">
                 <Clock className="w-3.5 h-3.5 mr-1" />
                 Zero Queue Waiting
               </span>

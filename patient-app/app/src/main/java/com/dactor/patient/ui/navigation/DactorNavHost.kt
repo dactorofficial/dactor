@@ -184,6 +184,7 @@ fun DactorNavHost(
                 clinicId = clinicId,
                 clinicRepository = clinicRepository,
                 doctorRepository = doctorRepository,
+                slotRepository = slotRepository,
                 sessionManager = sessionManager
             )
         }

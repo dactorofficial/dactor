@@ -8,7 +8,9 @@ import androidx.work.WorkerParameters
 import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.DactorNotification
+import com.dactor.patient.data.model.NotificationTemplate
 import com.dactor.patient.data.model.NotificationTemplateData
+import com.dactor.patient.data.model.NotificationType
 import com.dactor.patient.data.model.QueueEntry
 import com.dactor.patient.di.AppModule
 import io.github.jan.supabase.postgrest.postgrest
@@ -76,21 +78,19 @@ class NotificationSyncWorker(
                     val autoApptKey = "auto_appt_today_${appt.id}"
                     if (appt.checkinStatus in listOf("waiting", "checked_in") && !sessionManager.isNotificationSeen(autoApptKey)) {
                         sessionManager.markNotificationSeen(autoApptKey)
-                        val msg = NotificationTemplateData.buildMessageWithMeta(
-                            cleanMessage = "Hi ${appt.patientName}, your appointment (#$code) is scheduled for today at $slotTime. Track your live queue turn anytime.",
-                            leftLabel = "Estimated Wait",
-                            leftValue = estWait,
-                            rightLabel = "Appointment Time",
-                            rightValue = slotTime,
-                            trackingCode = code
+                        val msg = NotificationTemplate.AppointmentReminder.buildMessage(
+                            patientName = appt.patientName,
+                            code = code,
+                            slotTime = slotTime,
+                            estWait = estWait
                         )
                         NotificationHelper.showSystemNotification(
                             context = context,
                             id = (autoApptKey.hashCode() and 0x7FFFFFFF) % 100000,
-                            title = "Appointment Reminder • #$code",
+                            title = NotificationTemplate.AppointmentReminder.buildTitle(code),
                             message = msg,
                             appointmentId = code,
-                            type = "queue_alert"
+                            type = NotificationType.QUEUE_ALERT.key
                         )
                     }
                 }
@@ -103,7 +103,7 @@ class NotificationSyncWorker(
 
             val relevant = list.filter { notif ->
                 val audience = notif.targetAudience?.lowercase()
-                val isTargetedType = notif.type in listOf("manual_alert", "queue_alert", "lab_report", "clinic_break")
+                val isTargetedType = notif.type in listOf("manual_alert", "queue_alert", "lab_report", "clinic_break", "early_arrival")
                 val isBroadcast = (audience == "all_users" || audience == "patients" || audience == null || notif.type == "broadcast") &&
                     !isTargetedType
                 val isUserSpecific = (!userId.isNullOrBlank() && notif.userId == userId)

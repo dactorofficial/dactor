@@ -47,12 +47,15 @@ fun ClinicDetailScreen(
     clinicId: String? = null,
     clinicRepository: com.dactor.patient.data.repository.ClinicRepository? = null,
     doctorRepository: com.dactor.patient.data.repository.DoctorRepository? = null,
+    slotRepository: com.dactor.patient.data.repository.SlotRepository? = null,
     sessionManager: com.dactor.patient.data.local.UserSessionManager? = null
 ) {
     val context = LocalContext.current
     var clinic by remember { mutableStateOf<com.dactor.patient.data.model.Clinic?>(null) }
     var services by remember { mutableStateOf<List<ClinicService>>(emptyList()) }
     var doctors by remember { mutableStateOf<List<Doctor>>(emptyList()) }
+    var hasAvailableSlotsToday by remember { mutableStateOf(false) }
+    var nextAvailableDate by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isFavorite by remember { mutableStateOf(false) }
 
@@ -66,6 +69,20 @@ fun ClinicDetailScreen(
             clinic = c
             services = clinicRepository.getClinicServices(clinicId)
             doctors = doctorRepository?.getDoctors(clinicId) ?: emptyList()
+            if (slotRepository != null) {
+                val todayStr = java.time.LocalDate.now().toString()
+                val todaySlots = slotRepository.getAvailableSlots(clinicId, todayStr)
+                val isTodayAvail = todaySlots.any {
+                    it.isPublished && (it.maxCapacity - it.bookedCount) > 0 &&
+                        !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(it.endTime, todayStr, it.startTime)
+                }
+                hasAvailableSlotsToday = isTodayAvail
+                nextAvailableDate = if (isTodayAvail) {
+                    todayStr
+                } else {
+                    slotRepository.getNextAvailableDate(clinicId, todayStr)
+                }
+            }
         }
         isLoading = false
     }
@@ -172,7 +189,38 @@ fun ClinicDetailScreen(
                 color = Color.White,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Box(modifier = Modifier.padding(16.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Availability indicator just above Book button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .background(
+                                    if (hasAvailableSlotsToday) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                    CircleShape
+                                )
+                        )
+                        Text(
+                            text = if (hasAvailableSlotsToday) {
+                                "Available today"
+                            } else {
+                                com.dactor.patient.data.repository.SlotRepository.formatNextAvailableDate(nextAvailableDate)
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (hasAvailableSlotsToday) Color(0xFF15803D) else Color(0xFFB45309)
+                        )
+                    }
+
                     Button(
                         onClick = {
                             val targetId = clinicId ?: clinic?.id ?: ""
@@ -199,7 +247,7 @@ fun ClinicDetailScreen(
                     ) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Book Appointment", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(if (hasAvailableSlotsToday) "Book Appointment" else "Book on another date", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Spacer(Modifier.width(6.dp))
                         Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
@@ -558,14 +606,14 @@ fun ClinicDetailScreen(
                                     )
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFFDCFCE7),
+                                        color = if (hasAvailableSlotsToday) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
                                         modifier = Modifier.padding(top = 2.dp)
                                     ) {
                                         Text(
-                                            "Available Today",
+                                            if (hasAvailableSlotsToday) "Available Today" else com.dactor.patient.data.repository.SlotRepository.formatNextAvailableDate(nextAvailableDate),
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF15803D),
+                                            color = if (hasAvailableSlotsToday) Color(0xFF15803D) else Color(0xFFD97706),
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }

@@ -30,6 +30,8 @@ import {
   Camera,
   MapPin,
   HelpCircle,
+  Headphones,
+  ExternalLink,
 } from 'lucide-react'
 import {
   Doctor,
@@ -54,6 +56,7 @@ import {
   sendManualNotification,
   getClinics,
   uploadDoctorPhoto,
+  getSupportUrl,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { supabase } from '../lib/supabase'
@@ -107,6 +110,20 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       return null
     }
   })
+
+  const [supportUrl, setSupportUrl] = useState<string>(() => {
+    try {
+      return localStorage.getItem('dactor_support_url') || 'https://dactorofficial.github.io/support'
+    } catch {
+      return 'https://dactorofficial.github.io/support'
+    }
+  })
+
+  useEffect(() => {
+    getSupportUrl().then((url) => {
+      if (url) setSupportUrl(url)
+    })
+  }, [])
 
   // Google OAuth Loading / Error
   const [firebaseLoading, setFirebaseLoading] = useState(false)
@@ -647,40 +664,43 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   if (currentView === 'auth_screen') {
     return (
       <div className="max-w-xl mx-auto px-4 py-16">
-        <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-slate-200/80 text-center space-y-6">
+        <div className="liquid-glass-elevated rounded-3xl p-8 sm:p-10 text-center space-y-6 relative overflow-hidden">
+          {/* Top specular refraction sheen */}
+          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+
           {/* Brand Icon */}
-          <div className="w-16 h-16 rounded-3xl bg-brand-100 text-brand-700 flex items-center justify-center mx-auto shadow-inner">
+          <div className="w-16 h-16 rounded-3xl bg-teal-500/10 dark:bg-teal-400/10 text-teal-600 dark:text-teal-400 flex items-center justify-center mx-auto shadow-inner border border-teal-500/20">
             <Stethoscope className="w-8 h-8 stroke-[2.5]" />
           </div>
 
           <div className="space-y-1.5">
-            <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
+            <span className="text-xs font-bold uppercase tracking-wider text-teal-600 dark:text-teal-400">
               Official Dactor Practitioner Network
             </span>
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
               Doctor Consultation Desk
             </h2>
-            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+            <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed">
               Dedicated portal for licensed medical doctors & practitioners. Manage live cabin presence, review today's patient queue, call tokens, and maintain consultation history.
             </p>
           </div>
 
           {/* Account Exclusivity Notice */}
-          <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200 text-left space-y-1">
-            <div className="flex items-center space-x-2 text-amber-900 font-bold text-xs">
-              <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+          <div className="p-3.5 liquid-glass-subtle rounded-2xl border border-amber-500/30 dark:border-amber-400/20 text-left space-y-1">
+            <div className="flex items-center space-x-2 text-amber-900 dark:text-amber-300 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>Strict Single-Role Account Security</span>
             </div>
-            <p className="text-[11px] text-amber-800 leading-relaxed">
+            <p className="text-[11px] text-amber-800 dark:text-amber-200/90 leading-relaxed">
               Your Google account is exclusively bound to your Doctor profile. A single account cannot be shared with Clinic or Patient portals.
             </p>
           </div>
 
           {/* Error Banner */}
           {authError && (
-            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium text-left space-y-2.5">
+            <div className="p-4 rounded-2xl liquid-glass-subtle border border-rose-500/30 text-rose-800 dark:text-rose-200 text-xs font-medium text-left space-y-2.5">
               <div className="flex items-start space-x-2.5">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   <span className="font-bold block">Access Restricted</span>
                   <p className="leading-relaxed">{authError}</p>
@@ -690,7 +710,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 <button
                   type="button"
                   onClick={handleGoogleSignIn}
-                  className="px-3 py-1.5 rounded-xl bg-white hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold text-xs cursor-pointer transition"
+                  className="px-3 py-1.5 rounded-xl liquid-glass-card hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 font-bold text-xs cursor-pointer transition"
                 >
                   Change Account
                 </button>
@@ -698,21 +718,21 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             </div>
           )}
 
-          {/* Single Google Sign In Button (ClinicLoginScreen.kt lines 1530-1558) */}
+          {/* Single Google Sign In Button */}
           <button
             type="button"
             onClick={handleGoogleSignIn}
             disabled={firebaseLoading}
-            className="w-full py-4 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-3 text-sm cursor-pointer disabled:opacity-60"
+            className="w-full py-4 px-6 liquid-glass-card hover:bg-white/80 dark:hover:bg-slate-800/80 text-slate-900 dark:text-white font-bold rounded-2xl transition-all flex items-center justify-center space-x-3 text-sm cursor-pointer shadow-sm hover:shadow-md hover:scale-[1.01] active:scale-[0.98] border border-white/60 dark:border-white/10 disabled:opacity-60"
           >
             {firebaseLoading ? (
               <>
-                <RefreshCw className="w-5 h-5 animate-spin text-white" />
+                <RefreshCw className="w-5 h-5 animate-spin text-teal-600 dark:text-teal-400" />
                 <span>Verifying Doctor Account...</span>
               </>
             ) : (
               <>
-                <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shrink-0">
+                <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shrink-0 shadow-xs">
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
@@ -737,12 +757,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             )}
           </button>
 
-          <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-left space-y-1">
-            <div className="flex items-center space-x-2 text-slate-800 font-bold text-xs">
-              <ShieldCheck className="w-4 h-4 text-brand-600" />
+          <div className="p-3.5 liquid-glass-subtle rounded-2xl border border-white/40 dark:border-white/10 text-left space-y-1">
+            <div className="flex items-center space-x-2 text-slate-800 dark:text-slate-200 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-teal-600 dark:text-teal-400" />
               <span>Unified Doctor Login & NMC KYC Onboarding</span>
             </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
               Sign in with your Google account above. Verified practitioners enter the live OPD cabin directly; new doctors are guided through NMC license verification.
             </p>
           </div>
@@ -757,55 +777,69 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   if (currentView === 'kyc_pending' && pendingDocData) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16">
-        <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-amber-200/80 space-y-6">
+        <div className="liquid-glass-elevated rounded-3xl p-8 sm:p-10 border border-amber-500/30 dark:border-amber-400/20 space-y-6 relative overflow-hidden">
+          {/* Top amber specular refraction sheen */}
+          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-amber-400/60 to-transparent" />
+
           <div className="text-center space-y-3">
-            <div className="w-16 h-16 rounded-3xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/10 dark:bg-amber-400/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-inner border border-amber-500/20">
               <Clock className="w-8 h-8 animate-pulse" />
             </div>
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-3 py-1 rounded-full">
+            <span className="inline-block text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3.5 py-1 rounded-full">
               Registration Under Review
             </span>
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
               Medical KYC Awaiting Regulatory Verification
             </h2>
-            <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+            <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed">
               Your doctor application has been submitted to the Dactor Medical Accreditation Board. We verify Nepal Medical Council (NMC) registration before activating consultation desks.
             </p>
           </div>
 
           {/* Submitted Profile Summary Card */}
-          <div className="p-5 bg-amber-50/50 rounded-2xl border border-amber-200/70 space-y-3 text-xs">
-            <div className="flex justify-between items-center pb-2 border-b border-amber-200/60 font-bold text-amber-950">
+          <div className="p-5 liquid-glass-subtle rounded-2xl border border-amber-500/20 space-y-3 text-xs">
+            <div className="flex justify-between items-center pb-2 border-b border-white/20 dark:border-white/5 font-bold text-amber-950 dark:text-amber-200">
               <span>Practitioner Name</span>
-              <span className="font-black text-slate-900">{pendingDocData.name}</span>
+              <span className="font-black text-slate-900 dark:text-white">{pendingDocData.name}</span>
             </div>
-            <div className="flex justify-between items-center pb-2 border-b border-amber-200/60 font-bold text-amber-950">
+            <div className="flex justify-between items-center pb-2 border-b border-white/20 dark:border-white/5 font-bold text-amber-950 dark:text-amber-200">
               <span>NMC License Number</span>
-              <span className="font-mono font-black text-slate-900">{pendingDocData.nmcNumber}</span>
+              <span className="font-mono font-black text-slate-900 dark:text-white">{pendingDocData.nmcNumber}</span>
             </div>
-            <div className="flex justify-between items-center pb-2 border-b border-amber-200/60 font-bold text-amber-950">
+            <div className="flex justify-between items-center pb-2 border-b border-white/20 dark:border-white/5 font-bold text-amber-950 dark:text-amber-200">
               <span>Medical Specialty</span>
-              <span className="font-black text-slate-900">{pendingDocData.specialty}</span>
+              <span className="font-black text-slate-900 dark:text-white">{pendingDocData.specialty}</span>
             </div>
-            <div className="flex justify-between items-center font-bold text-amber-950">
+            <div className="flex justify-between items-center font-bold text-amber-950 dark:text-amber-200">
               <span>Registered Google Email</span>
-              <span className="font-mono text-slate-700">{pendingDocData.email}</span>
+              <span className="font-mono text-slate-700 dark:text-slate-300">{pendingDocData.email}</span>
             </div>
           </div>
 
           {kycCheckMsg && (
-            <div className="p-3 bg-brand-50 border border-brand-200 rounded-xl text-brand-900 text-xs text-center font-bold">
+            <div className="p-3 liquid-glass-subtle border border-teal-500/30 rounded-xl text-teal-800 dark:text-teal-200 text-xs text-center font-bold">
               {kycCheckMsg}
             </div>
           )}
 
           {/* Action Buttons */}
           <div className="space-y-3 pt-2">
+            <a
+              href={supportUrl.startsWith('http') || supportUrl.startsWith('mailto:') ? supportUrl : `https://${supportUrl}`}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:brightness-110 text-white font-black rounded-2xl shadow-lg border border-amber-400/40 active:scale-[0.98] transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
+            >
+              <Headphones className="w-4 h-4" />
+              <span>Contact Dactor Practitioner Support Desk</span>
+              <ExternalLink className="w-3.5 h-3.5 ml-1 opacity-80" />
+            </a>
+
             <button
               type="button"
               onClick={handleCheckKycStatus}
               disabled={checkingKyc}
-              className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-md transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer disabled:opacity-60"
+              className="w-full py-3.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-black rounded-2xl shadow-lg shadow-teal-500/20 active:scale-[0.98] transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer disabled:opacity-60"
             >
               <RefreshCw className={`w-4 h-4 ${checkingKyc ? 'animate-spin' : ''}`} />
               <span>Check Verification Status Now</span>
@@ -814,17 +848,17 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             <button
               type="button"
               onClick={handleLogout}
-              className="w-full py-3 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold rounded-2xl transition-all text-xs cursor-pointer flex items-center justify-center space-x-2"
+              className="w-full py-3 liquid-glass-card hover:bg-white/80 dark:hover:bg-slate-800/80 text-slate-800 dark:text-slate-200 border border-white/40 dark:border-white/10 font-bold rounded-2xl active:scale-[0.98] transition-all text-xs cursor-pointer flex items-center justify-center space-x-2"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Sign Out & Switch Account</span>
             </button>
           </div>
 
-          <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 text-center">
-            <p className="text-[11px] text-slate-500">
+          <div className="p-3.5 liquid-glass-subtle rounded-2xl border border-white/30 dark:border-white/10 text-center">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
               Medical KYC approvals complete within 12-24 business hours. For urgent hospital roster deployment, contact Dactor Practitioner Support at{' '}
-              <span className="font-bold text-slate-700">dactorofficial@gmail.com</span>.
+              <span className="font-bold text-slate-800 dark:text-slate-200">dactorofficial@gmail.com</span>.
             </p>
           </div>
         </div>
@@ -838,35 +872,38 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   if (currentView === 'register_form') {
     return (
       <div className="max-w-3xl mx-auto px-4 py-12">
-        <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-slate-200 space-y-6">
+        <div className="liquid-glass-elevated rounded-3xl p-8 sm:p-10 space-y-6 relative overflow-hidden border border-white/40 dark:border-white/10">
+          {/* Top specular refraction sheen */}
+          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+
           <div className="text-left space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
+            <span className="text-xs font-bold uppercase tracking-wider text-teal-600 dark:text-teal-400">
               Step 2 of 2: Medical Accreditation
             </span>
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
               Doctor Registration & NMC KYC Form
             </h2>
-            <p className="text-xs text-slate-500 leading-relaxed">
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
               Submit your medical qualifications and NMC registration number. Verified doctors receive full desk access and high trust rating on patient discovery cards.
             </p>
           </div>
 
-          <div className="p-3.5 bg-brand-50 rounded-2xl border border-brand-200 flex items-center justify-between text-xs">
+          <div className="p-3.5 liquid-glass-subtle rounded-2xl border border-teal-500/30 flex items-center justify-between text-xs">
             <div className="flex items-center space-x-2">
-              <span className="font-bold text-brand-900">Verified Google ID:</span>
-              <span className="font-mono text-brand-700">{verifiedEmail}</span>
+              <span className="font-bold text-teal-900 dark:text-teal-200">Verified Google ID:</span>
+              <span className="font-mono text-teal-700 dark:text-teal-300">{verifiedEmail}</span>
             </div>
             <button
               type="button"
               onClick={handleLogout}
-              className="text-brand-600 hover:text-brand-800 font-bold underline cursor-pointer text-[11px]"
+              className="text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 font-bold underline cursor-pointer text-[11px]"
             >
               Change Account
             </button>
           </div>
 
           {regErrors.form && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-bold">
+            <div className="p-3 liquid-glass-subtle border border-rose-500/30 rounded-xl text-rose-800 dark:text-rose-200 text-xs font-bold">
               {regErrors.form}
             </div>
           )}
@@ -874,7 +911,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           <form onSubmit={handleSubmitRegistration} className="space-y-6 text-left">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                   Doctor Full Name (with Dr. prefix) *
                 </label>
                 <input
@@ -882,13 +919,13 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                   value={regName}
                   onChange={(e) => setRegName(e.target.value)}
                   placeholder="e.g. Dr. Anubhav Sharma"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
                 />
-                {regErrors.name && <p className="text-[11px] text-rose-600 mt-1">{regErrors.name}</p>}
+                {regErrors.name && <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.name}</p>}
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                   NMC License Registration Number *
                 </label>
                 <input
@@ -896,114 +933,114 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                   value={regNmc}
                   onChange={(e) => setRegNmc(e.target.value)}
                   placeholder="e.g. 18452-MED"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white font-mono"
                 />
-                {regErrors.nmc && <p className="text-[11px] text-rose-600 mt-1">{regErrors.nmc}</p>}
+                {regErrors.nmc && <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.nmc}</p>}
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Medical Specialty *</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Medical Specialty *</label>
                 <select
                   value={regSpecialty}
                   onChange={(e) => setRegSpecialty(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
                 >
                   {specialtiesList.map((s) => (
-                    <option key={s.id} value={s.name}>
+                    <option key={s.id} value={s.name} className="dark:bg-slate-900 text-slate-900 dark:text-white">
                       {s.name}
                     </option>
                   ))}
                   {specialtiesList.length === 0 && (
                     <>
-                      <option value="General Physician">General Physician</option>
-                      <option value="Cardiology (Heart Care)">Cardiology (Heart Care)</option>
-                      <option value="Pediatrics & Child Health">Pediatrics & Child Health</option>
-                      <option value="Orthopedics & Joint Care">Orthopedics & Joint Care</option>
-                      <option value="Dermatology & Skin Care">Dermatology & Skin Care</option>
+                      <option value="General Physician" className="dark:bg-slate-900 text-slate-900 dark:text-white">General Physician</option>
+                      <option value="Cardiology (Heart Care)" className="dark:bg-slate-900 text-slate-900 dark:text-white">Cardiology (Heart Care)</option>
+                      <option value="Pediatrics & Child Health" className="dark:bg-slate-900 text-slate-900 dark:text-white">Pediatrics & Child Health</option>
+                      <option value="Orthopedics & Joint Care" className="dark:bg-slate-900 text-slate-900 dark:text-white">Orthopedics & Joint Care</option>
+                      <option value="Dermatology & Skin Care" className="dark:bg-slate-900 text-slate-900 dark:text-white">Dermatology & Skin Care</option>
                     </>
                   )}
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Qualification / Degree *</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Qualification / Degree *</label>
                 <select
                   value={regEducation}
                   onChange={(e) => setRegEducation(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
                 >
                   {qualificationsList.map((q) => (
-                    <option key={q.id} value={q.degreeName}>
+                    <option key={q.id} value={q.degreeName} className="dark:bg-slate-900 text-slate-900 dark:text-white">
                       {q.degreeName} ({q.fullTitle})
                     </option>
                   ))}
                   {qualificationsList.length === 0 && (
                     <>
-                      <option value="MBBS">MBBS</option>
-                      <option value="MBBS, MD">MBBS, MD</option>
-                      <option value="MS - General Surgery">MS - General Surgery</option>
-                      <option value="BDS">BDS</option>
+                      <option value="MBBS" className="dark:bg-slate-900 text-slate-900 dark:text-white">MBBS</option>
+                      <option value="MBBS, MD" className="dark:bg-slate-900 text-slate-900 dark:text-white">MBBS, MD</option>
+                      <option value="MS - General Surgery" className="dark:bg-slate-900 text-slate-900 dark:text-white">MS - General Surgery</option>
+                      <option value="BDS" className="dark:bg-slate-900 text-slate-900 dark:text-white">BDS</option>
                     </>
                   )}
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Practicing Since Year</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Practicing Since Year</label>
                 <input
                   type="number"
                   min="1970"
                   max={new Date().getFullYear()}
                   value={regStartingYear}
                   onChange={(e) => setRegStartingYear(parseInt(e.target.value, 10))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Gender *</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Gender *</label>
                 <select
                   value={regGender}
                   onChange={(e) => setRegGender(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
                 >
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
+                  <option value="Male" className="dark:bg-slate-900 text-slate-900 dark:text-white">Male</option>
+                  <option value="Female" className="dark:bg-slate-900 text-slate-900 dark:text-white">Female</option>
+                  <option value="Other" className="dark:bg-slate-900 text-slate-900 dark:text-white">Other</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Age *</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Age *</label>
                 <input
                   type="number"
                   value={regAge}
                   onChange={(e) => setRegAge(e.target.value)}
                   placeholder="e.g. 36"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
                 />
-                {regErrors.age && <p className="text-[11px] text-rose-600 mt-1">{regErrors.age}</p>}
+                {regErrors.age && <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.age}</p>}
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Standard OPD Fee (NPR)</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Standard OPD Fee (NPR)</label>
                 <input
                   type="number"
                   value={regFee}
                   onChange={(e) => setRegFee(parseInt(e.target.value, 10) || 500)}
                   placeholder="500"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                   Personal Mobile Number (Private) *
                 </label>
                 <input
@@ -1011,25 +1048,25 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                   value={regPersonalPhone}
                   onChange={(e) => setRegPersonalPhone(e.target.value)}
                   placeholder="98XXXXXXXX (10 digits)"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
                 />
                 {regErrors.personalPhone && (
-                  <p className="text-[11px] text-rose-600 mt-1">{regErrors.personalPhone}</p>
+                  <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.personalPhone}</p>
                 )}
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                   Clinic Affiliation (Optional)
                 </label>
                 <select
                   value={regClinicId}
                   onChange={(e) => setRegClinicId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
                 >
-                  <option value="">Independent / Multi-Clinic Practice</option>
+                  <option value="" className="dark:bg-slate-900 text-slate-900 dark:text-white">Independent / Multi-Clinic Practice</option>
                   {allClinics.map((c) => (
-                    <option key={c.id} value={c.id}>
+                    <option key={c.id} value={c.id} className="dark:bg-slate-900 text-slate-900 dark:text-white">
                       {c.name} ({c.addressText || 'Nepal'})
                     </option>
                   ))}
@@ -1038,53 +1075,53 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             </div>
 
             {/* Document Uploads */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                  <Camera className="w-4 h-4 text-brand-600" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/40 dark:border-white/10">
+              <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/40 dark:border-white/10 space-y-2">
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                  <Camera className="w-4 h-4 text-teal-600 dark:text-teal-400" />
                   <span>Doctor Profile Picture (Optional)</span>
                 </label>
                 <input
                   type="file"
                   accept="image/*"
                   onChange={(e) => setRegPhotoFile(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:bg-brand-50 file:text-brand-700 file:font-bold hover:file:bg-brand-100 cursor-pointer"
+                  className="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:bg-teal-500/10 file:text-teal-700 dark:file:text-teal-300 file:font-bold hover:file:bg-teal-500/20 cursor-pointer"
                 />
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                  <Award className="w-4 h-4 text-brand-600" />
+              <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/40 dark:border-white/10 space-y-2">
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                  <Award className="w-4 h-4 text-teal-600 dark:text-teal-400" />
                   <span>NMC Certificate Document / Photo *</span>
                 </label>
                 <input
                   type="file"
                   accept="image/*,application/pdf"
                   onChange={(e) => setRegLicenseFile(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:bg-brand-50 file:text-brand-700 file:font-bold hover:file:bg-brand-100 cursor-pointer"
+                  className="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:bg-teal-500/10 file:text-teal-700 dark:file:text-teal-300 file:font-bold hover:file:bg-teal-500/20 cursor-pointer"
                 />
               </div>
             </div>
 
             {/* Terms checkbox */}
             <div className="pt-2">
-              <label className="flex items-start space-x-2 text-xs text-slate-600 cursor-pointer">
+              <label className="flex items-start space-x-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={regTermsAccepted}
                   onChange={(e) => setRegTermsAccepted(e.target.checked)}
-                  className="mt-0.5 rounded text-brand-600 focus:ring-brand-500"
+                  className="mt-0.5 rounded text-teal-600 focus:ring-teal-500"
                 />
                 <span>
                   I declare under penalty of law that I am an actively registered medical practitioner with the Nepal Medical Council (NMC) and agree to Dactor's ethical code and live OPD privacy standards.
                 </span>
               </label>
-              {regErrors.terms && <p className="text-[11px] text-rose-600 mt-1">{regErrors.terms}</p>}
+              {regErrors.terms && <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.terms}</p>}
             </div>
 
             {regStatusMsg && (
-              <div className="p-3 bg-brand-50 text-brand-800 font-bold text-xs rounded-xl flex items-center space-x-2">
-                <RefreshCw className="w-4 h-4 animate-spin" />
+              <div className="p-3 liquid-glass-subtle text-teal-900 dark:text-teal-200 font-bold text-xs rounded-xl flex items-center space-x-2 border border-teal-500/30">
+                <RefreshCw className="w-4 h-4 animate-spin text-teal-600 dark:text-teal-400" />
                 <span>{regStatusMsg}</span>
               </div>
             )}
@@ -1092,7 +1129,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             <button
               type="submit"
               disabled={submittingReg}
-              className="w-full py-4 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-lg shadow-brand-600/20 text-xs sm:text-sm cursor-pointer transition-all disabled:opacity-60 flex items-center justify-center space-x-2"
+              className="w-full py-4 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-black rounded-2xl shadow-lg shadow-teal-500/25 text-xs sm:text-sm cursor-pointer transition-all active:scale-[0.98] disabled:opacity-60 flex items-center justify-center space-x-2"
             >
               {submittingReg ? (
                 <>
@@ -1116,22 +1153,25 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   // VIEW 4: ACTIVE DOCTOR CONSULTATION DESK
   // ==========================================
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 space-y-5 sm:space-y-6 pb-28 sm:pb-12">
       {/* Top Banner / Doctor Context Bar */}
-      <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-center space-x-4">
-          <div className="relative group w-16 h-16 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-brand-200 shadow-xs">
+      <div className="liquid-glass-elevated rounded-2xl sm:rounded-3xl border border-white/40 dark:border-white/10 p-4 sm:p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative overflow-hidden">
+        {/* Top specular refraction sheen */}
+        <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+
+        <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
+          <div className="relative group w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-teal-500/10 text-teal-700 dark:text-teal-300 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-teal-500/20 shadow-xs">
             {currentDoctor?.profilePictureUrl ? (
               <img
                 src={currentDoctor.profilePictureUrl}
                 alt={currentDoctor.fullName}
                 className="w-full h-full object-cover"
                 onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none'
+                  ;(e.target as HTMLElement).style.display = 'none'
                 }}
               />
             ) : (
-              <Stethoscope className="w-8 h-8" />
+              <Stethoscope className="w-7 h-7 sm:w-8 sm:h-8" />
             )}
             <label
               className="absolute inset-0 bg-black/60 text-white opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity text-[9px] font-bold cursor-pointer"
@@ -1149,35 +1189,35 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             </label>
           </div>
 
-          <div>
+          <div className="min-w-0">
             {photoUpdateMsg && (
-              <span className="inline-block mb-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+              <span className="inline-block mb-1 text-[10px] sm:text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
                 {photoUpdateMsg}
               </span>
             )}
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-black text-slate-900">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <h1 className="text-lg sm:text-2xl font-black text-slate-900 dark:text-white truncate">
                 {currentDoctor?.fullName}
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center space-x-1">
+              <span className="px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 flex items-center space-x-1">
                 <CheckCircle2 className="w-3 h-3" />
                 <span>NMC: {currentDoctor?.nmcLicenseNumber || 'Verified'}</span>
               </span>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-brand-100 text-brand-800">
+              <span className="px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
                 {currentDoctor?.specialty || 'General Physician'}
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-3 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-1">
               <span>{currentDoctor?.education || 'MBBS, MD'}</span>
               <span>•</span>
-              <span>Logged in: <strong className="text-slate-700">{currentDoctor?.email}</strong></span>
+              <span className="truncate max-w-[200px] sm:max-w-none">Logged in: <strong className="text-slate-700 dark:text-slate-300">{currentDoctor?.email}</strong></span>
               {selectedClinic && (
                 <>
                   <span>•</span>
-                  <span className="font-bold text-brand-700 flex items-center space-x-1">
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>{selectedClinic.name}</span>
+                  <span className="font-bold text-teal-700 dark:text-teal-400 flex items-center space-x-1 truncate max-w-[180px] sm:max-w-none">
+                    <Building2 className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{selectedClinic.name}</span>
                   </span>
                 </>
               )}
@@ -1186,7 +1226,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         </div>
 
         {/* Doctor Presence Toggle & Controls */}
-        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 w-full md:w-auto justify-between md:justify-end pt-2 md:pt-0 border-t md:border-t-0 border-white/20 dark:border-white/5">
           {/* Clinic Switcher (if doctor practices at multiple facilities) */}
           {affiliatedClinics.length > 1 && (
             <select
@@ -1195,10 +1235,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 const found = affiliatedClinics.find((c) => c.id === e.target.value)
                 if (found) setSelectedClinic(found)
               }}
-              className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl liquid-glass-input text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white/70 dark:bg-slate-900/80"
             >
               {affiliatedClinics.map((c) => (
-                <option key={c.id} value={c.id}>
+                <option key={c.id} value={c.id} className="dark:bg-slate-900">
                   Clinic: {c.name}
                 </option>
               ))}
@@ -1209,39 +1249,39 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           <button
             onClick={handleTogglePresence}
             disabled={updatingPresence}
-            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs ${
+            className={`flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs active:scale-[0.98] ${
               isInCabin
-                ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
-                : 'bg-rose-50 border-rose-300 text-rose-800 hover:bg-rose-100'
+                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25'
+                : 'bg-rose-500/15 border-rose-500/30 text-rose-700 dark:text-rose-300 hover:bg-rose-500/25'
             }`}
             title="Click to toggle In-Cabin Presence. Live queues update immediately across website and mobile apps."
           >
             <span
-              className={`w-2.5 h-2.5 rounded-full ${
+              className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${
                 isInCabin ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
               }`}
             />
-            <span>{isInCabin ? 'Doctor is In Cabin' : 'Doctor is Away (Out)'}</span>
+            <span className="truncate">{isInCabin ? 'Doctor is In Cabin' : 'Doctor is Away (Out)'}</span>
           </button>
 
           <button
             onClick={handleLogout}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            className="flex items-center space-x-1 px-2.5 sm:px-3 py-2 liquid-glass-card hover:bg-rose-500/20 hover:text-rose-600 dark:hover:text-rose-400 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-white/40 dark:border-white/10"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Logout</span>
           </button>
         </div>
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-3 overflow-x-auto">
+      <div className="flex items-center space-x-2 border-b border-white/40 dark:border-white/10 pb-3 overflow-x-auto scrollbar-none">
         <button
           onClick={() => setDeskTab('today_queue')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'today_queue'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-md shadow-teal-500/20'
+              : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60 border border-white/40 dark:border-white/10'
           }`}
         >
           <Activity className="w-4 h-4" />
@@ -1252,8 +1292,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           onClick={() => setDeskTab('future_appts')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'future_appts'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-md shadow-teal-500/20'
+              : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60 border border-white/40 dark:border-white/10'
           }`}
         >
           <Calendar className="w-4 h-4" />
@@ -1264,8 +1304,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           onClick={() => setDeskTab('profile_settings')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'profile_settings'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-md shadow-teal-500/20'
+              : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60 border border-white/40 dark:border-white/10'
           }`}
         >
           <Sliders className="w-4 h-4" />
@@ -1280,43 +1320,46 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         <div className="space-y-6">
           {/* Quick Metrics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+            <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold border border-amber-500/20">
                 <Users className="w-6 h-6" />
               </div>
               <div>
-                <div className="text-2xl font-black text-slate-900">{waitingPatients.length}</div>
-                <div className="text-xs text-slate-500 font-bold">Waiting in OPD Lobby</div>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">{waitingPatients.length}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">Waiting in OPD Lobby</div>
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-bold">
+            <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center font-bold border border-teal-500/20">
                 <Stethoscope className="w-6 h-6" />
               </div>
               <div>
-                <div className="text-2xl font-black text-slate-900">
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
                   {currentInsidePatient ? '1 Inside' : 'None Inside'}
                 </div>
-                <div className="text-xs text-slate-500 font-bold">Currently in Cabin</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">Currently in Cabin</div>
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+            <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold border border-emerald-500/20">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
               <div>
-                <div className="text-2xl font-black text-slate-900">{completedPatients.length}</div>
-                <div className="text-xs text-slate-500 font-bold">Completed Consultations</div>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">{completedPatients.length}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">Completed Consultations</div>
               </div>
             </div>
           </div>
 
           {/* ACTIVE IN-CABIN PATIENT HERO CARD */}
           {currentInsidePatient && (
-            <div className="bg-gradient-to-r from-brand-900 via-brand-800 to-sky-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl space-y-4">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-brand-700/60 pb-4">
+            <div className="liquid-glass-elevated bg-gradient-to-r from-teal-950/85 via-slate-950/85 to-cyan-950/85 text-white rounded-3xl p-6 sm:p-8 shadow-xl space-y-4 border border-teal-500/30 relative overflow-hidden backdrop-blur-2xl">
+              {/* Top cyan specular line */}
+              <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent" />
+
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-teal-700/40 pb-4">
                 <div className="flex items-center space-x-3">
                   <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
                   <span className="text-xs font-bold uppercase tracking-wider text-cyan-200">
@@ -1359,7 +1402,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                       setAlertMessage('Your consultation is ongoing. Please remain inside cabin.')
                       setAlertModalOpen(true)
                     }}
-                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>Send Alert</span>
@@ -1368,7 +1411,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                   <button
                     type="button"
                     onClick={() => handleMarkCompleted(currentInsidePatient)}
-                    className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs shadow-lg transition-all cursor-pointer flex items-center justify-center space-x-2"
+                    className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-black text-xs shadow-lg shadow-emerald-500/25 transition-all cursor-pointer flex items-center justify-center space-x-2 active:scale-[0.98]"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Mark Consultation Completed</span>
@@ -1379,15 +1422,15 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           )}
 
           {/* WAITING QUEUE PATIENTS LIST */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-white/20 dark:border-white/5 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-black text-slate-900">Waiting Patients Queue</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <h3 className="text-base font-black text-slate-900 dark:text-white">Waiting Patients Queue</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Patients currently waiting outside your cabin for today's OPD consultation.
                 </p>
               </div>
-              <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700">
+              <span className="text-xs font-bold px-3 py-1 rounded-full liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/30 dark:border-white/10">
                 {waitingPatients.length} In Queue
               </span>
             </div>
@@ -1395,21 +1438,21 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             {waitingPatients.length === 0 ? (
               <div className="p-12 text-center space-y-3">
                 <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
-                <h4 className="text-base font-bold text-slate-800">No Waiting Patients in Lobby</h4>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">No Waiting Patients in Lobby</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
                   All booked and walk-in OPD patients for today have completed consultations or no patients are currently checked in.
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-white/20 dark:divide-white/5">
                 {waitingPatients.map((appt, idx) => (
                   <div
                     key={appt.id}
-                    className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors"
+                    className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
                   >
                     <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 rounded-2xl bg-brand-50 border border-brand-200 text-brand-700 flex flex-col items-center justify-center font-mono font-black shrink-0">
-                        <span className="text-[10px] text-brand-500 uppercase leading-none">Token</span>
+                      <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-teal-700 dark:text-teal-300 flex flex-col items-center justify-center font-mono font-black shrink-0">
+                        <span className="text-[10px] text-teal-600 dark:text-teal-400 uppercase leading-none">Token</span>
                         <span className="text-base leading-none">
                           #{String(appt.queueNumber || idx + 1).padStart(2, '0')}
                         </span>
@@ -1417,19 +1460,19 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
                       <div className="space-y-0.5">
                         <div className="flex items-center space-x-2">
-                          <h4 className="text-sm font-black text-slate-900">{appt.patientName}</h4>
-                          <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                          <h4 className="text-sm font-black text-slate-900 dark:text-white">{appt.patientName}</h4>
+                          <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/20">
                             {appt.trackingCode10Digit}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
                           {appt.patientAge ? `${appt.patientAge} Yrs` : ''}{' '}
                           {appt.patientGender ? `• ${appt.patientGender}` : ''}{' '}
                           • Mobile: {appt.patientMobile || 'N/A'}{' '}
                           {appt.appointmentTime ? `• Slot: ${appt.appointmentTime}` : ''}
                         </p>
                         {appt.notes && (
-                          <p className="text-[11px] text-brand-700 font-medium">Notes: {appt.notes}</p>
+                          <p className="text-[11px] text-teal-700 dark:text-teal-300 font-medium">Notes: {appt.notes}</p>
                         )}
                       </div>
                     </div>
@@ -1445,7 +1488,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                           )
                           setAlertModalOpen(true)
                         }}
-                        className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-brand-600 hover:bg-brand-50 transition-colors cursor-pointer"
+                        className="p-2.5 rounded-xl liquid-glass-card border border-white/40 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:text-teal-600 hover:bg-teal-500/10 transition-colors cursor-pointer active:scale-[0.98]"
                         title="Send Push Alert to Patient"
                       >
                         <Send className="w-4 h-4" />
@@ -1454,7 +1497,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                       <button
                         type="button"
                         onClick={() => handleMarkInsideCabin(appt)}
-                        className="px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center space-x-1.5"
+                        className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center space-x-1.5 active:scale-[0.98]"
                       >
                         <UserCheck className="w-4 h-4" />
                         <span>Call to Cabin</span>
@@ -1468,9 +1511,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
           {/* COMPLETED PATIENTS ACCORDION / LIST */}
           {completedPatients.length > 0 && (
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-3">
+            <div className="liquid-glass-subtle rounded-3xl border border-white/40 dark:border-white/10 shadow-sm p-5 space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-black text-slate-900">
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">
                   Completed Today ({completedPatients.length})
                 </h3>
               </div>
@@ -1478,15 +1521,15 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 {completedPatients.map((c) => (
                   <div
                     key={c.id}
-                    className="p-3 bg-emerald-50/50 rounded-2xl border border-emerald-100 flex items-center justify-between text-xs"
+                    className="p-3 liquid-glass-card rounded-2xl border border-emerald-500/20 flex items-center justify-between text-xs"
                   >
                     <div>
-                      <div className="font-bold text-slate-900">{c.patientName}</div>
-                      <div className="text-[11px] text-slate-500 font-mono">
+                      <div className="font-bold text-slate-900 dark:text-white">{c.patientName}</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
                         Token #{c.queueNumber} • {c.trackingCode10Digit}
                       </div>
                     </div>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   </div>
                 ))}
               </div>
@@ -1499,44 +1542,44 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           TAB 2: FUTURE UPCOMING SCHEDULE
           ========================================== */}
       {deskTab === 'future_appts' && (
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-6">
+        <div className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 shadow-sm p-6 space-y-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <h3 className="text-base font-black text-slate-900">Upcoming Appointments Calendar</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <h3 className="text-base font-black text-slate-900 dark:text-white">Upcoming Appointments Calendar</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Review advance bookings and slots reserved by patients for upcoming dates.
               </p>
             </div>
             <div className="flex items-center space-x-2">
-              <label className="text-xs font-bold text-slate-600">Select Date:</label>
+              <label className="text-xs font-bold text-slate-600 dark:text-slate-300">Select Date:</label>
               <input
                 type="date"
                 value={selectedFutureDate}
                 onChange={(e) => setSelectedFutureDate(e.target.value)}
-                className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="px-3.5 py-2 rounded-xl liquid-glass-input text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
           </div>
 
           {futureAppointments.length === 0 ? (
             <div className="p-12 text-center space-y-2">
-              <Calendar className="w-10 h-10 text-slate-300 mx-auto" />
-              <h4 className="text-sm font-bold text-slate-700">
+              <Calendar className="w-10 h-10 text-slate-400 mx-auto" />
+              <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">
                 No Advance Bookings on {selectedFutureDate}
               </h4>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
                 Patients who book slots online for this date will appear here automatically.
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-white/20 dark:divide-white/5">
               {futureAppointments.map((appt) => (
                 <div key={appt.id} className="py-3 flex items-center justify-between text-xs">
                   <div>
-                    <span className="font-bold text-slate-900">{appt.patientName}</span>
-                    <span className="text-slate-500 ml-2">Slot: {appt.appointmentTime}</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{appt.patientName}</span>
+                    <span className="text-slate-500 dark:text-slate-400 ml-2">Slot: {appt.appointmentTime}</span>
                   </div>
-                  <span className="font-mono text-slate-600">{appt.trackingCode10Digit}</span>
+                  <span className="font-mono text-slate-600 dark:text-slate-400">{appt.trackingCode10Digit}</span>
                 </div>
               ))}
             </div>
@@ -1548,29 +1591,29 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           TAB 3: PRACTITIONER PROFILE & SETTINGS
           ========================================== */}
       {deskTab === 'profile_settings' && (
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6 max-w-2xl mx-auto">
+        <div className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 shadow-sm p-6 sm:p-8 space-y-6 max-w-2xl mx-auto">
           <div className="text-left space-y-1">
-            <h3 className="text-lg font-black text-slate-900">Practitioner Profile & Rates</h3>
-            <p className="text-xs text-slate-500">
+            <h3 className="text-lg font-black text-slate-900 dark:text-white">Practitioner Profile & Rates</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Update your public consultation fees and bio displayed on patient booking screens.
             </p>
           </div>
 
           <form onSubmit={handleSaveProfileSettings} className="space-y-4 text-left">
             <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                 Standard Consultation Fee (NPR)
               </label>
               <input
                 type="number"
                 value={editFee}
                 onChange={(e) => setEditFee(parseInt(e.target.value, 10) || 500)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
               />
             </div>
 
             <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                 Public Reception Phone (For Patients)
               </label>
               <input
@@ -1578,12 +1621,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 value={editPublicPhone}
                 onChange={(e) => setEditPublicPhone(e.target.value)}
                 placeholder="98XXXXXXXX"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
               />
             </div>
 
             <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                 Professional Bio & Specializations
               </label>
               <textarea
@@ -1591,13 +1634,13 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 value={editBio}
                 onChange={(e) => setEditBio(e.target.value)}
                 placeholder="Summarize your clinical experience, special procedures, and hospital affiliations..."
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
               />
             </div>
 
             {profileSaveSuccess && (
-              <div className="p-3 bg-emerald-50 text-emerald-800 font-bold text-xs rounded-xl flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <div className="p-3 liquid-glass-subtle text-emerald-800 dark:text-emerald-200 font-bold text-xs rounded-xl flex items-center space-x-2 border border-emerald-500/30">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>Profile updated successfully in Supabase!</span>
               </div>
             )}
@@ -1605,7 +1648,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             <button
               type="submit"
               disabled={savingProfile}
-              className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md text-xs cursor-pointer transition-all disabled:opacity-60 flex items-center justify-center space-x-2"
+              className="w-full py-3.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold rounded-2xl shadow-md text-xs cursor-pointer transition-all active:scale-[0.98] disabled:opacity-60 flex items-center justify-center space-x-2"
             >
               {savingProfile ? (
                 <>
@@ -1620,61 +1663,93 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               )}
             </button>
           </form>
+
+          {/* Helpdesk & Support Card in Profile Settings */}
+          <div className="liquid-glass-card rounded-3xl p-6 border border-teal-500/20 space-y-4 text-left mt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+                  <Headphones className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                    Contact Us & Practitioner Helpdesk
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Connect directly with our regulatory and support team for NMC licensing, consultation questions, or technical help.
+                  </p>
+                </div>
+              </div>
+              <a
+                href={supportUrl.startsWith('http') || supportUrl.startsWith('mailto:') ? supportUrl : `https://${supportUrl}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-xs shadow-md shadow-teal-500/20 transition cursor-pointer shrink-0"
+              >
+                <HelpCircle className="w-4 h-4" />
+                <span>Open Support Desk</span>
+                <ExternalLink className="w-3.5 h-3.5 ml-1 opacity-80" />
+              </a>
+            </div>
+          </div>
         </div>
       )}
 
       {/* PUSH ALERT MODAL */}
       {alertModalOpen && alertTargetAppt && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 shadow-2xl border border-white/40 dark:border-white/10 space-y-4 relative overflow-hidden">
+            {/* Top specular refraction sheen */}
+            <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+
+            <div className="flex items-center justify-between border-b border-white/20 dark:border-white/5 pb-3">
               <div className="flex items-center space-x-2">
-                <Send className="w-5 h-5 text-brand-600" />
-                <h3 className="text-base font-black text-slate-900">Push Alert to Patient</h3>
+                <Send className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                <h3 className="text-base font-black text-slate-900 dark:text-white">Push Alert to Patient</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setAlertModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-3 bg-brand-50 rounded-xl text-xs space-y-1">
-              <div className="font-bold text-brand-900">
+            <div className="p-3 liquid-glass-subtle rounded-xl text-xs space-y-1 border border-teal-500/30">
+              <div className="font-bold text-teal-900 dark:text-teal-200">
                 Recipient: {alertTargetAppt.patientName} (Token #{alertTargetAppt.queueNumber})
               </div>
-              <div className="font-mono text-brand-700">
+              <div className="font-mono text-teal-700 dark:text-teal-300">
                 Tracking Code: {alertTargetAppt.trackingCode10Digit}
               </div>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Alert Title</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Alert Title</label>
                 <input
                   type="text"
                   value={alertTitle}
                   onChange={(e) => setAlertTitle(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Message Content</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Message Content</label>
                 <textarea
                   rows={3}
                   value={alertMessage}
                   onChange={(e) => setAlertMessage(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
                 />
               </div>
             </div>
 
             {alertSuccess && (
-              <div className="p-2.5 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <div className="p-2.5 liquid-glass-subtle text-emerald-800 dark:text-emerald-200 text-xs font-bold rounded-xl flex items-center space-x-2 border border-emerald-500/30">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>Alert sent to patient's live tracker!</span>
               </div>
             )}
@@ -1683,7 +1758,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               <button
                 type="button"
                 onClick={() => setAlertModalOpen(false)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+                className="flex-1 py-2.5 liquid-glass-card hover:bg-white/60 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs cursor-pointer border border-white/40 dark:border-white/10 active:scale-[0.98]"
               >
                 Cancel
               </button>
@@ -1691,7 +1766,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 type="button"
                 onClick={handleSendPatientAlert}
                 disabled={sendingAlert}
-                className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs cursor-pointer disabled:opacity-60 flex items-center justify-center space-x-1.5"
+                className="flex-1 py-2.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold rounded-xl text-xs cursor-pointer disabled:opacity-60 flex items-center justify-center space-x-1.5 active:scale-[0.98]"
               >
                 {sendingAlert ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />

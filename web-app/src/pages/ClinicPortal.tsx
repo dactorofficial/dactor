@@ -47,7 +47,11 @@ import {
   Tag,
   ReceiptText,
   ListPlus,
+  Headphones,
+  ExternalLink,
+  HelpCircle,
 } from 'lucide-react'
+import { GlassCard, GlassButton, GlassBadge } from '../components/glass'
 import {
   Clinic,
   ClinicInvitation,
@@ -102,6 +106,7 @@ import {
   sendManualNotification,
   checkEmailPortalAssociation,
   getClinicPatientDirectory,
+  getSupportUrl,
   createSlot,
   getSlotsByDoctorAndDate,
   updateSlot,
@@ -423,6 +428,20 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       return ''
     }
   })
+
+  const [supportUrl, setSupportUrl] = useState<string>(() => {
+    try {
+      return localStorage.getItem('dactor_support_url') || 'https://dactorofficial.github.io/support'
+    } catch {
+      return 'https://dactorofficial.github.io/support'
+    }
+  })
+
+  useEffect(() => {
+    getSupportUrl().then((url) => {
+      if (url) setSupportUrl(url)
+    })
+  }, [])
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
@@ -2443,37 +2462,37 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   if (currentView === 'pending_verification' && pendingEntity) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12">
-        <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-amber-200/80 space-y-6">
+        <div className="liquid-glass-elevated liquid-glass-ShatterHighlight rounded-3xl p-8 sm:p-10 shadow-glass-elevated border border-amber-300/60 dark:border-amber-500/30 space-y-6">
           <div className="text-center space-y-3">
-            <div className="w-16 h-16 rounded-3xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/15 border border-amber-400/30 text-amber-700 dark:text-amber-300 flex items-center justify-center mx-auto shadow-inner">
               <Clock className="w-8 h-8 stroke-[2.5]" />
             </div>
-            <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+            <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-400/40">
               <ShieldCheck className="w-3.5 h-3.5" />
               <span>Under Regulatory Review</span>
             </span>
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
               Dactor Administration Verification
             </h2>
-            <p className="text-xs sm:text-sm text-slate-600 max-w-lg mx-auto leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-lg mx-auto leading-relaxed">
               Your registration has been recorded in the Dactor National Healthcare Network. Our clinical oversight committee verifies PAN records, physical location, and Nepal Medical Council (NMC) credentials before activating operational desk access.
             </p>
           </div>
 
           {/* Entity Details Card */}
-          <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-3 text-left">
-            <div className="flex items-center justify-between border-b border-slate-200/80 pb-3">
+          <div className="liquid-glass-subtle rounded-2xl p-5 border border-white/50 dark:border-white/10 space-y-3 text-left">
+            <div className="flex items-center justify-between border-b border-white/40 dark:border-white/10 pb-3">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                   {pendingEntity.role === 'clinic'
                     ? 'Healthcare Facility Accreditation'
                     : 'Medical Practitioner KYC'}
                 </span>
-                <h3 className="text-base font-black text-slate-900 mt-0.5">
+                <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">
                   {pendingEntity.name}
                 </h3>
               </div>
-              <span className="px-3 py-1 rounded-xl text-xs font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
+              <span className="px-3 py-1 rounded-xl text-xs font-black uppercase bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-400/40">
                 {pendingEntity.status}
               </span>
             </div>
@@ -2481,17 +2500,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div>
                 <span className="text-slate-400 font-semibold block">Registered Account Email</span>
-                <span className="font-bold text-slate-800">{pendingEntity.email}</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">{pendingEntity.email}</span>
               </div>
               <div>
                 <span className="text-slate-400 font-semibold block">Submitted Credentials</span>
-                <span className="font-bold text-slate-800">{pendingEntity.details}</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">{pendingEntity.details}</span>
               </div>
             </div>
           </div>
 
           {verificationCheckMsg && (
-            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900 flex items-center space-x-2.5">
+            <div className="p-4 rounded-2xl bg-amber-500/10 backdrop-blur-md border border-amber-300/60 dark:border-amber-500/30 text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center space-x-2.5">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
               <span>{verificationCheckMsg}</span>
             </div>
@@ -2499,11 +2518,22 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
           {/* Action Buttons */}
           <div className="space-y-3 pt-2">
+            <a
+              href={supportUrl.startsWith('http') || supportUrl.startsWith('mailto:') ? supportUrl : `https://${supportUrl}`}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:brightness-110 text-white font-bold rounded-2xl shadow-lg border border-amber-400/40 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer active:scale-[0.98]"
+            >
+              <Headphones className="w-4 h-4" />
+              <span>Contact Dactor Support & Onboarding Desk</span>
+              <ExternalLink className="w-3.5 h-3.5 ml-1 opacity-80" />
+            </a>
+
             <button
               type="button"
               onClick={checkVerificationStatus}
               disabled={checkingVerification}
-              className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-lg shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer disabled:opacity-60"
+              className="w-full py-3.5 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white font-bold rounded-2xl shadow-glass-brand border border-white/25 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer disabled:opacity-60 active:scale-[0.98]"
             >
               <RefreshCw className={`w-4 h-4 ${checkingVerification ? 'animate-spin' : ''}`} />
               <span>
@@ -2521,7 +2551,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   pendingEntity.role === 'clinic' ? 'clinic_manager' : 'doctor'
                 )
               }}
-              className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
+              className="w-full py-3.5 bg-slate-900/90 hover:bg-slate-800 text-white font-bold rounded-2xl border border-white/15 transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer active:scale-[0.98]"
             >
               <CheckCircle2 className="w-4 h-4 text-sky-400" />
               <span>Enter Operational Desk Now (Active Provider Access)</span>
@@ -2533,17 +2563,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 resetToAuthChoice()
                 handleGoogleSignInWithRole(pendingEntity.role)
               }}
-              className="w-full py-3 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold rounded-2xl transition-all text-xs cursor-pointer flex items-center justify-center space-x-2"
+              className="w-full py-3 liquid-glass-card hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-800 dark:text-slate-200 border border-white/50 dark:border-white/10 font-bold rounded-2xl transition-all text-xs cursor-pointer flex items-center justify-center space-x-2"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>Change Account</span>
             </button>
           </div>
 
-          <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 text-center">
-            <p className="text-[11px] text-slate-500">
+          <div className="p-3.5 liquid-glass-subtle rounded-2xl border border-white/40 dark:border-white/10 text-center">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Standard verification completes within 24–48 business hours. For urgent hospital or diagnostic lab onboarding, contact Dactor Regulatory Support at{' '}
-              <span className="font-bold text-slate-700">dactorofficial@gmail.com</span>.
+              <span className="font-bold text-slate-700 dark:text-slate-200">dactorofficial@gmail.com</span>.
             </p>
           </div>
         </div>
@@ -2557,49 +2587,49 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   if (currentView === 'register_form') {
     return (
       <div className="max-w-3xl mx-auto px-4 py-10">
-        <div className="bg-white rounded-3xl p-6 sm:p-10 shadow-2xl border border-slate-200/90 space-y-6">
+        <div className="liquid-glass-elevated liquid-glass-ShatterHighlight rounded-3xl p-6 sm:p-10 shadow-glass-elevated border border-white/60 dark:border-white/15 space-y-6">
           {/* Top Navigation Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/40 dark:border-white/10 pb-4">
             <button
               type="button"
               onClick={resetToAuthChoice}
-              className="inline-flex items-center space-x-1.5 text-xs font-bold text-slate-500 hover:text-slate-900 cursor-pointer"
+              className="inline-flex items-center space-x-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
             >
               <span>← Back to Login Desk</span>
             </button>
-            <span className="text-xs font-bold px-3 py-1 bg-brand-50 text-brand-700 border border-brand-200 rounded-full flex items-center space-x-1">
+            <span className="text-xs font-bold px-3 py-1 bg-brand-500/15 text-brand-700 dark:text-brand-300 border border-brand-400/30 rounded-full flex items-center space-x-1">
               <Building2 className="w-3.5 h-3.5" />
               <span>Healthcare Facility Registration</span>
             </span>
           </div>
 
-          {/* Account Not Registered Notice Banner (ClinicLoginScreen.kt lines 1585-1616) */}
-          <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start space-x-3 text-left">
-            <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+          {/* Account Not Registered Notice Banner */}
+          <div className="p-4 rounded-2xl bg-amber-500/10 backdrop-blur-md border border-amber-300/60 dark:border-amber-500/30 flex items-start space-x-3 text-left">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <span className="text-xs font-black text-amber-900 block">
+              <span className="text-xs font-black text-amber-900 dark:text-amber-200 block">
                 Account Not Registered
               </span>
-              <p className="text-xs text-amber-800 leading-relaxed">
+              <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
                 No Clinic profile is registered under <strong>"{verifiedEmail}"</strong>. Complete your details below to register, or tap Change Account to use another Gmail.
               </p>
             </div>
           </div>
 
-          {/* Read-Only Selected Google Account Card (ClinicLoginScreen.kt lines 1621-1650) */}
-          <div className="p-4 rounded-2xl bg-brand-50/70 border border-brand-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
+          {/* Read-Only Selected Google Account Card */}
+          <div className="p-4 rounded-2xl bg-brand-500/10 backdrop-blur-md border border-brand-300/60 dark:border-brand-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
             <div className="space-y-0.5">
-              <span className="text-[10px] font-black uppercase tracking-wider text-brand-700 block">
+              <span className="text-[10px] font-black uppercase tracking-wider text-brand-700 dark:text-brand-300 block">
                 Selected Google Account
               </span>
-              <span className="text-sm font-black text-slate-900 font-mono block">
+              <span className="text-sm font-black text-slate-900 dark:text-white font-mono block">
                 {verifiedEmail}
               </span>
             </div>
             <button
               type="button"
               onClick={() => handleGoogleSignInWithRole('clinic')}
-              className="px-3.5 py-2 rounded-xl border border-brand-300 bg-white hover:bg-brand-50 text-brand-700 font-bold text-xs shrink-0 cursor-pointer transition shadow-2xs"
+              className="px-3.5 py-2 rounded-xl border border-brand-300/60 dark:border-brand-500/30 liquid-glass-card hover:bg-brand-500/15 text-brand-700 dark:text-brand-300 font-bold text-xs shrink-0 cursor-pointer transition shadow-2xs"
             >
               Change Account
             </button>
@@ -2608,17 +2638,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           {/* CLINIC REGISTRATION FORM */}
           <form onSubmit={submitClinicRegistration} className="space-y-6 text-left">
               <div>
-                <h2 className="text-2xl font-black text-slate-900">
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white">
                   Register Healthcare Facility / Clinic
                 </h2>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Complete all statutory details matching your government registration and 9-digit PAN certificate.
                 </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                     Facility / Clinic Name *
                   </label>
                   <input
@@ -2626,21 +2656,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={regClinicName}
                     onChange={(e) => setRegClinicName(e.target.value)}
                     placeholder="e.g. Kathmandu City Polyclinic & Lab"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none"
                   />
                   {regClinicErrors.name && (
-                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regClinicErrors.name}</p>
+                    <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mt-1">{regClinicErrors.name}</p>
                   )}
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                     Healthcare Facility Type *
                   </label>
                   <select
                     value={regClinicType}
                     onChange={(e) => setRegClinicType(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold text-slate-800 dark:text-white outline-none"
                   >
                     <option value="opd_clinic">OPD Polyclinic & Consultation Center</option>
                     <option value="diagnostic_lab">Diagnostic Pathology Lab</option>
@@ -2653,7 +2683,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                     9-Digit PAN Number *
                   </label>
                   <input
@@ -2662,15 +2692,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={regClinicPan}
                     onChange={(e) => setRegClinicPan(e.target.value.replace(/\D/g, ''))}
                     placeholder="e.g. 609812345"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-mono font-bold text-slate-900 dark:text-white outline-none"
                   />
                   {regClinicErrors.pan && (
-                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regClinicErrors.pan}</p>
+                    <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mt-1">{regClinicErrors.pan}</p>
                   )}
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                     Clinic Reception Mobile (10 Digits) *
                   </label>
                   <input
@@ -2679,15 +2709,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={regClinicPhone}
                     onChange={(e) => setRegClinicPhone(e.target.value.replace(/\D/g, ''))}
                     placeholder="98XXXXXXXX"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-mono font-bold text-slate-900 dark:text-white outline-none"
                   />
                   {regClinicErrors.phone && (
-                    <p className="text-[11px] text-rose-600 font-semibold mt-1">{regClinicErrors.phone}</p>
+                    <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mt-1">{regClinicErrors.phone}</p>
                   )}
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                     Clinic Manager Mobile (10 Digits) *
                   </label>
                   <input
@@ -2696,10 +2726,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={regManagerPhone}
                     onChange={(e) => setRegManagerPhone(e.target.value.replace(/\D/g, ''))}
                     placeholder="98XXXXXXXX"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-mono font-bold text-slate-900 dark:text-white outline-none"
                   />
                   {regClinicErrors.managerPhone && (
-                    <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                    <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mt-1">
                       {regClinicErrors.managerPhone}
                     </p>
                   )}
@@ -2707,9 +2737,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
 
               {/* Address & Live GPS */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-4">
+              <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/50 dark:border-white/10 space-y-4">
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                     Full Street Address & Landmark *
                   </label>
                   <input
@@ -2717,10 +2747,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={regClinicAddress}
                     onChange={(e) => setRegClinicAddress(e.target.value)}
                     placeholder="e.g. Maharajgunj Chakrapath, Near Teaching Hospital, Kathmandu"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none"
                   />
                   {regClinicErrors.address && (
-                    <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                    <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mt-1">
                       {regClinicErrors.address}
                     </p>
                   )}
@@ -2728,7 +2758,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                   <div>
-                    <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
                       GPS Latitude
                     </label>
                     <input
@@ -2736,11 +2766,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       step="any"
                       value={regClinicLat}
                       onChange={(e) => setRegClinicLat( parseFloat(e.target.value) || 27.7052 )}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono text-slate-900 dark:text-white"
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
                       GPS Longitude
                     </label>
                     <input
@@ -2748,14 +2778,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       step="any"
                       value={regClinicLng}
                       onChange={(e) => setRegClinicLng( parseFloat(e.target.value) || 85.3193 )}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono text-slate-900 dark:text-white"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={handleBrowserGPS}
                     disabled={isDetectingLocation}
-                    className="py-2 px-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs flex items-center justify-center space-x-1.5 cursor-pointer transition-all"
+                    className="py-2 px-3 rounded-xl bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-glass-brand border border-white/25 cursor-pointer transition-all active:scale-[0.98]"
                   >
                     <MapPin className="w-3.5 h-3.5" />
                     <span>{isDetectingLocation ? 'Detecting GPS...' : 'Detect Live GPS'}</span>
@@ -2765,7 +2795,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               {/* Specialties Multi-Select */}
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 block">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
                   Available Medical Specialties & Departments
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -2784,8 +2814,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         }}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                           selected
-                            ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white border-white/25 shadow-glass-brand'
+                            : 'liquid-glass-subtle text-slate-700 dark:text-slate-200 border-white/50 dark:border-white/10 hover:bg-white/60'
                         }`}
                       >
                         {selected ? `✓ ${spec}` : `+ ${spec}`}
@@ -2797,33 +2827,33 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               {/* File Uploads (Registration Doc & Facility Photos) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-2">
-                  <div className="flex items-center space-x-2 text-xs font-bold text-slate-800">
-                    <FileText className="w-4 h-4 text-brand-600" />
+                <div className="p-4 rounded-2xl border border-dashed border-white/60 dark:border-white/20 liquid-glass-subtle space-y-2">
+                  <div className="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200">
+                    <FileText className="w-4 h-4 text-brand-600 dark:text-brand-400" />
                     <span>Government Registration / PAN Certificate</span>
                   </div>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     Auto-compressed to &le;500 KB before uploading to Supabase storage.
                   </p>
                   <input
                     type="file"
                     accept="image/*,.pdf"
                     onChange={(e) => setRegClinicDocFile(e.target.files?.[0] || null)}
-                    className="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-100 file:text-brand-700 hover:file:bg-brand-200"
+                    className="text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-500/15 file:text-brand-700 dark:file:text-brand-300 hover:file:bg-brand-500/25"
                   />
                   {regClinicDocFile && (
-                    <p className="text-[11px] text-emerald-700 font-bold">
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold">
                       Selected: {regClinicDocFile.name} ({Math.round(regClinicDocFile.size / 1024)} KB)
                     </p>
                   )}
                 </div>
 
-                <div className="p-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 space-y-2">
-                  <div className="flex items-center space-x-2 text-xs font-bold text-slate-800">
-                    <Camera className="w-4 h-4 text-brand-600" />
+                <div className="p-4 rounded-2xl border border-dashed border-white/60 dark:border-white/20 liquid-glass-subtle space-y-2">
+                  <div className="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200">
+                    <Camera className="w-4 h-4 text-brand-600 dark:text-brand-400" />
                     <span>Clinic Exterior / Reception Photos</span>
                   </div>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     Displayed to patients in the Dactor app to help identify your building.
                   </p>
                   <input
@@ -2833,10 +2863,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     onChange={(e) =>
                       setRegClinicPictures(e.target.files ? Array.from(e.target.files) : [])
                     }
-                    className="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-100 file:text-brand-700 hover:file:bg-brand-200"
+                    className="text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-500/15 file:text-brand-700 dark:file:text-brand-300 hover:file:bg-brand-500/25"
                   />
                   {regClinicPictures.length > 0 && (
-                    <p className="text-[11px] text-emerald-700 font-bold">
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold">
                       {regClinicPictures.length} photo(s) ready for compression & upload
                     </p>
                   )}
@@ -2845,7 +2875,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               {/* Description */}
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                   About Facility & Patient Services
                 </label>
                 <textarea
@@ -2853,32 +2883,32 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={regClinicDesc}
                   onChange={(e) => setRegClinicDesc(e.target.value)}
                   placeholder="Describe available diagnostic equipment, pharmacy, parking, or visiting hours..."
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-medium text-slate-900 dark:text-white outline-none"
                 />
               </div>
 
               {/* Terms Checkbox */}
-              <label className="flex items-start space-x-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer">
+              <label className="flex items-start space-x-3 p-3.5 rounded-2xl liquid-glass-subtle border border-white/50 dark:border-white/10 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={regClinicTermsAccepted}
                   onChange={(e) => setRegClinicTermsAccepted(e.target.checked)}
                   className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                 />
-                <span className="text-xs text-slate-700 leading-relaxed">
+                <span className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                   I hereby declare that this healthcare facility holds a valid operating license in Nepal, that the 9-digit PAN number is authentic, and I agree to the{' '}
-                  <span className="font-bold text-slate-900">
+                  <span className="font-bold text-slate-900 dark:text-white">
                     Dactor Healthcare Provider Regulatory Terms & Patient Data Protection Policy
                   </span>
                   .
                 </span>
               </label>
               {regClinicErrors.terms && (
-                <p className="text-[11px] text-rose-600 font-bold">{regClinicErrors.terms}</p>
+                <p className="text-[11px] text-rose-600 dark:text-rose-400 font-bold">{regClinicErrors.terms}</p>
               )}
 
               {registrationStatusMsg && (
-                <div className="p-3.5 rounded-2xl bg-brand-50 border border-brand-200 text-xs font-bold text-brand-800 flex items-center space-x-2">
+                <div className="p-3.5 rounded-2xl bg-brand-500/10 border border-brand-300/60 dark:border-brand-500/30 text-xs font-bold text-brand-800 dark:text-brand-200 flex items-center space-x-2">
                   <RefreshCw className="w-4 h-4 animate-spin text-brand-600 shrink-0" />
                   <span>{registrationStatusMsg}</span>
                 </div>
@@ -2887,7 +2917,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="submit"
                 disabled={isSubmittingRegistration}
-                className="w-full py-4 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-lg shadow-brand-600/25 transition-all text-sm cursor-pointer disabled:opacity-60"
+                className="w-full py-4 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white font-black rounded-2xl shadow-glass-brand border border-white/25 transition-all text-sm cursor-pointer disabled:opacity-60 active:scale-[0.98]"
               >
                 {isSubmittingRegistration
                   ? 'Uploading Documents & Creating Clinic Record...'
@@ -2906,38 +2936,38 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   if (!isAuthenticated || currentView === 'auth_choice') {
     return (
       <div className="max-w-xl mx-auto px-4 py-16">
-        <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-2xl border border-slate-200/80 text-center space-y-6">
+        <div className="liquid-glass-elevated liquid-glass-ShatterHighlight rounded-3xl p-8 sm:p-10 shadow-glass-elevated border border-white/60 dark:border-white/15 text-center space-y-6">
           {/* Brand Icon */}
-          <div className="w-16 h-16 rounded-3xl bg-brand-100 text-brand-700 flex items-center justify-center mx-auto shadow-inner">
+          <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-brand-600 to-teal-500 text-white flex items-center justify-center mx-auto shadow-glass-brand border border-white/30">
             <Building2 className="w-8 h-8 stroke-[2.5]" />
           </div>
 
           <div className="space-y-1.5">
-            <span className="text-xs font-bold uppercase tracking-wider text-brand-600">
+            <span className="text-xs font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">
               Official Dactor Facility Network
             </span>
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
               Clinic & Diagnostic Facility Portal
             </h2>
-            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
               Manage live OPD reception tokens, walk-in registrations, doctor schedules, diagnostic pathology reports, and facility billing.
             </p>
           </div>
 
           {/* Account Exclusivity Security Notice */}
-          <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200 text-left space-y-1">
-            <div className="flex items-center space-x-2 text-amber-900 font-bold text-xs">
-              <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+          <div className="p-3.5 bg-amber-500/10 backdrop-blur-md rounded-2xl border border-amber-300/60 dark:border-amber-500/30 text-left space-y-1">
+            <div className="flex items-center space-x-2 text-amber-900 dark:text-amber-200 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>Strict Single-Role Account Security</span>
             </div>
-            <p className="text-[11px] text-amber-800 leading-relaxed">
+            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
               Your Google account is exclusively bound to your Clinic Manager profile. In accordance with Dactor security rules, an account cannot be used across Doctor or Patient portals.
             </p>
           </div>
 
           {/* Error Banner */}
           {firebaseError && (
-            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium text-left space-y-2.5">
+            <div className="p-4 rounded-2xl bg-rose-500/10 backdrop-blur-md border border-rose-300/60 dark:border-rose-500/30 text-rose-800 dark:text-rose-200 text-xs font-medium text-left space-y-2.5">
               <div className="flex items-start space-x-2.5">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 <div className="space-y-1">
@@ -2949,7 +2979,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <button
                   type="button"
                   onClick={() => handleGoogleSignInWithRole('clinic')}
-                  className="px-3 py-1.5 rounded-xl bg-white hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold text-xs cursor-pointer transition"
+                  className="px-3 py-1.5 rounded-xl liquid-glass-card hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-300/60 font-bold text-xs cursor-pointer transition"
                 >
                   Change Account
                 </button>
@@ -2957,12 +2987,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           )}
 
-          {/* Single Google Sign In Button (ClinicLoginScreen.kt lines 1530-1558) */}
+          {/* Single Google Sign In Button */}
           <button
             type="button"
             onClick={() => handleGoogleSignInWithRole('clinic')}
             disabled={firebaseLoading}
-            className="w-full py-4 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-2xl shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-3 text-sm cursor-pointer disabled:opacity-60"
+            className="w-full py-4 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white font-black rounded-2xl shadow-glass-brand border border-white/25 transition-all flex items-center justify-center space-x-3 text-sm cursor-pointer disabled:opacity-60 active:scale-[0.98]"
           >
             {firebaseLoading ? (
               <>
@@ -2996,23 +3026,23 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             )}
           </button>
 
-          {/* Terms & Policy Disclosure Button (ClinicLoginScreen.kt lines 1562-1575) */}
+          {/* Terms & Policy Disclosure Button */}
           <div className="text-center">
             <button
               type="button"
               onClick={() => setShowTermsModal(true)}
-              className="text-xs font-semibold text-slate-500 hover:text-brand-700 underline cursor-pointer transition"
+              className="text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-brand-700 dark:hover:text-brand-300 underline cursor-pointer transition"
             >
               By continuing, you accept Dactor&apos;s Clinic Terms &amp; Policy
             </button>
           </div>
 
-          <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-left space-y-1">
-            <div className="flex items-center space-x-2 text-slate-800 font-bold text-xs">
-              <ShieldCheck className="w-4 h-4 text-brand-600" />
+          <div className="p-3.5 liquid-glass-subtle rounded-2xl border border-white/40 dark:border-white/10 text-left space-y-1">
+            <div className="flex items-center space-x-2 text-slate-800 dark:text-slate-200 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-brand-600 dark:text-brand-400" />
               <span>Unified Clinic Login &amp; Registration</span>
             </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
               Sign in with your Google account above. Verified clinics enter their operational dashboard directly; new healthcare facilities are guided through registration.
             </p>
           </div>
@@ -3020,26 +3050,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
         {/* Terms Modal accessible from Login Screen */}
         {showTermsModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-            <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[85vh] flex flex-col text-left">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/55 backdrop-blur-md">
+            <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-6 shadow-glass-modal border border-white/60 dark:border-white/15 space-y-4 max-h-[85vh] flex flex-col text-left animate-in fade-in zoom-in-95">
+              <div className="flex items-center justify-between pb-3 border-b border-white/40 dark:border-white/10">
                 <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">
                     Healthcare Governance
                   </span>
-                  <h3 className="text-base font-black text-slate-900">
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
                     Dactor Clinic Terms, Privacy &amp; Regulatory Compliance
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowTermsModal(false)}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                  className="p-1.5 rounded-full liquid-glass-subtle text-slate-500 hover:text-slate-800 dark:hover:text-white transition cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto space-y-3 text-xs text-slate-600 leading-relaxed pr-1">
+              <div className="flex-1 overflow-y-auto space-y-3 text-xs text-slate-600 dark:text-slate-300 leading-relaxed pr-1">
                 <p>
                   <strong>1. Nepal Medical Council (NMC) &amp; MoHP Compliance:</strong> All doctors and laboratory personnel registered under this clinic must hold valid, active licenses from the Nepal Medical Council (NMC) or Nepal Health Professional Council (NHPC).
                 </p>
@@ -3053,11 +3083,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <strong>4. 30-Day Reversible Account Archive Policy:</strong> When a clinic schedules account deletion, all public listings are hidden immediately, while historical patient records remain safely archived for 30 days in case the clinic administrator chooses to restore the account.
                 </p>
               </div>
-              <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <div className="pt-2 border-t border-white/40 dark:border-white/10 flex justify-end">
                 <button
                   type="button"
                   onClick={() => setShowTermsModal(false)}
-                  className="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+                  className="px-5 py-2.5 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold shadow-glass-brand border border-white/25 cursor-pointer"
                 >
                   I Understand &amp; Acknowledge
                 </button>
@@ -3073,13 +3103,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   // VIEW: LOGGED IN OPERATIONAL CLINIC PORTAL
   // ==========================================
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* 30-DAY ARCHIVE LOCK BANNER (ClinicSettingsScreen.kt & ClinicNavGraph.kt) */}
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 space-y-5 sm:space-y-8 pb-28 sm:pb-12">
+      {/* 30-DAY ARCHIVE LOCK BANNER */}
       {selectedClinic?.isArchived && (
-        <div className="p-6 rounded-3xl bg-rose-950 text-white border-2 border-rose-500 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-start space-x-4">
-            <div className="w-12 h-12 rounded-2xl bg-rose-600 flex items-center justify-center shrink-0">
-              <Lock className="w-6 h-6 text-white" />
+        <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-rose-950/85 backdrop-blur-xl text-white border border-rose-500/60 shadow-glass-elevated flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-start space-x-3 sm:space-x-4">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-rose-600/80 border border-rose-400/50 flex items-center justify-center shrink-0">
+              <Lock className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
             </div>
             <div className="space-y-1">
               <div className="flex items-center space-x-2">
@@ -3090,7 +3120,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   {archiveDaysLeft} Days Remaining
                 </span>
               </div>
-              <h2 className="text-lg font-black">
+              <h2 className="text-base sm:text-lg font-black">
                 Clinic Account Archived &amp; Hidden from Patient Bookings
               </h2>
               <p className="text-xs text-rose-200 max-w-2xl leading-relaxed">
@@ -3102,7 +3132,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           <button
             type="button"
             onClick={handleCancelClinicArchive}
-            className="px-5 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl text-xs shadow-lg cursor-pointer shrink-0 transition"
+            className="w-full md:w-auto px-5 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl text-xs shadow-lg cursor-pointer shrink-0 transition active:scale-[0.98]"
           >
             Cancel Deletion &amp; Restore Clinic Account
           </button>
@@ -3110,36 +3140,36 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* Top Banner / Clinic Context Bar */}
-      <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-center space-x-4">
-          <div className="w-16 h-16 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-slate-200 shadow-xs relative">
+      <div className="liquid-glass-elevated liquid-glass-ShatterHighlight rounded-2xl sm:rounded-3xl border border-white/60 dark:border-white/15 p-4 sm:p-6 shadow-glass-elevated flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
+          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-brand-500 to-teal-500 text-white flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-white/40 shadow-glass-brand relative">
             {selectedClinic?.logoUrl || (selectedClinic?.pictures && selectedClinic.pictures.length > 0) ? (
               <img
                 src={selectedClinic.logoUrl || selectedClinic.pictures![0]}
                 alt={selectedClinic?.name || 'Clinic Photo'}
                 className="w-full h-full object-cover"
                 onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none'
+                  ;(e.target as HTMLElement).style.display = 'none'
                 }}
               />
             ) : (
-              <Building2 className="w-8 h-8" />
+              <Building2 className="w-6 h-6 sm:w-8 sm:h-8" />
             )}
           </div>
 
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-black text-slate-900">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <h1 className="text-lg sm:text-2xl font-black text-slate-900 dark:text-white truncate">
                 {selectedClinic?.name}
               </h1>
-              {/* Subscription Status Pill (DashboardScreen.kt lines 155-184) */}
+              {/* Subscription Status Pill */}
               <button
                 type="button"
                 onClick={() => setShowRenewalModal(true)}
-                className={`px-2.5 py-0.5 rounded-full text-[11px] font-black border flex items-center gap-1 cursor-pointer transition ${
+                className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black border flex items-center gap-1 cursor-pointer transition ${
                   isSubscriptionActive
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                    : 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100 animate-pulse'
+                    ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-400/40 hover:bg-emerald-500/25'
+                    : 'bg-rose-500/15 text-rose-800 dark:text-rose-300 border-rose-400/40 hover:bg-rose-500/25 animate-pulse'
                 }`}
                 title="Click to manage Clinic Subscription & License Renewal"
               >
@@ -3155,14 +3185,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <button
                   type="button"
                   onClick={() => setDeskTab('settings')}
-                  className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 hover:bg-brand-50 text-slate-700 hover:text-brand-800 border border-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
+                  className="px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold liquid-glass-subtle hover:bg-brand-500/15 text-slate-700 dark:text-slate-200 hover:text-brand-800 dark:hover:text-brand-300 border border-white/50 dark:border-white/10 flex items-center gap-1 transition-colors cursor-pointer"
                   title="Click to view and manage clinic facility photos in Settings"
                 >
-                  <Camera className="w-3.5 h-3.5 text-brand-600" />
+                  <Camera className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
                   <span>{selectedClinic.pictures.length} {selectedClinic.pictures.length === 1 ? 'Photo' : 'Photos'}</span>
                 </button>
               )}
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-brand-100 text-brand-800">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-brand-500/15 text-brand-800 dark:text-brand-300 border border-brand-400/30">
                 {selectedClinic?.type === 'diagnostic_lab'
                   ? 'Diagnostic Lab'
                   : selectedClinic?.type === 'single_Specialty'
@@ -3170,19 +3200,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   : 'Polyclinic OPD'}
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Logged in as <strong className="text-slate-800">{authEmail}</strong> • Active Operational Desk
+            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              Logged in as <strong className="text-slate-800 dark:text-slate-200">{authEmail}</strong> • Active Operational Desk
             </p>
           </div>
         </div>
 
-        {/* Action Controls in Header: Notifications Bell, Doctor Presence, Break, Add Doctor & Logout */}
-        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
-          {/* Notification Bell Drawer Trigger (DashboardScreen.kt line 198) */}
+        {/* Action Controls in Header */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 w-full md:w-auto justify-between md:justify-end pt-2 md:pt-0 border-t md:border-t-0 border-white/40 dark:border-white/10">
+          {/* Notification Bell Drawer Trigger */}
           <button
             type="button"
             onClick={() => setShowNotificationsModal(true)}
-            className="relative p-2.5 rounded-xl bg-slate-50 hover:bg-brand-50 text-slate-700 hover:text-brand-700 border border-slate-200 transition cursor-pointer"
+            className="relative p-2 sm:p-2.5 rounded-xl liquid-glass-subtle hover:bg-brand-500/15 text-slate-700 dark:text-slate-200 hover:text-brand-700 border border-white/50 dark:border-white/10 transition cursor-pointer"
             title="View Clinic Notifications"
           >
             <Bell className="w-4 h-4" />
@@ -3198,19 +3228,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <button
               onClick={() => handleToggleDoctorPresence(selectedDoctor)}
               disabled={updatingPresence}
-              className={`flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+              className={`flex items-center space-x-1.5 sm:space-x-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                 doctorInClinic
-                  ? 'bg-brand-50 border-brand-300 text-brand-800 hover:bg-brand-100'
-                  : 'bg-rose-50 border-rose-300 text-rose-800 hover:bg-rose-100'
+                  ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/25'
+                  : 'bg-rose-500/15 border-rose-400/40 text-rose-800 dark:text-rose-300 hover:bg-rose-500/25'
               }`}
               title="Click to toggle Doctor In-Clinic Presence"
             >
               <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  doctorInClinic ? 'bg-brand-500 animate-pulse' : 'bg-rose-500'
+                className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${
+                  doctorInClinic ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
                 }`}
               />
-              <span>{doctorInClinic ? 'Doctor is In' : 'Doctor is Out'}</span>
+              <span className="truncate">{doctorInClinic ? 'Doctor In' : 'Doctor Out'}</span>
             </button>
           )}
 
@@ -3218,10 +3248,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           <button
             onClick={handleToggleClinicBreak}
             disabled={updatingBreak}
-            className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+            className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
               clinicOnBreak
-                ? 'bg-amber-100 border-amber-300 text-amber-900 hover:bg-amber-200'
-                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                ? 'bg-amber-500/20 border-amber-400/50 text-amber-900 dark:text-amber-200 hover:bg-amber-500/30'
+                : 'liquid-glass-subtle border-white/50 dark:border-white/10 text-slate-700 dark:text-slate-200 hover:bg-white/60'
             }`}
             title="Click to toggle Clinic Break mode (broadcasts alert to all patients)"
           >
@@ -3231,30 +3261,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
           <button
             onClick={() => setShowDoctorOnboarding(true)}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-brand-50 hover:bg-brand-100 text-brand-800 border border-brand-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            className="flex items-center space-x-1 px-2.5 sm:px-3 py-2 bg-brand-500/15 hover:bg-brand-500/25 text-brand-800 dark:text-brand-300 border border-brand-400/40 rounded-xl text-xs font-bold transition-colors cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Add Doctor</span>
           </button>
 
           <button
             onClick={handleLogout}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            className="flex items-center space-x-1 px-2.5 sm:px-3 py-2 liquid-glass-subtle hover:bg-rose-500/15 hover:text-rose-600 text-slate-600 dark:text-slate-300 border border-white/50 dark:border-white/10 rounded-xl text-xs font-bold transition-colors cursor-pointer"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Logout</span>
           </button>
         </div>
       </div>
 
-      {/* Navigation Desk Tabs (All 15 Modules from DashboardScreen.kt) */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-3 overflow-x-auto">
+      {/* Navigation Desk Tabs (All 15 Modules) */}
+      <div className="flex items-center space-x-2 p-1.5 rounded-2xl liquid-glass-base overflow-x-auto scrollbar-none">
         <button
           onClick={() => setDeskTab('queue')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'queue'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <Activity className="w-4 h-4" />
@@ -3265,8 +3295,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('walkin')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'walkin'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <Users className="w-4 h-4" />
@@ -3277,8 +3307,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('slots')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'slots'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <CalendarClock className="w-4 h-4" />
@@ -3289,8 +3319,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('future_appts')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'future_appts'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <Calendar className="w-4 h-4" />
@@ -3301,8 +3331,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('noshow')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'noshow'
-              ? 'bg-rose-600 text-white shadow-xs'
-              : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+              ? 'bg-rose-600 text-white shadow-sm'
+              : 'text-rose-700 dark:text-rose-300 hover:bg-rose-500/15'
           }`}
         >
           <AlertTriangle className="w-4 h-4" />
@@ -3313,8 +3343,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('fees')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'fees'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <CreditCard className="w-4 h-4" />
@@ -3325,8 +3355,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('invitations')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'invitations'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <UserCheck className="w-4 h-4" />
@@ -3337,8 +3367,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('working_hours')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'working_hours'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <Clock className="w-4 h-4" />
@@ -3349,8 +3379,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('doctors')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'doctors'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <Stethoscope className="w-4 h-4" />
@@ -3361,8 +3391,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('billing')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'billing'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <Receipt className="w-4 h-4" />
@@ -3373,8 +3403,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('patients')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'patients'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <Search className="w-4 h-4" />
@@ -3386,8 +3416,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             onClick={() => setDeskTab('lab')}
             className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
               deskTab === 'lab'
-                ? 'bg-teal-600 text-white shadow-xs'
-                : 'bg-white text-teal-800 border border-teal-200 hover:bg-teal-50'
+                ? 'bg-gradient-to-r from-teal-600 to-brand-500 text-white shadow-glass-brand border border-white/25'
+                : 'text-teal-800 dark:text-teal-300 hover:bg-teal-500/15'
             }`}
           >
             <FlaskConical className="w-4 h-4" />
@@ -3400,8 +3430,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             onClick={() => setDeskTab('rates')}
             className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
               deskTab === 'rates'
-                ? 'bg-teal-600 text-white shadow-xs'
-                : 'bg-white text-teal-800 border border-teal-200 hover:bg-teal-50'
+                ? 'bg-gradient-to-r from-teal-600 to-brand-500 text-white shadow-glass-brand border border-white/25'
+                : 'text-teal-800 dark:text-teal-300 hover:bg-teal-500/15'
             }`}
           >
             <FileText className="w-4 h-4" />
@@ -3413,8 +3443,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('broadcast')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'broadcast'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <Bell className="w-4 h-4" />
@@ -3425,8 +3455,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           onClick={() => setDeskTab('settings')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'settings'
-              ? 'bg-brand-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
+              ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
           }`}
         >
           <Settings className="w-4 h-4" />
@@ -3439,16 +3469,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'queue' && (
         <div className="space-y-6">
-          {/* Enlisted Doctors & Presence Roster Bar with Master Switch (DashboardScreen.kt lines 296-456) */}
+          {/* Enlisted Doctors & Presence Roster Bar with Master Switch */}
           {clinicDoctors.length > 0 && (
-            <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+            <div className="liquid-glass-card p-5 rounded-3xl border border-white/60 dark:border-white/15 shadow-glass-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/40 dark:border-white/10 pb-3">
                 <div>
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                    <Stethoscope className="w-4 h-4 text-brand-600" />
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                    <Stethoscope className="w-4 h-4 text-brand-600 dark:text-brand-400" />
                     <span>Enlisted Doctors & Live Cabin Presence Roster ({clinicDoctors.filter((d) => d.isInClinic ?? true).length}/{clinicDoctors.length} Present)</span>
                   </h3>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     Toggle individual doctor presence or use the Master Switch to set all doctors Present or Off-Duty.
                   </p>
                 </div>
@@ -3457,7 +3487,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="button"
                     disabled={updatingPresence}
                     onClick={() => handleToggleAllDoctorsPresence(true)}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold cursor-pointer transition"
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40 text-xs font-bold cursor-pointer transition active:scale-[0.98]"
                   >
                     ● Set All Present
                   </button>
@@ -3465,7 +3495,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="button"
                     disabled={updatingPresence}
                     onClick={() => handleToggleAllDoctorsPresence(false)}
-                    className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-bold cursor-pointer transition"
+                    className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-800 dark:text-rose-300 border border-rose-400/40 text-xs font-bold cursor-pointer transition active:scale-[0.98]"
                   >
                     ○ Set All Off-Duty
                   </button>
@@ -3479,11 +3509,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       key={doc.id}
                       className={`px-3 py-2 rounded-2xl border flex items-center space-x-2.5 text-xs transition ${
                         isPresent
-                          ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
-                          : 'bg-slate-50 border-slate-200 text-slate-500'
+                          ? 'bg-emerald-500/10 border-emerald-400/40 text-emerald-950 dark:text-emerald-200'
+                          : 'liquid-glass-subtle border-white/40 dark:border-white/10 text-slate-500 dark:text-slate-400'
                       }`}
                     >
-                      <div className="w-7 h-7 rounded-xl bg-brand-100 text-brand-700 font-black flex items-center justify-center overflow-hidden shrink-0">
+                      <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-brand-500 to-teal-500 text-white font-black flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
                         {doc.profilePictureUrl ? (
                           <img src={doc.profilePictureUrl} alt={doc.fullName} className="w-full h-full object-cover" />
                         ) : (
@@ -3492,15 +3522,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       </div>
                       <div>
                         <span className="font-bold block leading-tight">{doc.fullName}</span>
-                        <span className="text-[10px] text-slate-500">{doc.specialty || 'General'}</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">{doc.specialty || 'General'}</span>
                       </div>
                       <button
                         type="button"
                         onClick={() => handleToggleDoctorPresence(doc)}
-                        className={`px-2 py-0.5 rounded-lg text-[10px] font-black cursor-pointer ${
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-black cursor-pointer transition ${
                           isPresent
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-rose-100 text-rose-800'
+                            ? 'bg-emerald-600 text-white shadow-2xs'
+                            : 'bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-400/30'
                         }`}
                       >
                         {isPresent ? 'IN' : 'OUT'}
@@ -3514,11 +3544,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
           {/* Top Banner Alert if Doctor is Away or Clinic is on Break */}
           {!doctorInClinic && (
-            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center space-x-3 text-rose-800 text-xs font-bold">
+            <div className="p-4 bg-rose-500/10 backdrop-blur-md border border-rose-300/60 dark:border-rose-500/30 rounded-2xl flex items-center space-x-3 text-rose-800 dark:text-rose-200 text-xs font-bold">
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
               <div>
                 <span>Doctor is not inside the clinic (He/She is not in).</span>
-                <span className="font-normal text-rose-700 ml-1">
+                <span className="font-normal text-rose-700 dark:text-rose-300 ml-1">
                   Patients checking their queue status are informed that the doctor is currently away.
                 </span>
               </div>
@@ -3526,11 +3556,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           )}
 
           {clinicOnBreak && (
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center space-x-3 text-amber-900 text-xs font-bold">
+            <div className="p-4 bg-amber-500/10 backdrop-blur-md border border-amber-300/60 dark:border-amber-500/30 rounded-2xl flex items-center space-x-3 text-amber-900 dark:text-amber-200 text-xs font-bold">
               <Coffee className="w-5 h-5 text-amber-600 shrink-0" />
               <div>
                 <span>Clinic is currently in Break Mode.</span>
-                <span className="font-normal text-amber-800 ml-1">
+                <span className="font-normal text-amber-800 dark:text-amber-300 ml-1">
                   All consultations are temporarily paused. Patients can see the break notice on their mobile tracker.
                 </span>
               </div>
@@ -3539,33 +3569,33 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
           {/* Queue Metrics Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="liquid-glass-card p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-glass-sm">
               <span className="text-[11px] font-bold uppercase text-slate-400">Waiting Patients</span>
-              <p className="text-2xl font-black text-blue-600 mt-1">{queueWaitingCount}</p>
+              <p className="text-2xl font-black text-sky-500 dark:text-sky-400 mt-1">{queueWaitingCount}</p>
             </div>
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="liquid-glass-card p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-glass-sm">
               <span className="text-[11px] font-bold uppercase text-slate-400">Inside Cabin</span>
-              <p className="text-2xl font-black text-amber-600 mt-1">{queueInsideCount}</p>
+              <p className="text-2xl font-black text-amber-500 dark:text-amber-400 mt-1">{queueInsideCount}</p>
             </div>
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="liquid-glass-card p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-glass-sm">
               <span className="text-[11px] font-bold uppercase text-slate-400">Completed Today</span>
-              <p className="text-2xl font-black text-brand-600 mt-1">{queueCompletedCount}</p>
+              <p className="text-2xl font-black text-teal-500 dark:text-teal-400 mt-1">{queueCompletedCount}</p>
             </div>
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="liquid-glass-card p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-glass-sm">
               <span className="text-[11px] font-bold uppercase text-slate-400">Total Registered</span>
-              <p className="text-2xl font-black text-slate-800 mt-1">{todayAppointments.length}</p>
+              <p className="text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">{todayAppointments.length}</p>
             </div>
           </div>
 
           {/* Consultation Timing Configuration Bar (Auto vs Manual Toggle) */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="liquid-glass-card p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-glass-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-center space-x-3">
-              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
+              <div className="w-9 h-9 rounded-xl liquid-glass-subtle flex items-center justify-center text-slate-600 dark:text-slate-300">
                 <Sliders className="w-4 h-4" />
               </div>
               <div>
-                <h4 className="text-xs font-bold text-slate-900">Average Consultation Time Mode</h4>
-                <p className="text-[11px] text-slate-500 font-medium">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white">Average Consultation Time Mode</h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                   Configures the estimated wait calculation for all patients in today's live queue.
                 </p>
               </div>
@@ -3573,14 +3603,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
             <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
               {/* Auto / Manual toggle buttons */}
-              <div className="flex p-1 bg-slate-100 rounded-xl">
+              <div className="flex p-1 liquid-glass-subtle rounded-xl border border-white/40 dark:border-white/10">
                 <button
                   type="button"
                   onClick={() => setAvgTimeMode('auto')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     avgTimeMode === 'auto'
-                      ? 'bg-white text-brand-800 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                   }`}
                 >
                   Auto Calculated
@@ -3590,8 +3620,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   onClick={() => setAvgTimeMode('manual')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     avgTimeMode === 'manual'
-                      ? 'bg-white text-brand-800 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                   }`}
                 >
                   Manual Time
@@ -3606,9 +3636,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     max="60"
                     value={manualAvgMinutes}
                     onChange={(e) => setManualAvgMinutes(Number(e.target.value) || 10)}
-                    className="w-16 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-center focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-16 px-2.5 py-1.5 liquid-glass-input rounded-lg text-xs font-bold text-center text-slate-900 dark:text-white outline-none"
                   />
-                  <span className="text-xs font-bold text-slate-500">Mins</span>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Mins</span>
                 </div>
               )}
 
@@ -3616,7 +3646,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 type="button"
                 onClick={handleSaveAvgTimeSettings}
                 disabled={savingAvgTime}
-                className="px-3 py-1.5 bg-slate-900 hover:bg-brand-600 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs cursor-pointer"
+                className="px-3 py-1.5 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white rounded-lg text-xs font-bold transition-colors shadow-glass-brand border border-white/25 cursor-pointer active:scale-[0.98]"
               >
                 {savingAvgTime ? 'Saving...' : 'Save Settings'}
               </button>
@@ -3625,24 +3655,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
           {/* Active Cabin Card (Patient currently inside) */}
           {activeConsultationPatient && (
-            <div className="p-5 bg-amber-50/70 border border-amber-200 rounded-3xl shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="p-5 bg-amber-500/10 backdrop-blur-md border border-amber-300/60 dark:border-amber-500/30 rounded-3xl shadow-glass-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="flex items-center space-x-3.5">
-                <div className="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-bold text-lg animate-pulse">
+                <div className="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-bold text-lg animate-pulse shadow-md">
                   <Activity className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-400/30">
                       Currently Inside Doctor Cabin
                     </span>
-                    <span className="text-xs font-mono font-bold text-amber-900">
+                    <span className="text-xs font-mono font-bold text-amber-900 dark:text-amber-200">
                       Token #{activeConsultationPatient.trackingCode10Digit}
                     </span>
                   </div>
-                  <h3 className="text-base font-black text-slate-900 mt-0.5">
+                  <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">
                     {activeConsultationPatient.patientName} ({activeConsultationPatient.patientAge || '–'} Yrs, {activeConsultationPatient.patientGender || '–'})
                   </h3>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
                     Attending: {activeConsultationPatient.doctor?.fullName || selectedDoctor?.fullName || 'OPD Doctor'}
                   </p>
                 </div>
@@ -3651,27 +3681,27 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <div className="flex items-center space-x-2 w-full md:w-auto">
                 <button
                   onClick={() => handleStatusChange(activeConsultationPatient.id, 'completed')}
-                  className="flex-1 md:flex-initial px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                  className="flex-1 md:flex-initial px-4 py-2.5 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white text-xs font-bold rounded-xl shadow-glass-brand border border-white/25 transition-colors cursor-pointer active:scale-[0.98]"
                 >
                   Mark Consultation Done
                 </button>
                 <button
                   onClick={() => handleOpenRemarkModal(activeConsultationPatient)}
-                  className="px-3 py-2.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  className="px-3 py-2.5 liquid-glass-card hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-800 dark:text-slate-200 border border-white/50 dark:border-white/10 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                   title="Add or edit clinical remark"
                 >
                   Remark
                 </button>
                 <button
                   onClick={() => handleOpenPushAlertModal(activeConsultationPatient)}
-                  className="px-3 py-2.5 bg-white hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  className="px-3 py-2.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-900 dark:text-amber-200 border border-amber-300/60 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                   title="Send push alert to patient"
                 >
                   <Bell className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleOpenBillModal(activeConsultationPatient)}
-                  className="px-3 py-2.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  className="px-3 py-2.5 bg-sky-500/15 hover:bg-sky-500/25 text-sky-800 dark:text-sky-200 border border-sky-300/60 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                   title="Push Bill / Settle Payment"
                 >
                   <Receipt className="w-4 h-4" />
@@ -3680,17 +3710,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           )}
 
-          {/* Section Header + Segmented Sub-Tabs (QueueBoardScreen.kt lines 124-140) */}
+          {/* Section Header + Segmented Sub-Tabs */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <div className="flex p-1 bg-slate-200/80 rounded-2xl">
+              <div className="flex p-1 liquid-glass-subtle rounded-2xl border border-white/40 dark:border-white/10">
                 <button
                   type="button"
                   onClick={() => setQueueSubTab('waiting')}
                   className={`px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
                     queueSubTab === 'waiting'
-                      ? 'bg-white text-brand-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                   }`}
                 >
                   Waiting Queue ({queueWaitingCount + queueInsideCount})
@@ -3700,8 +3730,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   onClick={() => setQueueSubTab('past')}
                   className={`px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
                     queueSubTab === 'past'
-                      ? 'bg-white text-brand-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                   }`}
                 >
                   Past / Completed Queue ({todayAppointments.filter((a) => a.checkinStatus === 'completed' || a.checkinStatus === 'no_show' || a.checkinStatus === 'cancelled').length})
@@ -3711,7 +3741,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <div className="flex items-center space-x-2">
               <button
                 onClick={handleTriggerAutoNotify}
-                className="flex items-center space-x-1.5 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
+                className="flex items-center space-x-1.5 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-300/60 px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
                 title={`Notify patients who are ≤ ${settingThreshold} spots away from consultation cabin`}
               >
                 <Bell className="w-3.5 h-3.5" />
@@ -3719,7 +3749,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </button>
               <button
                 onClick={() => setRefreshKey((k) => k + 1)}
-                className="flex items-center space-x-1.5 text-xs font-bold text-brand-700 bg-brand-50 px-3 py-1.5 rounded-xl cursor-pointer"
+                className="flex items-center space-x-1.5 text-xs font-bold text-brand-700 dark:text-brand-300 liquid-glass-subtle border border-brand-400/30 px-3 py-1.5 rounded-xl cursor-pointer transition"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 <span>Refresh Board</span>
@@ -3728,18 +3758,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           </div>
 
           {todayAppointments.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
-              <Activity className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-              <h3 className="font-bold text-slate-700">No appointments scheduled for today</h3>
-              <p className="text-xs text-slate-500 mt-1">
+            <div className="p-12 text-center liquid-glass-card rounded-3xl border border-white/60 dark:border-white/10 shadow-glass-sm">
+              <Activity className="w-10 h-10 text-slate-400 mx-auto mb-2" />
+              <h3 className="font-bold text-slate-800 dark:text-slate-200">No appointments scheduled for today</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Patients registered via online booking or reception walk-in will automatically appear here.
               </p>
             </div>
           ) : (
-            <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+            <div className="liquid-glass-elevated rounded-3xl border border-white/60 dark:border-white/15 overflow-hidden shadow-glass-base">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                  <thead className="liquid-glass-subtle border-b border-white/40 dark:border-white/10 text-slate-600 dark:text-slate-300 uppercase tracking-wider font-bold">
                     <tr>
                       <th className="py-3.5 px-4">Token Code</th>
                       <th className="py-3.5 px-4">Patient Name & Phone</th>
@@ -3751,7 +3781,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       <th className="py-3.5 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
+                  <tbody className="divide-y divide-white/30 dark:divide-white/5 font-medium">
                     {todayAppointments
                       .filter((appt) =>
                         queueSubTab === 'waiting'
@@ -3776,8 +3806,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       )
 
                       return (
-                        <tr key={appt.id} className="hover:bg-slate-50/50">
-                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                        <tr key={appt.id} className="hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
                             <div className="flex items-center space-x-1.5">
                               <span>#{appt.trackingCode10Digit}</span>
                               <button
@@ -3786,19 +3816,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                   navigator.clipboard?.writeText(appt.trackingCode10Digit)
                                   alert(`Copied 10-digit ID: ${appt.trackingCode10Digit}`)
                                 }}
-                                className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-brand-50 text-[10px] font-sans font-bold text-slate-600 hover:text-brand-700 cursor-pointer"
+                                className="px-1.5 py-0.5 rounded liquid-glass-subtle hover:bg-brand-500/15 text-[10px] font-sans font-bold text-slate-600 dark:text-slate-300 hover:text-brand-700 cursor-pointer"
                                 title="Copy 10-Digit Tracking ID"
                               >
                                 Copy
                               </button>
                             </div>
                           </td>
-                          <td className="py-3.5 px-4 font-bold text-slate-900">
+                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
                             <div>{appt.patientName}</div>
                             {appt.patientMobile && (
                               <a
                                 href={`tel:${appt.patientMobile}`}
-                                className="inline-flex items-center space-x-1 text-[11px] font-mono text-brand-700 hover:underline mt-0.5"
+                                className="inline-flex items-center space-x-1 text-[11px] font-mono text-brand-700 dark:text-brand-400 hover:underline mt-0.5"
                                 title="Call Patient Mobile"
                               >
                                 <Phone className="w-3 h-3" />
@@ -3806,32 +3836,32 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               </a>
                             )}
                             {appt.notes && (
-                              <div className="mt-1 px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-[10px] text-amber-900 font-medium">
+                              <div className="mt-1 px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-300/50 text-[10px] text-amber-900 dark:text-amber-200 font-medium">
                                 Remark: {appt.notes}
                               </div>
                             )}
                           </td>
-                          <td className="py-3.5 px-4 text-slate-600">
+                          <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
                             {appt.patientAge || '–'} Yrs • {appt.patientGender || '–'}
                           </td>
-                          <td className="py-3.5 px-4 text-slate-600">
+                          <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
                             {appt.doctor?.fullName || selectedDoctor?.fullName || 'General OPD'}
                           </td>
                           <td className="py-3.5 px-4">
                             {inCabin ? (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 animate-pulse">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-400/40 animate-pulse">
                                 Inside Cabin
                               </span>
                             ) : isDone ? (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-brand-100 text-brand-800">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-900 dark:text-emerald-200 border border-emerald-400/40">
                                 Completed
                               </span>
                             ) : appt.checkinStatus === 'no_show' ? (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-900 dark:text-rose-200 border border-rose-400/40">
                                 No-Show
                               </span>
                             ) : (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-sky-500/20 text-sky-900 dark:text-sky-200 border border-sky-400/40">
                                 Waiting
                               </span>
                             )}
@@ -3841,19 +3871,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               <span
                                 className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
                                   timing.isDoctorAway
-                                    ? 'bg-rose-100 text-rose-800'
+                                    ? 'bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-400/40'
                                     : timing.isOnBreak
-                                    ? 'bg-amber-100 text-amber-800'
+                                    ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-400/40'
                                     : timing.isSoonBeReady
-                                    ? 'bg-brand-100 text-brand-800 animate-pulse'
-                                    : 'bg-slate-100 text-slate-700'
+                                    ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40 animate-pulse'
+                                    : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/40'
                                 }`}
                               >
                                 {timing.estimatedWait}
                               </span>
                               {timing.exactTimeStr !== '–' &&
                                 timing.exactTimeStr !== timing.estimatedWait && (
-                                  <p className="text-[10px] text-slate-500 font-mono">
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                                     {timing.exactTimeStr}
                                   </p>
                                 )}
@@ -3863,10 +3893,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 appt.paymentStatus === 'paid'
-                                  ? 'bg-brand-100 text-brand-800'
+                                  ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40'
                                   : appt.paymentStatus === 'partial'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-slate-100 text-slate-700'
+                                  ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-400/40'
+                                  : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/40'
                               }`}
                             >
                               Rs. {appt.feeAmount || 500} • {appt.paymentStatus.toUpperCase()}
@@ -3875,11 +3905,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
                             {/* Queue Sliding Up / Down for Waiting Patients */}
                             {isWaiting && (
-                              <span className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 mr-1 align-middle">
+                              <span className="inline-flex rounded-lg border border-white/50 dark:border-white/10 p-0.5 liquid-glass-subtle mr-1 align-middle">
                                 <button
                                   type="button"
                                   onClick={() => handleQueueReorder(appt.id, 'up')}
-                                  className="p-1 hover:bg-white text-slate-600 hover:text-brand-600 rounded cursor-pointer"
+                                  className="p-1 hover:bg-white/60 text-slate-600 dark:text-slate-300 hover:text-brand-600 rounded cursor-pointer"
                                   title="Slide Up (Move higher in waiting ranking)"
                                 >
                                   <ArrowUp className="w-3 h-3" />
@@ -3887,7 +3917,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 <button
                                   type="button"
                                   onClick={() => handleQueueReorder(appt.id, 'down')}
-                                  className="p-1 hover:bg-white text-slate-600 hover:text-brand-600 rounded cursor-pointer"
+                                  className="p-1 hover:bg-white/60 text-slate-600 dark:text-slate-300 hover:text-brand-600 rounded cursor-pointer"
                                   title="Slide Down (Move lower in waiting ranking)"
                                 >
                                   <ArrowDown className="w-3 h-3" />
@@ -3899,7 +3929,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {isWaiting && (
                               <button
                                 onClick={() => handleStatusChange(appt.id, 'in_consultation')}
-                                className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
+                                className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[11px] shadow-sm cursor-pointer active:scale-[0.98]"
                               >
                                 Call Inside
                               </button>
@@ -3909,17 +3939,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {inCabin && (
                               <button
                                 onClick={() => handleStatusChange(appt.id, 'completed')}
-                                className="px-2.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
+                                className="px-2.5 py-1.5 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white rounded-lg font-bold text-[11px] shadow-glass-brand border border-white/25 cursor-pointer active:scale-[0.98]"
                               >
                                 Mark Done
                               </button>
                             )}
 
-                            {/* Add / Edit Clinical Remark (QueueBoardScreen.kt) */}
+                            {/* Add / Edit Clinical Remark */}
                             <button
                               type="button"
                               onClick={() => handleOpenRemarkModal(appt)}
-                              className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg font-bold text-[11px] cursor-pointer"
+                              className="px-2 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-900 dark:text-amber-200 border border-amber-300/50 rounded-lg font-bold text-[11px] cursor-pointer"
                               title="Add or edit clinical remark / notes"
                             >
                               Remark
@@ -3928,7 +3958,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {/* Shift Appointment Date */}
                             <button
                               onClick={() => handleOpenShiftModal(appt)}
-                              className="px-2 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-lg font-bold text-[11px] cursor-pointer"
+                              className="px-2 py-1.5 bg-teal-500/15 hover:bg-teal-500/25 text-teal-800 dark:text-teal-300 border border-teal-300/50 rounded-lg font-bold text-[11px] cursor-pointer"
                               title="Shift appointment to another date"
                             >
                               Shift Date
@@ -3937,16 +3967,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {/* Print Token Slip */}
                             <button
                               onClick={() => handleOpenPrintSlip(appt)}
-                              className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                              className="px-2 py-1.5 liquid-glass-subtle hover:bg-white/70 text-slate-700 dark:text-slate-200 border border-white/50 dark:border-white/10 rounded-lg font-bold text-[11px] cursor-pointer"
                               title="Print thermal token slip"
                             >
                               <Printer className="w-3.5 h-3.5 inline" />
                             </button>
 
-                            {/* Push Alert with Real Template */}
+                            {/* Push Alert */}
                             <button
                               onClick={() => handleOpenPushAlertModal(appt)}
-                              className="px-2 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                              className="px-2 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-300/50 rounded-lg font-bold text-[11px] cursor-pointer"
                               title="Send real push notification template to patient"
                             >
                               Push Alert
@@ -3955,7 +3985,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {/* Push Bill / Update Payment */}
                             <button
                               onClick={() => handleOpenBillModal(appt)}
-                              className="px-2 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                              className="px-2 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 text-sky-700 dark:text-sky-300 border border-sky-300/50 rounded-lg font-bold text-[11px] cursor-pointer"
                             >
                               Bill
                             </button>
@@ -3964,7 +3994,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {!isDone && appt.checkinStatus !== 'no_show' && (
                               <button
                                 onClick={() => handleStatusChange(appt.id, 'no_show')}
-                                className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold text-[11px] cursor-pointer"
+                                className="px-2 py-1.5 liquid-glass-subtle hover:bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-white/50 dark:border-white/10 rounded-lg font-bold text-[11px] cursor-pointer"
                               >
                                 No Show
                               </button>
@@ -3986,7 +4016,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'walkin' && (
         <div className="max-w-2xl mx-auto space-y-6">
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
+          <GlassCard variant="elevated" padding="lg" radius="xl" specular className="space-y-6">
             <div>
               <h2 className="text-xl font-black text-slate-900">Reception Walk-In Booking</h2>
               <p className="text-xs text-slate-500 font-medium mt-1">
@@ -3995,7 +4025,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             {walkinSuccessCode && (
-              <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl flex items-center justify-between">
+              <div className="p-4 bg-brand-50/80 backdrop-blur-md border border-brand-200/80 rounded-2xl flex items-center justify-between shadow-glass-sm">
                 <div>
                   <span className="text-xs font-bold text-brand-800 block">
                     Walk-in Patient Added to Live Queue!
@@ -4009,7 +4039,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <button
                       type="button"
                       onClick={() => setShowPrintTokenSlip(true)}
-                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg flex items-center space-x-1 cursor-pointer"
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg flex items-center space-x-1 cursor-pointer shadow-glass-sm"
                     >
                       <Printer className="w-3.5 h-3.5" />
                       <span>Print Token Slip</span>
@@ -4021,7 +4051,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       setWalkinSuccessCode(null)
                       setPrintSlipAppt(null)
                     }}
-                    className="px-3 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-lg cursor-pointer"
+                    className="px-3 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-lg cursor-pointer shadow-glass-sm"
                   >
                     New Booking
                   </button>
@@ -4032,14 +4062,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <form onSubmit={handleWalkinSubmit} className="space-y-4">
               {/* Type-Specific Notice Header */}
               {isLabClinic ? (
-                <div className="p-3.5 bg-purple-50 border border-purple-200 rounded-2xl flex items-center space-x-2.5 text-xs text-purple-900">
+                <div className="p-3.5 bg-purple-50/80 backdrop-blur-md border border-purple-200/80 rounded-2xl flex items-center space-x-2.5 text-xs text-purple-900">
                   <FlaskConical className="w-4 h-4 text-purple-600 shrink-0" />
                   <span className="font-semibold">
                     Diagnostic Pathology Center Desk: Select tests to register sample collection token.
                   </span>
                 </div>
               ) : isSingleDoctorClinic ? (
-                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center space-x-2.5 text-xs text-emerald-900">
+                <div className="p-3.5 bg-emerald-50/80 backdrop-blur-md border border-emerald-200/80 rounded-2xl flex items-center space-x-2.5 text-xs text-emerald-900">
                   <Stethoscope className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span className="font-semibold">
                     Single-Visit Clinic: Auto-assigning verified attending specialist.
@@ -4059,8 +4089,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       }}
                       className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
                         !walkinIsFollowup
-                          ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-500/20 font-bold text-slate-900'
-                          : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
+                          ? 'border-brand-600 bg-brand-50/70 backdrop-blur-md ring-2 ring-brand-500/20 font-bold text-slate-900 shadow-glass-sm'
+                          : 'border-white/70 bg-white/55 backdrop-blur-md text-slate-600 hover:bg-white/80'
                       }`}
                     >
                       <div className="text-xs font-bold">New Patient</div>
@@ -4071,8 +4101,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       onClick={() => setWalkinIsFollowup(true)}
                       className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
                         walkinIsFollowup
-                          ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20 font-bold text-emerald-900'
-                          : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
+                          ? 'border-emerald-600 bg-emerald-50/70 backdrop-blur-md ring-2 ring-emerald-500/20 font-bold text-emerald-900 shadow-glass-sm'
+                          : 'border-white/70 bg-white/55 backdrop-blur-md text-slate-600 hover:bg-white/80'
                       }`}
                     >
                       <div className="text-xs font-bold flex items-center justify-between">
@@ -4087,7 +4117,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               {/* Polyclinic Follow-Up 10-Digit Code Lookup */}
               {isPolyclinic && walkinIsFollowup && (
-                <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-2">
+                <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-2">
                   <label className="text-xs font-bold text-emerald-900 block">
                     Enter Previous 10-Digit Appointment ID *
                   </label>
@@ -4098,7 +4128,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       value={walkinFollowupCode}
                       onChange={(e) => setWalkinFollowupCode(e.target.value.replace(/\D/g, ''))}
                       placeholder="e.g. 8472910384"
-                      className="w-full px-3.5 py-2 rounded-xl text-sm font-mono font-black border border-emerald-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full px-3.5 py-2 rounded-xl text-sm font-mono font-black border border-emerald-300 bg-white/85 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     {walkinLookupLoading && (
                       <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2" />
@@ -4108,7 +4138,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <p className="text-[11px] text-rose-600 font-bold">{walkinLookupError}</p>
                   )}
                   {walkinRetainedAppt && (
-                    <div className="p-2.5 bg-white border border-emerald-300 rounded-xl flex items-start space-x-2 text-xs text-emerald-900">
+                    <div className="p-2.5 bg-white/85 backdrop-blur-md border border-emerald-300 rounded-xl flex items-start space-x-2 text-xs text-emerald-900">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                       <div>
                         <strong>Verified Patient: {walkinRetainedAppt.patientName}</strong>
@@ -4136,7 +4166,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   }}
                   placeholder="Enter Patient Full Name"
                   className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    walkinErrors.name ? 'border-rose-500 bg-rose-50/50' : 'border-slate-200 bg-slate-50'
+                    walkinErrors.name ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
                   } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                 />
                 {walkinErrors.name && (
@@ -4159,7 +4189,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     }}
                     placeholder="e.g. 28"
                     className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                      walkinErrors.age ? 'border-rose-500 bg-rose-50/50' : 'border-slate-200 bg-slate-50'
+                      walkinErrors.age ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
                     } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                   />
                   {walkinErrors.age && (
@@ -4172,7 +4202,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <select
                     value={walkinGender}
                     onChange={(e) => setWalkinGender(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
@@ -4195,7 +4225,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   }}
                   placeholder="e.g. 98XXXXXXXX"
                   className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    walkinErrors.mobile ? 'border-rose-500 bg-rose-50/50' : 'border-slate-200 bg-slate-50'
+                    walkinErrors.mobile ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
                   } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                 />
                 {walkinErrors.mobile && (
@@ -4213,7 +4243,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={walkinEmail}
                   onChange={(e) => setWalkinEmail(e.target.value)}
                   placeholder="e.g. patient@gmail.com"
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -4230,7 +4260,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </div>
 
                   {services.length === 0 ? (
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1.5">
+                    <div className="p-3 liquid-glass-subtle rounded-xl border border-white/70 text-xs text-slate-600 space-y-1.5">
                       {[
                         { id: 's1', serviceName: 'Complete Blood Count (CBC)', price: 450 },
                         { id: 's2', serviceName: 'Lipid Profile', price: 900 },
@@ -4250,7 +4280,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               }
                             }}
                             className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
-                              isChecked ? 'bg-purple-50 border-purple-400' : 'bg-white border-slate-200'
+                              isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
                             }`}
                           >
                             <span className="font-semibold text-xs text-slate-800">{item.serviceName}</span>
@@ -4274,7 +4304,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               }
                             }}
                             className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
-                              isChecked ? 'bg-purple-50 border-purple-400' : 'bg-white border-slate-200'
+                              isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
                             }`}
                           >
                             <span className="font-semibold text-xs text-slate-800">{s.serviceName}</span>
@@ -4290,7 +4320,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
               ) : isSingleDoctorClinic ? (
                 /* Single Doctor Card */
-                <div className="p-3.5 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-1">
+                <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-1">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 block">
                     Attending Specialist Doctor
                   </span>
@@ -4303,7 +4333,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         {clinicDoctors[0]?.specialty || 'General Medicine'} • {clinicDoctors[0]?.education || 'MBBS, MD'}
                       </div>
                     </div>
-                    <span className="font-black text-emerald-900 text-sm bg-white px-2.5 py-1 rounded-lg border border-emerald-200">
+                    <span className="font-black text-emerald-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-emerald-200">
                       Rs. {clinicDoctors[0]?.consultationFee || 500}
                     </span>
                   </div>
@@ -4315,7 +4345,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <select
                     value={walkinDoctorId}
                     onChange={(e) => setWalkinDoctorId(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     {clinicDoctors.map((d) => (
                       <option key={d.id} value={d.id}>
@@ -4327,21 +4357,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               )}
 
               {/* Submit Button */}
-              <button
+              <GlassButton
                 type="submit"
-                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer"
+                variant="primary"
+                size="lg"
+                fullWidth
+                rightIcon={<ChevronRight className="w-4 h-4" />}
               >
-                <span>
-                  {isLabClinic
-                    ? `Issue Diagnostic Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
-                    : walkinIsFollowup && walkinRetainedAppt
-                    ? 'Issue Live OPD Token (100% FREE Follow-Up)'
-                    : 'Issue Live OPD Token'}
-                </span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
+                {isLabClinic
+                  ? `Issue Diagnostic Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
+                  : walkinIsFollowup && walkinRetainedAppt
+                  ? 'Issue Live OPD Token (100% FREE Follow-Up)'
+                  : 'Issue Live OPD Token'}
+              </GlassButton>
             </form>
-          </div>
+          </GlassCard>
         </div>
       )}
 
@@ -4358,14 +4388,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </p>
             </div>
             <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-brand-800 bg-brand-50 px-3 py-1.5 rounded-xl border border-brand-200">
+              <GlassBadge variant="brand" size="md">
                 {publishedSlots.length} Slots Published on {slotDate}
-              </span>
+              </GlassBadge>
             </div>
           </div>
 
           {/* 14-Day Horizontal Date Strip (SlotManagerScreen.kt) */}
-          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs space-y-2">
+          <GlassCard variant="subtle" padding="md" radius="xl" className="space-y-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
               Quick 14-Day Schedule Selector
             </span>
@@ -4380,10 +4410,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     onClick={() => setSlotDate(d.dateStr)}
                     className={`px-3.5 py-2 rounded-2xl border text-center shrink-0 transition cursor-pointer ${
                       isSelected
-                        ? 'bg-brand-600 border-brand-600 text-white shadow-sm'
+                        ? 'bg-brand-600 border-brand-600 text-white shadow-glass-brand'
                         : isHol
-                        ? 'bg-rose-50 border-rose-200 text-rose-700'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        ? 'bg-rose-50/80 border-rose-200 text-rose-700 backdrop-blur-md'
+                        : 'bg-white/60 border-white/80 text-slate-700 hover:bg-white/90 backdrop-blur-md'
                     }`}
                   >
                     <span className="text-[10px] font-bold block uppercase opacity-80">{d.dayShort}</span>
@@ -4392,10 +4422,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 )
               })}
             </div>
-          </div>
+          </GlassCard>
 
           {/* Quick Doctor & Date Selector Bar */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-4">
+          <GlassCard variant="base" padding="md" radius="xl" className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-slate-700 block mb-1">
                 Select Attending Doctor <span className="text-rose-500">*</span>
@@ -4403,7 +4433,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <select
                 value={slotDoctorId}
                 onChange={(e) => setSlotDoctorId(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 {clinicDoctors.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -4422,17 +4452,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 value={slotDate}
                 onChange={(e) => setSlotDate(e.target.value)}
                 min={new Date().toISOString().split('T')[0]}
-                className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
-          </div>
+          </GlassCard>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left Column: Publish Single Slot or Quick Presets */}
             <div className="space-y-6">
               {/* Manual Slot Creator */}
-              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
-                <div className="flex items-center space-x-2 text-brand-700 font-black text-sm pb-2 border-b border-slate-100">
+              <GlassCard variant="base" padding="md" radius="xl" className="space-y-4">
+                <div className="flex items-center space-x-2 text-brand-700 font-black text-sm pb-2 border-b border-white/60">
                   <CalendarClock className="w-4 h-4" />
                   <span>Create Individual Timed Slot</span>
                 </div>
@@ -4446,7 +4476,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         value={slotStartTime}
                         onChange={(e) => setSlotStartTime(e.target.value)}
                         placeholder="09:00 AM"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
                         required
                       />
                     </div>
@@ -4457,7 +4487,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         value={slotEndTime}
                         onChange={(e) => setSlotEndTime(e.target.value)}
                         placeholder="09:15 AM"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
                         required
                       />
                     </div>
@@ -4473,22 +4503,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       max={50}
                       value={slotCapacity}
                       onChange={(e) => setSlotCapacity(Number(e.target.value) || 1)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
                     />
                   </div>
 
-                  <button
+                  <GlassButton
                     type="submit"
+                    variant="primary"
+                    size="md"
+                    fullWidth
                     disabled={publishingSlot}
-                    className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-sm cursor-pointer"
                   >
                     {publishingSlot ? 'Publishing...' : 'Publish Timed Slot'}
-                  </button>
+                  </GlassButton>
                 </form>
-              </div>
+              </GlassCard>
 
               {/* Quick Preset Generators */}
-              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-3">
+              <GlassCard variant="base" padding="md" radius="xl" className="space-y-3">
                 <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
                   ⚡ 1-Click Slot Generators (15-min Intervals)
                 </h3>
@@ -4501,7 +4533,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="button"
                     disabled={publishingSlot}
                     onClick={() => handleGenerateBulkSlots(9, 12, 15)}
-                    className="w-full py-2.5 px-3 bg-slate-50 hover:bg-brand-50 hover:text-brand-700 border border-slate-200 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between"
+                    className="w-full py-2.5 px-3 bg-white/60 hover:bg-brand-50/80 hover:text-brand-700 border border-white/80 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
                   >
                     <span>Morning: 09:00 AM – 12:00 PM</span>
                     <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
@@ -4511,7 +4543,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="button"
                     disabled={publishingSlot}
                     onClick={() => handleGenerateBulkSlots(13, 16, 15)}
-                    className="w-full py-2.5 px-3 bg-slate-50 hover:bg-brand-50 hover:text-brand-700 border border-slate-200 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between"
+                    className="w-full py-2.5 px-3 bg-white/60 hover:bg-brand-50/80 hover:text-brand-700 border border-white/80 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
                   >
                     <span>Afternoon: 01:00 PM – 04:00 PM</span>
                     <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
@@ -4521,19 +4553,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="button"
                     disabled={publishingSlot}
                     onClick={() => handleGenerateBulkSlots(16, 19, 15)}
-                    className="w-full py-2.5 px-3 bg-slate-50 hover:bg-brand-50 hover:text-brand-700 border border-slate-200 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between"
+                    className="w-full py-2.5 px-3 bg-white/60 hover:bg-brand-50/80 hover:text-brand-700 border border-white/80 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
                   >
                     <span>Evening: 04:00 PM – 07:00 PM</span>
                     <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
                   </button>
                 </div>
-              </div>
+              </GlassCard>
             </div>
 
             {/* Right Column (2 cols): Published Slots Grid */}
             <div className="lg:col-span-2 space-y-4">
-              <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <GlassCard variant="base" padding="md" radius="xl" className="space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-white/60">
                   <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
                     Published Slots on {slotDate} ({publishedSlots.length})
                   </h3>
@@ -4563,7 +4595,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       return (
                         <div
                           key={slot.id}
-                          className="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-200 flex items-center justify-between transition-colors gap-2"
+                          className="p-3.5 liquid-glass-subtle hover:bg-white/80 rounded-2xl border border-white/75 flex items-center justify-between transition-colors gap-2 shadow-glass-sm"
                         >
                           <div className="space-y-0.5">
                             <span className="text-xs font-black text-slate-900 font-mono">
@@ -4573,8 +4605,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               <span
                                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                                   isFull
-                                    ? 'bg-rose-100 text-rose-800'
-                                    : 'bg-brand-100 text-brand-800'
+                                    ? 'bg-rose-100/90 text-rose-800'
+                                    : 'bg-brand-100/90 text-brand-800'
                                 }`}
                               >
                                 {isFull ? 'Full' : 'Available'}
@@ -4590,7 +4622,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             <button
                               type="button"
                               onClick={() => handleSubtract30MinsFromSlot(slot)}
-                              className="px-2 py-1 text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg cursor-pointer"
+                              className="px-2 py-1 text-[10px] font-bold bg-amber-50/85 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg cursor-pointer"
                               title="Shorten slot end time by 30 minutes"
                             >
                               -30m
@@ -4601,7 +4633,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 setEditingSlotCapacity(slot)
                                 setNewSlotCapacityVal(slot.maxCapacity || 5)
                               }}
-                              className="px-2 py-1 text-[10px] font-bold bg-white hover:bg-brand-50 text-slate-700 hover:text-brand-700 border border-slate-200 rounded-lg cursor-pointer"
+                              className="px-2 py-1 text-[10px] font-bold bg-white/80 hover:bg-brand-50 text-slate-700 hover:text-brand-700 border border-white/90 rounded-lg cursor-pointer"
                               title="Edit max patients capacity"
                             >
                               Cap
@@ -4609,7 +4641,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             <button
                               type="button"
                               onClick={() => handleDeleteSlot(slot.id)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50/80 rounded-xl transition-colors cursor-pointer"
                               title="Delete this time slot"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -4620,7 +4652,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     })}
                   </div>
                 )}
-              </div>
+              </GlassCard>
             </div>
           </div>
         </div>
@@ -4632,7 +4664,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {deskTab === 'future_appts' && (
         <div className="space-y-6">
           {/* 14-Day Horizontal Date Strip with Holiday & Booking Indicators (FutureAppointmentsScreen.kt) */}
-          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs space-y-2">
+          <GlassCard variant="subtle" padding="md" radius="xl" className="space-y-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
               14-Day Upcoming OPD Calendar Strip
             </span>
@@ -4648,10 +4680,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     onClick={() => setFutureSelectedDate(d.dateStr)}
                     className={`px-3.5 py-2 rounded-2xl border text-center shrink-0 transition cursor-pointer relative ${
                       isSelected
-                        ? 'bg-brand-600 border-brand-600 text-white shadow-sm'
+                        ? 'bg-brand-600 border-brand-600 text-white shadow-glass-brand'
                         : isHol
-                        ? 'bg-rose-50 border-rose-300 text-rose-800'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        ? 'bg-rose-50/80 border-rose-300 text-rose-800 backdrop-blur-md'
+                        : 'bg-white/60 border-white/80 text-slate-700 hover:bg-white/90 backdrop-blur-md'
                     }`}
                   >
                     <span className="text-[10px] font-bold block uppercase opacity-80">{d.dayShort}</span>
@@ -4676,10 +4708,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 )
               })}
             </div>
-          </div>
+          </GlassCard>
 
           {/* Top Control Bar: Date Selector & Declare Holiday Toggle */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <GlassCard variant="base" padding="md" radius="xl" className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="space-y-1">
               <h2 className="text-lg font-black text-slate-900">Future Appointments & Holiday Desk</h2>
               <p className="text-xs text-slate-500">
@@ -4689,7 +4721,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
             <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
               {/* Sub-filter Pills (FutureAppointmentsScreen.kt: All / Waiting / Completed) */}
-              <div className="flex p-1 bg-slate-100 rounded-xl">
+              <div className="flex p-1 liquid-glass-subtle rounded-xl border border-white/70">
                 {(['all', 'waiting', 'completed'] as const).map((f) => (
                   <button
                     key={f}
@@ -4697,7 +4729,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     onClick={() => setFutureSubFilter(f)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize cursor-pointer ${
                       futureSubFilter === f
-                        ? 'bg-white text-brand-700 shadow-2xs'
+                        ? 'bg-white/90 text-brand-700 shadow-glass-sm'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -4711,7 +4743,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 type="date"
                 value={futureSelectedDate}
                 onChange={(e) => setFutureSelectedDate(e.target.value)}
-                className="px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="px-3.5 py-2 rounded-xl liquid-glass-input text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
 
               {/* Declare Holiday Toggle */}
@@ -4721,8 +4753,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 disabled={togglingHoliday}
                 className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                   isSelectedDateHoliday
-                    ? 'bg-rose-600 border-rose-600 text-white shadow-xs'
-                    : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-rose-50 hover:text-rose-700'
+                    ? 'bg-rose-600 border-rose-600 text-white shadow-glass-sm'
+                    : 'bg-white/65 border-white/80 text-slate-700 hover:bg-rose-50 hover:text-rose-700 backdrop-blur-md'
                 }`}
               >
                 <AlertTriangle className="w-4 h-4" />
@@ -4733,11 +4765,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </span>
               </button>
             </div>
-          </div>
+          </GlassCard>
 
           {/* Holiday Notice Banner if declared */}
           {isSelectedDateHoliday && (
-            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center space-x-3 text-rose-800 text-xs font-bold">
+            <div className="p-4 bg-rose-50/85 backdrop-blur-md border border-rose-200/80 rounded-2xl flex items-center space-x-3 text-rose-800 text-xs font-bold shadow-glass-sm">
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
               <div>
                 <span>HOLIDAY DECLARED FOR {futureSelectedDate}: Clinic is marked CLOSED.</span>
@@ -4749,8 +4781,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           )}
 
           {/* Future Appointments Table */}
-          <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <GlassCard variant="base" padding="none" radius="xl" className="overflow-hidden">
+            <div className="p-4 bg-white/45 backdrop-blur-md border-b border-white/70 flex items-center justify-between">
               <h3 className="font-bold text-xs text-slate-700">
                 Appointments Scheduled for {futureSelectedDate} ({futureDateAppointments.length})
               </h3>
@@ -4767,7 +4799,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold">
+                  <thead className="bg-white/45 text-slate-500 uppercase tracking-wider font-bold border-b border-white/60">
                     <tr>
                       <th className="py-3 px-4">Tracking Code</th>
                       <th className="py-3 px-4">Patient Name</th>
@@ -4779,7 +4811,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
+                  <tbody className="divide-y divide-slate-200/50 font-medium">
                     {futureDateAppointments
                       .filter((appt) =>
                         futureSubFilter === 'all'
@@ -4789,14 +4821,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           : appt.checkinStatus === 'completed'
                       )
                       .map((appt) => (
-                      <tr key={appt.id} className="hover:bg-slate-50/50">
+                      <tr key={appt.id} className="hover:bg-white/45 transition-colors">
                         <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
                           #{appt.trackingCode10Digit}
                         </td>
                         <td className="py-3.5 px-4 font-bold text-slate-900">
                           <div>{appt.patientName}</div>
                           {appt.notes && (
-                            <div className="mt-0.5 text-[10px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block">
+                            <div className="mt-0.5 text-[10px] text-amber-800 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200 inline-block">
                               Remark: {appt.notes}
                             </div>
                           )}
@@ -4811,7 +4843,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           {appt.appointmentTime}
                         </td>
                         <td className="py-3.5 px-4">
-                          <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800">
+                          <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/75 border border-white/80 text-slate-800">
                             {appt.checkinStatus.toUpperCase()}
                           </span>
                         </td>
@@ -4822,14 +4854,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           <button
                             type="button"
                             onClick={() => handleOpenRemarkModal(appt)}
-                            className="px-2.5 py-1 bg-amber-50 text-amber-900 hover:bg-amber-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                            className="px-2.5 py-1 bg-amber-50/85 text-amber-900 hover:bg-amber-100 rounded-lg text-[11px] font-bold cursor-pointer"
                           >
                             Remark
                           </button>
                           <button
                             type="button"
                             onClick={() => handleOpenShiftModal(appt)}
-                            className="px-2.5 py-1 bg-teal-50 text-teal-800 hover:bg-teal-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                            className="px-2.5 py-1 bg-teal-50/85 text-teal-800 hover:bg-teal-100 rounded-lg text-[11px] font-bold cursor-pointer"
                             title="Shift appointment to another date"
                           >
                             Shift Date
@@ -4837,14 +4869,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           <button
                             type="button"
                             onClick={() => handleOpenPushAlertModal(appt)}
-                            className="px-2.5 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                            className="px-2.5 py-1 bg-purple-50/85 text-purple-700 hover:bg-purple-100 rounded-lg text-[11px] font-bold cursor-pointer"
                           >
                             Push Alert
                           </button>
                           <button
                             type="button"
                             onClick={() => handleOpenBillModal(appt)}
-                            className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                            className="px-2.5 py-1 bg-blue-50/85 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold cursor-pointer"
                           >
                             Bill
                           </button>
@@ -4855,7 +4887,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </table>
               </div>
             )}
-          </div>
+          </GlassCard>
         </div>
       )}
 
@@ -4864,7 +4896,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'noshow' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <GlassCard variant="base" padding="md" radius="xl" className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
@@ -4874,24 +4906,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 Review patients marked as No-Show. Restore them back into the active waiting queue if they arrive late, or reschedule their appointment date.
               </p>
             </div>
-            <span className="px-3.5 py-1.5 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 text-xs font-black">
+            <GlassBadge variant="danger" size="md">
               {noShowAppointments.length} No-Show Records
-            </span>
-          </div>
+            </GlassBadge>
+          </GlassCard>
 
           {noShowAppointments.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
+            <GlassCard variant="subtle" padding="lg" radius="xl" className="p-12 text-center">
               <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
               <h3 className="font-bold text-slate-800 text-sm">Zero No-Show Patients</h3>
               <p className="text-xs text-slate-500 mt-1">
                 All registered patients have attended or are actively waiting in queue.
               </p>
-            </div>
+            </GlassCard>
           ) : (
-            <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+            <GlassCard variant="base" padding="none" radius="xl" className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-rose-50/70 border-b border-rose-100 text-rose-900 uppercase tracking-wider font-bold">
+                  <thead className="bg-rose-50/75 border-b border-rose-100 text-rose-900 uppercase tracking-wider font-bold">
                     <tr>
                       <th className="py-3.5 px-4">Token Code</th>
                       <th className="py-3.5 px-4">Patient Name</th>
@@ -4901,9 +4933,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       <th className="py-3.5 px-4 text-right">Recovery Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
+                  <tbody className="divide-y divide-slate-200/50 font-medium">
                     {noShowAppointments.map((appt) => (
-                      <tr key={appt.id} className="hover:bg-slate-50/50">
+                      <tr key={appt.id} className="hover:bg-white/45 transition-colors">
                         <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
                           #{appt.trackingCode10Digit}
                         </td>
@@ -4930,21 +4962,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           <button
                             type="button"
                             onClick={() => handleStatusChange(appt.id, 'waiting')}
-                            className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold text-[11px] cursor-pointer shadow-2xs"
+                            className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold text-[11px] cursor-pointer shadow-glass-sm"
                           >
                             Restore to Waiting Queue
                           </button>
                           <button
                             type="button"
                             onClick={() => handleOpenShiftModal(appt)}
-                            className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-xl font-bold text-[11px] cursor-pointer"
+                            className="px-3 py-1.5 bg-teal-50/85 hover:bg-teal-100 text-teal-800 rounded-xl font-bold text-[11px] cursor-pointer"
                           >
                             Reschedule Date
                           </button>
                           <button
                             type="button"
                             onClick={() => handleOpenPushAlertModal(appt)}
-                            className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-bold text-[11px] cursor-pointer"
+                            className="px-3 py-1.5 bg-purple-50/85 hover:bg-purple-100 text-purple-700 rounded-xl font-bold text-[11px] cursor-pointer"
                           >
                             Push Alert
                           </button>
@@ -4954,7 +4986,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </tbody>
                 </table>
               </div>
-            </div>
+            </GlassCard>
           )}
         </div>
       )}
@@ -4964,7 +4996,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'fees' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <GlassCard variant="base" padding="md" radius="xl" className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-black text-slate-900">
                 Doctor Consultation Fees Manager
@@ -4973,10 +5005,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 Configure OPD consultation fees for each enlisted doctor. Changes sync immediately to walk-in reception, online bookings, and billing invoices.
               </p>
             </div>
-            <span className="px-3.5 py-1.5 rounded-xl bg-brand-50 text-brand-800 border border-brand-200 text-xs font-black">
+            <GlassBadge variant="brand" size="md">
               {clinicDoctors.length} Enlisted Doctors
-            </span>
-          </div>
+            </GlassBadge>
+          </GlassCard>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {clinicDoctors.map((doc) => {
@@ -4985,13 +5017,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   ? editingDoctorFees[doc.id]
                   : doc.consultationFee || 500
               return (
-                <div
+                <GlassCard
                   key={doc.id}
-                  className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4"
+                  variant="base"
+                  padding="md"
+                  radius="xl"
+                  className="space-y-4"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 rounded-2xl bg-brand-100 text-brand-800 font-black flex items-center justify-center overflow-hidden">
+                      <div className="w-12 h-12 rounded-2xl bg-brand-100/80 text-brand-800 font-black flex items-center justify-center overflow-hidden shadow-glass-sm">
                         {doc.profilePictureUrl ? (
                           <img src={doc.profilePictureUrl} alt={doc.fullName} className="w-full h-full object-cover" />
                         ) : (
@@ -5003,9 +5038,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         <p className="text-xs text-brand-700 font-bold">{doc.specialty || 'General Physician'}</p>
                       </div>
                     </div>
-                    <span className="px-3 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-black">
+                    <GlassBadge variant="success" size="sm">
                       Current: Rs. {doc.consultationFee || 500}
-                    </span>
+                    </GlassBadge>
                   </div>
 
                   {/* Quick Fee Presets */}
@@ -5023,8 +5058,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           }
                           className={`px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition ${
                             currentFeeVal === preset
-                              ? 'bg-brand-600 text-white border-brand-600'
-                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              ? 'bg-brand-600 text-white border-brand-600 shadow-glass-sm'
+                              : 'bg-white/65 text-slate-700 border-white/80 hover:bg-white/90'
                           }`}
                         >
                           Rs. {preset}
@@ -5044,18 +5079,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           [doc.id]: Number(e.target.value) || 0,
                         })
                       }
-                      className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-black focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      className="flex-1 px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-black focus:outline-none focus:ring-2 focus:ring-brand-500"
                     />
-                    <button
+                    <GlassButton
                       type="button"
+                      variant="primary"
+                      size="md"
                       disabled={savingDocFeeId === doc.id}
                       onClick={() => handleSaveDoctorFee(doc, currentFeeVal)}
-                      className="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs transition"
                     >
                       {savingDocFeeId === doc.id ? 'Saving...' : 'Update Fee'}
-                    </button>
+                    </GlassButton>
                   </div>
-                </div>
+                </GlassCard>
               )
             })}
           </div>
@@ -5067,7 +5103,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'invitations' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <GlassCard variant="base" padding="md" radius="xl" className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-black text-slate-900">
                 Doctor & Clinical Staff Invitations
@@ -5076,13 +5112,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 Search verified Dactor practitioners across Nepal, inspect their full NMC credentials, and invite them to join {selectedClinic?.name}.
               </p>
             </div>
-            <div className="flex p-1 bg-slate-100 rounded-2xl">
+            <div className="flex p-1 liquid-glass-subtle rounded-2xl border border-white/70">
               <button
                 type="button"
                 onClick={() => setInviteSubTab('find')}
                 className={`px-4 py-2 rounded-xl text-xs font-black cursor-pointer transition ${
                   inviteSubTab === 'find'
-                    ? 'bg-white text-brand-700 shadow-xs'
+                    ? 'bg-white/90 text-brand-700 shadow-glass-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -5093,21 +5129,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 onClick={() => setInviteSubTab('sent')}
                 className={`px-4 py-2 rounded-xl text-xs font-black cursor-pointer transition ${
                   inviteSubTab === 'sent'
-                    ? 'bg-white text-brand-700 shadow-xs'
+                    ? 'bg-white/90 text-brand-700 shadow-glass-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Sent Invitations ({clinicInvitations.length})
               </button>
             </div>
-          </div>
+          </GlassCard>
 
           {inviteSubTab === 'find' ? (
             <div className="space-y-6">
               {/* Direct Custom Email Invite Card */}
               <form
                 onSubmit={handleSendCustomStaffInvitation}
-                className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4"
+                className="liquid-glass-card p-6 rounded-3xl space-y-4"
               >
                 <h3 className="text-xs font-black uppercase tracking-wider text-brand-700">
                   Send Direct Invitation by Google Email
@@ -5118,7 +5154,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={customInviteName}
                     onChange={(e) => setCustomInviteName(e.target.value)}
                     placeholder="Doctor / Technician Name"
-                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold"
+                    className="px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold"
                     required
                   />
                   <input
@@ -5126,28 +5162,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={customInviteEmail}
                     onChange={(e) => setCustomInviteEmail(e.target.value)}
                     placeholder="practitioner@gmail.com"
-                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold"
+                    className="px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold"
                     required
                   />
                   <select
                     value={customInviteRole}
                     onChange={(e) => setCustomInviteRole(e.target.value as any)}
-                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold"
+                    className="px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold"
                   >
                     <option value="doctor">Medical Doctor</option>
                     <option value="lab_technician">Lab Technician</option>
                   </select>
-                  <button
+                  <GlassButton
                     type="submit"
-                    className="py-2.5 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+                    variant="primary"
+                    size="md"
                   >
                     Send Invitation
-                  </button>
+                  </GlassButton>
                 </div>
               </form>
 
               {/* Filter & Search Bar */}
-              <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <GlassCard variant="subtle" padding="md" radius="xl" className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   {(['all', 'doctor', 'lab_technician'] as const).map((rf) => (
                     <button
@@ -5156,8 +5193,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       onClick={() => setInviteRoleFilter(rf)}
                       className={`px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition ${
                         inviteRoleFilter === rf
-                          ? 'bg-brand-600 text-white'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          ? 'bg-brand-600 text-white shadow-glass-sm'
+                          : 'bg-white/65 border border-white/80 text-slate-600 hover:bg-white/90'
                       }`}
                     >
                       {rf === 'all' ? 'All Roles' : rf === 'doctor' ? 'Doctors' : 'Lab Staff'}
@@ -5171,10 +5208,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={inviteSearchQuery}
                     onChange={(e) => setInviteSearchQuery(e.target.value)}
                     placeholder="Search by Doctor Name, Specialty, NMC License, or Email..."
-                    className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold"
+                    className="w-full pl-9 pr-3.5 py-2 rounded-xl liquid-glass-input text-xs font-semibold"
                   />
                 </div>
-              </div>
+              </GlassCard>
 
               {/* System Doctors Directory Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -5203,12 +5240,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         inv.invitedEmail.toLowerCase() === (doc.email || '').toLowerCase()
                     )
                     return (
-                      <div
+                      <GlassCard
                         key={doc.id}
-                        className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between"
+                        variant="base"
+                        padding="md"
+                        radius="xl"
+                        className="space-y-4 flex flex-col justify-between"
                       >
                         <div className="flex items-start space-x-3">
-                          <div className="w-13 h-13 rounded-2xl bg-brand-100 text-brand-800 font-black text-lg flex items-center justify-center overflow-hidden shrink-0">
+                          <div className="w-13 h-13 rounded-2xl bg-brand-100/80 text-brand-800 font-black text-lg flex items-center justify-center overflow-hidden shrink-0 shadow-glass-sm">
                             {doc.profilePictureUrl ? (
                               <img
                                 src={doc.profilePictureUrl}
@@ -5230,39 +5270,39 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                        <div className="flex items-center gap-2 pt-2 border-t border-white/60">
                           <button
                             type="button"
                             onClick={() => setViewingDoctorProfile(doc)}
-                            className="flex-1 py-2 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs cursor-pointer"
+                            className="flex-1 py-2 px-3 rounded-xl border border-white/80 bg-white/65 hover:bg-white/90 text-slate-700 font-bold text-xs cursor-pointer transition"
                           >
                             View Full Profile
                           </button>
                           {alreadyEnlisted ? (
-                            <span className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-black">
+                            <span className="px-3 py-2 rounded-xl bg-emerald-50/85 text-emerald-800 text-xs font-black">
                               ✓ Enlisted
                             </span>
                           ) : alreadyInvited ? (
-                            <span className="px-3 py-2 rounded-xl bg-amber-50 text-amber-800 text-xs font-black">
+                            <span className="px-3 py-2 rounded-xl bg-amber-50/85 text-amber-800 text-xs font-black">
                               Pending Invite
                             </span>
                           ) : (
                             <button
                               type="button"
                               onClick={() => handleSendDoctorInvitation(doc)}
-                              className="flex-1 py-2 px-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs cursor-pointer"
+                              className="flex-1 py-2 px-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs cursor-pointer shadow-glass-sm transition"
                             >
                               Invite to Clinic
                             </button>
                           )}
                         </div>
-                      </div>
+                      </GlassCard>
                     )
                   })}
               </div>
             </div>
           ) : (
-            <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+            <GlassCard variant="base" padding="none" radius="xl" className="overflow-hidden">
               {clinicInvitations.length === 0 ? (
                 <div className="p-12 text-center text-xs text-slate-500">
                   No staff invitations have been sent from this clinic yet.
@@ -5270,7 +5310,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                    <thead className="bg-white/45 border-b border-white/70 text-slate-500 uppercase tracking-wider font-bold">
                       <tr>
                         <th className="py-3.5 px-4">Practitioner Name</th>
                         <th className="py-3.5 px-4">Email</th>
@@ -5279,9 +5319,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         <th className="py-3.5 px-4 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 font-medium">
+                    <tbody className="divide-y divide-slate-200/50 font-medium">
                       {clinicInvitations.map((inv) => (
-                        <tr key={inv.id} className="hover:bg-slate-50/50">
+                        <tr key={inv.id} className="hover:bg-white/45 transition-colors">
                           <td className="py-3.5 px-4 font-bold text-slate-900">{inv.invitedName}</td>
                           <td className="py-3.5 px-4 text-slate-600">{inv.invitedEmail}</td>
                           <td className="py-3.5 px-4 capitalize">{inv.role}</td>
@@ -5303,7 +5343,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               <button
                                 type="button"
                                 onClick={() => handleCancelStaffInvitation(inv.id)}
-                                className="px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                                className="px-3 py-1 bg-rose-50/85 hover:bg-rose-100 text-rose-700 rounded-lg font-bold text-[11px] cursor-pointer"
                               >
                                 Cancel / Revoke
                               </button>
@@ -5315,7 +5355,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </table>
                 </div>
               )}
-            </div>
+            </GlassCard>
           )}
         </div>
       )}
@@ -5326,7 +5366,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {deskTab === 'working_hours' && (
         <div className="space-y-6">
           {/* Header Notice */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <GlassCard variant="base" padding="md" radius="xl" className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-black text-slate-900">
                 Operational Working Hours & Break Management
@@ -5338,18 +5378,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             <div className="flex items-center space-x-2">
-              <button
+              <GlassButton
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={handleCopyMonHoursToAll}
-                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
                 Copy Mon Hours to Weekdays
-              </button>
+              </GlassButton>
             </div>
-          </div>
+          </GlassCard>
 
           {scheduleSaveSuccess && (
-            <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl flex items-center space-x-2 text-brand-800 text-xs font-bold">
+            <div className="p-4 bg-brand-50/85 backdrop-blur-md border border-brand-200/80 rounded-2xl flex items-center space-x-2 text-brand-800 text-xs font-bold shadow-glass-sm">
               <CheckCircle2 className="w-4 h-4 text-brand-600" />
               <span>Weekly operational schedule successfully saved to clinic profile!</span>
             </div>
@@ -5359,11 +5400,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           <form onSubmit={handleSaveWeeklySchedule} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {weeklySchedule.map((sched, idx) => (
-                <div
+                <GlassCard
                   key={sched.day}
-                  className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3.5"
+                  variant="base"
+                  padding="md"
+                  radius="lg"
+                  className="space-y-3.5"
                 >
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/60">
                     <span className="text-sm font-black text-slate-900">{sched.day}</span>
                     <label className="flex items-center space-x-1.5 cursor-pointer">
                       <input
@@ -5400,7 +5444,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 setWeeklySchedule(updated)
                               }}
                               placeholder="08:00 AM"
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
+                              className="w-full px-2.5 py-1.5 rounded-lg liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
                             />
                           </div>
                           <div>
@@ -5414,13 +5458,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 setWeeklySchedule(updated)
                               }}
                               placeholder="08:00 PM"
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
+                              className="w-full px-2.5 py-1.5 rounded-lg liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
                             />
                           </div>
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-100">
+                      <div className="pt-2 border-t border-white/60">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-[11px] font-bold text-slate-500">
                             Daily Break Hour
@@ -5453,7 +5497,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                   setWeeklySchedule(updated)
                                 }}
                                 placeholder="01:00 PM"
-                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                className="w-full px-2.5 py-1.5 rounded-lg liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
                               />
                             </div>
                             <div>
@@ -5467,7 +5511,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                   setWeeklySchedule(updated)
                                 }}
                                 placeholder="02:00 PM"
-                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                className="w-full px-2.5 py-1.5 rounded-lg liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-brand-500"
                               />
                             </div>
                           </div>
@@ -5479,18 +5523,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       Clinic is closed on this day.
                     </p>
                   )}
-                </div>
+                </GlassCard>
               ))}
             </div>
 
             <div className="flex justify-end pt-2">
-              <button
+              <GlassButton
                 type="submit"
+                variant="primary"
+                size="lg"
                 disabled={savingSchedule}
-                className="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 text-xs transition-colors cursor-pointer"
               >
                 {savingSchedule ? 'Saving Schedule...' : 'Save Weekly Operational Schedule'}
-              </button>
+              </GlassButton>
             </div>
           </form>
         </div>
@@ -5508,24 +5553,28 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 Manage doctor presence, consultation fee, medical council license, and practice years.
               </p>
             </div>
-            <button
+            <GlassButton
+              variant="primary"
+              size="sm"
+              leftIcon={<Plus className="w-4 h-4" />}
               onClick={() => setShowDoctorOnboarding(true)}
-              className="flex items-center space-x-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>Add New Doctor</span>
-            </button>
+              Add New Doctor
+            </GlassButton>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {clinicDoctors.map((doc) => (
-              <div
+              <GlassCard
                 key={doc.id}
-                className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4"
+                variant="base"
+                padding="md"
+                radius="xl"
+                className="space-y-4"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3">
-                    <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-800 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-slate-200 shadow-xs relative group">
+                    <div className="w-14 h-14 rounded-2xl bg-brand-100/80 text-brand-800 flex items-center justify-center font-black text-xl shrink-0 overflow-hidden border border-white/80 shadow-glass-sm relative group">
                       {doc.profilePictureUrl ? (
                         <img
                           src={doc.profilePictureUrl}
@@ -5568,15 +5617,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     onClick={() => handleToggleDoctorPresence(doc)}
                     className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
                       doc.isInClinic ?? true
-                        ? 'bg-brand-50 border-brand-300 text-brand-800'
-                        : 'bg-rose-50 border-rose-300 text-rose-800'
+                        ? 'bg-brand-50/85 border-brand-300 text-brand-800'
+                        : 'bg-rose-50/85 border-rose-300 text-rose-800'
                     }`}
                   >
                     {doc.isInClinic ?? true ? '● In Clinic' : '○ Away'}
                   </button>
                 </div>
 
-                <div className="space-y-1.5 text-xs text-slate-600 pt-1 border-t border-slate-100">
+                <div className="space-y-1.5 text-xs text-slate-600 pt-1 border-t border-white/60">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Education:</span>
                     <span className="font-semibold text-slate-800">{doc.education || 'MBBS'}</span>
@@ -5604,7 +5653,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <span className="font-mono text-slate-700">{doc.personalMobileNumber || '–'}</span>
                   </div>
                 </div>
-              </div>
+              </GlassCard>
             ))}
           </div>
         </div>
@@ -5615,7 +5664,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'billing' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <GlassCard variant="base" padding="md" radius="xl" className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-black text-slate-900">Clinic Billing & Invoices Directory</h2>
               <p className="text-xs text-slate-500">
@@ -5627,27 +5676,27 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 type="date"
                 value={billingDateFilter === 'all' ? '' : billingDateFilter}
                 onChange={(e) => setBillingDateFilter(e.target.value || 'all')}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800"
+                className="px-3 py-1.5 rounded-xl liquid-glass-input text-xs font-bold text-slate-800"
               />
               {billingDateFilter !== 'all' && (
                 <button
                   type="button"
                   onClick={() => setBillingDateFilter('all')}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-xl bg-white/75 border border-white/80 hover:bg-white text-xs font-bold text-slate-700 cursor-pointer"
                 >
                   Show All Dates
                 </button>
               )}
-              <span className="text-xs font-bold text-brand-800 bg-brand-50 px-3 py-1.5 rounded-xl">
+              <GlassBadge variant="brand" size="md">
                 {invoices.length} Invoices Recorded
-              </span>
+              </GlassBadge>
             </div>
-          </div>
+          </GlassCard>
 
-          <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+          <GlassCard variant="base" padding="none" radius="xl" className="overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                <thead className="bg-white/45 border-b border-white/70 text-slate-500 uppercase tracking-wider font-bold">
                   <tr>
                     <th className="py-3.5 px-4">Invoice ID / Date</th>
                     <th className="py-3.5 px-4">Total Amount</th>
@@ -5658,7 +5707,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <th className="py-3.5 px-4 text-right">Receipt File</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
+                <tbody className="divide-y divide-slate-200/50 font-medium">
                   {invoices
                     .filter((inv) =>
                       billingDateFilter === 'all'
@@ -5666,7 +5715,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         : (inv.createdAt?.split('T')[0] || '') === billingDateFilter
                     )
                     .map((inv) => (
-                    <tr key={inv.id} className="hover:bg-slate-50/50">
+                    <tr key={inv.id} className="hover:bg-white/45 transition-colors">
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
                         #{inv.id.substring(0, 8)} •{' '}
                         <span className="text-slate-500 font-normal">
@@ -5680,10 +5729,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             inv.paymentStatus === 'paid'
-                              ? 'bg-brand-100 text-brand-800'
+                              ? 'bg-brand-100/90 text-brand-800'
                               : inv.paymentStatus === 'partial'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-rose-100 text-rose-800'
+                              ? 'bg-amber-100/90 text-amber-800'
+                              : 'bg-rose-100/90 text-rose-800'
                           }`}
                         >
                           {inv.paymentStatus.toUpperCase()}
@@ -5709,11 +5758,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </tbody>
               </table>
             </div>
-          </div>
+          </GlassCard>
 
           {/* Clinic Direct Billing Catalog Manager (CatalogManagerScreen.kt) */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <GlassCard variant="base" padding="md" radius="xl" className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-3 border-b border-white/60">
               <div>
                 <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
                   <Tag className="w-4 h-4 text-brand-600" />
@@ -5723,9 +5772,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   Configure direct items for 1-click billing. Clicking any catalog item adds it instantly to patient invoices.
                 </p>
               </div>
-              <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
+              <GlassBadge variant="neutral" size="sm">
                 {services.length} Catalog Items
-              </span>
+              </GlassBadge>
             </div>
 
             {/* Category Filter Tabs & Search Bar (CatalogManagerScreen.kt) */}
@@ -5739,8 +5788,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       onClick={() => setCatalogCategoryFilter(cat)}
                       className={`px-3 py-1 rounded-xl text-xs font-bold cursor-pointer transition ${
                         catalogCategoryFilter === cat
-                          ? 'bg-brand-600 text-white'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          ? 'bg-brand-600 text-white shadow-glass-sm'
+                          : 'bg-white/65 border border-white/80 text-slate-600 hover:bg-white/90'
                       }`}
                     >
                       {cat}
@@ -5753,12 +5802,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 value={catalogSearchQuery}
                 onChange={(e) => setCatalogSearchQuery(e.target.value)}
                 placeholder="Search catalog items..."
-                className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold sm:w-56"
+                className="px-3.5 py-1.5 rounded-xl liquid-glass-input text-xs font-semibold sm:w-56"
               />
             </div>
 
             {/* Form to add item to catalog */}
-            <form onSubmit={handleAddService} className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+            <form onSubmit={handleAddService} className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-4 liquid-glass-subtle rounded-2xl border border-white/75">
               <div className="sm:col-span-2">
                 <label className="text-[11px] font-bold text-slate-700 block mb-1">Item / Service Name</label>
                 <input
@@ -5766,7 +5815,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={newServiceName}
                   onChange={(e) => setNewServiceName(e.target.value)}
                   placeholder="e.g. ECG Test, Blood Sugar, Dressing"
-                  className="w-full px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3 py-2 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   required
                 />
               </div>
@@ -5777,18 +5826,20 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={newServicePrice}
                   onChange={(e) => setNewServicePrice(e.target.value)}
                   placeholder="e.g. 500"
-                  className="w-full px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3 py-2 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   required
                 />
               </div>
               <div className="flex items-end">
-                <button
+                <GlassButton
                   type="submit"
-                  className="w-full py-2 px-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center space-x-1"
+                  variant="primary"
+                  size="sm"
+                  fullWidth
+                  leftIcon={<Plus className="w-3.5 h-3.5" />}
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add to Catalog</span>
-                </button>
+                  Add to Catalog
+                </GlassButton>
               </div>
             </form>
 
@@ -5813,7 +5864,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   .map((item) => (
                   <div
                     key={item.id}
-                    className="p-3 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 flex items-center justify-between transition-colors"
+                    className="p-3 liquid-glass-subtle hover:bg-white/80 rounded-2xl border border-white/75 flex items-center justify-between transition-colors shadow-glass-sm"
                   >
                     <div>
                       <span className="text-xs font-bold text-slate-900 block">{item.serviceName}</span>
@@ -5830,7 +5881,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           setServices((prev) => prev.filter((s) => s.id !== item.id))
                         }
                       }}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50/80 rounded-lg cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -5838,7 +5889,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 ))}
               </div>
             )}
-          </div>
+          </GlassCard>
         </div>
       )}
 
@@ -5847,7 +5898,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'patients' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+          <GlassCard variant="base" padding="md" radius="xl" className="space-y-4">
             <h2 className="text-xl font-black text-slate-900">Patient Directory & Visit History</h2>
             <p className="text-xs text-slate-500 font-medium">
               Search historical patient records across all visits by 10-digit tracking code, registered mobile number, or patient name.
@@ -5861,30 +5912,31 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={patientSearchQuery}
                   onChange={(e) => setPatientSearchQuery(e.target.value)}
                   placeholder="Enter 10-Digit Code, Mobile, or Patient Name..."
-                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
-              <button
+              <GlassButton
                 type="submit"
+                variant="primary"
+                size="md"
                 disabled={searchingPatients}
-                className="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs cursor-pointer"
               >
                 {searchingPatients ? 'Searching...' : 'Search'}
-              </button>
+              </GlassButton>
             </form>
-          </div>
+          </GlassCard>
 
           {/* Search Results Table */}
           {patientSearchResults.length > 0 && (
-            <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
-              <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+            <GlassCard variant="base" padding="none" radius="xl" className="overflow-hidden">
+              <div className="p-4 bg-white/45 border-b border-white/70 flex justify-between items-center">
                 <h3 className="font-bold text-xs text-slate-700">
                   Search Results ({patientSearchResults.length} Visits Found)
                 </h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold">
+                  <thead className="bg-white/45 text-slate-500 uppercase tracking-wider font-bold border-b border-white/60">
                     <tr>
                       <th className="py-3 px-4">Visit Date</th>
                       <th className="py-3 px-4">Tracking Code</th>
@@ -5895,9 +5947,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
+                  <tbody className="divide-y divide-slate-200/50 font-medium">
                     {patientSearchResults.map((res) => (
-                      <tr key={res.id} className="hover:bg-slate-50/50">
+                      <tr key={res.id} className="hover:bg-white/45 transition-colors">
                         <td className="py-3.5 px-4 font-bold text-slate-900">
                           {res.appointmentDate}
                         </td>
@@ -5911,7 +5963,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           {res.patientMobile || '–'}
                         </td>
                         <td className="py-3.5 px-4">
-                          <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800">
+                          <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/75 border border-white/80 text-slate-800">
                             {res.checkinStatus.toUpperCase()}
                           </span>
                         </td>
@@ -5921,7 +5973,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         <td className="py-3.5 px-4 text-right">
                           <button
                             onClick={() => handleOpenBillModal(res)}
-                            className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                            className="px-2.5 py-1 bg-blue-50/85 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold cursor-pointer"
                           >
                             View / Push Bill
                           </button>
@@ -5931,12 +5983,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </tbody>
                 </table>
               </div>
-            </div>
+            </GlassCard>
           )}
 
           {/* Patient Directory Table */}
-          <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+          <GlassCard variant="base" padding="none" radius="xl" className="overflow-hidden">
+            <div className="p-4 bg-white/45 border-b border-white/70 flex justify-between items-center">
               <h3 className="font-bold text-xs text-slate-700">
                 Registered Patients Directory ({patientDirectory.length} Total Patients)
               </h3>
@@ -5961,7 +6013,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold">
+                  <thead className="bg-white/45 text-slate-500 uppercase tracking-wider font-bold border-b border-white/60">
                     <tr>
                       <th className="py-3 px-4">Patient Name</th>
                       <th className="py-3 px-4">Mobile</th>
@@ -5971,9 +6023,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       <th className="py-3 px-4">Tracking Code(s)</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
+                  <tbody className="divide-y divide-slate-200/50 font-medium">
                     {patientDirectory.map((pat) => (
-                      <tr key={pat.id} className="hover:bg-slate-50/50">
+                      <tr key={pat.id} className="hover:bg-white/45 transition-colors">
                         <td className="py-3.5 px-4 font-bold text-slate-900">
                           {pat.fullName}
                         </td>
@@ -5994,7 +6046,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             {pat.trackingCodes.slice(0, 2).map((code: string) => (
                               <span
                                 key={code}
-                                className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-mono text-[10px] font-bold"
+                                className="px-2 py-0.5 rounded-md bg-white/75 border border-white/80 text-slate-800 font-mono text-[10px] font-bold"
                               >
                                 #{code}
                               </span>
@@ -6012,7 +6064,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </table>
               </div>
             )}
-          </div>
+          </GlassCard>
         </div>
       )}
 
@@ -6032,7 +6084,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
             <button
               onClick={() => setRefreshKey((k) => k + 1)}
-              className="flex items-center space-x-1.5 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-xl cursor-pointer self-start sm:self-auto"
+              className="flex items-center space-x-1.5 text-xs font-bold text-teal-700 bg-teal-50/85 border border-teal-200 px-3 py-1.5 rounded-xl cursor-pointer self-start sm:self-auto shadow-glass-sm"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               <span>Refresh Lab Queue</span>
@@ -6040,8 +6092,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           </div>
 
           {/* 3 Sub-Tabs + Search Bar (LabWorkflowScreen.kt) */}
-          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="flex p-1 bg-slate-100 rounded-2xl">
+          <GlassCard variant="subtle" padding="md" radius="xl" className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="flex p-1 liquid-glass-subtle rounded-2xl border border-white/75">
               {(['all', 'processing', 'prepared'] as const).map((lt) => (
                 <button
                   key={lt}
@@ -6049,7 +6101,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   onClick={() => setLabSubTab(lt)}
                   className={`px-4 py-2 rounded-xl text-xs font-black cursor-pointer transition ${
                     labSubTab === lt
-                      ? 'bg-white text-teal-700 shadow-xs'
+                      ? 'bg-white/95 text-teal-700 shadow-glass-sm'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -6068,15 +6120,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 value={labSearchQuery}
                 onChange={(e) => setLabSearchQuery(e.target.value)}
                 placeholder="Search by 10-Digit Code, Patient Name, or Test..."
-                className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold"
+                className="w-full pl-9 pr-3.5 py-2 rounded-xl liquid-glass-input text-xs font-semibold"
               />
             </div>
-          </div>
+          </GlassCard>
 
-          <div className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm">
+          <GlassCard variant="base" padding="none" radius="xl" className="overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-teal-50/70 border-b border-teal-100 text-teal-900 uppercase tracking-wider font-bold">
+                <thead className="bg-teal-50/75 border-b border-teal-100 text-teal-900 uppercase tracking-wider font-bold">
                   <tr>
                     <th className="py-3.5 px-4">Tracking Code</th>
                     <th className="py-3.5 px-4">Patient Name</th>
@@ -6085,7 +6137,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <th className="py-3.5 px-4 text-right">Lab Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
+                <tbody className="divide-y divide-slate-200/50 font-medium">
                   {appointments
                     .filter((appt) => {
                       const relatedReport = labReports.find(
@@ -6123,7 +6175,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         : 'sample_collected')
 
                     return (
-                      <tr key={appt.id} className="hover:bg-slate-50/50">
+                      <tr key={appt.id} className="hover:bg-white/45 transition-colors">
                         <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
                           #{appt.trackingCode10Digit}
                         </td>
@@ -6135,15 +6187,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         </td>
                         <td className="py-3.5 px-4">
                           {labStatus === 'prepared' ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-brand-100 text-brand-800">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-brand-100/90 text-brand-800">
                               Prepared (Ready)
                             </span>
                           ) : labStatus === 'processing' ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 animate-pulse">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100/90 text-blue-800 animate-pulse">
                               Processing in Lab
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100/90 text-amber-800">
                               Sample Collected
                             </span>
                           )}
@@ -6152,7 +6204,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           {labStatus !== 'processing' && labStatus !== 'prepared' && (
                             <button
                               onClick={() => handleStatusChange(appt.id, 'in_consultation')}
-                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] shadow-glass-sm cursor-pointer"
                             >
                               Mark Processing
                             </button>
@@ -6163,7 +6215,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 setTargetLabAppt(appt)
                                 setLabUploadModalOpen(true)
                               }}
-                              className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold text-[11px] shadow-xs cursor-pointer"
+                              className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold text-[11px] shadow-glass-sm cursor-pointer"
                             >
                               Mark Prepared & Upload
                             </button>
@@ -6176,7 +6228,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 setLabVerifyInput('')
                                 setLabVerifyError(null)
                               }}
-                              className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg font-bold text-[11px] inline-flex items-center space-x-1 cursor-pointer"
+                              className="px-2.5 py-1 bg-teal-50/85 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg font-bold text-[11px] inline-flex items-center space-x-1 cursor-pointer"
                             >
                               <Lock className="w-3 h-3" />
                               <span>Verify & View Report</span>
@@ -6189,7 +6241,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </tbody>
               </table>
             </div>
-          </div>
+          </GlassCard>
         </div>
       )}
 
@@ -6199,7 +6251,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {deskTab === 'rates' && isDiagnosticLab && (
         <div className="space-y-6">
           {/* 1-Click Common Diagnostic Test Presets (CatalogManagerScreen.kt) */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-3">
+          <GlassCard variant="base" padding="md" radius="xl" className="space-y-3">
             <h3 className="text-xs font-black uppercase tracking-wider text-teal-700">
               ⚡ 1-Click Common Pathology & Diagnostic Presets
             </h3>
@@ -6235,16 +6287,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       setServices((prev) => [...prev, created])
                     }
                   }}
-                  className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 text-xs font-bold cursor-pointer transition"
+                  className="px-3 py-1.5 rounded-xl bg-teal-50/85 hover:bg-teal-100 text-teal-900 border border-teal-200 text-xs font-bold cursor-pointer transition shadow-glass-sm"
                 >
                   + {preset.name} (Rs. {preset.price})
                 </button>
               ))}
             </div>
-          </div>
+          </GlassCard>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+            <GlassCard variant="base" padding="md" radius="xl" className="space-y-4">
               <h3 className="text-lg font-black text-slate-900">Add Diagnostic Test</h3>
               <p className="text-xs text-slate-500 font-medium">
                 Create a new test or package with your official rate.
@@ -6258,7 +6310,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={newServiceName}
                     onChange={(e) => setNewServiceName(e.target.value)}
                     placeholder="e.g. Complete Blood Count (CBC)"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
 
@@ -6269,7 +6321,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={newServicePrice}
                     onChange={(e) => setNewServicePrice(e.target.value)}
                     placeholder="e.g. 600"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
 
@@ -6278,7 +6330,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <select
                     value={newServiceCategory}
                     onChange={(e) => setNewServiceCategory(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
                   >
                     <option value="Hematology">Hematology</option>
                     <option value="Biochemistry">Biochemistry</option>
@@ -6289,28 +6341,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </select>
                 </div>
 
-                <button
+                <GlassButton
                   type="submit"
-                  className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs shadow-xs transition-colors cursor-pointer"
+                  variant="primary"
+                  size="md"
+                  fullWidth
                 >
                   Save Test & Publish Rate
-                </button>
+                </GlassButton>
               </form>
-            </div>
+            </GlassCard>
 
-            <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+            <GlassCard variant="base" padding="md" radius="xl" className="lg:col-span-2 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-black text-slate-900">Current Clinic Diagnostic Rates</h3>
-                <span className="text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1 rounded-full">
+                <GlassBadge variant="info" size="sm">
                   {services.length} Tests Active
-                </span>
+                </GlassBadge>
               </div>
 
               <div className="space-y-2.5 max-h-[500px] overflow-y-auto">
                 {services.map((srv) => (
                   <div
                     key={srv.id}
-                    className="p-3.5 rounded-2xl border border-slate-100 bg-slate-50/60 flex items-center justify-between"
+                    className="p-3.5 rounded-2xl border border-white/75 liquid-glass-subtle flex items-center justify-between shadow-glass-sm"
                   >
                     <div>
                       <h4 className="text-xs font-bold text-slate-900">{srv.serviceName}</h4>
@@ -6330,7 +6384,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </div>
                 ))}
               </div>
-            </div>
+            </GlassCard>
           </div>
         </div>
       )}
@@ -6340,7 +6394,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* ========================================================= */}
       {deskTab === 'broadcast' && (
         <div className="max-w-2xl mx-auto space-y-6">
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
+          <GlassCard variant="elevated" padding="lg" radius="xl" specular className="space-y-6">
             <div>
               <h2 className="text-xl font-black text-slate-900">
                 Clinic Notification Broadcast Desk
@@ -6351,7 +6405,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             {broadcastSent && (
-              <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl text-brand-800 text-xs font-bold flex items-center space-x-2">
+              <div className="p-4 bg-brand-50/85 backdrop-blur-md border border-brand-200/80 rounded-2xl text-brand-800 text-xs font-bold flex items-center space-x-2 shadow-glass-sm">
                 <CheckCircle2 className="w-4 h-4 text-brand-600" />
                 <span>Broadcast message successfully sent to all patients!</span>
               </div>
@@ -6367,7 +6421,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={broadcastTitle}
                   onChange={(e) => setBroadcastTitle(e.target.value)}
                   placeholder="e.g. Doctor Delay Notice / Break Hour Resumption"
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -6380,19 +6434,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={broadcastMessage}
                   onChange={(e) => setBroadcastMessage(e.target.value)}
                   placeholder="Enter detailed notification content..."
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
-              <button
+              <GlassButton
                 type="submit"
-                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer"
+                variant="primary"
+                size="lg"
+                fullWidth
+                leftIcon={<Send className="w-4 h-4" />}
               >
-                <Send className="w-4 h-4" />
-                <span>Broadcast Notification</span>
-              </button>
+                Broadcast Notification
+              </GlassButton>
             </form>
-          </div>
+          </GlassCard>
         </div>
       )}
 
@@ -6402,7 +6458,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {deskTab === 'settings' && (
         <div className="max-w-3xl mx-auto space-y-6">
           {/* 1. PORTAL LICENSE & SUBSCRIPTION STATUS CARD (ClinicSettingsScreen.kt lines 155-235) */}
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-4">
+          <GlassCard variant="base" padding="lg" radius="xl" className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="text-[10px] font-black uppercase tracking-wider text-brand-600 block">
@@ -6418,40 +6474,39 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </strong>
                 </p>
               </div>
-              <span
-                className={`px-4 py-1.5 rounded-2xl text-xs font-black border self-start sm:self-auto ${
-                  isSubscriptionActive
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                    : 'bg-rose-50 text-rose-800 border-rose-300'
-                }`}
+              <GlassBadge
+                variant={isSubscriptionActive ? 'success' : 'danger'}
+                size="md"
               >
                 {isSubscriptionActive
                   ? `Active • ${subscriptionDaysLeft} Days Left`
                   : 'Subscription Expired'}
-              </span>
+              </GlassBadge>
             </div>
 
             <div className="flex flex-wrap gap-3 pt-2">
-              <button
+              <GlassButton
                 type="button"
+                variant="primary"
+                size="sm"
                 onClick={() => setShowRenewalModal(true)}
-                className="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
               >
                 Renew Subscription Plan (1 Month / 1 Year)
-              </button>
-              <button
+              </GlassButton>
+              <GlassButton
                 type="button"
+                variant="secondary"
+                size="sm"
                 disabled={submittingRenewal}
                 onClick={handleInstantBypassSubscription}
-                className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs cursor-pointer"
               >
                 ⚡ Instant 30-Day Testing Activation Bypass
-              </button>
+              </GlassButton>
             </div>
-          </div>
+          </GlassCard>
 
           {/* 2. CLINIC PROFILE, OPERATIONAL TYPE, GPS & PAYMENT GATEWAY FORM */}
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
+          <GlassCard variant="base" padding="lg" radius="xl" className="space-y-6">
             <div>
               <h2 className="text-xl font-black text-slate-900">Clinic Profile & Operational Settings</h2>
               <p className="text-xs text-slate-500 font-medium mt-1">
@@ -6460,7 +6515,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             {settingsSuccess && (
-              <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl text-brand-800 text-xs font-bold flex items-center space-x-2">
+              <div className="p-4 bg-brand-50/85 backdrop-blur-md border border-brand-200/80 rounded-2xl text-brand-800 text-xs font-bold flex items-center space-x-2 shadow-glass-sm">
                 <CheckCircle2 className="w-4 h-4 text-brand-600" />
                 <span>Clinic settings successfully updated in database!</span>
               </div>
@@ -6474,7 +6529,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="text"
                     value={settingName}
                     onChange={(e) => setSettingName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -6484,7 +6539,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <select
                     value={settingType}
                     onChange={(e) => setSettingType(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="multi_visit">Polyclinic / Multi-Visit OPD Hospital</option>
                     <option value="single_Specialty">Single-Specialty Clinic</option>
@@ -6501,7 +6556,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={settingPhone}
                     onChange={(e) => setSettingPhone(e.target.value)}
                     placeholder="e.g. 014XXXXXX"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -6511,7 +6566,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={settingManagerPhone}
                     onChange={(e) => setSettingManagerPhone(e.target.value)}
                     placeholder="e.g. 98XXXXXXXX"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
@@ -6524,7 +6579,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={settingPan}
                     onChange={(e) => setSettingPan(e.target.value)}
                     placeholder="e.g. 601234567"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -6534,13 +6589,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={settingEmail}
                     onChange={(e) => setSettingEmail(e.target.value)}
                     placeholder="clinic@example.com"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
 
               {/* Address & 13 Nepal Cities GPS Presets (ClinicSettingsScreen.kt) */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/75 space-y-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">Address Text</label>
                   <input
@@ -6548,7 +6603,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={settingAddress}
                     onChange={(e) => setSettingAddress(e.target.value)}
                     placeholder="Street Address, City, Ward"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
@@ -6565,7 +6620,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           setSettingLat(city.lat)
                           setSettingLng(city.lng)
                         }}
-                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-brand-50 text-slate-700 hover:text-brand-800 border border-slate-200 text-[10px] font-bold cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg bg-white/80 hover:bg-brand-50 text-slate-700 hover:text-brand-800 border border-white/80 text-[10px] font-bold cursor-pointer"
                       >
                         📍 {city.name}
                       </button>
@@ -6581,7 +6636,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       step="any"
                       value={settingLat}
                       onChange={(e) => setSettingLat(parseFloat(e.target.value) || 27.7172)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
                     />
                   </div>
                   <div>
@@ -6591,14 +6646,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       step="any"
                       value={settingLng}
                       onChange={(e) => setSettingLng(parseFloat(e.target.value) || 85.324)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={handleSettingsGPS}
                     disabled={isDetectingLocation}
-                    className="py-2 px-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold cursor-pointer flex items-center justify-center space-x-1"
+                    className="py-2 px-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold cursor-pointer flex items-center justify-center space-x-1 shadow-glass-sm"
                   >
                     <MapPin className="w-3.5 h-3.5" />
                     <span>{isDetectingLocation ? 'Detecting...' : 'Detect Live GPS'}</span>
@@ -6627,8 +6682,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         }
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer transition ${
                           selected
-                            ? 'bg-brand-600 text-white border-brand-600'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-brand-600 text-white border-brand-600 shadow-glass-sm'
+                            : 'bg-white/65 text-slate-700 border-white/80 hover:bg-white/90'
                         }`}
                       >
                         {selected ? `✓ ${spec}` : `+ ${spec}`}
@@ -6647,7 +6702,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={settingDesc}
                   onChange={(e) => setSettingDesc(e.target.value)}
                   placeholder="Describe available diagnostic services, pharmacy, parking, and OPD timings..."
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium liquid-glass-input"
                 />
               </div>
 
@@ -6661,12 +6716,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   max="10"
                   value={settingThreshold}
                   onChange={(e) => setSettingThreshold(Number(e.target.value) || 2)}
-                  className="w-32 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-32 px-3.5 py-2 rounded-xl text-xs font-bold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
               {/* Direct Payment Gateway & API Configuration (ClinicSettingsScreen.kt lines 420-530) */}
-              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+              <div className="p-5 rounded-2xl liquid-glass-subtle border border-white/75 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
@@ -6695,7 +6750,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <select
                       value={settingGatewayProvider}
                       onChange={(e) => setSettingGatewayProvider(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold"
+                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-bold"
                     >
                       <option value="esewa">eSewa Merchant (Nepal)</option>
                       <option value="khalti">Khalti Digital Wallet (Nepal)</option>
@@ -6712,7 +6767,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       value={settingMerchantId}
                       onChange={(e) => setSettingMerchantId(e.target.value)}
                       placeholder="e.g. EPAYTEST or Merchant ID"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
                     />
                   </div>
                 </div>
@@ -6727,7 +6782,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       value={settingPaymentApiKey}
                       onChange={(e) => setSettingPaymentApiKey(e.target.value)}
                       placeholder="live_public_key_..."
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
                     />
                   </div>
                   <div>
@@ -6739,25 +6794,27 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       value={settingPaymentSecretKey}
                       onChange={(e) => setSettingPaymentSecretKey(e.target.value)}
                       placeholder="••••••••••••••••"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono"
+                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
                     />
                   </div>
                 </div>
               </div>
 
-              <button
+              <GlassButton
                 type="submit"
+                variant="primary"
+                size="lg"
+                fullWidth
                 disabled={savingSettings}
-                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-2xl shadow-md shadow-brand-600/20 transition-all text-xs cursor-pointer"
               >
                 {savingSettings ? 'Saving Settings...' : 'Save All Clinic Profile & Gateway Settings'}
-              </button>
+              </GlassButton>
             </form>
-          </div>
+          </GlassCard>
 
           {/* 3. CLINIC FACILITY PHOTOS & LOGO GALLERY (1-4 Photos) */}
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+          <GlassCard variant="base" padding="lg" radius="xl" className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/60">
               <div>
                 <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
                   <Camera className="w-5 h-5 text-brand-600" />
@@ -6767,13 +6824,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   Real photos of your clinic facility, reception, and consultation cabins. Synced directly to patient search and profile view.
                 </p>
               </div>
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-brand-50 text-brand-800 border border-brand-200 self-start sm:self-auto shrink-0">
+              <GlassBadge variant="brand" size="md">
                 {selectedClinic?.pictures?.length || 0} / 4 Photos
-              </span>
+              </GlassBadge>
             </div>
 
             {clinicPhotoStatusMsg && (
-              <div className="p-3 bg-brand-50 border border-brand-200 rounded-2xl text-brand-800 text-xs font-bold flex items-center space-x-2">
+              <div className="p-3 bg-brand-50/85 backdrop-blur-md border border-brand-200/80 rounded-2xl text-brand-800 text-xs font-bold flex items-center space-x-2 shadow-glass-sm">
                 <CheckCircle2 className="w-4 h-4 text-brand-600 shrink-0" />
                 <span>{clinicPhotoStatusMsg}</span>
               </div>
@@ -6787,7 +6844,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   return (
                     <div
                       key={idx}
-                      className="group relative rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 shadow-xs"
+                      className="group relative rounded-2xl border border-white/80 overflow-hidden bg-slate-100 shadow-glass-sm"
                     >
                       <div className="w-full h-44 overflow-hidden relative">
                         <img
@@ -6837,7 +6894,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   )
                 })
               ) : (
-                <div className="col-span-full p-8 border-2 border-dashed border-slate-200 rounded-3xl text-center space-y-2 bg-slate-50">
+                <div className="col-span-full p-8 border-2 border-dashed border-white/80 rounded-3xl text-center space-y-2 liquid-glass-subtle">
                   <Camera className="w-10 h-10 text-slate-400 mx-auto" />
                   <p className="text-xs font-bold text-slate-700">No Facility Photos Added Yet</p>
                   <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
@@ -6850,7 +6907,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             {/* Add Photo Button / File Picker (if < 4 photos) */}
             {(selectedClinic?.pictures?.length || 0) < 4 && (
               <div className="pt-2">
-                <label className="flex items-center justify-center space-x-2 w-full py-4 px-6 border-2 border-dashed border-brand-300 hover:border-brand-500 rounded-2xl bg-brand-50/50 hover:bg-brand-50 transition-all cursor-pointer">
+                <label className="flex items-center justify-center space-x-2 w-full py-4 px-6 border-2 border-dashed border-brand-300 hover:border-brand-500 rounded-2xl bg-brand-50/50 hover:bg-brand-50/80 backdrop-blur-md transition-all cursor-pointer">
                   <UploadCloud className="w-5 h-5 text-brand-600" />
                   <span className="text-xs font-bold text-brand-800">
                     {uploadingClinicPhoto ? 'Compressing & Uploading to Supabase...' : `+ Upload Facility Photo (${(selectedClinic?.pictures?.length || 0) + 1} of 4)`}
@@ -6868,10 +6925,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </p>
               </div>
             )}
-          </div>
+          </GlassCard>
 
           {/* 4. LEGAL TERMS & 30-DAY ARCHIVE ACCOUNT DELETION (ClinicSettingsScreen.kt lines 540-630) */}
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-rose-200/80 shadow-sm space-y-4">
+          <GlassCard variant="base" padding="lg" radius="xl" className="border-rose-200/80 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-black text-slate-900">
@@ -6881,16 +6938,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   Review your Dactor healthcare provider agreement or schedule a 30-day reversible clinic account deletion.
                 </p>
               </div>
-              <button
+              <GlassButton
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => setShowTermsModal(true)}
-                className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs cursor-pointer shrink-0"
               >
                 View Regulatory Terms & Conditions
-              </button>
+              </GlassButton>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="pt-3 border-t border-white/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="text-xs text-rose-700">
                 <strong>30-Day Reversible Deletion Policy:</strong> Deleting your clinic account immediately hides your clinic from patient search and schedules permanent deletion in 30 days.
               </div>
@@ -6898,21 +6956,51 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <button
                   type="button"
                   onClick={handleCancelClinicArchive}
-                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs cursor-pointer shrink-0"
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs cursor-pointer shrink-0 shadow-glass-sm"
                 >
                   Restore Clinic Account
                 </button>
               ) : (
-                <button
+                <GlassButton
                   type="button"
+                  variant="destructive"
+                  size="sm"
                   onClick={() => setShowDeleteArchiveModal(true)}
-                  className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs cursor-pointer shrink-0"
                 >
                   Delete Clinic Account (30-Day Grace)
-                </button>
+                </GlassButton>
               )}
             </div>
-          </div>
+          </GlassCard>
+
+          {/* 5. CONTACT US & OFFICIAL SUPPORT HELPDESK */}
+          <GlassCard variant="base" padding="lg" radius="xl" className="border-indigo-200/80 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center shrink-0">
+                  <Headphones className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    Contact Us & Dactor Helpdesk Support
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Connect directly to our dedicated support center for assistance with licenses, onboarding, or technical questions.
+                  </p>
+                </div>
+              </div>
+              <a
+                href={supportUrl.startsWith('http') || supportUrl.startsWith('mailto:') ? supportUrl : `https://${supportUrl}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs shadow-md shadow-indigo-600/20 transition cursor-pointer shrink-0"
+              >
+                <HelpCircle className="w-4 h-4" />
+                <span>Open Support Desk</span>
+                <ExternalLink className="w-3.5 h-3.5 ml-1 opacity-80" />
+              </a>
+            </div>
+          </GlassCard>
         </div>
       )}
 
@@ -6920,9 +7008,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL: PUSH ALERT NOTIFICATION WITH REAL TEMPLATE PREVIEW */}
       {/* ========================================================= */}
       {pushAlertModalOpen && pushAlertTargetAppt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-purple-600">
                   Live Queue Push Alert
@@ -6937,14 +7025,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setPushAlertModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* REAL NOTIFICATION TEMPLATE PREVIEW */}
-            <div className="p-4 bg-slate-900 text-white rounded-2xl shadow-inner space-y-3">
+            <div className="p-4 bg-slate-900/95 backdrop-blur-xl text-white rounded-2xl shadow-inner border border-white/15 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   {/* Real App Logo SVG */}
@@ -6996,7 +7084,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     setPushAlertTitle(`Token #${pushAlertTargetAppt.trackingCode10Digit}: Doctor Ready for Consultation`)
                     setPushAlertMessage(`Dear ${pushAlertTargetAppt.patientName}, doctor is ready for consultation. Please proceed to Cabin 1.`)
                   }}
-                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                  className="px-2.5 py-1 bg-white/75 border border-white/80 hover:bg-white text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
                 >
                   Ready for Cabin
                 </button>
@@ -7006,7 +7094,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     setPushAlertTitle(`Token #${pushAlertTargetAppt.trackingCode10Digit}: Minor Consultation Delay`)
                     setPushAlertMessage(`Doctor consultation is running approximately 10 minutes late due to critical OPD case. Thank you for your patience.`)
                   }}
-                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                  className="px-2.5 py-1 bg-white/75 border border-white/80 hover:bg-white text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
                 >
                   10 Mins Delay
                 </button>
@@ -7016,7 +7104,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     setPushAlertTitle(`Token #${pushAlertTargetAppt.trackingCode10Digit}: Clinic on Short Break`)
                     setPushAlertMessage(`The clinic is temporarily on a 15-minute break. Live queue consultations will resume shortly.`)
                   }}
-                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                  className="px-2.5 py-1 bg-white/75 border border-white/80 hover:bg-white text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
                 >
                   Clinic on Break
                 </button>
@@ -7026,7 +7114,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     setPushAlertTitle(`Token #${pushAlertTargetAppt.trackingCode10Digit}: Report to Reception Desk`)
                     setPushAlertMessage(`Please report to the reception desk for document and billing settlement.`)
                   }}
-                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                  className="px-2.5 py-1 bg-white/75 border border-white/80 hover:bg-white text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
                 >
                   Visit Reception
                 </button>
@@ -7042,7 +7130,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   type="text"
                   value={pushAlertTitle}
                   onChange={(e) => setPushAlertTitle(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3.5 py-2 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
 
@@ -7054,7 +7142,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   rows={3}
                   value={pushAlertMessage}
                   onChange={(e) => setPushAlertMessage(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3.5 py-2 rounded-xl text-xs font-medium liquid-glass-input focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
 
@@ -7067,7 +7155,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="text"
                     value={pushAlertLeftVal}
                     onChange={(e) => setPushAlertLeftVal(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-slate-50"
+                    className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold liquid-glass-input"
                   />
                 </div>
                 <div>
@@ -7078,26 +7166,28 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="text"
                     value={pushAlertRightVal}
                     onChange={(e) => setPushAlertRightVal(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-slate-50"
+                    className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold liquid-glass-input"
                   />
                 </div>
               </div>
 
               {pushAlertSentSuccess && (
-                <div className="p-3 bg-brand-50 border border-brand-200 rounded-xl text-brand-800 text-xs font-bold flex items-center space-x-2">
+                <div className="p-3 bg-brand-50/85 border border-brand-200 rounded-xl text-brand-800 text-xs font-bold flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-brand-600" />
                   <span>Push notification delivered to patient device!</span>
                 </div>
               )}
 
               <div className="flex items-center space-x-3 pt-2">
-                <button
+                <GlassButton
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
                   onClick={() => setPushAlertModalOpen(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
                   Cancel
-                </button>
+                </GlassButton>
                 <button
                   type="submit"
                   disabled={sendingPushAlert}
@@ -7115,9 +7205,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL: PUSH BILL & UPDATE PAYMENT (WITH DIRECT CATALOG) */}
       {/* ========================================================= */}
       {billModalOpen && billTargetAppt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-xl w-full p-6 sm:p-7 space-y-5 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-brand-600">
                   Billing & Payment Desk
@@ -7132,7 +7222,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setBillModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -7140,7 +7230,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
             <form onSubmit={handleSaveBill} className="space-y-4">
               {/* Direct Catalog 1-Click Quick Chips */}
-              <div className="space-y-2 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+              <div className="space-y-2 p-3 liquid-glass-subtle rounded-2xl border border-white/75">
                 <span className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
                   <Tag className="w-3.5 h-3.5 text-brand-600" />
                   <span>Click to Add from Clinic Catalog:</span>
@@ -7160,7 +7250,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       key={idx}
                       type="button"
                       onClick={() => handleAddCatalogItemToBill(catItem)}
-                      className="px-2.5 py-1 bg-white hover:bg-brand-50 hover:text-brand-800 text-slate-700 text-[11px] font-bold rounded-lg border border-slate-200 hover:border-brand-300 transition-colors cursor-pointer shadow-2xs flex items-center space-x-1"
+                      className="px-2.5 py-1 bg-white/80 hover:bg-brand-50 hover:text-brand-800 text-slate-700 text-[11px] font-bold rounded-lg border border-white/90 hover:border-brand-300 transition-colors cursor-pointer shadow-glass-sm flex items-center space-x-1"
                     >
                       <span>+ {catItem.serviceName}</span>
                       <span className="text-brand-600 font-mono font-black">(Rs. {catItem.price})</span>
@@ -7176,19 +7266,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={customBillItemName}
                   onChange={(e) => setCustomBillItemName(e.target.value)}
                   placeholder="Custom Item Name (e.g. Suture, Injection)"
-                  className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="flex-1 px-3 py-2 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
                 <input
                   type="number"
                   value={customBillItemPrice}
                   onChange={(e) => setCustomBillItemPrice(e.target.value)}
                   placeholder="Price (Rs.)"
-                  className="w-24 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-24 px-3 py-2 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
                 <button
                   type="button"
                   onClick={handleAddCustomBillItem}
-                  className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer shadow-glass-sm"
                 >
                   + Add
                 </button>
@@ -7196,12 +7286,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               {/* Itemized Line Items Table */}
               {billItems.length > 0 && (
-                <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
-                  <div className="bg-slate-100 p-2 font-bold text-slate-700 flex justify-between">
+                <div className="border border-white/80 rounded-xl overflow-hidden text-xs shadow-glass-sm">
+                  <div className="bg-white/65 p-2 font-bold text-slate-700 flex justify-between border-b border-white/60">
                     <span>Invoice Line Items</span>
                     <span>Subtotal</span>
                   </div>
-                  <div className="divide-y divide-slate-100 max-h-36 overflow-y-auto bg-white">
+                  <div className="divide-y divide-slate-200/50 max-h-36 overflow-y-auto bg-white/75 backdrop-blur-md">
                     {billItems.map((it) => (
                       <div key={it.id} className="p-2.5 flex items-center justify-between">
                         <div className="flex items-center space-x-2">
@@ -7236,7 +7326,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={billTotalAmount}
                     onChange={(e) => setBillTotalAmount(e.target.value)}
                     placeholder="e.g. 1000"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
@@ -7249,27 +7339,27 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={billPaidAmount}
                     onChange={(e) => setBillPaidAmount(e.target.value)}
                     placeholder="e.g. 1000"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     <button
                       type="button"
                       onClick={() => setBillPaidAmount(String(billTotalAmount || 0))}
-                      className="px-2 py-0.5 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-md text-[10px] font-bold border border-brand-200 cursor-pointer"
+                      className="px-2 py-0.5 bg-brand-50/85 hover:bg-brand-100 text-brand-700 rounded-md text-[10px] font-bold border border-brand-200 cursor-pointer"
                     >
                       Full Amount
                     </button>
                     <button
                       type="button"
                       onClick={() => setBillPaidAmount(String(Math.round((Number(billTotalAmount) || 0) * 0.5)))}
-                      className="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-md text-[10px] font-bold border border-amber-200 cursor-pointer"
+                      className="px-2 py-0.5 bg-amber-50/85 hover:bg-amber-100 text-amber-800 rounded-md text-[10px] font-bold border border-amber-200 cursor-pointer"
                     >
                       50% Advance
                     </button>
                     <button
                       type="button"
                       onClick={() => setBillPaidAmount('0')}
-                      className="px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-md text-[10px] font-bold border border-rose-200 cursor-pointer"
+                      className="px-2 py-0.5 bg-rose-50/85 hover:bg-rose-100 text-rose-700 rounded-md text-[10px] font-bold border border-rose-200 cursor-pointer"
                     >
                       Unpaid (Rs. 0)
                     </button>
@@ -7279,7 +7369,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               {/* Dynamic Balance Due Banner */}
               {billTotalAmount && (
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                <div className="p-3 liquid-glass-subtle rounded-xl border border-white/75 flex items-center justify-between text-xs">
                   <span className="font-medium text-slate-600">Calculated Balance Due:</span>
                   <span className="font-black text-slate-900 font-mono">
                     Rs. {Math.max(0, (Number(billTotalAmount) || 0) - (Number(billPaidAmount) || 0))}
@@ -7296,7 +7386,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={billRemarks}
                   onChange={(e) => setBillRemarks(e.target.value)}
                   placeholder="Optional notes (e.g. Paid in Cash / eSewa, Follow-up next week)"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -7312,14 +7402,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 cursor-pointer"
                 />
                 {billReceiptCompressionInfo && (
-                  <p className="text-[11px] text-brand-700 font-bold bg-brand-50 p-2 rounded-lg border border-brand-200">
+                  <p className="text-[11px] text-brand-700 font-bold bg-brand-50/85 p-2 rounded-lg border border-brand-200">
                     ⚡ {billReceiptCompressionInfo}
                   </p>
                 )}
               </div>
 
               {/* On-Demand Bill Generation & Thermal Print */}
-              <div className="pt-2 flex items-center justify-between border-t border-slate-100">
+              <div className="pt-2 flex items-center justify-between border-t border-white/60">
                 <button
                   type="button"
                   onClick={() => setShowPrintableInvoice(!showPrintableInvoice)}
@@ -7332,7 +7422,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               {/* Printable Invoice View */}
               {showPrintableInvoice && (
-                <div id="dactor-printable-invoice" className="p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-300 text-xs space-y-3 font-mono">
+                <div id="dactor-printable-invoice" className="p-4 bg-white/85 rounded-2xl border-2 border-dashed border-slate-300 text-xs space-y-3 font-mono">
                   <div className="flex justify-between font-black text-slate-800 pb-2 border-b border-slate-300">
                     <div>
                       <span className="text-sm uppercase block font-black">{selectedClinic?.name}</span>
@@ -7413,20 +7503,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               )}
 
               <div className="flex items-center space-x-3 pt-2">
-                <button
+                <GlassButton
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
                   onClick={() => setBillModalOpen(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
                   Cancel
-                </button>
-                <button
+                </GlassButton>
+                <GlassButton
                   type="submit"
+                  variant="primary"
+                  size="md"
+                  className="flex-1"
                   disabled={savingBill}
-                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20 cursor-pointer"
                 >
                   {savingBill ? 'Saving & Recording...' : 'Push Bill to Patient'}
-                </button>
+                </GlassButton>
               </div>
             </form>
           </div>
@@ -7437,9 +7531,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL: SHIFT APPOINTMENT DATE / RESCHEDULE */}
       {/* ========================================================= */}
       {shiftModalOpen && shiftTargetAppt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-teal-600">
                   Reschedule / Shift Appointment
@@ -7454,13 +7548,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setShiftModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+            <div className="p-3 liquid-glass-subtle rounded-xl border border-white/75 text-xs space-y-1">
               <p className="text-slate-600">
                 Current Scheduled Date: <strong className="text-slate-900">{shiftTargetAppt.appointmentDate}</strong>
               </p>
@@ -7479,7 +7573,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={shiftNewDate}
                   onChange={(e) => setShiftNewDate(e.target.value)}
                   min={new Date().toISOString().split('T')[0]}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
                   required
                 />
               </div>
@@ -7493,7 +7587,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={shiftNewTime}
                   onChange={(e) => setShiftNewTime(e.target.value)}
                   placeholder="e.g. 10:00 AM"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
@@ -7506,22 +7600,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={shiftReason}
                   onChange={(e) => setShiftReason(e.target.value)}
                   placeholder="e.g. Patient requested, Doctor schedule adjusted"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
-              <p className="text-[11px] text-teal-800 bg-teal-50 p-2.5 rounded-xl border border-teal-200 font-medium leading-relaxed">
+              <p className="text-[11px] text-teal-800 bg-teal-50/85 p-2.5 rounded-xl border border-teal-200 font-medium leading-relaxed">
                 🔔 The patient will automatically receive a real-time notification alert informing them that their appointment has been rescheduled.
               </p>
 
               <div className="flex items-center space-x-3 pt-2">
-                <button
+                <GlassButton
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
                   onClick={() => setShiftModalOpen(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
                   Cancel
-                </button>
+                </GlassButton>
                 <button
                   type="submit"
                   disabled={shiftingAppointment}
@@ -7539,23 +7635,23 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL: PRINTABLE RECEPTION TOKEN SLIP */}
       {/* ========================================================= */}
       {showPrintTokenSlip && printSlipAppt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-sm w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <h3 className="text-sm font-black text-slate-900">
                 Reception Walk-In Token Slip
               </h3>
               <button
                 type="button"
                 onClick={() => setShowPrintTokenSlip(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Thermal printable card container */}
-            <div id="dactor-token-receipt" className="p-4 bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl font-mono text-xs space-y-3 text-slate-800">
+            <div id="dactor-token-receipt" className="p-4 bg-white/85 border-2 border-dashed border-slate-300 rounded-2xl font-mono text-xs space-y-3 text-slate-800">
               <div className="text-center border-b border-slate-300 pb-2">
                 <h2 className="text-base font-black uppercase text-slate-900">{selectedClinic?.name}</h2>
                 <p className="text-[10px] text-slate-600">{selectedClinic?.addressText || 'Kathmandu, Nepal'}</p>
@@ -7600,21 +7696,25 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             <div className="flex items-center space-x-3 pt-2">
-              <button
+              <GlassButton
                 type="button"
+                variant="secondary"
+                size="md"
+                className="flex-1"
                 onClick={() => setShowPrintTokenSlip(false)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
               >
                 Close
-              </button>
-              <button
+              </GlassButton>
+              <GlassButton
                 type="button"
+                variant="primary"
+                size="md"
+                className="flex-1"
+                leftIcon={<Printer className="w-3.5 h-3.5" />}
                 onClick={() => window.print()}
-                className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-brand-600/20 cursor-pointer"
               >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Slip</span>
-              </button>
+                Print Slip
+              </GlassButton>
             </div>
           </div>
         </div>
@@ -7624,8 +7724,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL: LAB REPORT UPLOAD & MARK PREPARED */}
       {/* ========================================================= */}
       {labUploadModalOpen && targetLabAppt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-5">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-teal-600">
                 Step 3: Laboratory Completion
@@ -7650,7 +7750,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   className="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer"
                 />
                 {reportCompressionInfo && (
-                  <p className="text-[11px] text-teal-700 font-bold bg-teal-50 p-2 rounded-lg border border-teal-200 mt-1">
+                  <p className="text-[11px] text-teal-700 font-bold bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-1">
                     ⚡ {reportCompressionInfo}
                   </p>
                 )}
@@ -7665,22 +7765,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={technicianNotes}
                   onChange={(e) => setTechnicianNotes(e.target.value)}
                   placeholder="e.g. All parameters within normal biological reference ranges..."
-                  className="w-full px-3.5 py-2 rounded-xl text-xs font-medium border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-3.5 py-2 rounded-xl text-xs font-medium liquid-glass-input focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-900">
+              <div className="p-3 bg-amber-50/85 rounded-xl border border-amber-200 text-[11px] text-amber-900">
                 Patient will only be able to view and download this report after verifying their registered patient name for privacy.
               </div>
 
               <div className="flex items-center space-x-3 pt-2">
-                <button
+                <GlassButton
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
                   onClick={() => setLabUploadModalOpen(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
                   Cancel
-                </button>
+                </GlassButton>
                 <button
                   type="submit"
                   disabled={uploadingReport}
@@ -7698,8 +7800,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL: DOCTOR / PRACTITIONER ONBOARDING */}
       {/* ========================================================= */}
       {showDoctorOnboarding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-5 max-h-[90vh] overflow-y-auto">
             <div>
               <h3 className="text-xl font-black text-slate-900">
                 Register Doctor / Medical Practitioner
@@ -7724,8 +7826,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     }}
                     className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
                       docRole === 'doctor'
-                        ? 'bg-brand-600 text-white border-brand-600 shadow-xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        ? 'bg-brand-600 text-white border-brand-600 shadow-glass-sm'
+                        : 'bg-white/65 text-slate-700 border-white/80 hover:bg-white/90'
                     }`}
                   >
                     👨‍⚕️ Medical Doctor
@@ -7738,8 +7840,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     }}
                     className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
                       docRole === 'lab_technician'
-                        ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-glass-sm'
+                        : 'bg-white/65 text-slate-700 border-white/80 hover:bg-white/90'
                     }`}
                   >
                     🧪 Lab Technician
@@ -7760,7 +7862,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   }}
                   placeholder="e.g. Dr. Sushil Karki"
                   className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    onboardingErrors.name ? 'border-rose-500 bg-rose-50/50' : 'border-slate-200 bg-slate-50'
+                    onboardingErrors.name ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
                   } focus:outline-none focus:ring-2 focus:ring-brand-500`}
                 />
                 {onboardingErrors.name && (
@@ -7774,7 +7876,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <select
                     value={docSpecialty}
                     onChange={(e) => setDocSpecialty(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="General Physician">General Physician</option>
                     <option value="Cardiology">Cardiology</option>
@@ -7793,7 +7895,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     value={docEducation}
                     onChange={(e) => setDocEducation(e.target.value)}
                     placeholder="MBBS, MD"
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
@@ -7811,7 +7913,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       if (onboardingErrors.license) setOnboardingErrors({ ...onboardingErrors, license: '' })
                     }}
                     placeholder="e.g. 14250"
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                   {onboardingErrors.license && (
                     <p className="text-[11px] text-rose-600 font-bold mt-1">{onboardingErrors.license}</p>
@@ -7825,7 +7927,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <select
                     value={docStartingYear}
                     onChange={(e) => setDocStartingYear(Number(e.target.value))}
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     {practicingYears.map((yr) => (
                       <option key={yr} value={yr}>
@@ -7849,7 +7951,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       if (onboardingErrors.mobile) setOnboardingErrors({ ...onboardingErrors, mobile: '' })
                     }}
                     placeholder="98XXXXXXXX"
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                   {onboardingErrors.mobile && (
                     <p className="text-[11px] text-rose-600 font-bold mt-1">{onboardingErrors.mobile}</p>
@@ -7862,25 +7964,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     type="number"
                     value={docFee}
                     onChange={(e) => setDocFee(Number(e.target.value))}
-                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
 
               <div className="flex items-center space-x-3 pt-3">
-                <button
+                <GlassButton
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
                   onClick={() => setShowDoctorOnboarding(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
                   Cancel
-                </button>
-                <button
+                </GlassButton>
+                <GlassButton
                   type="submit"
-                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-brand-600/20 cursor-pointer"
+                  variant="primary"
+                  size="md"
+                  className="flex-1"
                 >
                   Register Practitioner
-                </button>
+                </GlassButton>
               </div>
             </form>
           </div>
@@ -7891,9 +7997,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL: DOCTOR PHOTO UPLOAD / UPDATE                       */}
       {/* ========================================================= */}
       {doctorPhotoModalOpen && doctorPhotoTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
                   Practitioner Profile
@@ -7905,7 +8011,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setDoctorPhotoModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -7913,7 +8019,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
             {/* Photo Preview */}
             <div className="flex flex-col items-center justify-center space-y-3 py-2">
-              <div className="w-28 h-28 rounded-3xl bg-brand-50 border-2 border-brand-200 overflow-hidden flex items-center justify-center shadow-inner relative">
+              <div className="w-28 h-28 rounded-3xl bg-brand-50/80 border-2 border-brand-200 overflow-hidden flex items-center justify-center shadow-inner relative">
                 {doctorPhotoPreview ? (
                   <img
                     src={doctorPhotoPreview}
@@ -7932,14 +8038,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             {doctorPhotoMsg && (
-              <div className="p-3 bg-brand-50 border border-brand-200 rounded-xl text-brand-800 text-xs font-bold text-center">
+              <div className="p-3 bg-brand-50/85 border border-brand-200 rounded-xl text-brand-800 text-xs font-bold text-center">
                 {doctorPhotoMsg}
               </div>
             )}
 
             {/* File Input */}
             <div className="space-y-3">
-              <label className="flex items-center justify-center space-x-2 w-full py-3 px-4 border border-slate-200 hover:border-brand-400 rounded-xl bg-slate-50 hover:bg-brand-50 transition cursor-pointer text-xs font-bold text-slate-700">
+              <label className="flex items-center justify-center space-x-2 w-full py-3 px-4 border border-white/80 hover:border-brand-400 rounded-xl liquid-glass-subtle hover:bg-brand-50/80 transition cursor-pointer text-xs font-bold text-slate-700">
                 <Camera className="w-4 h-4 text-brand-600" />
                 <span>{doctorPhotoFile ? doctorPhotoFile.name : 'Choose Image File (JPG, PNG, WEBP)'}</span>
                 <input
@@ -7951,21 +8057,25 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </label>
 
               <div className="flex items-center gap-2 pt-2">
-                <button
+                <GlassButton
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  className="w-1/2"
                   onClick={() => setDoctorPhotoModalOpen(false)}
-                  className="w-1/2 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition cursor-pointer"
                 >
                   Cancel
-                </button>
-                <button
+                </GlassButton>
+                <GlassButton
                   type="button"
+                  variant="primary"
+                  size="md"
+                  className="w-1/2"
                   disabled={uploadingDoctorPhoto || !doctorPhotoFile}
                   onClick={handleSaveDoctorPhoto}
-                  className="w-1/2 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-xs transition disabled:opacity-50 cursor-pointer"
                 >
                   {uploadingDoctorPhoto ? 'Uploading...' : 'Save & Publish Photo'}
-                </button>
+                </GlassButton>
               </div>
             </div>
           </div>
@@ -7976,9 +8086,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL 1: PORTAL SUBSCRIPTION & ACTIVATION RENEWAL         */}
       {/* ========================================================= */}
       {showRenewalModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-brand-600">
                   Dactor Portal License
@@ -7993,7 +8103,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setShowRenewalModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -8006,8 +8116,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   onClick={() => setRenewalPlan('1_month')}
                   className={`p-4 rounded-2xl border text-left transition cursor-pointer ${
                     renewalPlan === '1_month'
-                      ? 'bg-brand-50 border-brand-500 ring-2 ring-brand-500/20'
-                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                      ? 'bg-brand-50/85 border-brand-500 ring-2 ring-brand-500/20 shadow-glass-sm'
+                      : 'bg-white/65 border-white/80 hover:bg-white/90'
                   }`}
                 >
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-brand-600 block">
@@ -8026,8 +8136,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   onClick={() => setRenewalPlan('12_months')}
                   className={`p-4 rounded-2xl border text-left transition cursor-pointer relative ${
                     renewalPlan === '12_months'
-                      ? 'bg-brand-50 border-brand-500 ring-2 ring-brand-500/20'
-                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                      ? 'bg-brand-50/85 border-brand-500 ring-2 ring-brand-500/20 shadow-glass-sm'
+                      : 'bg-white/65 border-white/80 hover:bg-white/90'
                   }`}
                 >
                   <span className="px-2 py-0.5 bg-emerald-600 text-white text-[9px] font-black rounded-md uppercase absolute top-2.5 right-2.5">
@@ -8054,7 +8164,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={renewalTxnRef}
                   onChange={(e) => setRenewalTxnRef(e.target.value)}
                   placeholder="e.g. ESW-984120394 or Bank Voucher #"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
                   required
                 />
               </div>
@@ -8068,13 +8178,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 >
                   ⚡ Instant Activation (Testing Bypass)
                 </button>
-                <button
+                <GlassButton
                   type="submit"
+                  variant="primary"
+                  size="md"
+                  className="flex-1"
                   disabled={submittingRenewal}
-                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-brand-600/20 cursor-pointer"
                 >
                   {submittingRenewal ? 'Submitting...' : 'Submit Payment Renewal'}
-                </button>
+                </GlassButton>
               </div>
             </form>
           </div>
@@ -8085,9 +8197,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL 2: CLINIC NOTIFICATIONS DRAWER                      */}
       {/* ========================================================= */}
       {showNotificationsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div className="flex items-center space-x-2">
                 <Bell className="w-5 h-5 text-brand-600" />
                 <div>
@@ -8102,7 +8214,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setShowNotificationsModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -8117,7 +8229,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 clinicNotifications.map((n) => (
                   <div
                     key={n.id}
-                    className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1"
+                    className="p-3.5 rounded-2xl liquid-glass-subtle border border-white/75 space-y-1 shadow-glass-sm"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black text-slate-900">{n.title}</span>
@@ -8131,14 +8243,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               )}
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex justify-end">
-              <button
+            <div className="pt-2 border-t border-white/60 flex justify-end">
+              <GlassButton
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => setShowNotificationsModal(false)}
-                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
                 Close Drawer
-              </button>
+              </GlassButton>
             </div>
           </div>
         </div>
@@ -8148,9 +8261,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL 3: CLINICAL REMARK / RECEPTION NOTES EDITOR         */}
       {/* ========================================================= */}
       {remarkModalOpen && remarkTargetAppt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
                   Reception / Clinical Notes
@@ -8165,7 +8278,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setRemarkModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -8181,25 +8294,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   value={remarkText}
                   onChange={(e) => setRemarkText(e.target.value)}
                   placeholder="Enter patient vitals, chief complaint, follow-up instructions, or reception notes..."
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
               <div className="flex items-center space-x-2">
-                <button
+                <GlassButton
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
                   onClick={() => setRemarkModalOpen(false)}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
                 >
                   Cancel
-                </button>
-                <button
+                </GlassButton>
+                <GlassButton
                   type="submit"
+                  variant="primary"
+                  size="md"
+                  className="flex-1"
                   disabled={savingRemark}
-                  className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
                 >
                   {savingRemark ? 'Saving...' : 'Save Remark'}
-                </button>
+                </GlassButton>
               </div>
             </form>
           </div>
@@ -8210,9 +8327,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL 4: EDIT SLOT MAX CAPACITY                           */}
       {/* ========================================================= */}
       {editingSlotCapacity && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-sm w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
                   Slot Capacity Control
@@ -8227,7 +8344,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setEditingSlotCapacity(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -8244,25 +8361,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   max={200}
                   value={newSlotCapacityVal}
                   onChange={(e) => setNewSlotCapacityVal(Number(e.target.value) || 1)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-black focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-sm font-black focus:outline-none focus:ring-2 focus:ring-brand-500"
                   required
                 />
               </div>
 
               <div className="flex items-center space-x-2">
-                <button
+                <GlassButton
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
                   onClick={() => setEditingSlotCapacity(null)}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
                 >
                   Cancel
-                </button>
-                <button
+                </GlassButton>
+                <GlassButton
                   type="submit"
-                  className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+                  variant="primary"
+                  size="md"
+                  className="flex-1"
                 >
                   Update Capacity
-                </button>
+                </GlassButton>
               </div>
             </form>
           </div>
@@ -8273,11 +8394,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL 5: VIEW DOCTOR PROFILE (FROM INVITATIONS DIRECTORY) */}
       {/* ========================================================= */}
       {viewingDoctorProfile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-2xl bg-brand-50 border border-brand-200 overflow-hidden flex items-center justify-center font-black text-brand-700 text-lg">
+                <div className="w-12 h-12 rounded-2xl bg-brand-50/80 border border-brand-200 overflow-hidden flex items-center justify-center font-black text-brand-700 text-lg">
                   {viewingDoctorProfile.profilePictureUrl ? (
                     <img
                       src={viewingDoctorProfile.profilePictureUrl}
@@ -8300,13 +8421,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setViewingDoctorProfile(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-2 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+            <div className="space-y-2 text-xs liquid-glass-subtle p-4 rounded-2xl border border-white/75">
               <div className="flex justify-between">
                 <span className="text-slate-500">NMC License Number:</span>
                 <span className="font-bold text-slate-900">{viewingDoctorProfile.nmcLicenseNumber || 'Verified'}</span>
@@ -8334,7 +8455,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
               )}
               {viewingDoctorProfile.description && (
-                <div className="pt-2 border-t border-slate-200 mt-2">
+                <div className="pt-2 border-t border-white/60 mt-2">
                   <span className="text-slate-500 block mb-0.5">Bio / Clinical Summary:</span>
                   <p className="text-slate-700 leading-relaxed">{viewingDoctorProfile.description}</p>
                 </div>
@@ -8342,23 +8463,27 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             <div className="flex items-center space-x-2 pt-1">
-              <button
+              <GlassButton
                 type="button"
+                variant="secondary"
+                size="md"
+                className="flex-1"
                 onClick={() => setViewingDoctorProfile(null)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
               >
                 Close
-              </button>
-              <button
+              </GlassButton>
+              <GlassButton
                 type="button"
+                variant="primary"
+                size="md"
+                className="flex-1"
                 onClick={() => {
                   handleSendDoctorInvitation(viewingDoctorProfile)
                   setViewingDoctorProfile(null)
                 }}
-                className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
               >
                 Send Clinic Invitation
-              </button>
+              </GlassButton>
             </div>
           </div>
         </div>
@@ -8368,9 +8493,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL 6: LAB REPORT PRIVACY VERIFICATION GATE             */}
       {/* ========================================================= */}
       {labVerifyTargetReport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-teal-600">
                   Patient Privacy Security Gate
@@ -8389,7 +8514,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   setLabVerifyInput('')
                   setLabVerifyError(null)
                 }}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -8409,7 +8534,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     setLabVerifyError(null)
                   }}
                   placeholder={`e.g. ${labVerifyTargetReport.appt.patientName}`}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
                   required
                 />
                 {labVerifyError && (
@@ -8418,17 +8543,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
 
               <div className="flex items-center space-x-2 pt-2">
-                <button
+                <GlassButton
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
                   onClick={() => {
                     setLabVerifyTargetReport(null)
                     setLabVerifyInput('')
                     setLabVerifyError(null)
                   }}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
                 >
                   Cancel
-                </button>
+                </GlassButton>
                 <button
                   type="submit"
                   className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
@@ -8445,9 +8572,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL 7: CLINIC REGULATORY TERMS & DATA COMPLIANCE        */}
       {/* ========================================================= */}
       {showTermsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
                   Healthcare Governance
@@ -8459,7 +8586,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setShowTermsModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -8480,14 +8607,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </p>
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex justify-end">
-              <button
+            <div className="pt-2 border-t border-white/60 flex justify-end">
+              <GlassButton
                 type="button"
+                variant="primary"
+                size="md"
                 onClick={() => setShowTermsModal(false)}
-                className="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
                 I Understand & Acknowledge
-              </button>
+              </GlassButton>
             </div>
           </div>
         </div>
@@ -8497,9 +8625,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* MODAL 8: 30-DAY REVERSIBLE CLINIC ACCOUNT DELETION        */}
       {/* ========================================================= */}
       {showDeleteArchiveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-rose-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 border-rose-200/80 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600">
                   30-Day Reversible Archive
@@ -8511,13 +8639,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <button
                 type="button"
                 onClick={() => setShowDeleteArchiveModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900 space-y-1.5 leading-relaxed">
+            <div className="p-3.5 bg-rose-50/85 border border-rose-200 rounded-2xl text-xs text-rose-900 space-y-1.5 leading-relaxed">
               <p className="font-bold">What happens when you schedule deletion:</p>
               <ul className="list-disc pl-4 space-y-1">
                 <li>Your clinic will enter a <strong>30-day archive grace period</strong>.</li>
@@ -8527,28 +8655,32 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
 
             <div className="flex items-center space-x-2 pt-2">
-              <button
+              <GlassButton
                 type="button"
+                variant="secondary"
+                size="md"
+                className="flex-1"
                 onClick={() => setShowDeleteArchiveModal(false)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
               >
                 Keep Account Active
-              </button>
-              <button
+              </GlassButton>
+              <GlassButton
                 type="button"
+                variant="destructive"
+                size="md"
+                className="flex-1"
                 onClick={handleScheduleClinicArchive}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
               >
                 Schedule 30-Day Archive
-              </button>
+              </GlassButton>
             </div>
 
-            <div className="pt-2 border-t border-slate-100">
+            <div className="pt-2 border-t border-white/60">
               <button
                 type="button"
                 disabled={isDeletingPermanently}
                 onClick={handlePermanentDeleteClinic}
-                className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                className="w-full py-2 bg-red-50/85 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5 text-red-600" />
                 <span>{isDeletingPermanently ? 'Purging Clinic...' : 'Admin: Permanent Purge (Immediate)'}</span>

@@ -421,16 +421,41 @@ fun DoctorKYCScreen(
                     }
                 },
                 confirmButton = {
-                    Button(
-                        onClick = {
-                            isSubmitted = false
-                            navController.navigate(NavRoutes.ClinicLogin) {
-                                popUpTo(0) { inclusive = true }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Return to Login Portal", fontWeight = FontWeight.Bold)
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        Uri.parse("https://dactorofficial.github.io/support")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Opening support site...", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.SupportAgent, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Contact Dactor Practitioner Support Desk", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isSubmitted = false
+                                navController.navigate(NavRoutes.ClinicLogin) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Return to Login Portal", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             )

@@ -1,6 +1,8 @@
 package com.dactor.clinic.ui.legal
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,26 +13,36 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 
 @Composable
 fun ClinicTermsAndConditionsDialog(
     initialTab: Int = 0, // 0: Clinic Facility, 1: Doctor / NMC, 2: Nepal & Google Play Laws
+    isMandatory: Boolean = false,
     onAccept: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var selectedSection by remember { mutableIntStateOf(initialTab) }
+    var isAgreed by remember { mutableStateOf(false) }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isMandatory) onDismiss()
+        },
+        properties = DialogProperties(
+            dismissOnBackPress = !isMandatory,
+            dismissOnClickOutside = !isMandatory
+        ),
         icon = {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(52.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -41,7 +53,7 @@ fun ClinicTermsAndConditionsDialog(
                         },
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
@@ -49,14 +61,17 @@ fun ClinicTermsAndConditionsDialog(
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    "Terms & Conditions & Regulatory Policy",
+                    "Terms of Service & Regulatory Policy",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
+                    fontSize = 17.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
+                Spacer(Modifier.height(2.dp))
                 Text(
                     "Compliant with Nepal Healthcare Laws & Google Play Developer Policies",
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
         },
@@ -95,86 +110,107 @@ fun ClinicTermsAndConditionsDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
+                        .weight(1f, fill = false)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "Effective Date: October 2026 • Dactor Healthcare Provider Network (Nepal)",
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
                     when (selectedSection) {
                         0 -> {
-                            // CLINIC FACILITY CLAUSES
+                            // Section: Clinic Facility Operations
                             ClinicSectionCard(
-                                title = "1. Facility Licensing & Health Ministry Compliance",
-                                body = "Clinics, polyclinics, and diagnostic centers registered on Dactor must hold an active operating license under the Health Institution Operation Standards Guideline 2077 (MoHP Nepal) and respective local municipality approval. Uploaded registration certificates and valid 9-digit PAN issued by the Inland Revenue Department (IRD) are mandatory."
+                                title = "1. Clinic Facility Registration & OPD Token Governance",
+                                body = "All registered clinics, polyclinics, diagnostic laboratories, and hospital OPDs operate in compliance with Nepal Ministry of Health & Population (MoHP) guidelines. Clinics must publish transparent consultation hours, accurate doctor rosters, and truthful queue availability. Digital tokens generated via Dactor are recognized as electronic registration slips under Nepal's Electronic Transactions Act 2063."
                             )
                             ClinicSectionCard(
-                                title = "2. OpenStreetMap & GPS Location Accuracy",
-                                body = "The clinic administrator agrees to pin the exact, truthful GPS coordinates of the healthcare center on OpenStreetMap. Misrepresenting facility location or misleading patient navigation violates Nepal Consumer Protection Act 2075."
+                                title = "2. What We Do With Clinic & Patient Data",
+                                body = "• Data Collected: Clinic registration information, PAN/tax details, staff emails, doctor schedules, patient appointment tokens, diagnostic lab test catalogs, and uploaded lab report documents.\n" +
+                                        "• Use of Data: Used strictly for clinic operations, real-time queue synchronization, verified lab report delivery, invoicing, and high-priority patient push notifications.\n" +
+                                        "• Zero Third-Party Selling: Dactor never sells, rents, or monetizes clinic or patient records to third-party marketing companies."
                             )
                             ClinicSectionCard(
-                                title = "3. NRB Digital Payment Directives & Merchant Settlements",
-                                body = "Clinics configuring direct payment credentials (eSewa, Khalti, Fonepay, ConnectIPS) acknowledge that booking and token fees settle directly into the clinic's merchant bank account. The clinic agrees to adhere to Nepal Rastra Bank (NRB) digital payment bylaws and issues legally valid VAT/PAN receipts."
+                                title = "3. Emergency Protocol & Outpatient Distinction (Call 102)",
+                                body = "Dactor provides outpatient queue management and non-emergency appointments. Healthcare facilities must maintain their independent emergency protocol. In acute life-threatening situations, patients must be directed immediately to hospital emergency casualty or Nepal Ambulance Service (102)."
                             )
                             ClinicSectionCard(
-                                title = "4. OPD Queue Operations & Patient Non-Discrimination",
-                                body = "The clinic is responsible for maintaining live queue turn integrity, managing emergency triage appropriately, and honoring published slot intervals. Patients must be treated with equal dignity without discrimination based on caste, gender, religion, or origin."
+                                title = "4. Early Arrival Offers & Real-Time Push Alerts",
+                                body = "When a doctor is free ahead of schedule and the next patient's slot is later, clinic staff may dispatch an 'Early Arrival' push notification ONLY to patients who explicitly opted into early calls during booking. Patients who did not opt in retain their scheduled slot time without disturbance."
                             )
                             ClinicSectionCard(
-                                title = "5. Account Deletion, 30-Day Archive & Permanent Purge",
-                                body = "In compliance with Google Play Store Account Deletion Requirements and Nepal Privacy Act 2075, clinics may request account deletion at any time. When deletion is initiated, a mandatory 30-day archive freeze begins. If not cancelled within 30 days, ALL clinic records, patient consultation histories, and queue entries are permanently and irreversibly purged from our servers."
+                                title = "5. 3-Stage Diagnostic Lab Pipeline & Verified Uploads",
+                                body = "Diagnostic laboratories agree to maintain truthful 3-stage status updates: (1) Sample Collected, (2) Processing in Lab, and (3) Prepared & Uploaded. Uploaded pathology reports must be legitimate documents verified by a certified lab technician or pathologist."
                             )
                         }
                         1 -> {
-                            // DOCTOR & NMC CLAUSES
+                            // Section: Doctor & NMC Licensure
                             ClinicSectionCard(
-                                title = "1. Nepal Medical Council (NMC) License Mandate",
-                                body = "Every doctor practicing or consulting through Dactor must hold an authentic, verifiable registration with the Nepal Medical Council (NMC) under the Nepal Medical Council Act 2020. The NMC License ID entered must match official council records."
+                                title = "1. Nepal Medical Council (NMC) Licensure Requirement",
+                                body = "All medical practitioners utilizing Dactor must hold an active, valid registration with the Nepal Medical Council (NMC) under the Nepal Medical Council Act 2020. Dactor does NOT employ doctors or dictate clinical practice. All medical decisions, prescriptions, and diagnoses remain the sole professional responsibility of the attending licensed doctor."
                             )
                             ClinicSectionCard(
-                                title = "2. Professional Clinical Autonomy & Responsibility",
-                                body = "Doctors retain sole clinical independence and diagnostic responsibility for patient consultations, examinations, prescriptions, and laboratory orders. Dactor serves strictly as a administrative facilitation and appointment platform and does not interfere in medical judgment."
+                                title = "2. In-Clinic Physical Presence & Real-Time Availability",
+                                body = "Doctors agree to maintain accurate physical presence status ('Doctor in Cabin' / 'Doctor Away'). Turning on physical presence informs patients that live consultations are in progress. Deliberate misrepresentation of doctor presence is prohibited."
                             )
                             ClinicSectionCard(
-                                title = "3. Doctor-Patient Confidentiality & Nepal Privacy Act 2075",
-                                body = "In accordance with the NMC Code of Medical Ethics and the Individual Privacy Act 2075, patient clinical remarks, diagnosis, and medical histories are privileged and strictly confidential. Unauthorized export or disclosure outside official consultation is strictly prohibited."
+                                title = "3. Consultation Fee Transparency in NPR",
+                                body = "All doctor consultation fees, OPD charges, and test prices must be published transparently in Nepalese Rupees (NPR). Secret markups or undisclosed surcharges violate Nepal Consumer Protection Act 2075."
                             )
                             ClinicSectionCard(
-                                title = "4. Fee Transparency & Anti-Exploitation",
-                                body = "Consultation fees displayed must be transparent in Nepalese Rupees (NPR). Charging undocumented surcharges or engaging in fee-splitting commissions violates NMC ethical regulations."
-                            )
-                            ClinicSectionCard(
-                                title = "5. Emergency Medical Care Protocol (Call 102)",
-                                body = "Doctors and clinical staff acknowledge that Dactor is for scheduled outpatient (OPD) care. Patients exhibiting emergency, acute trauma, or life-threatening symptoms must be immediately directed to hospital emergency triage and Nepal emergency ambulance services (102)."
+                                title = "4. Patient Confidentiality & Code of Medical Ethics",
+                                body = "Practitioners are bound by the Nepal Medical Council Code of Ethics and Nepal Privacy Act 2075. Patient history, clinical notes, and diagnostic records viewed in the consultation desk must remain strictly confidential."
                             )
                         }
-                        2 -> {
-                            // NEPAL LAW & GOOGLE PLAY STORE LAWS
+                        else -> {
+                            // Section: Nepal Laws & Google Play Developer Policy
                             ClinicSectionCard(
-                                title = "1. Nepal Electronic Transactions Act 2063 (ETA)",
-                                body = "Digital registrations, slot publications, online token generation, and electronic consent provided within this application hold full legal validity under the Electronic Transactions Act 2063 (2008) of Nepal."
+                                title = "1. Electronic Transactions Act 2063 & NRB Digital Payments",
+                                body = "Digital tokens, appointment confirmations, and electronic receipts generated on Dactor carry electronic legal validity under Nepal's Electronic Transactions Act 2063 (2008). Payment processing adheres to Nepal Rastra Bank (NRB) digital payment bylaws."
                             )
                             ClinicSectionCard(
-                                title = "2. Nepal Individual Privacy Act 2075 & Privacy Rules 2077",
-                                body = "All personal identifying information (PII), phone numbers, tax identification, and health data collected are processed strictly under lawful consent. Users retain the legal right to data access, correction, and permanent deletion."
+                                title = "2. Nepal Individual Privacy Act 2075 & Data Protection",
+                                body = "All personal identifying information (PII), phone numbers, tax identification, and health data collected are processed strictly under lawful consent with TLS 1.3 encryption. Users retain the legal right to data access, correction, and permanent deletion."
                             )
                             ClinicSectionCard(
                                 title = "3. Google Play Store Health Apps Policy Compliance",
                                 body = "Dactor complies with Google Play Health Apps Policies. This platform is an administrative practice management and appointment scheduling service. It does NOT provide automated medical diagnosis, does not act as a software medical device, and makes no false or misleading claims."
                             )
                             ClinicSectionCard(
-                                title = "4. Data Encryption & Protected Health Information (PHI)",
-                                body = "All medical appointment tokens, doctor availability data, and clinic communications are secured with end-to-end TLS 1.3 encryption in transit and encrypted storage at rest in compliance with Google Play Store Security Standards."
-                            )
-                            ClinicSectionCard(
-                                title = "5. Right to Erasure & User Account Deletion",
-                                body = "Both healthcare providers and patients have access to an in-app Account Deletion mechanism as required by Google Play Policies. Users can schedule deletion or cancel within the 30-day grace period."
+                                title = "4. Right to Erasure & User Account Deletion",
+                                body = "Both healthcare providers and patients have access to an in-app Account Deletion mechanism as required by Google Play Policies, featuring a 30-day freeze period."
                             )
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // MANDATORY CHECKBOX
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isAgreed) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    border = BorderStroke(1.dp, if (isAgreed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isAgreed = !isAgreed }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = isAgreed,
+                            onCheckedChange = { isAgreed = it },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "I have read, understood, and accept Dactor's Clinic Terms of Service, Patient Confidentiality Policy, and Healthcare Regulations.",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }
@@ -182,18 +218,31 @@ fun ClinicTermsAndConditionsDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onAccept?.invoke()
-                    onDismiss()
+                    if (isAgreed) {
+                        onAccept?.invoke()
+                        onDismiss()
+                    }
                 },
-                shape = RoundedCornerShape(10.dp)
+                enabled = isAgreed,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (onAccept != null) "Accept & Agree" else "Close")
+                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "Accept & Proceed",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
             }
         },
         dismissButton = {
-            if (onAccept != null) {
-                TextButton(onClick = onDismiss) {
-                    Text("Decline")
+            if (!isMandatory) {
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Close", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -204,7 +253,7 @@ fun ClinicTermsAndConditionsDialog(
 private fun ClinicSectionCard(title: String, body: String) {
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth()
     ) {

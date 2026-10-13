@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -60,9 +61,15 @@ fun FutureAppointmentsScreen(
     val sessionManager = remember { UserSessionManager(context) }
     val userRole = sessionManager.getUserRole() ?: "clinic"
     val doctorId = sessionManager.getSavedDoctorId() ?: ""
-    val effectiveClinicId = remember(clinicId) {
-        if (clinicId.isNotBlank() && clinicId != "c1") clinicId
-        else sessionManager.getSavedClinicId() ?: ""
+    var effectiveClinicId by remember(clinicId) {
+        mutableStateOf(
+            if (clinicId.isNotBlank() && clinicId != "c1") clinicId
+            else {
+                val saved = sessionManager.getSavedClinicId()
+                if (!saved.isNullOrBlank() && saved != "c1") saved
+                else sessionManager.getSavedActiveClinicIdForDoctor() ?: ""
+            }
+        )
     }
 
     val today = remember { LocalDate.now() }
@@ -78,6 +85,12 @@ fun FutureAppointmentsScreen(
     var doctors by remember(effectiveClinicId) { mutableStateOf<List<Doctor>>(emptyList()) }
     var selectedDoctor by remember(effectiveClinicId) { mutableStateOf<Doctor?>(null) }
     var remarksMap by remember(effectiveClinicId) { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    // OPD Slots state for selected date and full clinic overview
+    var slots by remember(effectiveClinicId, selectedDate) { mutableStateOf<List<Slot>>(emptyList()) }
+    var allClinicSlots by remember(effectiveClinicId) { mutableStateOf<List<Slot>>(emptyList()) }
+    var isSlotsLoading by remember { mutableStateOf(false) }
+    var slotToDelete by remember { mutableStateOf<Slot?>(null) }
 
     // Declared Holidays state with non-reversing optimistic timestamp lock per date
     var declaredHolidays by remember(effectiveClinicId) { mutableStateOf<Set<String>>(emptySet()) }
@@ -124,7 +137,42 @@ fun FutureAppointmentsScreen(
     var actionMessage by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
+    fun format12h(timeStr: String): String {
+        return try {
+            val parts = timeStr.trim().split(":")
+            val h = parts.getOrNull(0)?.toIntOrNull() ?: 9
+            val m = parts.getOrNull(1)?.take(2)?.toIntOrNull() ?: 0
+            val amPm = if (h >= 12) "PM" else "AM"
+            val h12 = if (h % 12 == 0) 12 else h % 12
+            String.format(java.util.Locale.US, "%02d:%02d %s", h12, m, amPm)
+        } catch (e: Exception) { timeStr }
+    }
+
+    suspend fun loadSlots() {
+        if (slotRepository != null && effectiveClinicId.isNotBlank()) {
+            isSlotsLoading = true
+            try {
+                slots = slotRepository.getSlots(effectiveClinicId, selectedDate).sortedBy { it.startTime }
+                allClinicSlots = slotRepository.getSlotsForClinic(effectiveClinicId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isSlotsLoading = false
+            }
+        }
+    }
+
     suspend fun loadAppointments() {
+        if (userRole == "doctor" && doctorId.isNotBlank() && effectiveClinicId.isBlank()) {
+            val doc = doctorRepository?.getDoctorById(doctorId)
+            val resolvedClinicId = doc?.activeClinicId ?: doc?.clinicId
+                ?: doctorRepository?.getAffiliatedClinicsForDoctor(doctorId, doc?.email ?: "")?.firstOrNull()?.id
+            if (!resolvedClinicId.isNullOrBlank()) {
+                effectiveClinicId = resolvedClinicId
+                sessionManager.saveActiveClinicIdForDoctor(resolvedClinicId)
+            }
+        }
+
         if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
             val clinicObj = clinicRepository.getClinicById(effectiveClinicId)
             if (clinicObj != null) {
@@ -152,17 +200,40 @@ fun FutureAppointmentsScreen(
                 remarksMap = billingRepository.getRemarksForAppointments(apptIds)
             }
         }
-        if (doctorRepository != null && effectiveClinicId.isNotBlank()) {
-            val remoteDocs = doctorRepository.getDoctorsByClinic(effectiveClinicId)
-            doctors = remoteDocs
-            if (selectedDoctor == null || !remoteDocs.contains(selectedDoctor)) {
-                selectedDoctor = remoteDocs.firstOrNull()
+        if (doctorRepository != null) {
+            val remoteDocs = if (effectiveClinicId.isNotBlank()) {
+                doctorRepository.getDoctorsByClinic(effectiveClinicId)
+            } else emptyList()
+
+            val allDocs = if (userRole == "doctor" && doctorId.isNotBlank()) {
+                val selfDoc = doctorRepository.getDoctorById(doctorId)
+                if (selfDoc != null && remoteDocs.none { it.id == selfDoc.id }) {
+                    listOf(selfDoc) + remoteDocs
+                } else if (remoteDocs.isNotEmpty()) {
+                    remoteDocs
+                } else if (selfDoc != null) {
+                    listOf(selfDoc)
+                } else {
+                    emptyList()
+                }
+            } else remoteDocs
+
+            doctors = allDocs
+            if (userRole == "doctor" && doctorId.isNotBlank()) {
+                selectedDoctor = allDocs.find { it.id == doctorId } ?: allDocs.firstOrNull()
+            } else if (selectedDoctor == null || !allDocs.contains(selectedDoctor)) {
+                selectedDoctor = allDocs.firstOrNull()
             }
         }
     }
 
     LaunchedEffect(effectiveClinicId, doctorId, userRole) {
         loadAppointments()
+        loadSlots()
+    }
+
+    LaunchedEffect(selectedDate, effectiveClinicId) {
+        loadSlots()
     }
 
     // All days in the displayed month
@@ -218,7 +289,12 @@ fun FutureAppointmentsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { coroutineScope.launch { loadAppointments() } }) {
+                    IconButton(onClick = {
+                        coroutineScope.launch {
+                            loadAppointments()
+                            loadSlots()
+                        }
+                    }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 }
@@ -229,13 +305,19 @@ fun FutureAppointmentsScreen(
             ExtendedFloatingActionButton(
                 onClick = {
                     try {
-                        val now = java.time.LocalTime.now()
-                        val currentMinutes = now.hour * 60 + now.minute
-                        val nextSlotMinutes = ((currentMinutes + 14) / 15) * 15
-                        val nextH = (nextSlotMinutes / 60) % 24
-                        val nextM = nextSlotMinutes % 60
-                        slotStartTime = String.format(java.util.Locale.US, "%02d:%02d", nextH, nextM)
-                        slotEndTime = DateTimePickers.addMinutesToTime(slotStartTime, 15)
+                        if (selectedDate > todayStr) {
+                            // Default to standard morning OPD hours for future dates
+                            slotStartTime = "09:00"
+                            slotEndTime = "09:30"
+                        } else {
+                            val now = java.time.LocalTime.now()
+                            val currentMinutes = now.hour * 60 + now.minute
+                            val nextSlotMinutes = ((currentMinutes + 14) / 15) * 15
+                            val nextH = (nextSlotMinutes / 60) % 24
+                            val nextM = nextSlotMinutes % 60
+                            slotStartTime = String.format(java.util.Locale.US, "%02d:%02d", nextH, nextM)
+                            slotEndTime = DateTimePickers.addMinutesToTime(slotStartTime, 15)
+                        }
                     } catch (ignored: Exception) {}
                     showAddSlotDialog = true
                 },
@@ -335,6 +417,7 @@ fun FutureAppointmentsScreen(
                     val isHolidayDate = declaredHolidays.contains(dateStr)
                     val hasAppts = appointments.any { it.appointmentDate == dateStr }
                     val hasCompleted = appointments.any { it.appointmentDate == dateStr && it.checkinStatus == "completed" }
+                    val hasSlots = allClinicSlots.any { it.slotDate == dateStr }
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -383,13 +466,14 @@ fun FutureAppointmentsScreen(
                             }
                         }
 
-                        // Appointment / Completed / Holiday Dot
+                        // Appointment / Completed / Holiday / Published Slots Dot
                         Surface(
                             shape = CircleShape,
                             color = when {
                                 isHolidayDate -> Color(0xFFDC2626)
                                 hasCompleted -> Color(0xFF10B981)
                                 hasAppts -> Color(0xFF0097A7)
+                                hasSlots -> Color(0xFF38BDF8)
                                 else -> Color.Transparent
                             },
                             modifier = Modifier.size(5.dp)
@@ -498,6 +582,131 @@ fun FutureAppointmentsScreen(
                             checkedTrackColor = Color(0xFFDC2626)
                         )
                     )
+                }
+            }
+
+            // Published OPD Slots for Selected Date Card
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (slots.isNotEmpty()) Color(0xFFF0FDF4) else Color(0xFFF8FAFC)
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    if (slots.isNotEmpty()) Color(0xFFBBF7D0) else Color(0xFFE2E8F0)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.AccessTime,
+                                contentDescription = null,
+                                tint = if (slots.isNotEmpty()) Color(0xFF16A34A) else Color(0xFF0097A7),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "Published OPD Slots for $selectedDate",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = if (slots.isNotEmpty()) Color(0xFF166534) else Color(0xFF0F172A)
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (slots.isNotEmpty()) Color(0xFFDCFCE7) else Color(0xFFE2E8F0)
+                        ) {
+                            Text(
+                                text = "${slots.size} slot${if (slots.size == 1) "" else "s"}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (slots.isNotEmpty()) Color(0xFF15803D) else Color(0xFF64748B),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    if (slots.isEmpty()) {
+                        Text(
+                            text = "No OPD slots configured for this date. Tap '+ Add Slot ($selectedDate)' below to publish patient booking slots.",
+                            fontSize = 11.5.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            slots.forEach { slot ->
+                                val slotDoc = doctors.find { it.id == slot.doctorId }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color.White,
+                                    border = BorderStroke(1.dp, Color(0xFFD1D5DB)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${format12h(slot.startTime)} - ${format12h(slot.endTime)}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = Color(0xFF0F172A)
+                                                )
+                                                if (slotDoc != null) {
+                                                    Text(
+                                                        text = "• Dr. ${slotDoc.fullName}",
+                                                        fontSize = 11.sp,
+                                                        color = Color(0xFF0097A7),
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = "Capacity: ${slot.maxCapacity} patients • Booked: ${slot.bookedCount}",
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF64748B)
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { slotToDelete = slot },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Delete Slot",
+                                                tint = Color(0xFFEF4444),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -791,17 +1000,6 @@ fun FutureAppointmentsScreen(
 
         // Add Slot Dialog
         if (showAddSlotDialog) {
-            fun format12h(timeStr: String): String {
-                return try {
-                    val parts = timeStr.trim().split(":")
-                    val h = parts.getOrNull(0)?.toIntOrNull() ?: 9
-                    val m = parts.getOrNull(1)?.take(2)?.toIntOrNull() ?: 0
-                    val amPm = if (h >= 12) "PM" else "AM"
-                    val h12 = if (h % 12 == 0) 12 else h % 12
-                    String.format(java.util.Locale.US, "%02d:%02d %s", h12, m, amPm)
-                } catch (e: Exception) { timeStr }
-            }
-
             val localNow = java.time.LocalTime.now()
             val currentMinutesToday = localNow.hour * 60 + localNow.minute
             val startParts = slotStartTime.trim().split(":")
@@ -820,19 +1018,49 @@ fun FutureAppointmentsScreen(
                 title = { Text("Add Slot for $selectedDate", fontWeight = FontWeight.Bold) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Select Doctor", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            doctors.forEach { doc ->
+                        Text("Doctor Assignment", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        if (userRole == "doctor" && doctors.isNotEmpty()) {
+                            val myDoc = selectedDoctor ?: doctors.find { it.id == doctorId } ?: doctors.first()
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFE0F2FE),
+                                border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 Row(
+                                    modifier = Modifier.padding(10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { selectedDoctor = doc }
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    RadioButton(selected = selectedDoctor?.id == doc.id, onClick = { selectedDoctor = doc })
-                                    Text("${doc.fullName} (${doc.specialty ?: "General"})", fontSize = 13.sp)
+                                    Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
+                                    Text(
+                                        "Assigning to: Dr. ${myDoc.fullName} (${myDoc.specialty ?: "OPD"})",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF0369A1)
+                                    )
                                 }
                             }
+                        } else if (doctors.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                doctors.forEach { doc ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { selectedDoctor = doc }
+                                    ) {
+                                        RadioButton(selected = selectedDoctor?.id == doc.id, onClick = { selectedDoctor = doc })
+                                        Text("${doc.fullName} (${doc.specialty ?: "General"})", fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(
+                                "No doctors found in clinic. Please register a doctor first.",
+                                fontSize = 12.sp,
+                                color = Color(0xFFDC2626)
+                            )
                         }
 
                         Text("Slot Schedule Time:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -868,6 +1096,34 @@ fun FutureAppointmentsScreen(
                             }
                         }
 
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(15, 30, 45, 60).forEach { mins ->
+                                SuggestionChip(
+                                    onClick = {
+                                        slotEndTime = DateTimePickers.addMinutesToTime(slotStartTime, mins)
+                                    },
+                                    label = { Text("+$mins m", fontSize = 11.sp) }
+                                )
+                            }
+                        }
+
+                        if (hasTimeError) {
+                            Text(
+                                text = when {
+                                    isDateInPast -> "⚠️ Cannot schedule a slot in the past ($selectedDate)."
+                                    isTimeInPast -> "⚠️ Start time ($slotStartTime) has already passed for today."
+                                    isInvalidInterval -> "⚠️ End time ($slotEndTime) must be later than start time ($slotStartTime)."
+                                    else -> "⚠️ Please verify the selected schedule time."
+                                },
+                                fontSize = 11.5.sp,
+                                color = Color(0xFFDC2626),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
                         OutlinedTextField(
                             value = slotCapacity,
                             onValueChange = { slotCapacity = it },
@@ -884,27 +1140,44 @@ fun FutureAppointmentsScreen(
                             if (hasTimeError) return@Button
                             val capVal = (slotCapacity.toIntOrNull() ?: 5).coerceAtLeast(1)
                             val doc = selectedDoctor ?: doctors.firstOrNull()
-                            if (doc != null && slotStartTime.isNotBlank() && slotEndTime.isNotBlank()) {
-                                val newSlot = Slot(
-                                    id = UUID.randomUUID().toString(),
-                                    clinicId = effectiveClinicId,
-                                    doctorId = doc.id,
-                                    slotDate = selectedDate,
-                                    startTime = slotStartTime.trim(),
-                                    endTime = slotEndTime.trim(),
-                                    maxCapacity = capVal,
-                                    bookedCount = 0,
-                                    isPublished = true
-                                )
-                                coroutineScope.launch {
-                                    slotRepository?.createSlot(newSlot)
-                                    actionMessage = "✓ Slot created for $selectedDate (${doc.fullName})!"
-                                    showAddSlotDialog = false
+                            if (doc == null) {
+                                actionMessage = "Please select or register a doctor first."
+                                return@Button
+                            }
+                            if (effectiveClinicId.isBlank()) {
+                                actionMessage = "Please select an active clinic first."
+                                return@Button
+                            }
+                            if (slotStartTime.isBlank() || slotEndTime.isBlank()) {
+                                actionMessage = "Please set valid slot start and end times."
+                                return@Button
+                            }
+                            val newSlot = Slot(
+                                id = UUID.randomUUID().toString(),
+                                clinicId = effectiveClinicId,
+                                doctorId = doc.id,
+                                slotDate = selectedDate,
+                                startTime = slotStartTime.trim(),
+                                endTime = slotEndTime.trim(),
+                                maxCapacity = capVal,
+                                bookedCount = 0,
+                                isPublished = true
+                            )
+                            coroutineScope.launch {
+                                val created = slotRepository?.createSlot(newSlot)
+                                if (created != null) {
+                                    actionMessage = "✓ Slot published for $selectedDate (${doc.fullName}: ${format12h(newSlot.startTime)} - ${format12h(newSlot.endTime)})!"
+                                    slots = (slots + created).sortedBy { it.startTime }
+                                    allClinicSlots = allClinicSlots + created
+                                } else {
+                                    actionMessage = "✓ Slot published for $selectedDate (${doc.fullName})!"
+                                    loadSlots()
                                 }
+                                showAddSlotDialog = false
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
-                        enabled = !hasTimeError
+                        enabled = !hasTimeError && (selectedDoctor != null || doctors.isNotEmpty())
                     ) {
                         Text("Publish Slot", color = Color.White, fontWeight = FontWeight.Bold)
                     }
@@ -936,6 +1209,41 @@ fun FutureAppointmentsScreen(
                     onTimeSelected = { picked -> slotEndTime = picked }
                 )
             }
+        }
+
+        // Slot Deletion Confirmation Dialog
+        if (slotToDelete != null) {
+            val targetSlot = slotToDelete!!
+            AlertDialog(
+                onDismissRequest = { slotToDelete = null },
+                title = { Text("Delete OPD Slot?", fontWeight = FontWeight.Bold) },
+                text = {
+                    Text("Are you sure you want to delete the slot ${format12h(targetSlot.startTime)} - ${format12h(targetSlot.endTime)} on ${targetSlot.slotDate}? If patients have already booked, their appointments may be affected.")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                val ok = slotRepository?.deleteSlot(targetSlot.id) ?: false
+                                if (ok) {
+                                    actionMessage = "✓ Slot deleted successfully."
+                                    slots = slots.filter { it.id != targetSlot.id }
+                                    allClinicSlots = allClinicSlots.filter { it.id != targetSlot.id }
+                                } else {
+                                    actionMessage = "Failed to delete slot."
+                                }
+                                slotToDelete = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                    ) {
+                        Text("Delete", color = Color.White)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { slotToDelete = null }) { Text("Cancel") }
+                }
+            )
         }
 
         // Reschedule Dialog

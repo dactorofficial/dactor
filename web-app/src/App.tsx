@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Navbar } from './components/Navbar'
+import { BottomNav } from './components/BottomNav'
 import { Footer } from './components/Footer'
 import { Home } from './pages/Home'
 import { FindClinics } from './pages/FindClinics'
@@ -10,15 +11,18 @@ import { AverageTime } from './pages/AverageTime'
 import { ClinicPortal } from './pages/ClinicPortal'
 import { PatientPortal } from './pages/PatientPortal'
 import { DoctorPortal } from './pages/DoctorPortal'
+import { Support } from './pages/Support'
 import { LiveTrackerModal } from './components/LiveTrackerModal'
 import { LabReportModal } from './components/LabReportModal'
 import { NotificationModal } from './components/NotificationModal'
 import { getPatientNotifications } from './services/db'
 import { supabase } from './lib/supabase'
+import { LiquidAuroraBackground } from './components/glass'
 
 // Helper to determine initial tab from URL hash or path
 const getTabFromUrl = (): string => {
   const hash = window.location.hash.toLowerCase().replace('#', '').replace('/', '')
+  if (hash === 'support' || hash === 'contact' || hash === 'helpdesk') return 'support'
   if (hash === 'patient' || hash === 'patient-portal' || hash === 'my-health') return 'patient-portal'
   if (hash === 'doctor' || hash === 'doctor-portal' || hash === 'practitioner') return 'doctor-portal'
   if (hash === 'portal' || hash === 'admin-portal' || hash === 'clinic-portal' || hash === 'clinic') return 'portal'
@@ -29,6 +33,7 @@ const getTabFromUrl = (): string => {
   if (hash === 'home') return 'home'
 
   const path = window.location.pathname.toLowerCase()
+  if (path.includes('support') || path.includes('contact') || path.includes('helpdesk')) return 'support'
   if (path.includes('patient') || path.includes('my-health')) return 'patient-portal'
   if (path.includes('doctor') || path.includes('practitioner')) return 'doctor-portal'
   if (path.includes('admin-portal') || path.includes('/portal') || path.includes('clinic-portal')) return 'portal'
@@ -186,7 +191,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-slate-800 font-sans selection:bg-brand-500 selection:text-white">
+    <LiquidAuroraBackground>
       <Navbar
         activeTab={activeTab}
         setActiveTab={(tab) => handleNavigate(tab)}
@@ -256,9 +261,18 @@ export const App: React.FC = () => {
         {activeTab === 'doctor-portal' && <DoctorPortal />}
 
         {activeTab === 'portal' && <ClinicPortal />}
+        {activeTab === 'support' && <Support />}
       </main>
 
       <Footer onNavigate={handleNavigate} />
+
+      {/* Mobile Bottom Navigation Bar (Visible on mobile/tablet) */}
+      <BottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onOpenTrackerModal={() => setTrackerModalOpen(true)}
+        authRole={authRole}
+      />
 
       {/* Global Interactive Modals */}
       <LiveTrackerModal
@@ -279,6 +293,6 @@ export const App: React.FC = () => {
         clinicId={selectedClinicId || 'global'}
         onNotificationsChanged={(count) => setUnreadCount(count)}
       />
-    </div>
+    </LiquidAuroraBackground>
   )
 }

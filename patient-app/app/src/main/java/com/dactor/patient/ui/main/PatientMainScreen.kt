@@ -329,6 +329,26 @@ fun PatientMainScreen(
     var todayDoctorName by remember { mutableStateOf<String?>(null) }
     var showTodayPopup by remember { mutableStateOf(true) }
 
+    // ── Mandatory Non-Skippable Terms & Privacy Policy Gate ───────────────
+    var showMandatoryTermsDialog by remember {
+        mutableStateOf(sessionManager?.hasAcceptedTerms() == false)
+    }
+
+    if (showMandatoryTermsDialog) {
+        TermsAndConditionsDialog(
+            isMandatory = true,
+            onAccept = {
+                sessionManager?.setTermsAccepted(true)
+                showMandatoryTermsDialog = false
+            },
+            onDismiss = {
+                if (sessionManager?.hasAcceptedTerms() == true) {
+                    showMandatoryTermsDialog = false
+                }
+            }
+        )
+    }
+
     LaunchedEffect(Unit) {
         val activePayment = sessionManager?.getActivePaymentSession()
         if (activePayment != null && !activePayment.isExpired()) {
@@ -774,6 +794,7 @@ fun HomeTab(
 
     // Modal state for "Select Clinic to Book" when clicking a Doctor
     var selectedDoctorForClinicPicker by remember { mutableStateOf<DoctorHomeItem?>(null) }
+    var clinicsNextAvailableDates by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     val dateListState = rememberLazyListState()
 
@@ -793,11 +814,12 @@ fun HomeTab(
         if (clinicRepository != null) {
             try {
                 val dateStr = selectedDate.toString()
-                val (builtClinics, builtDoctors) = withContext(Dispatchers.IO) {
+                val (builtPair, nextDates) = withContext(Dispatchers.IO) {
                     coroutineScope {
                         val clinicsDef = async { clinicRepository.getClinics(forceRefresh = true) }
                         val servicesDef = async { clinicRepository.getAllClinicServicesGrouped(forceRefresh = true) }
                         val slotsDef = async { slotRepository?.getAllAvailableSlotsForDate(dateStr) ?: emptyMap() }
+                        val nextDatesDef = async { slotRepository?.getAllClinicsNextAvailableDates() ?: emptyMap() }
 
                         val remoteClinics = clinicsDef.await()
                         val clinicIds = remoteClinics.map { it.id }
@@ -808,8 +830,9 @@ fun HomeTab(
 
                         val servicesByClinic = servicesDef.await()
                         val slotsByClinic = slotsDef.await()
+                        val datesMap = nextDatesDef.await()
 
-                        withContext(Dispatchers.Default) {
+                        val pair = withContext(Dispatchers.Default) {
                             val items = remoteClinics.map { clinic ->
                                 val docs = rosterByClinic[clinic.id] ?: emptyList()
                                 val srvs = servicesByClinic[clinic.id] ?: emptyList()
@@ -831,10 +854,12 @@ fun HomeTab(
                             }
                             Pair(items, docItems)
                         }
+                        Pair(pair, datesMap)
                     }
                 }
-                allClinics = builtClinics
-                allDoctors = builtDoctors
+                allClinics = builtPair.first
+                allDoctors = builtPair.second
+                clinicsNextAvailableDates = nextDates
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -860,6 +885,12 @@ fun HomeTab(
             }
             allClinics = allClinics.map { item ->
                 item.copy(availableSlots = freshSlotsByClinic[item.clinic.id] ?: emptyList())
+            }
+            if (clinicsNextAvailableDates.isEmpty()) {
+                val dates = withContext(Dispatchers.IO) {
+                    slotRepository.getAllClinicsNextAvailableDates()
+                }
+                clinicsNextAvailableDates = dates
             }
         }
     }
@@ -908,16 +939,6 @@ fun HomeTab(
         NEPAL_DISTRICT_ALIASES
     ) {
         var list = allClinics
-
-        // Clinic should be shown to book ONLY if the clinic has published slot for that day
-        val dateStr = selectedDate.toString()
-        list = list.filter { item ->
-            item.availableSlots.any { slot ->
-                slot.isPublished &&
-                    (slot.maxCapacity - slot.bookedCount) > 0 &&
-                    !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(slot.endTime, dateStr, slot.startTime)
-            }
-        }
 
         if (isLiveGpsActive && userLatitude != null && userLongitude != null) {
             val uLat = userLatitude!!
@@ -1876,6 +1897,17 @@ fun HomeTab(
                                                 Text("Not Affiliated", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color(0xFF64748B))
                                             }
                                         } else {
+                                            val isDocAvailOnDate = remember(docItem, allClinics, selectedDate) {
+                                                val dateStr = selectedDate.toString()
+                                                clinicsForDoc.any { c ->
+                                                    val slots = allClinics.firstOrNull { it.clinic.id == c.id }?.availableSlots ?: emptyList()
+                                                    slots.any { s ->
+                                                        s.isPublished && (s.doctorId == doctor.id || s.doctorId.isBlank()) &&
+                                                            (s.maxCapacity - s.bookedCount) > 0 &&
+                                                            !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(s.endTime, dateStr, s.startTime)
+                                                    }
+                                                }
+                                            }
                                             Button(
                                                 onClick = {
                                                     selectedDoctorForClinicPicker = docItem
@@ -1886,7 +1918,7 @@ fun HomeTab(
                                             ) {
                                                 Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(16.dp))
                                                 Spacer(Modifier.width(6.dp))
-                                                Text("Select Clinic & Book", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                Text(if (isDocAvailOnDate) "Select Clinic & Book" else "Book on another date", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                             }
                                         }
                                     }
@@ -2183,6 +2215,42 @@ fun HomeTab(
                                         )
                                     }
 
+                                    val hasSlotOnDate = remember(item, selectedDate) {
+                                        val dateStr = selectedDate.toString()
+                                        item.availableSlots.any { slot ->
+                                            slot.isPublished &&
+                                                (slot.maxCapacity - slot.bookedCount) > 0 &&
+                                                !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(slot.endTime, dateStr, slot.startTime)
+                                        }
+                                    }
+                                    val nextAvailDateForClinic = clinicsNextAvailableDates[clinic.id]
+
+                                    // Small text just above book button
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(
+                                                    if (hasSlotOnDate) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                                    CircleShape
+                                                )
+                                        )
+                                        Text(
+                                            text = if (hasSlotOnDate) {
+                                                "Available today"
+                                            } else {
+                                                com.dactor.patient.data.repository.SlotRepository.formatNextAvailableDate(nextAvailDateForClinic)
+                                            },
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (hasSlotOnDate) Color(0xFF15803D) else Color(0xFFB45309)
+                                        )
+                                    }
+
                                     // Action Buttons (Call + Book)
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -2221,7 +2289,7 @@ fun HomeTab(
                                                 .weight(1f)
                                                 .height(44.dp)
                                         ) {
-                                            Text("Book", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text(if (hasSlotOnDate) "Book" else "Book on another date", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                             Spacer(Modifier.width(6.dp))
                                             Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                                         }
@@ -2269,15 +2337,8 @@ fun HomeTab(
         val docItem = selectedDoctorForClinicPicker!!
         val doctor = docItem.doctor
         val dateStr = selectedDate.toString()
-        val clinicsForDoctor = remember(docItem, allClinics, selectedDate) {
-            docItem.practicingClinics.filter { c ->
-                val slots = allClinics.firstOrNull { it.clinic.id == c.id }?.availableSlots ?: emptyList()
-                slots.any { s ->
-                    s.isPublished && (s.doctorId == doctor.id || s.doctorId.isBlank()) &&
-                        (s.maxCapacity - s.bookedCount) > 0 &&
-                        !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(s.endTime, dateStr, s.startTime)
-                }
-            }
+        val clinicsForDoctor = remember(docItem) {
+            docItem.practicingClinics
         }
 
         AlertDialog(
@@ -2318,13 +2379,13 @@ fun HomeTab(
                                     modifier = Modifier.size(32.dp)
                                 )
                                 Text(
-                                    text = "No Published Slots for $selectedDate",
+                                    text = "Not Affiliated",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     color = Color(0xFF0F172A)
                                 )
                                 Text(
-                                    text = "Dr. ${doctor.fullName} currently has no published booking slots for $selectedDate at any affiliated clinic. Please select another date.",
+                                    text = "Dr. ${doctor.fullName} is currently not affiliated with any active clinic.",
                                     fontSize = 12.sp,
                                     color = Color(0xFF64748B),
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -2415,6 +2476,15 @@ fun HomeTab(
                                         )
                                     }
 
+                                    val hasSlotForDoc = remember(clinic, doctor, allClinics, selectedDate) {
+                                        val slots = allClinics.firstOrNull { it.clinic.id == clinic.id }?.availableSlots ?: emptyList()
+                                        slots.any { s ->
+                                            s.isPublished && (s.doctorId == doctor.id || s.doctorId.isBlank()) &&
+                                                (s.maxCapacity - s.bookedCount) > 0 &&
+                                                !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(s.endTime, dateStr, s.startTime)
+                                        }
+                                    }
+
                                     Button(
                                         onClick = {
                                             selectedDoctorForClinicPicker = null
@@ -2442,7 +2512,7 @@ fun HomeTab(
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                         modifier = Modifier.height(36.dp)
                                     ) {
-                                        Text("Book", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text(if (hasSlotForDoc) "Book" else "Book on another date", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -6517,6 +6587,25 @@ fun ProfileTab(
                             val pid = sessionManager?.getSavedPatientId() ?: ""
                             val scheduledDate = authRepository?.scheduleAccountDeletion(pid)?.getOrNull()
                                 ?: LocalDate.now().plusDays(30).toString()
+                            try {
+                                val fbUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                                if (fbUser != null) {
+                                    com.google.android.gms.tasks.Tasks.await(
+                                        fbUser.delete(),
+                                        3,
+                                        java.util.concurrent.TimeUnit.SECONDS
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                            try {
+                                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
+                                    context,
+                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                                ).signOut()
+                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                            } catch (ignored: Exception) {}
                             authRepository?.signOut()
                             sessionManager?.clearSession()
                             sessionManager?.setArchivedStatus(true, scheduledDate)

@@ -27,6 +27,8 @@ web-app/node_modules/
 web-app/dist/
 web-app/dist-ssr/
 
+screenshots/
+
 # Root temporary scratch files
 /*.png
 /App_Screenshots/

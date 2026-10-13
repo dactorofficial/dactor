@@ -71,12 +71,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   })
 
   return (
-    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
+    <header className="sticky top-0 z-50 liquid-glass-elevated border-b border-white/60 shadow-glass-md">
+      {/* Specular Perimeter Line */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[1.5px] bg-gradient-to-r from-transparent via-white/80 to-transparent" aria-hidden="true" />
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Brand Logo with Real App Icon */}
           <div
-            className="flex items-center space-x-3 cursor-pointer group select-none"
+            className="flex items-center space-x-2 sm:space-x-3 cursor-pointer group select-none shrink-0"
             onClick={() => {
               setActiveTab('home')
               window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -85,25 +87,25 @@ export const Navbar: React.FC<NavbarProps> = ({
             <img
               src={dactorLogo}
               alt="Dactor Logo"
-              className="w-11 h-11 rounded-2xl object-contain shadow-md shadow-sky-600/20 group-hover:scale-105 transition-transform duration-200 bg-white border border-slate-100 p-0.5"
+              className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl object-contain shadow-glass-sm group-hover:scale-105 transition-transform duration-200 bg-white/90 backdrop-blur-md border border-white/80 p-0.5"
             />
             <div>
-              <div className="flex items-center space-x-1.5">
-                <span className="text-2xl font-black tracking-tight text-slate-900 group-hover:text-brand-600 transition-colors">
+              <div className="flex items-center space-x-1 sm:space-x-1.5">
+                <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 group-hover:text-brand-600 transition-colors">
                   Dactor
                 </span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-100 text-brand-800 tracking-wide uppercase">
+                <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-brand-100/80 text-brand-800 border border-brand-200/50 shadow-xs tracking-wide uppercase backdrop-blur-xs">
                   Live
                 </span>
               </div>
-              <p className="text-[11px] font-medium text-slate-500 tracking-tight leading-none">
+              <p className="hidden sm:block text-[11px] font-medium text-slate-500 tracking-tight leading-none">
                 Nepal OPD Queue & Healthcare Ecosystem
               </p>
             </div>
           </div>
 
           {/* Desktop Navigation Links */}
-          <nav className="hidden lg:flex items-center space-x-1">
+          <nav className="hidden lg:flex items-center space-x-1 p-1 rounded-2xl liquid-glass-subtle border border-white/50">
             {navLinks.map((item) => {
               const Icon = item.icon
               const isActive = activeTab === item.id
@@ -113,8 +115,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => setActiveTab(item.id)}
                   className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer ${
                     isActive
-                      ? 'bg-brand-50 text-brand-700 font-bold shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+                      ? 'bg-white/95 text-brand-700 font-bold shadow-glass-sm border border-white/80'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50 border border-transparent'
                   }`}
                 >
                   <Icon className={`w-4 h-4 ${isActive ? 'text-brand-600' : 'text-slate-400'}`} />
@@ -129,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Quick 10-Digit Code Tracker Button */}
             <button
               onClick={onOpenTrackerModal}
-              className="flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200/80 rounded-xl transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-semibold text-brand-700 bg-brand-50/80 hover:bg-brand-100/90 border border-brand-200/80 rounded-xl transition-all duration-150 shadow-glass-sm hover:scale-[1.02] active:scale-[0.98] cursor-pointer backdrop-blur-md"
               title="Track live token queue by 10-digit code"
             >
               <Sparkles className="w-3.5 h-3.5 text-brand-600 animate-pulse" />
@@ -139,12 +141,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Notification Bell */}
             <button
               onClick={onOpenNotificationModal}
-              className="relative p-2.5 text-slate-600 hover:text-brand-600 hover:bg-slate-100 rounded-xl transition-colors duration-150 cursor-pointer"
+              className="relative p-2.5 text-slate-600 hover:text-brand-600 bg-white/60 hover:bg-white/90 border border-white/60 rounded-xl shadow-glass-sm transition-colors duration-150 cursor-pointer backdrop-blur-md"
               title="View clinic announcements & notifications"
             >
               <Bell className="w-5 h-5" />
               {unreadNotificationsCount > 0 && (
-                <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center shadow-xs">
                   {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
                 </span>
               )}
@@ -248,13 +250,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             ) : (
               /* PUBLIC VISITOR VIEW: Standard Portal Choice Buttons */
-              <div className="flex items-center space-x-1.5">
+              <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setActiveTab('patient-portal')}
-                  className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
+                  className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-xl border transition-all duration-200 cursor-pointer shadow-glass-sm ${
                     activeTab === 'patient-portal'
-                      ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                      : 'bg-white text-slate-800 border-slate-200 hover:border-brand-400 hover:text-brand-700'
+                      ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white border-white/40 shadow-glass-brand'
+                      : 'bg-white/70 text-slate-800 border-white/60 hover:bg-white/90 hover:text-brand-700'
                   }`}
                   title="Open Patient Portal (Appointments, Family, Lab Reports & Bills)"
                 >
@@ -264,10 +266,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                 <button
                   onClick={() => setActiveTab('doctor-portal')}
-                  className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
+                  className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-xl border transition-all duration-200 cursor-pointer shadow-glass-sm ${
                     activeTab === 'doctor-portal'
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                      : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-white/40 shadow-md shadow-emerald-600/20'
+                      : 'bg-white/70 text-emerald-800 border-white/60 hover:bg-white/90'
                   }`}
                   title="Open Doctor Consultation Desk"
                 >
@@ -277,10 +279,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                 <button
                   onClick={() => setActiveTab('portal')}
-                  className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all duration-150 cursor-pointer ${
+                  className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-xl border transition-all duration-200 cursor-pointer shadow-glass-sm ${
                     activeTab === 'portal'
-                      ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                      : 'bg-white text-slate-800 border-slate-200 hover:bg-brand-50 hover:text-brand-700'
+                      ? 'bg-gradient-to-r from-brand-700 to-brand-900 text-white border-white/40 shadow-glass-brand'
+                      : 'bg-white/70 text-slate-800 border-white/60 hover:bg-white/90 hover:text-brand-700'
                   }`}
                   title="Open Clinic & Diagnostic Facility Portal"
                 >
@@ -292,37 +294,42 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Mobile menu button & top-right notification icon */}
-          <div className="flex lg:hidden items-center space-x-2">
+          <div className="flex lg:hidden items-center space-x-1.5 sm:space-x-2">
+            <button
+              onClick={onOpenTrackerModal}
+              className="flex items-center space-x-1 px-3 py-1.5 text-brand-700 bg-brand-50/80 hover:bg-brand-100 border border-brand-200/80 rounded-xl text-xs font-bold cursor-pointer shadow-glass-sm active:scale-95 backdrop-blur-md"
+              title="Track live queue"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-brand-600 animate-pulse" />
+              <span>Track</span>
+            </button>
+
             <button
               onClick={onOpenNotificationModal}
-              className="relative p-2 text-slate-600 hover:text-brand-600 bg-slate-100 rounded-xl"
+              className="relative p-2 text-slate-600 hover:text-brand-600 bg-white/60 border border-white/60 rounded-xl shadow-glass-sm transition-colors cursor-pointer backdrop-blur-md"
               title="Notifications"
             >
-              <Bell className="w-5 h-5" />
+              <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
               {unreadNotificationsCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center shadow-xs">
                   {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
                 </span>
               )}
             </button>
-            <button
-              onClick={onOpenTrackerModal}
-              className="p-2 text-brand-700 bg-brand-50 rounded-xl text-xs font-bold"
-            >
-              Track
-            </button>
+
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
+              className="p-2 text-slate-700 hover:text-slate-900 bg-white/60 border border-white/60 rounded-xl shadow-glass-sm transition-colors cursor-pointer backdrop-blur-md"
+              aria-label="Toggle Navigation Menu"
             >
-              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
             </button>
           </div>
         </div>
 
         {/* Mobile Dropdown Menu */}
         {mobileMenuOpen && (
-          <div className="lg:hidden py-4 border-t border-slate-100 space-y-2 animate-in slide-in-from-top duration-200">
+          <div className="lg:hidden py-4 border-t border-white/60 liquid-glass-elevated rounded-2xl my-2 p-3 shadow-glass-lg space-y-2 animate-in slide-in-from-top duration-200 max-h-[calc(100vh-5rem)] overflow-y-auto">
             {navLinks.map((item) => {
               const Icon = item.icon
               const isActive = activeTab === item.id

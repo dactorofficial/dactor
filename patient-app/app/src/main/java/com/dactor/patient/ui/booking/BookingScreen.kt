@@ -41,8 +41,61 @@ import com.dactor.patient.domain.util.CurrencyFormatter
 import com.dactor.patient.ui.navigation.NavRoutes
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
+
+enum class CalendarDateState {
+    AVAILABLE,      // 1. Available: selectable (green dot)
+    FULLY_BOOKED,   // 2. Fully booked: not selectable (amber dot)
+    CLOSED,         // 3. Clinic closed: not selectable (gray dot)
+    PAST            // 4. Past date: not selectable
+}
+
+fun computeCalendarDateState(
+    date: LocalDate,
+    clinic: Clinic?,
+    selectedDoctor: Doctor?,
+    monthSlotsMap: Map<String, List<Slot>>,
+    todayDate: LocalDate
+): CalendarDateState {
+    val dateStr = date.toString()
+    if (date < todayDate) {
+        return CalendarDateState.PAST
+    }
+
+    val isHoliday = clinic?.isHolidayOnDate(dateStr) == true
+    val schedule = clinic?.getScheduleForDate(dateStr)
+    val isWeeklyOff = schedule?.isOpen == false
+    if (isHoliday || isWeeklyOff) {
+        return CalendarDateState.CLOSED
+    }
+
+    val rawSlots = monthSlotsMap[dateStr]?.filter { it.isPublished } ?: emptyList()
+    val relevantSlots = if (selectedDoctor != null) {
+        val matches = rawSlots.filter { it.doctorId.isNullOrBlank() || it.doctorId == selectedDoctor.id }
+        matches.ifEmpty { rawSlots.filter { it.doctorId.isNullOrBlank() } }
+    } else {
+        rawSlots
+    }
+
+    val activeSlots = if (date == todayDate) {
+        relevantSlots.filter { !SlotRepository.isSlotEndTimeOver(it.endTime, dateStr, it.startTime) }
+    } else {
+        relevantSlots
+    }
+
+    if (activeSlots.isEmpty()) {
+        return CalendarDateState.CLOSED
+    }
+
+    val hasCapacity = activeSlots.any { (it.maxCapacity - it.bookedCount) > 0 }
+    return if (hasCapacity) {
+        CalendarDateState.AVAILABLE
+    } else {
+        CalendarDateState.FULLY_BOOKED
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +143,8 @@ fun BookingScreen(
     var doctors by remember { mutableStateOf<List<Doctor>>(emptyList()) }
     var selectedDoctor by remember { mutableStateOf<Doctor?>(null) }
     var slots by remember { mutableStateOf<List<Slot>>(emptyList()) }
+    var monthSlotsMap by remember { mutableStateOf<Map<String, List<Slot>>>(emptyMap()) }
+    var isLoadingMonthSlots by remember { mutableStateOf(false) }
     var selectedSlotId by remember { mutableStateOf<String?>(pendingRedirect?.selectedSlotId) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -128,11 +183,6 @@ fun BookingScreen(
                     docs.firstOrNull()
                 }
             }
-            if (slotRepository != null) {
-                val available = slotRepository.getAvailableSlots(clinicId, selectedDate)
-                    .filter { it.isPublished && !SlotRepository.isSlotEndTimeOver(it.endTime, selectedDate, it.startTime) }
-                slots = available
-            }
         }
         isLoading = false
 
@@ -145,31 +195,70 @@ fun BookingScreen(
         }
     }
 
-    LaunchedEffect(selectedDate, selectedDoctor) {
+    // Fetch availability for the whole visible month in one call, and refetch when the month or doctor changes
+    LaunchedEffect(clinicId, viewedYearMonth, selectedDoctor) {
+        if (slotRepository != null && clinicId.isNotBlank()) {
+            isLoadingMonthSlots = true
+            try {
+                val res = slotRepository.getMonthSlots(clinicId, viewedYearMonth, selectedDoctor?.id)
+                monthSlotsMap = res
+
+                val isCurrentMonth = (viewedYearMonth == YearMonth.from(todayDate))
+                val todayState = computeCalendarDateState(todayDate, clinic, selectedDoctor, res, todayDate)
+
+                if (isCurrentMonth && todayState == CalendarDateState.AVAILABLE) {
+                    val selDateParsed = try { LocalDate.parse(selectedDate) } catch (_: Exception) { null }
+                    if (selectedDate.isBlank() || selDateParsed == null || selDateParsed < todayDate || YearMonth.from(selDateParsed) != viewedYearMonth) {
+                        selectedDate = today
+                    }
+                } else {
+                    val startDay = if (isCurrentMonth) todayDate.dayOfMonth else 1
+                    val nextAvail = (startDay..viewedYearMonth.lengthOfMonth())
+                        .map { viewedYearMonth.atDay(it) }
+                        .firstOrNull { computeCalendarDateState(it, clinic, selectedDoctor, res, todayDate) == CalendarDateState.AVAILABLE }
+
+                    val selDateParsed = try { LocalDate.parse(selectedDate) } catch (_: Exception) { null }
+                    if (nextAvail != null && (selectedDate.isBlank() || selDateParsed == null || selDateParsed < todayDate || YearMonth.from(selDateParsed) != viewedYearMonth)) {
+                        selectedDate = nextAvail.toString()
+                    } else if (selectedDate.isBlank()) {
+                        selectedDate = today
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isLoadingMonthSlots = false
+            }
+        }
+    }
+
+    LaunchedEffect(selectedDate, monthSlotsMap, selectedDoctor) {
         if (clinicRepository != null && clinicId.isNotBlank()) {
             clinic = clinicRepository.getClinicById(clinicId, forceRefresh = true) ?: clinic
         }
-        if (slotRepository != null && clinicId.isNotBlank()) {
-            val isClosedHoliday = clinic?.isHolidayOnDate(selectedDate) == true
-            if (isClosedHoliday) {
-                slots = emptyList()
-                selectedSlotId = null
+        val isClosedHoliday = clinic?.isHolidayOnDate(selectedDate) == true
+        if (isClosedHoliday) {
+            slots = emptyList()
+            selectedSlotId = null
+        } else {
+            val raw = monthSlotsMap[selectedDate]?.filter { it.isPublished } ?: emptyList()
+            val filtered = if (selectedDoctor != null) {
+                val docMatches = raw.filter { it.doctorId == selectedDoctor?.id }
+                docMatches.ifEmpty { raw.filter { it.doctorId.isNullOrBlank() } }
             } else {
-                val available = slotRepository.getAvailableSlots(clinicId, selectedDate)
-                    .filter { it.isPublished && !SlotRepository.isSlotEndTimeOver(it.endTime, selectedDate, it.startTime) }
-                val filtered = if (selectedDoctor != null) {
-                    val docMatches = available.filter { it.doctorId == selectedDoctor?.id }
-                    docMatches.ifEmpty { available }
-                } else {
-                    available
-                }
-                slots = filtered
-
-                // Preserve previously restored slotId if valid, else select first available published slot
-                val currentMatch = filtered.firstOrNull { it.id == selectedSlotId && (it.maxCapacity - it.bookedCount) > 0 }
-                val firstOpen = filtered.firstOrNull { (it.maxCapacity - it.bookedCount) > 0 }
-                selectedSlotId = (currentMatch ?: firstOpen)?.id
+                raw
             }
+            val active = if (selectedDate == today) {
+                filtered.filter { !SlotRepository.isSlotEndTimeOver(it.endTime, selectedDate, it.startTime) }
+            } else {
+                filtered
+            }
+            slots = active
+
+            // Preserve previously restored slotId if valid, else select first available published slot
+            val currentMatch = active.firstOrNull { it.id == selectedSlotId && (it.maxCapacity - it.bookedCount) > 0 }
+            val firstOpen = active.firstOrNull { (it.maxCapacity - it.bookedCount) > 0 }
+            selectedSlotId = (currentMatch ?: firstOpen)?.id
         }
     }
 
@@ -588,106 +677,54 @@ fun BookingScreen(
                 }
             }
 
-            // ── 3. SELECT DATE SECTION (Fixed height so month "Oct" is never clipped) ──
+            // ── 3. SELECT DATE CALENDAR SECTION (Month view with < > and status dots) ──
             item {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
                     Text("Select Date", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF0F172A))
                 }
                 Spacer(Modifier.height(10.dp))
 
-                LazyRow(
-                    state = dateListState,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(daysInMonth, key = { it.toString() }) { date ->
-                        val dateStr = date.toString()
-                        val isSelected = (selectedDate == dateStr)
-                        val isDayHoliday = clinic?.isHolidayOnDate(dateStr) == true
-                        val dayOfWeekStr = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
-                        val monthName = date.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
-
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = when {
-                                isSelected && isDayHoliday -> Color(0xFFDC2626)
-                                isSelected -> Color(0xFF00796B)
-                                isDayHoliday -> Color(0xFFFEF2F2)
-                                else -> Color.White
-                            },
-                            border = BorderStroke(
-                                1.dp,
-                                when {
-                                    isSelected && isDayHoliday -> Color(0xFFDC2626)
-                                    isSelected -> Color(0xFF00796B)
-                                    isDayHoliday -> Color(0xFFFCA5A5)
-                                    else -> Color(0xFFE2E8F0)
-                                }
-                            ),
-                            shadowElevation = if (isSelected) 3.dp else 0.dp,
-                            modifier = Modifier
-                                .width(66.dp)
-                                .defaultMinSize(minHeight = 96.dp)
-                                .clickable { selectedDate = dateStr }
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp)
-                            ) {
-                                Text(
-                                    text = dayOfWeekStr,
-                                    fontSize = 12.sp,
-                                    lineHeight = 14.sp,
-                                    fontWeight = if (isSelected || isDayHoliday) FontWeight.Bold else FontWeight.Medium,
-                                    color = when {
-                                        isSelected -> Color.White.copy(alpha = 0.92f)
-                                        isDayHoliday -> Color(0xFFDC2626)
-                                        else -> Color(0xFF64748B)
-                                    }
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = "${date.dayOfMonth}",
-                                    fontSize = 20.sp,
-                                    lineHeight = 22.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = when {
-                                        isSelected -> Color.White
-                                        isDayHoliday -> Color(0xFFB91C1C)
-                                        else -> Color(0xFF0F172A)
-                                    }
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = if (isDayHoliday) "Closed" else monthName,
-                                    fontSize = 10.sp,
-                                    lineHeight = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = when {
-                                        isSelected -> Color.White.copy(alpha = 0.9f)
-                                        isDayHoliday -> Color(0xFFDC2626)
-                                        else -> Color(0xFF64748B)
-                                    }
-                                )
-                            }
+                MonthCalendarCard(
+                    viewedYearMonth = viewedYearMonth,
+                    selectedDate = selectedDate,
+                    todayDate = todayDate,
+                    clinic = clinic,
+                    selectedDoctor = selectedDoctor,
+                    monthSlotsMap = monthSlotsMap,
+                    onPreviousMonthClick = {
+                        val curYearMonth = YearMonth.from(todayDate)
+                        if (viewedYearMonth > curYearMonth) {
+                            viewedYearMonth = viewedYearMonth.minusMonths(1)
                         }
+                    },
+                    onNextMonthClick = {
+                        viewedYearMonth = viewedYearMonth.plusMonths(1)
+                    },
+                    onDateSelected = { clickedDate ->
+                        selectedDate = clickedDate.toString()
                     }
-                }
+                )
             }
 
-            // ── 4. SELECT PUBLISHED TIME SLOT SECTION (Only clinic-published slots!) ──
+            // ── 4. SELECT PUBLISHED TIME SLOT SECTION (Along with slot) ──
             item {
+                val formattedSelectedDate = remember(selectedDate) {
+                    try {
+                        LocalDate.parse(selectedDate).format(DateTimeFormatter.ofPattern("EEE, d MMM", Locale.ENGLISH))
+                    } catch (_: Exception) {
+                        selectedDate
+                    }
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.AccessTime, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
-                    Text("Select Published Time Slot", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF0F172A))
+                    Text("Available Slots ($formattedSelectedDate)", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF0F172A))
                 }
                 Spacer(Modifier.height(10.dp))
 
@@ -859,6 +896,199 @@ fun BookingScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MonthCalendarCard(
+    viewedYearMonth: YearMonth,
+    selectedDate: String,
+    todayDate: LocalDate,
+    clinic: Clinic?,
+    selectedDoctor: Doctor?,
+    monthSlotsMap: Map<String, List<Slot>>,
+    onPreviousMonthClick: () -> Unit,
+    onNextMonthClick: () -> Unit,
+    onDateSelected: (LocalDate) -> Unit
+) {
+    val currentYearMonth = remember(todayDate) { YearMonth.from(todayDate) }
+    val isPreviousMonthAllowed = viewedYearMonth > currentYearMonth
+
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Header: < Month Year >
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onPreviousMonthClick,
+                    enabled = isPreviousMonthAllowed,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ChevronLeft,
+                        contentDescription = "Previous Month",
+                        tint = if (isPreviousMonthAllowed) Color(0xFF00796B) else Color(0xFFCBD5E1)
+                    )
+                }
+
+                val monthTitle = remember(viewedYearMonth) {
+                    val m = viewedYearMonth.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)
+                    "$m ${viewedYearMonth.year}"
+                }
+                Text(
+                    text = monthTitle,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = Color(0xFF0F172A)
+                )
+
+                IconButton(
+                    onClick = onNextMonthClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Next Month",
+                        tint = Color(0xFF00796B)
+                    )
+                }
+            }
+
+            // Days of week header row
+            val daysOfWeek = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                daysOfWeek.forEach { dayName ->
+                    Text(
+                        text = dayName,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF64748B),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = Color(0xFFF1F5F9))
+
+            // Calendar Grid
+            val firstDayOfMonth = remember(viewedYearMonth) { viewedYearMonth.atDay(1) }
+            val firstDayOfWeek = remember(firstDayOfMonth) { firstDayOfMonth.dayOfWeek.value % 7 } // 0=Sun..6=Sat
+            val daysInMonth = remember(viewedYearMonth) { viewedYearMonth.lengthOfMonth() }
+            val totalCells = firstDayOfWeek + daysInMonth
+            val rowCount = (totalCells + 6) / 7
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (rowIndex in 0 until rowCount) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        for (colIndex in 0 until 7) {
+                            val cellIndex = rowIndex * 7 + colIndex
+                            if (cellIndex < firstDayOfWeek || cellIndex >= totalCells) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            } else {
+                                val dayNum = cellIndex - firstDayOfWeek + 1
+                                val date = viewedYearMonth.atDay(dayNum)
+                                val dateStr = date.toString()
+                                val isSelected = (selectedDate == dateStr)
+                                val dateState = computeCalendarDateState(date, clinic, selectedDoctor, monthSlotsMap, todayDate)
+                                val isSelectable = (dateState == CalendarDateState.AVAILABLE)
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (isSelected) Color(0xFF00796B) else Color.Transparent
+                                        )
+                                        .clickable(enabled = isSelectable) {
+                                            onDateSelected(date)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = "$dayNum",
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = when {
+                                                isSelected -> Color.White
+                                                dateState == CalendarDateState.PAST -> Color(0xFFCBD5E1)
+                                                dateState == CalendarDateState.CLOSED -> Color(0xFF94A3B8)
+                                                dateState == CalendarDateState.FULLY_BOOKED -> Color(0xFF64748B)
+                                                else -> Color(0xFF0F172A)
+                                            }
+                                        )
+                                        Spacer(Modifier.height(2.dp))
+                                        // Status dot
+                                        val dotColor = when (dateState) {
+                                            CalendarDateState.AVAILABLE -> if (isSelected) Color(0xFFCCFBF1) else Color(0xFF10B981)
+                                            CalendarDateState.FULLY_BOOKED -> Color(0xFFF59E0B)
+                                            CalendarDateState.CLOSED -> Color(0xFF94A3B8)
+                                            CalendarDateState.PAST -> Color.Transparent
+                                        }
+                                        if (dotColor != Color.Transparent) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(5.dp)
+                                                    .clip(CircleShape)
+                                                    .background(dotColor)
+                                            )
+                                        } else {
+                                            Spacer(Modifier.size(5.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Short Legend beneath the calendar
+            HorizontalDivider(color = Color(0xFFF1F5F9))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF10B981)))
+                    Text("Available", fontSize = 11.sp, color = Color(0xFF475569), fontWeight = FontWeight.Medium)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFFF59E0B)))
+                    Text("Fully booked", fontSize = 11.sp, color = Color(0xFF475569), fontWeight = FontWeight.Medium)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF94A3B8)))
+                    Text("Closed", fontSize = 11.sp, color = Color(0xFF475569), fontWeight = FontWeight.Medium)
                 }
             }
         }

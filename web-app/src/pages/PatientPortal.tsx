@@ -47,6 +47,8 @@ import {
   CheckSquare,
   Square,
   Tag,
+  Headphones,
+  HelpCircle,
 } from 'lucide-react'
 function triggerConfettiBurst() {
   try {
@@ -150,6 +152,7 @@ import {
   schedulePatientArchive,
   cancelPatientArchive,
   deletePatientProfilePermanently,
+  getSupportUrl,
 } from '../services/db'
 import {
   firebaseSignOut,
@@ -203,6 +206,19 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [editAge, setEditAge] = useState('')
   const [editGender, setEditGender] = useState('Male')
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false)
+  const [supportUrl, setSupportUrl] = useState<string>(() => {
+    try {
+      return localStorage.getItem('dactor_support_url') || 'https://dactorofficial.github.io/support'
+    } catch {
+      return 'https://dactorofficial.github.io/support'
+    }
+  })
+
+  useEffect(() => {
+    getSupportUrl().then((url) => {
+      if (url) setSupportUrl(url)
+    })
+  }, [])
 
   // Account Deletion State
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false)
@@ -343,6 +359,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [bookPatientAge, setBookPatientAge] = useState('')
   const [bookPatientGender, setBookPatientGender] = useState('Male')
   const [bookPatientNotes, setBookPatientNotes] = useState('')
+  const [bookOptInEarlyCall, setBookOptInEarlyCall] = useState(false)
 
   // Wizard Step (1: Clinic & Doctor, 2: Slot & Date, 3: Details, 4: Payment, 5: Confirmed)
   const [bookingStep, setBookingStep] = useState<number>(1)
@@ -950,6 +967,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           ? `Follow-Up Visit (Previous Code: #${retainedAppointment.trackingCode10Digit})`
           : (bookPatientNotes.trim() || (isLabClinic ? 'Diagnostic Lab Sample Collection' : undefined)),
         selectedTests: isLabClinic ? selectedLabTests.map((t) => t.serviceName) : [],
+        optInEarlyCall: bookOptInEarlyCall,
       })
 
       if (!newAppt) {
@@ -1512,30 +1530,31 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const formattedTimer = `${timerMinutes.toString().padStart(2, '0')}:${timerSeconds.toString().padStart(2, '0')}`
 
   return (
-    <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen py-5 sm:py-8 px-3 sm:px-6 lg:px-8 pb-28 sm:pb-12">
+      <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
         {/* Transaction Failed Notice Toast (2-second transient notice) */}
         {transactionFailedNotice && (
-          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 bg-rose-600 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center space-x-2 animate-bounce">
-            <AlertCircle className="w-5 h-5" />
-            <span className="font-bold text-sm">{transactionFailedNotice}</span>
+          <div className="fixed top-20 sm:top-24 left-1/2 -translate-x-1/2 z-50 bg-rose-600/90 backdrop-blur-md text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl shadow-xl flex items-center space-x-2 animate-bounce text-xs sm:text-sm border border-rose-400/30">
+            <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+            <span className="font-bold">{transactionFailedNotice}</span>
           </div>
         )}
 
         {/* Booking Selection Restored Toast */}
         {bookingRestoredToast && (
-          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center space-x-2 animate-in fade-in slide-in-from-top-4">
-            <CheckCircle2 className="w-5 h-5" />
-            <span className="font-bold text-sm">{bookingRestoredToast}</span>
+          <div className="fixed top-20 sm:top-24 left-1/2 -translate-x-1/2 z-50 bg-emerald-600/90 backdrop-blur-md text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl shadow-xl flex items-center space-x-2 animate-in fade-in slide-in-from-top-4 text-xs sm:text-sm border border-emerald-400/30">
+            <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+            <span className="font-bold">{bookingRestoredToast}</span>
           </div>
         )}
 
         {/* 30-DAY ARCHIVE LOCK BANNER (ProfileScreen.kt lines 42-78) */}
         {patientUser?.isArchived && (
-          <div className="p-6 rounded-3xl bg-rose-950 text-white border-2 border-rose-500 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-start space-x-4">
-              <div className="w-12 h-12 rounded-2xl bg-rose-600 flex items-center justify-center shrink-0">
-                <Lock className="w-6 h-6 text-white" />
+          <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl liquid-glass-elevated bg-rose-950/80 text-white border border-rose-500/40 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative overflow-hidden backdrop-blur-xl">
+            <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-rose-400/50 to-transparent" />
+            <div className="flex items-start space-x-3 sm:space-x-4">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-rose-600/80 flex items-center justify-center shrink-0 border border-rose-400/30">
+                <Lock className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
               </div>
               <div className="space-y-1 text-left">
                 <div className="flex items-center space-x-2">
@@ -1546,7 +1565,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     {archiveDaysLeft} Days Remaining
                   </span>
                 </div>
-                <h2 className="text-lg font-black">
+                <h2 className="text-base sm:text-lg font-black">
                   Patient Account Archived &amp; Scheduled for Deletion
                 </h2>
                 <p className="text-xs text-rose-200 max-w-2xl leading-relaxed">
@@ -1558,7 +1577,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             <button
               type="button"
               onClick={handleCancelPatientArchive}
-              className="px-5 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl text-xs shadow-lg cursor-pointer shrink-0 transition"
+              className="w-full md:w-auto px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-black rounded-2xl text-xs shadow-lg shadow-emerald-500/25 cursor-pointer shrink-0 transition active:scale-[0.98]"
             >
               Cancel Deletion &amp; Restore Account
             </button>
@@ -1568,10 +1587,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         {/* ==========================================
             PATIENT HEADER & PROFILE BAR
         ========================================== */}
-        <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200/80">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="flex items-start sm:items-center space-x-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-brand-500/20 font-black text-2xl flex-shrink-0 overflow-hidden">
+        <div className="liquid-glass-elevated rounded-2xl sm:rounded-3xl p-4 sm:p-8 border border-white/40 dark:border-white/10 relative overflow-hidden shadow-sm">
+          {/* Top specular refraction sheen */}
+          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-6">
+            <div className="flex items-start sm:items-center space-x-3 sm:space-x-4 min-w-0">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-tr from-teal-500 to-cyan-500 flex items-center justify-center text-white shadow-lg shadow-teal-500/20 font-black text-xl sm:text-2xl flex-shrink-0 overflow-hidden border border-white/20">
                 {patientUser?.photoUrl ? (
                   <img
                     src={patientUser.photoUrl}
@@ -1584,49 +1606,49 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 ) : patientUser?.fullName ? (
                   patientUser.fullName.charAt(0).toUpperCase()
                 ) : (
-                  <User className="w-8 h-8" />
+                  <User className="w-6 h-6 sm:w-8 sm:h-8" />
                 )}
               </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <h1 className="text-lg sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight truncate">
                     {patientUser?.fullName || 'Guest Patient Portal'}
                   </h1>
                   {patientUser ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-brand-100 text-brand-800">
+                    <span className="inline-flex items-center px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
                       <ShieldCheck className="w-3.5 h-3.5 mr-1" />
                       Verified Patient
                     </span>
                   ) : (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                    <span className="inline-flex items-center px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
                       Guest Mode
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-slate-500 mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
-                  <span>{patientUser?.email || 'Track bookings & health records'}</span>
-                  {patientUser?.phone && <span>• Phone: {patientUser.phone}</span>}
-                  {patientUser?.age && <span>• Age: {patientUser.age} yrs</span>}
-                  {patientUser?.gender && <span>• Gender: {patientUser.gender}</span>}
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  <span className="truncate max-w-[200px] sm:max-w-none">{patientUser?.email || 'Track bookings & health records'}</span>
+                  {patientUser?.phone && <span>• {patientUser.phone}</span>}
+                  {patientUser?.age && <span>• {patientUser.age}y</span>}
+                  {patientUser?.gender && <span>• {patientUser.gender}</span>}
                 </p>
               </div>
             </div>
 
             {/* Profile Action Buttons */}
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-white/20 dark:border-white/5">
               {patientUser ? (
                 <>
                   <button
                     onClick={() => setShowEditProfileModal(true)}
-                    className="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+                    className="px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300 liquid-glass-card hover:bg-white/80 dark:hover:bg-slate-800/80 rounded-xl transition border border-white/40 dark:border-white/10 cursor-pointer active:scale-[0.98]"
                   >
                     Edit Profile
                   </button>
                   <button
                     onClick={handleLogout}
-                    className="flex items-center space-x-1.5 px-4 py-2 text-sm font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition"
+                    className="flex items-center space-x-1.5 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-rose-600 dark:text-rose-400 liquid-glass-card hover:bg-rose-500/20 rounded-xl transition border border-rose-500/30 cursor-pointer active:scale-[0.98]"
                   >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     <span>Sign Out</span>
                   </button>
                 </>
@@ -1636,7 +1658,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     setAuthError(null)
                     setShowAuthModal(true)
                   }}
-                  className="flex items-center space-x-2 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition transform hover:scale-[1.02]"
+                  className="w-full sm:w-auto flex items-center justify-center space-x-2 px-5 sm:px-6 py-2.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md shadow-teal-500/20 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
                 >
                   <LogIn className="w-4 h-4" />
                   <span>Sign in with Google</span>
@@ -1649,7 +1671,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         {/* ==========================================
             PORTAL NAVIGATION TABS
         ========================================== */}
-        <div className="bg-white rounded-2xl p-2 shadow-xs border border-slate-200 flex flex-wrap gap-2">
+        <div className="liquid-glass-subtle rounded-2xl p-1.5 sm:p-2 border border-white/40 dark:border-white/10 flex gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none sm:flex-wrap">
           {[
             { id: 'appointments', label: 'My Appointments & Live Queue', icon: Calendar, badge: myAppointments.length },
             { id: 'book', label: 'Book New Appointment', icon: Sparkles },
@@ -1667,18 +1689,18 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   setActiveTab(tab.id as any)
                   if (tab.id === 'book') setBookingStep(1)
                 }}
-                className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                className={`flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap shrink-0 sm:shrink cursor-pointer ${
                   isActive
-                    ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-md shadow-teal-500/20'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                 <span>{tab.label}</span>
                 {tab.badge !== undefined && tab.badge > 0 && (
                   <span
-                    className={`ml-1 px-2 py-0.5 text-xs rounded-full font-bold ${
-                      isActive ? 'bg-white text-brand-800' : 'bg-slate-200 text-slate-700'
+                    className={`ml-1 px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-xs rounded-full font-bold ${
+                      isActive ? 'bg-white text-teal-800' : 'liquid-glass-card text-slate-700 dark:text-slate-300'
                     }`}
                   >
                     {tab.badge}
@@ -1696,19 +1718,23 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           <div className="space-y-6">
             {/* Filter Sub-nav */}
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center space-x-2 bg-slate-200/80 p-1 rounded-xl">
+              <div className="flex items-center space-x-1.5 liquid-glass-subtle p-1 rounded-xl border border-white/40 dark:border-white/10">
                 <button
                   onClick={() => setAppointmentFilter('active')}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition ${
-                    appointmentFilter === 'active' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                    appointmentFilter === 'active'
+                      ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Active & Upcoming
                 </button>
                 <button
                   onClick={() => setAppointmentFilter('past')}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition ${
-                    appointmentFilter === 'past' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                    appointmentFilter === 'past'
+                      ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Past & History
@@ -1722,9 +1748,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     setClaimCodeError(null)
                     setShowClaimModal(true)
                   }}
-                  className="flex items-center space-x-1.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl transition shadow-2xs cursor-pointer"
+                  className="flex items-center space-x-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 liquid-glass-card hover:bg-white/80 dark:hover:bg-slate-800/80 border border-white/40 dark:border-white/10 px-3.5 py-2 rounded-xl transition shadow-2xs cursor-pointer active:scale-[0.98]"
                 >
-                  <KeyRound className="w-3.5 h-3.5 text-brand-600" />
+                  <KeyRound className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
                   <span>Claim 10-Digit Code</span>
                 </button>
                 <button
@@ -1732,7 +1758,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     setActiveTab('book')
                     setBookingStep(1)
                   }}
-                  className="flex items-center space-x-1.5 text-xs font-bold text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-3.5 py-2 rounded-xl transition cursor-pointer"
+                  className="flex items-center space-x-1.5 text-xs font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 px-3.5 py-2 rounded-xl transition cursor-pointer border border-teal-500/20 active:scale-[0.98]"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>+ Book Another</span>
@@ -1741,18 +1767,18 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             </div>
 
             {isLoadingAppointments ? (
-              <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
-                <RefreshCw className="w-8 h-8 animate-spin mx-auto text-brand-600 mb-3" />
-                <p className="text-slate-500 font-semibold text-sm">Loading your appointments & live queue tokens...</p>
+              <div className="p-12 text-center liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10">
+                <RefreshCw className="w-8 h-8 animate-spin mx-auto text-teal-600 dark:text-teal-400 mb-3" />
+                <p className="text-slate-600 dark:text-slate-300 font-semibold text-sm">Loading your appointments & live queue tokens...</p>
               </div>
             ) : filteredAppointments.length === 0 ? (
-              <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 space-y-4">
-                <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+              <div className="p-12 text-center liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 space-y-4">
+                <div className="w-16 h-16 rounded-2xl bg-teal-500/10 flex items-center justify-center mx-auto text-teal-600 dark:text-teal-400 border border-teal-500/20">
                   <Calendar className="w-8 h-8" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">No {appointmentFilter} appointments found</h3>
-                  <p className="text-sm text-slate-500 max-w-md mx-auto mt-1">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">No {appointmentFilter} appointments found</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1">
                     You have no {appointmentFilter} tokens scheduled. Book an OPD slot or claim an existing 10-digit appointment code.
                   </p>
                 </div>
@@ -1762,7 +1788,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       setActiveTab('book')
                       setBookingStep(1)
                     }}
-                    className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl transition shadow-md shadow-brand-600/20 cursor-pointer"
+                    className="px-6 py-2.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-sm rounded-xl transition shadow-md shadow-teal-500/20 cursor-pointer active:scale-[0.98]"
                   >
                     Book OPD or Lab Slot
                   </button>
@@ -1772,7 +1798,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       setClaimCodeError(null)
                       setShowClaimModal(true)
                     }}
-                    className="px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-800 font-bold text-sm rounded-xl transition border border-slate-200 shadow-2xs cursor-pointer"
+                    className="px-5 py-2.5 liquid-glass-card hover:bg-white/80 dark:hover:bg-slate-800/80 text-slate-800 dark:text-slate-200 font-bold text-sm rounded-xl transition border border-white/40 dark:border-white/10 shadow-2xs cursor-pointer active:scale-[0.98]"
                   >
                     Claim with 10-Digit Code
                   </button>
@@ -1787,26 +1813,26 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   return (
                     <div
                       key={appt.id}
-                      className={`bg-white rounded-3xl p-6 shadow-sm border transition hover:shadow-md ${
-                        isToday ? 'border-brand-500/80 ring-2 ring-brand-500/10' : 'border-slate-200'
+                      className={`liquid-glass-card rounded-3xl p-6 shadow-sm border transition hover:shadow-md relative overflow-hidden ${
+                        isToday ? 'border-teal-500/80 ring-2 ring-teal-500/20' : 'border-white/40 dark:border-white/10'
                       }`}
                     >
                       {/* Top Bar with 10-Digit Code Pill */}
-                      <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                      <div className="flex items-center justify-between pb-4 border-b border-white/20 dark:border-white/5">
                         <div className="flex items-center space-x-2">
-                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                          <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                             10-Digit Token:
                           </span>
-                          <span className="font-mono text-sm font-black text-slate-900 bg-slate-100 px-2.5 py-1 rounded-lg">
+                          <span className="font-mono text-sm font-black text-slate-900 dark:text-white liquid-glass-subtle px-2.5 py-1 rounded-lg border border-white/30 dark:border-white/10">
                             {appt.trackingCode10Digit}
                           </span>
                           <button
                             onClick={() => handleCopyCode(appt.trackingCode10Digit)}
-                            className="p-1 text-slate-400 hover:text-brand-600 transition"
+                            className="p-1 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition cursor-pointer"
                             title="Copy tracking code"
                           >
                             {copiedCode === appt.trackingCode10Digit ? (
-                              <Check className="w-4 h-4 text-brand-600" />
+                              <Check className="w-4 h-4 text-teal-600 dark:text-teal-400" />
                             ) : (
                               <Copy className="w-4 h-4" />
                             )}
@@ -1815,14 +1841,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
                         {/* Status Badge */}
                         <span
-                          className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                          className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
                             isCancelled
-                              ? 'bg-rose-100 text-rose-800'
+                              ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20'
                               : appt.checkinStatus === 'completed'
-                              ? 'bg-blue-100 text-blue-800'
+                              ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20'
                               : appt.checkinStatus === 'in_consultation'
-                              ? 'bg-purple-100 text-purple-800 animate-pulse'
-                              : 'bg-brand-100 text-brand-800'
+                              ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20 animate-pulse'
+                              : 'bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/20'
                           }`}
                         >
                           {isCancelled
@@ -1839,51 +1865,51 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       <div className="py-4 space-y-3">
                         <div className="flex items-start justify-between">
                           <div>
-                            <h4 className="text-lg font-black text-slate-900">
+                            <h4 className="text-lg font-black text-slate-900 dark:text-white">
                               {appt.doctor?.fullName || 'General OPD Specialist'}
                             </h4>
-                            <p className="text-xs font-semibold text-brand-600">
+                            <p className="text-xs font-semibold text-teal-600 dark:text-teal-400">
                               {appt.doctor?.specialty || 'General Medicine'}
                             </p>
                           </div>
                           <div className="text-right">
-                            <span className="text-xs font-bold text-slate-400 block">Consultation Fee</span>
-                            <span className="text-sm font-black text-slate-900">
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 block">Consultation Fee</span>
+                            <span className="text-sm font-black text-slate-900 dark:text-white">
                               NPR {appt.feeAmount > 0 ? appt.feeAmount : 'Free'}
                             </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center space-x-2 text-xs font-medium text-slate-500">
+                        <div className="flex items-center space-x-2 text-xs font-medium text-slate-500 dark:text-slate-400">
                           <Building2 className="w-4 h-4 text-slate-400" />
                           <span>{appt.clinic?.name || 'Clinic Center'}</span>
                           {appt.clinic?.addressText && <span>• {appt.clinic.addressText}</span>}
                         </div>
 
                         {/* Date & Slot Time */}
-                        <div className="flex flex-wrap items-center gap-3 pt-2 text-xs font-semibold text-slate-700">
-                          <div className="flex items-center space-x-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/60">
-                            <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                        <div className="flex flex-wrap items-center gap-3 pt-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          <div className="flex items-center space-x-1.5 liquid-glass-subtle px-3 py-1.5 rounded-xl border border-white/30 dark:border-white/10">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
                             <span>{appt.appointmentDate}</span>
                           </div>
-                          <div className="flex items-center space-x-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/60">
-                            <Clock className="w-3.5 h-3.5 text-slate-500" />
+                          <div className="flex items-center space-x-1.5 liquid-glass-subtle px-3 py-1.5 rounded-xl border border-white/30 dark:border-white/10">
+                            <Clock className="w-3.5 h-3.5 text-slate-400" />
                             <span>{appt.appointmentTime}</span>
                           </div>
-                          <div className="flex items-center space-x-1.5 bg-brand-50 text-brand-800 px-3 py-1.5 rounded-xl border border-brand-200/60">
+                          <div className="flex items-center space-x-1.5 bg-teal-500/10 text-teal-800 dark:text-teal-300 px-3 py-1.5 rounded-xl border border-teal-500/20">
                             <CreditCard className="w-3.5 h-3.5" />
                             <span>{appt.paymentStatus === 'paid' ? 'Paid Online' : 'Payment at Clinic'}</span>
                           </div>
                         </div>
 
                         {/* Patient Name */}
-                        <div className="text-xs text-slate-500 pt-1">
-                          Patient: <strong className="text-slate-800">{appt.patientName}</strong> ({appt.patientAge || 28} yrs, {appt.patientGender || 'Male'})
+                        <div className="text-xs text-slate-500 dark:text-slate-400 pt-1">
+                          Patient: <strong className="text-slate-800 dark:text-slate-200">{appt.patientName}</strong> ({appt.patientAge || 28} yrs, {appt.patientGender || 'Male'})
                         </div>
                       </div>
 
                       {/* Action Bar */}
-                      <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
+                      <div className="pt-4 border-t border-white/20 dark:border-white/5 flex items-center justify-between gap-3">
                         <button
                           onClick={() => {
                             if (onOpenLiveQueue) {
@@ -1892,7 +1918,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               window.location.hash = '#live-queue'
                             }
                           }}
-                          className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-brand-600 rounded-xl transition"
+                          className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 rounded-xl transition shadow-xs cursor-pointer active:scale-[0.98]"
                         >
                           <Activity className="w-3.5 h-3.5" />
                           <span>Live Queue Board</span>
@@ -1907,14 +1933,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                 setNewRescheduleTime(appt.appointmentTime || '10:00 AM - 11:00 AM')
                                 setRescheduleReason('')
                               }}
-                              className="px-3 py-2 text-xs font-bold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-xl transition border border-brand-200 cursor-pointer"
+                              className="px-3 py-2 text-xs font-bold text-teal-700 dark:text-teal-300 liquid-glass-card hover:bg-teal-500/20 rounded-xl transition border border-teal-500/30 cursor-pointer active:scale-[0.98]"
                             >
                               Reschedule
                             </button>
                             <button
                               onClick={() => handleCancelAppointment(appt.id)}
                               disabled={cancellingApptId === appt.id}
-                              className="px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition border border-rose-200 cursor-pointer disabled:opacity-50"
+                              className="px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 liquid-glass-card hover:bg-rose-500/20 rounded-xl transition border border-rose-500/30 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
                             >
                               {cancellingApptId === appt.id ? 'Cancelling...' : 'Cancel'}
                             </button>
@@ -1933,7 +1959,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             TAB 2: BOOK NEW APPOINTMENT (STEP-BY-STEP)
         ========================================== */}
         {activeTab === 'book' && (
-          <div className="bg-white rounded-3xl p-6 sm:p-10 shadow-sm border border-slate-200 space-y-8">
+          <div className="liquid-glass-elevated rounded-3xl p-6 sm:p-10 shadow-sm border border-white/40 dark:border-white/10 space-y-8 relative overflow-hidden">
+            {/* Top specular refraction sheen */}
+            <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+
             {/* Step Progress Header */}
             <div>
               <div className="flex items-center justify-between max-w-xl mx-auto mb-6">
@@ -1947,17 +1976,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <div
                       className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
                         bookingStep === st.num
-                          ? 'bg-brand-600 text-white shadow-md shadow-brand-600/30 ring-4 ring-brand-100'
+                          ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-md shadow-teal-500/30 ring-4 ring-teal-500/20'
                           : bookingStep > st.num
-                          ? 'bg-brand-100 text-brand-800'
-                          : 'bg-slate-100 text-slate-400'
+                          ? 'bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20'
+                          : 'liquid-glass-subtle text-slate-400 dark:text-slate-500 border border-white/20'
                       }`}
                     >
                       {bookingStep > st.num ? '✓' : st.num}
                     </div>
                     <span
                       className={`text-xs font-bold hidden sm:inline ${
-                        bookingStep === st.num ? 'text-slate-900' : 'text-slate-400'
+                        bookingStep === st.num ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'
                       }`}
                     >
                       {st.label}
@@ -1971,8 +2000,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             {bookingStep === 1 && (
               <div className="space-y-6">
                 <div className="text-center max-w-xl mx-auto space-y-2">
-                  <h3 className="text-2xl font-black text-slate-900">Choose a Medical Center</h3>
-                  <p className="text-xs text-slate-500">
+                  <h3 className="text-2xl font-black text-slate-900 dark:text-white">Choose a Medical Center</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     Select an OPD Clinic, Multi-Specialty Polyclinic, or Diagnostic Pathology Lab. All verified centers include real-time queue tokens and address directions.
                   </p>
                 </div>
@@ -1986,7 +2015,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       value={clinicSearchQuery}
                       onChange={(e) => setClinicSearchQuery(e.target.value)}
                       placeholder="Search clinic by name, address city, or medical specialty..."
-                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 transition"
+                      className="w-full pl-11 pr-4 py-3 liquid-glass-input rounded-2xl text-xs font-semibold text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 transition"
                     />
                     {clinicSearchQuery && (
                       <button
@@ -2012,10 +2041,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         <button
                           key={pill.id}
                           onClick={() => setClinicCategoryFilter(pill.id as any)}
-                          className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer active:scale-[0.98] ${
                             isSel
-                              ? 'bg-slate-900 text-white shadow-xs'
-                              : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200'
+                              ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-xs'
+                              : 'liquid-glass-card text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-white/40 dark:border-white/10'
                           }`}
                         >
                           <Icon className="w-3.5 h-3.5" />
@@ -2025,8 +2054,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     })}
                   </div>
                   {/* Quick Symptoms Suggestion Chips */}
-                  <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs justify-center pt-1">
-                    <span className="font-bold text-slate-400 shrink-0 text-[11px] uppercase tracking-wider">
+                  <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs justify-center pt-1 scrollbar-none">
+                    <span className="font-bold text-slate-400 dark:text-slate-500 shrink-0 text-[11px] uppercase tracking-wider">
                       Quick Symptoms:
                     </span>
                     {QUICK_SPECIALTY_SUGGESTIONS.slice(0, 7).map((suggestion) => (
@@ -2038,7 +2067,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           setClinicSearchQuery(keyword)
                           saveRecentSearch(keyword)
                         }}
-                        className="px-2.5 py-1 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-700 font-semibold shrink-0 cursor-pointer transition border border-brand-200/60 text-[11px]"
+                        className="px-2.5 py-1 rounded-xl liquid-glass-subtle hover:bg-teal-500/20 text-teal-700 dark:text-teal-300 font-semibold shrink-0 cursor-pointer transition border border-teal-500/20 text-[11px] active:scale-[0.98]"
                       >
                         {suggestion}
                       </button>
@@ -2087,10 +2116,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
                   if (scored.length === 0) {
                     return (
-                      <div className="p-12 text-center bg-slate-50 rounded-3xl border border-slate-200 max-w-md mx-auto space-y-2">
+                      <div className="p-12 text-center liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 max-w-md mx-auto space-y-2">
                         <AlertCircle className="w-8 h-8 mx-auto text-slate-400" />
-                        <h4 className="font-bold text-slate-800 text-sm">No medical centers matched</h4>
-                        <p className="text-xs text-slate-500">
+                        <h4 className="font-bold text-slate-800 dark:text-slate-200 text-sm">No medical centers matched</h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
                           Try adjusting your symptom keyword or selecting a different category filter.
                         </p>
                         <button
@@ -2098,7 +2127,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             setClinicSearchQuery('')
                             setClinicCategoryFilter('all')
                           }}
-                          className="mt-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition cursor-pointer"
+                          className="mt-2 px-4 py-2 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-xl text-xs font-bold transition cursor-pointer active:scale-[0.98]"
                         >
                           Reset Filters
                         </button>
@@ -2120,46 +2149,46 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           <div
                             key={c.id}
                             onClick={() => handleSelectClinic(c)}
-                            className="bg-white rounded-3xl border border-slate-200 hover:border-brand-500 hover:shadow-lg hover:shadow-brand-500/10 cursor-pointer transition flex flex-col justify-between group overflow-hidden"
+                            className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 hover:border-teal-500/60 hover:shadow-lg hover:shadow-teal-500/10 cursor-pointer transition flex flex-col justify-between group overflow-hidden"
                           >
                             {/* Card Header with Type Badge */}
                             <div className="p-6 space-y-3">
                               <div className="flex items-center justify-between">
                                 {isLab ? (
-                                  <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
-                                    <FlaskConical className="w-3 h-3 text-purple-600" />
+                                  <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                                    <FlaskConical className="w-3 h-3 text-purple-600 dark:text-purple-400" />
                                     <span>Diagnostic Pathology Lab</span>
                                   </span>
                                 ) : isSingle ? (
-                                  <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                    <Stethoscope className="w-3 h-3 text-emerald-600" />
+                                  <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                                    <Stethoscope className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                                     <span>Single-Visit OPD Clinic</span>
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                                    <Building2 className="w-3 h-3 text-blue-600" />
+                                  <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
+                                    <Building2 className="w-3 h-3 text-teal-600 dark:text-teal-400" />
                                     <span>Multi-Specialty Polyclinic</span>
                                   </span>
                                 )}
 
-                                <span className="text-xs font-bold text-brand-600 flex items-center group-hover:translate-x-0.5 transition-transform">
+                                <span className="text-xs font-bold text-teal-600 dark:text-teal-400 flex items-center group-hover:translate-x-0.5 transition-transform">
                                   Select <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
                                 </span>
                               </div>
 
                               {/* Search Match Reason Pill */}
                               {matchReason && (
-                                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-emerald-800">
+                                <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                   <span className="truncate">{matchReason}</span>
                                 </div>
                               )}
 
                               <div>
-                                <h4 className="font-black text-slate-900 text-lg group-hover:text-brand-600 transition">
+                                <h4 className="font-black text-slate-900 dark:text-white text-lg group-hover:text-teal-600 dark:group-hover:text-teal-400 transition">
                                   {c.name}
                                 </h4>
-                                <div className="mt-1 flex items-start space-x-1.5 text-xs text-slate-500">
+                                <div className="mt-1 flex items-start space-x-1.5 text-xs text-slate-500 dark:text-slate-400">
                                   <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
                                   <span className="line-clamp-2">{c.addressText || 'Nepal'}</span>
                                 </div>
@@ -2172,7 +2201,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
-                                  className="inline-flex items-center space-x-1 text-[11px] font-bold text-brand-600 hover:text-brand-700 hover:underline bg-brand-50 px-2.5 py-1 rounded-lg border border-brand-200/60"
+                                  className="inline-flex items-center space-x-1 text-[11px] font-bold text-teal-600 dark:text-teal-400 hover:underline liquid-glass-subtle px-2.5 py-1 rounded-lg border border-teal-500/20"
                                 >
                                   <span>Google Maps Directions</span>
                                   <ExternalLink className="w-3 h-3" />
@@ -2181,22 +2210,22 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             </div>
 
                             {/* Card Footer: Type-Specific Action Buttons */}
-                            <div className="px-6 py-4 bg-slate-50/80 border-t border-slate-100 space-y-2">
+                            <div className="px-6 py-4 liquid-glass-subtle border-t border-white/20 dark:border-white/5 space-y-2">
                               {isLab ? (
                                 <div className="flex items-center justify-between text-xs">
-                                  <span className="text-purple-700 font-bold bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200">
+                                  <span className="text-purple-700 dark:text-purple-300 font-bold liquid-glass-card px-2.5 py-1 rounded-lg border border-purple-500/20">
                                     Book Lab Tests (No Doctor Required) →
                                   </span>
                                 </div>
                               ) : isSingle ? (
                                 <div className="flex items-center justify-between text-xs">
-                                  <span className="text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                  <span className="text-emerald-700 dark:text-emerald-300 font-bold liquid-glass-card px-2.5 py-1 rounded-lg border border-emerald-500/20">
                                     Book Specialist (Single OPD Token) →
                                   </span>
                                 </div>
                               ) : (
                                 <div className="flex items-center justify-between text-xs">
-                                  <span className="text-brand-700 font-bold bg-brand-50 px-2.5 py-1 rounded-lg border border-brand-200">
+                                  <span className="text-teal-700 dark:text-teal-300 font-bold liquid-glass-card px-2.5 py-1 rounded-lg border border-teal-500/20">
                                     Consult Specialists (Choose Doctor) →
                                   </span>
                                 </div>
@@ -2843,6 +2872,26 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   />
                 </div>
 
+                {/* Early Consultation Call Opt-In */}
+                <div
+                  className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start space-x-3 cursor-pointer select-none"
+                  onClick={() => setBookOptInEarlyCall(!bookOptInEarlyCall)}
+                >
+                  <input
+                    type="checkbox"
+                    id="portalEarlyCallOptIn"
+                    checked={bookOptInEarlyCall}
+                    onChange={(e) => setBookOptInEarlyCall(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <label htmlFor="portalEarlyCallOptIn" className="text-xs text-slate-700 cursor-pointer">
+                    <span className="font-bold text-emerald-800 block">⚡ Allow Early Consultation Call</span>
+                    <span className="text-[11px] text-slate-500 block mt-0.5">
+                      If the doctor finishes consultations ahead of schedule, receive an instant push notification to come in early. If unchecked, your original slot remains strictly unchanged.
+                    </span>
+                  </label>
+                </div>
+
                 <button
                   type="submit"
                   className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2"
@@ -3114,17 +3163,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             TAB 3: TRANSACTION HISTORY
         ========================================== */}
         {activeTab === 'transactions' && (
-          <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200 space-y-6">
+          <div className="liquid-glass-card rounded-3xl p-6 sm:p-8 shadow-sm border border-white/40 dark:border-white/10 space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Appointment Transactions</h3>
-                <p className="text-xs text-slate-500">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Appointment Transactions</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Comprehensive audit history of your appointment payments and booking receipts.
                 </p>
               </div>
               <button
                 onClick={loadTransactions}
-                className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-xl transition"
+                className="p-2 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 liquid-glass-subtle rounded-xl transition cursor-pointer"
                 title="Refresh transactions"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -3133,8 +3182,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             {isLoadingTransactions ? (
               <div className="p-8 text-center">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-brand-600 mb-2" />
-                <span className="text-xs text-slate-500">Loading transaction history...</span>
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-teal-600 dark:text-teal-400 mb-2" />
+                <span className="text-xs text-slate-500 dark:text-slate-400">Loading transaction history...</span>
               </div>
             ) : transactions.length === 0 ? (
               <div className="p-12 text-center text-slate-400 space-y-2">
@@ -3145,7 +3194,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-slate-200 text-slate-400 font-bold uppercase tracking-wider">
+                    <tr className="border-b border-white/20 dark:border-white/5 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
                       <th className="pb-3">Transaction ID</th>
                       <th className="pb-3">Tracking Code</th>
                       <th className="pb-3">Doctor & Clinic</th>
@@ -3156,32 +3205,32 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       <th className="pb-3 text-right">Invoice</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  <tbody className="divide-y divide-white/20 dark:divide-white/5 font-medium text-slate-700 dark:text-slate-300">
                     {transactions.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-slate-50/60 transition">
-                        <td className="py-3 font-mono font-bold text-slate-900">{tx.transactionId}</td>
+                      <tr key={tx.id} className="hover:bg-white/40 dark:hover:bg-slate-800/40 transition">
+                        <td className="py-3 font-mono font-bold text-slate-900 dark:text-white">{tx.transactionId}</td>
                         <td className="py-3 font-mono">{tx.trackingCode}</td>
                         <td className="py-3">
-                          <div className="font-bold text-slate-900">{tx.doctorName}</div>
+                          <div className="font-bold text-slate-900 dark:text-white">{tx.doctorName}</div>
                           <div className="text-[11px] text-slate-400">{tx.clinicName}</div>
                         </td>
                         <td className="py-3">{tx.appointmentDate} • {tx.appointmentTime}</td>
-                        <td className="py-3 font-bold text-slate-900">NPR {tx.amount}</td>
+                        <td className="py-3 font-bold text-slate-900 dark:text-white">NPR {tx.amount}</td>
                         <td className="py-3">
-                          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-bold">
+                          <span className="px-2 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 font-bold border border-white/20">
                             {tx.paymentMethod}
                           </span>
                         </td>
                         <td className="py-3">
                           <span
-                            className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${
+                            className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase border ${
                               tx.paymentStatus === 'paid'
-                                ? 'bg-brand-100 text-brand-800'
+                                ? 'bg-teal-500/10 text-teal-800 dark:text-teal-300 border-teal-500/20'
                                 : tx.paymentStatus === 'free'
-                                ? 'bg-blue-100 text-blue-800'
+                                ? 'bg-blue-500/10 text-blue-800 dark:text-blue-300 border-blue-500/20'
                                 : tx.paymentStatus === 'failed'
-                                ? 'bg-rose-100 text-rose-800'
-                                : 'bg-amber-100 text-amber-800'
+                                ? 'bg-rose-500/10 text-rose-800 dark:text-rose-300 border-rose-500/20'
+                                : 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/20'
                             }`}
                           >
                             {tx.paymentStatus}
@@ -3191,7 +3240,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           <button
                             type="button"
                             onClick={() => handleDownloadTransactionReceipt(tx)}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-lg font-bold text-[11px] transition cursor-pointer"
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 liquid-glass-subtle hover:bg-teal-500/20 text-teal-700 dark:text-teal-300 rounded-lg font-bold text-[11px] transition cursor-pointer border border-teal-500/20 active:scale-[0.98]"
                           >
                             <Download className="w-3.5 h-3.5" />
                             <span>Receipt</span>
@@ -3210,11 +3259,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             TAB 4: DIAGNOSTIC LAB REPORTS
         ========================================== */}
         {activeTab === 'reports' && (
-          <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200 space-y-6">
+          <div className="liquid-glass-card rounded-3xl p-6 sm:p-8 shadow-sm border border-white/40 dark:border-white/10 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Diagnostic Pathology Reports</h3>
-                <p className="text-xs text-slate-500">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Diagnostic Pathology Reports</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Access digital lab test results, blood work, and biochemistry PDFs securely with privacy verification.
                 </p>
               </div>
@@ -3224,12 +3273,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   placeholder="Lookup 10-Digit Code..."
                   value={reportSearchCode}
                   onChange={(e) => setReportSearchCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-brand-500 w-44"
+                  className="px-3.5 py-2 liquid-glass-input rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-teal-500 w-44 text-slate-900 dark:text-white"
                 />
                 <button
                   type="submit"
                   disabled={isSearchingReport || reportSearchCode.length < 5}
-                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer"
+                  className="px-4 py-2 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer active:scale-[0.98]"
                 >
                   {isSearchingReport ? 'Searching...' : 'Search'}
                 </button>
@@ -3237,16 +3286,16 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             </div>
 
             {reportSearchError && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-semibold flex items-center space-x-2">
-                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <div className="p-3 liquid-glass-subtle border border-amber-500/30 rounded-xl text-amber-800 dark:text-amber-200 text-xs font-semibold flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                 <span>{reportSearchError}</span>
               </div>
             )}
 
             {isLoadingReports ? (
               <div className="p-8 text-center">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-brand-600 mb-2" />
-                <span className="text-xs text-slate-500">Checking lab records...</span>
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-teal-600 dark:text-teal-400 mb-2" />
+                <span className="text-xs text-slate-500 dark:text-slate-400">Checking lab records...</span>
               </div>
             ) : patientLabReports.length === 0 ? (
               <div className="p-12 text-center text-slate-400 space-y-3">
@@ -3264,28 +3313,28 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     Boolean(patientUser?.fullName && rep.patientName && rep.patientName.toLowerCase().includes(patientUser.fullName.toLowerCase()))
 
                   return (
-                    <div key={rep.id} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3">
+                    <div key={rep.id} className="p-5 rounded-2xl border border-white/40 dark:border-white/10 liquid-glass-subtle space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs font-bold text-slate-500">
+                        <span className="font-mono text-xs font-bold text-slate-500 dark:text-slate-400">
                           Code: {rep.trackingCode10Digit}
                         </span>
                         <div className="flex items-center space-x-2">
                           {isUnlocked ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
                               <ShieldCheck className="w-3 h-3 mr-1" />
                               Verified
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold liquid-glass-card text-slate-700 dark:text-slate-300 border border-white/20">
                               <Lock className="w-3 h-3 mr-1" />
                               Protected
                             </span>
                           )}
                           <span
-                            className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                            className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider border ${
                               rep.status === 'delivered' || rep.status === 'prepared'
-                                ? 'bg-brand-100 text-brand-800'
-                                : 'bg-amber-100 text-amber-800'
+                                ? 'bg-teal-500/10 text-teal-800 dark:text-teal-300 border-teal-500/20'
+                                : 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/20'
                             }`}
                           >
                             {rep.status.replace('_', ' ')}
@@ -3294,12 +3343,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       </div>
 
                       <div>
-                        <h4 className="font-bold text-base text-slate-900">{rep.testName}</h4>
-                        <p className="text-xs text-slate-500">Patient: {rep.patientName}</p>
+                        <h4 className="font-bold text-base text-slate-900 dark:text-white">{rep.testName}</h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Patient: {rep.patientName}</p>
                       </div>
 
                       {rep.technicianNotes && (
-                        <p className="text-xs text-slate-600 italic bg-white p-2.5 rounded-xl border border-slate-200/60">
+                        <p className="text-xs text-slate-600 dark:text-slate-300 italic liquid-glass-card p-2.5 rounded-xl border border-white/30 dark:border-white/10">
                           "{rep.technicianNotes}"
                         </p>
                       )}
@@ -3314,7 +3363,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               href={rep.reportFileUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center space-x-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+                              className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-[0.98]"
                             >
                               <Download className="w-3.5 h-3.5" />
                               <span>Download PDF</span>
@@ -3328,14 +3377,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                 setVerificationInput('')
                                 setVerificationError(null)
                               }}
-                              className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-900 hover:bg-brand-600 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                              className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-900 dark:bg-slate-800 hover:bg-teal-600 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer active:scale-[0.98]"
                             >
                               <Lock className="w-3.5 h-3.5 text-amber-300" />
                               <span>Unlock & Download</span>
                             </button>
                           )
                         ) : (
-                          <span className="text-xs text-amber-600 font-semibold">Processing at Lab</span>
+                          <span className="text-xs text-amber-600 dark:text-amber-400 font-semibold">Processing at Lab</span>
                         )}
                       </div>
                     </div>
@@ -3350,11 +3399,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             TAB 5: NOTIFICATIONS & QUEUE ALERTS
         ========================================== */}
         {activeTab === 'notifications' && (
-          <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200 space-y-6">
+          <div className="liquid-glass-card rounded-3xl p-6 sm:p-8 shadow-sm border border-white/40 dark:border-white/10 space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Clinic Alerts & Queue Broadcasts</h3>
-                <p className="text-xs text-slate-500">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Clinic Alerts & Queue Broadcasts</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Important announcements, holiday notices, and real-time queue alerts from Supabase.
                 </p>
               </div>
@@ -3367,7 +3416,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       await markAllNotificationsAsRead(ids)
                       loadNotifications()
                     }}
-                    className="px-3 py-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                    className="px-3 py-1.5 liquid-glass-subtle hover:bg-teal-500/20 text-teal-700 dark:text-teal-300 font-bold text-xs rounded-xl transition cursor-pointer border border-teal-500/20 active:scale-[0.98]"
                   >
                     Mark All Read
                   </button>
@@ -3375,7 +3424,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 <button
                   type="button"
                   onClick={loadNotifications}
-                  className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                  className="p-2 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 liquid-glass-subtle rounded-xl transition cursor-pointer"
                   title="Refresh"
                 >
                   <RefreshCw className="w-4 h-4" />
@@ -3401,18 +3450,18 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     }}
                     className={`p-4 rounded-2xl border flex items-start space-x-3.5 transition cursor-pointer ${
                       notif.isRead
-                        ? 'border-slate-200 bg-white'
-                        : 'border-brand-300 bg-brand-50/40 shadow-xs'
+                        ? 'border-white/30 dark:border-white/10 liquid-glass-subtle'
+                        : 'border-teal-500/40 bg-teal-500/10 shadow-xs'
                     }`}
                   >
-                    <div className="w-9 h-9 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <div className="w-9 h-9 rounded-xl bg-teal-500/15 text-teal-600 dark:text-teal-400 flex items-center justify-center flex-shrink-0 mt-0.5 border border-teal-500/20">
                       <Bell className="w-4 h-4" />
                     </div>
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center justify-between">
-                        <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                           {!notif.isRead && (
-                            <span className="w-2 h-2 rounded-full bg-brand-600 animate-pulse" />
+                            <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
                           )}
                           <span>{notif.title}</span>
                         </h4>
@@ -3420,7 +3469,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           {notif.createdAt?.split('T')[0]}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 leading-relaxed">{notif.message}</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{notif.message}</p>
                     </div>
                   </div>
                 ))}
@@ -3433,17 +3482,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             TAB 6: FAMILY PROFILES
         ========================================== */}
         {activeTab === 'family' && (
-          <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200 space-y-6">
+          <div className="liquid-glass-card rounded-3xl p-6 sm:p-8 shadow-sm border border-white/40 dark:border-white/10 space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Family Members</h3>
-                <p className="text-xs text-slate-500">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Family Members</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Save family members to book doctor slots and lab tests with 1 click.
                 </p>
               </div>
               <button
                 onClick={() => setShowAddFamilyModal(true)}
-                className="flex items-center space-x-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
+                className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer active:scale-[0.98]"
               >
                 <Users className="w-4 h-4" />
                 <span>+ Add Member</span>
@@ -3461,20 +3510,20 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {familyMembers.map((mem) => (
-                  <div key={mem.id} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-2">
+                  <div key={mem.id} className="p-5 rounded-2xl border border-white/40 dark:border-white/10 liquid-glass-subtle space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand-100 text-brand-800">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-800 dark:text-teal-300 border border-teal-500/20">
                         {mem.relation}
                       </span>
                       <button
                         onClick={() => handleDeleteFamilyMember(mem.id)}
-                        className="text-slate-400 hover:text-rose-600 transition"
+                        className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="font-bold text-base text-slate-900">{mem.name}</div>
-                    <div className="text-xs text-slate-500">
+                    <div className="font-bold text-base text-slate-900 dark:text-white">{mem.name}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
                       {mem.age} yrs • {mem.gender}
                       {mem.phone && ` • ${mem.phone}`}
                     </div>
@@ -3490,39 +3539,42 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           MODAL: PATIENT AUTHENTICATION (LOGIN / SIGNUP)
       ========================================== */}
       {showAuthModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-6 relative animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-white/40 dark:border-white/10 space-y-6 relative animate-in fade-in zoom-in-95 overflow-hidden">
+            {/* Top specular refraction sheen */}
+            <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+
             <button
               onClick={() => {
                 setShowAuthModal(false)
                 setPendingBookingRedirectNotice(false)
               }}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer"
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="text-center space-y-1">
-              <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center mx-auto mb-3 shadow-inner">
+              <div className="w-14 h-14 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center mx-auto mb-3 shadow-inner border border-teal-500/20">
                 <User className="w-7 h-7" />
               </div>
-              <h3 className="text-2xl font-black text-slate-900 tracking-tight">
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                 Patient Health Portal
               </h3>
-              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
                 Sign in with your verified Google account to track live queue tokens, access lab reports & manage appointments.
               </p>
             </div>
 
             {/* Pending Booking Redirect Notice matching patient-app LoginScreen.kt lines 607-620 */}
             {pendingBookingRedirectNotice && (
-              <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-left flex items-start space-x-3 animate-in fade-in">
-                <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+              <div className="p-4 rounded-2xl liquid-glass-subtle border border-teal-500/30 text-left flex items-start space-x-3 animate-in fade-in">
+                <Info className="w-5 h-5 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
-                  <div className="font-bold text-xs text-slate-900">
+                  <div className="font-bold text-xs text-slate-900 dark:text-white">
                     Sign In Required to Book Appointment
                   </div>
-                  <p className="text-[11px] text-blue-700 leading-snug">
+                  <p className="text-[11px] text-teal-700 dark:text-teal-300 leading-snug">
                     Your selected clinic, doctor, date, and slot position are saved. You'll return right where you left off after signing in.
                   </p>
                 </div>
@@ -3530,7 +3582,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             )}
 
             {authError && (
-              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold space-y-2.5">
+              <div className="p-3.5 rounded-xl liquid-glass-subtle border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-semibold space-y-2.5">
                 <div className="flex items-start space-x-2">
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <span>{authError}</span>
@@ -3542,7 +3594,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     handleGoogleSignIn()
                   }}
                   disabled={authSubmitting}
-                  className="w-full py-2 px-3 rounded-lg bg-white hover:bg-rose-100/60 border border-rose-300 text-rose-800 font-bold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
+                  className="w-full py-2 px-3 rounded-lg liquid-glass-card hover:bg-rose-500/20 border border-rose-500/30 text-rose-800 dark:text-rose-200 font-bold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Try With Different Google Account</span>
@@ -3556,7 +3608,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={authSubmitting}
-                className="w-full py-3.5 bg-white hover:bg-slate-50 text-slate-800 font-black text-xs rounded-2xl border-2 border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center justify-center space-x-3 cursor-pointer disabled:opacity-50"
+                className="w-full py-3.5 liquid-glass-card hover:bg-white/80 dark:hover:bg-slate-800/80 text-slate-900 dark:text-white font-black text-xs rounded-2xl border border-white/60 dark:border-white/10 shadow-sm hover:shadow-md transition-all flex items-center justify-center space-x-3 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -3567,12 +3619,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 <span>{authSubmitting ? 'Connecting...' : 'Continue with Google'}</span>
               </button>
 
-              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-left space-y-1">
-                <div className="flex items-center space-x-1.5 text-slate-800 font-bold text-xs">
-                  <ShieldCheck className="w-4 h-4 text-brand-600" />
+              <div className="p-3.5 liquid-glass-subtle rounded-2xl border border-white/40 dark:border-white/10 text-left space-y-1">
+                <div className="flex items-center space-x-1.5 text-slate-800 dark:text-slate-200 font-bold text-xs">
+                  <ShieldCheck className="w-4 h-4 text-teal-600 dark:text-teal-400" />
                   <span>Single-Role Patient Identity</span>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
                   Your Google identity ensures verified authentication. First-time users will specify their full name, phone number, and age to maintain your personal health records.
                 </p>
               </div>
@@ -3585,58 +3637,58 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           MODAL: EDIT PATIENT PROFILE
       ========================================== */}
       {showEditProfileModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 relative">
+        <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-glass-modal border border-white/60 dark:border-white/15 space-y-5 relative animate-in fade-in zoom-in-95">
             <button
               onClick={() => setShowEditProfileModal(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700"
+              className="absolute top-5 right-5 p-1.5 rounded-full liquid-glass-subtle text-slate-500 hover:text-slate-800 dark:hover:text-white transition cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
             <div>
-              <h3 className="text-xl font-black text-slate-900">Update Profile</h3>
-              <p className="text-xs text-slate-500">Sync details with Supabase patient database.</p>
+              <h3 className="text-xl font-black text-slate-900 dark:text-white">Update Profile</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Sync details with Supabase patient database.</p>
             </div>
 
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Full Name</label>
                 <input
                   type="text"
                   required
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Mobile Number (10 Digits)</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Mobile Number (10 Digits)</label>
                 <input
                   type="tel"
                   value={editPhone}
                   onChange={(e) => setEditPhone(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Age</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Age</label>
                   <input
                     type="number"
                     value={editAge}
                     onChange={(e) => setEditAge(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Gender</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Gender</label>
                   <select
                     value={editGender}
                     onChange={(e) => setEditGender(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none"
+                    className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
                   >
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
@@ -3648,17 +3700,33 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               <button
                 type="submit"
                 disabled={isUpdatingProfile}
-                className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-md transition"
+                className="w-full py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white font-bold text-xs rounded-xl shadow-glass-brand border border-white/25 transition active:scale-[0.98] cursor-pointer"
               >
                 {isUpdatingProfile ? 'Saving...' : 'Save Profile Changes'}
               </button>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-[11px] text-slate-500 font-medium">Account Settings</span>
+              {/* Helpdesk & Support Link */}
+              <div className="pt-1">
+                <a
+                  href={supportUrl.startsWith('http') || supportUrl.startsWith('mailto:') ? supportUrl : `https://${supportUrl}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-2.5 px-4 rounded-xl liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-300 font-bold text-xs flex items-center justify-between transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Headphones className="w-4 h-4 text-indigo-500" />
+                    <span>Contact Us & Dactor Helpdesk Support</span>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+                </a>
+              </div>
+
+              <div className="pt-3 border-t border-white/40 dark:border-white/10 flex items-center justify-between">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Account Settings</span>
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirmModal(true)}
-                  className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                  className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 hover:underline cursor-pointer"
                 >
                   Schedule 30-Day Account Deletion
                 </button>
@@ -3672,40 +3740,40 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           MODAL: ADD FAMILY MEMBER
       ========================================== */}
       {showAddFamilyModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 relative">
+        <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-glass-modal border border-white/60 dark:border-white/15 space-y-5 relative animate-in fade-in zoom-in-95">
             <button
               onClick={() => setShowAddFamilyModal(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700"
+              className="absolute top-5 right-5 p-1.5 rounded-full liquid-glass-subtle text-slate-500 hover:text-slate-800 dark:hover:text-white transition cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
             <div>
-              <h3 className="text-xl font-black text-slate-900">Add Family Member</h3>
-              <p className="text-xs text-slate-500">Save family profile for fast appointment booking.</p>
+              <h3 className="text-xl font-black text-slate-900 dark:text-white">Add Family Member</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Save family profile for fast appointment booking.</p>
             </div>
 
             <form onSubmit={handleAddFamilyMember} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name *</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Full Name *</label>
                 <input
                   type="text"
                   required
                   value={newFamilyName}
                   onChange={(e) => setNewFamilyName(e.target.value)}
                   placeholder="e.g. Suman Sharma"
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Relationship</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Relationship</label>
                   <select
                     value={newFamilyRelation}
                     onChange={(e) => setNewFamilyRelation(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none"
+                    className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
                   >
                     <option value="Spouse">Spouse</option>
                     <option value="Child">Child</option>
@@ -3716,32 +3784,32 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Age *</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Age *</label>
                   <input
                     type="number"
                     required
                     value={newFamilyAge}
                     onChange={(e) => setNewFamilyAge(e.target.value)}
                     placeholder="e.g. 7"
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none"
+                    className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Contact Phone (Optional)</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Contact Phone (Optional)</label>
                 <input
                   type="tel"
                   value={newFamilyPhone}
                   onChange={(e) => setNewFamilyPhone(e.target.value)}
                   placeholder="98xxxxxxxx"
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none"
+                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-md transition"
+                className="w-full py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white font-bold text-xs rounded-xl shadow-glass-brand border border-white/25 transition active:scale-[0.98] cursor-pointer"
               >
                 Save Family Member
               </button>
@@ -3754,27 +3822,27 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           MODAL: 30-DAY REVERSIBLE ACCOUNT DELETION
       ========================================== */}
       {showDeleteConfirmModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-rose-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-glass-modal border border-rose-300/60 dark:border-rose-500/30 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-white/40 dark:border-white/10">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
                   30-Day Reversible Archive
                 </span>
-                <h3 className="text-base font-black text-slate-900">
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
                   Schedule Patient Account Deletion?
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirmModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer"
+                className="p-1.5 rounded-full liquid-glass-subtle text-slate-500 hover:text-slate-800 dark:hover:text-white transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900 space-y-1.5 leading-relaxed text-left">
+            <div className="p-3.5 bg-rose-500/10 backdrop-blur-md border border-rose-300/60 dark:border-rose-500/30 rounded-2xl text-xs text-rose-900 dark:text-rose-200 space-y-1.5 leading-relaxed text-left">
               <p className="font-bold">What happens when you schedule deletion:</p>
               <ul className="list-disc pl-4 space-y-1">
                 <li>Your profile enters a <strong>30-day reversible grace period</strong>.</li>
@@ -3787,27 +3855,27 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirmModal(false)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                className="flex-1 py-2.5 liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-white/50 dark:border-white/10 transition cursor-pointer"
               >
                 Keep Account Active
               </button>
               <button
                 type="button"
                 onClick={handleSchedulePatientArchive}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition active:scale-[0.98] cursor-pointer"
               >
                 Schedule 30-Day Archive
               </button>
             </div>
 
-            <div className="pt-2 border-t border-slate-100">
+            <div className="pt-2 border-t border-white/40 dark:border-white/10">
               <button
                 type="button"
                 disabled={isDeletingPermanently}
                 onClick={handlePermanentDeletePatient}
-                className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                className="w-full py-2 bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 border border-rose-300/60 dark:border-rose-500/30 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
               >
-                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                 <span>{isDeletingPermanently ? 'Deleting Profile...' : 'Permanent Delete (Immediate)'}</span>
               </button>
             </div>
@@ -3819,29 +3887,29 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           MODAL: CLAIM APPOINTMENT WITH 10-DIGIT CODE
       ========================================== */}
       {showClaimModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 relative animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-glass-modal border border-white/60 dark:border-white/15 space-y-5 relative animate-in fade-in zoom-in-95">
             <button
               onClick={() => setShowClaimModal(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer"
+              className="absolute top-5 right-5 p-1.5 rounded-full liquid-glass-subtle text-slate-500 hover:text-slate-800 dark:hover:text-white transition cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
             <div className="text-center space-y-1">
-              <div className="w-12 h-12 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center mx-auto mb-2 shadow-inner">
+              <div className="w-12 h-12 rounded-2xl bg-brand-500/15 border border-brand-400/30 text-brand-700 dark:text-brand-300 flex items-center justify-center mx-auto mb-2 shadow-inner">
                 <KeyRound className="w-6 h-6" />
               </div>
-              <h3 className="text-xl font-black text-slate-900 tracking-tight">
+              <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
                 Claim Appointment
               </h3>
-              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
                 Enter your 10-digit universal tracking code to link an appointment booked offline or in guest mode to your account.
               </p>
             </div>
 
             {claimCodeError && (
-              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start space-x-2">
+              <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-300/60 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-start space-x-2">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 <span>{claimCodeError}</span>
               </div>
@@ -3849,7 +3917,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             <form onSubmit={handleClaimAppointmentCode} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                   10-Digit Tracking Code
                 </label>
                 <input
@@ -3863,7 +3931,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     setClaimCodeInput(digits)
                     if (claimCodeError) setClaimCodeError(null)
                   }}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-center text-lg font-bold tracking-widest text-slate-800 outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-4 py-3 liquid-glass-input rounded-xl font-mono text-center text-lg font-bold tracking-widest text-slate-900 dark:text-white outline-none"
                 />
                 <span className="text-[11px] text-slate-400 block text-center">
                   {claimCodeInput.length}/10 digits entered
@@ -3874,14 +3942,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowClaimModal(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                  className="flex-1 py-3 liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-white/50 dark:border-white/10 transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isClaimingCode || claimCodeInput.length !== 10}
-                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-md shadow-brand-600/20 cursor-pointer"
+                  className="flex-1 py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-glass-brand border border-white/25 active:scale-[0.98] cursor-pointer"
                 >
                   {isClaimingCode ? 'Verifying...' : 'Claim & Link Token'}
                 </button>
@@ -3895,46 +3963,46 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           MODAL: RESCHEDULE APPOINTMENT
       ========================================== */}
       {rescheduleAppt && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 relative animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-glass-modal border border-white/60 dark:border-white/15 space-y-5 relative animate-in fade-in zoom-in-95">
             <button
               onClick={() => setRescheduleAppt(null)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer"
+              className="absolute top-5 right-5 p-1.5 rounded-full liquid-glass-subtle text-slate-500 hover:text-slate-800 dark:hover:text-white transition cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">
                 Token #{rescheduleAppt.trackingCode10Digit}
               </span>
-              <h3 className="text-xl font-black text-slate-900">
+              <h3 className="text-xl font-black text-slate-900 dark:text-white">
                 Reschedule Appointment
               </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Shift appointment date or slot with {rescheduleAppt.doctor?.fullName || 'the clinic'}.
               </p>
             </div>
 
             <form onSubmit={handleConfirmReschedule} className="space-y-4">
               <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-700">New Appointment Date *</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">New Appointment Date *</label>
                 <input
                   type="date"
                   required
                   min={todayStr}
                   value={newRescheduleDate}
                   onChange={(e) => setNewRescheduleDate(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-700">Preferred Time Slot *</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Preferred Time Slot *</label>
                 <select
                   value={newRescheduleTime}
                   onChange={(e) => setNewRescheduleTime(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none"
+                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none"
                 >
                   <option value="09:00 AM - 10:00 AM">09:00 AM - 10:00 AM (Morning)</option>
                   <option value="10:00 AM - 11:00 AM">10:00 AM - 11:00 AM (Morning)</option>
@@ -3947,13 +4015,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-700">Reason for Rescheduling (Optional)</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Reason for Rescheduling (Optional)</label>
                 <input
                   type="text"
                   placeholder="e.g. Schedule conflict, feeling better today..."
                   value={rescheduleReason}
                   onChange={(e) => setRescheduleReason(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none"
+                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs text-slate-900 dark:text-white outline-none"
                 />
               </div>
 
@@ -3961,14 +4029,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setRescheduleAppt(null)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                  className="flex-1 py-3 liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-white/50 dark:border-white/10 transition cursor-pointer"
                 >
                   Keep Existing
                 </button>
                 <button
                   type="submit"
                   disabled={isRescheduling}
-                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-md shadow-brand-600/20 cursor-pointer"
+                  className="flex-1 py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-glass-brand border border-white/25 active:scale-[0.98] cursor-pointer"
                 >
                   {isRescheduling ? 'Shifting...' : 'Confirm Reschedule'}
                 </button>
@@ -3982,38 +4050,38 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           MODAL: LAB REPORT PRIVACY VERIFICATION GATE
       ========================================== */}
       {verifyingReport && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-5 relative animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-glass-modal border border-white/60 dark:border-white/15 space-y-5 relative animate-in fade-in zoom-in-95">
             <button
               onClick={() => {
                 setVerifyingReport(null)
                 setVerificationError(null)
               }}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer"
+              className="absolute top-5 right-5 p-1.5 rounded-full liquid-glass-subtle text-slate-500 hover:text-slate-800 dark:hover:text-white transition cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
             <div className="text-center space-y-1">
-              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-2 shadow-inner">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-400/30 text-amber-700 dark:text-amber-300 flex items-center justify-center mx-auto mb-2 shadow-inner">
                 <Lock className="w-6 h-6" />
               </div>
-              <h3 className="text-xl font-black text-slate-900 tracking-tight">
+              <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
                 Health Privacy Verification
               </h3>
-              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
                 To protect confidential clinical data, please verify the registered patient's identity before viewing or downloading this report.
               </p>
             </div>
 
             {verificationError && (
-              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start space-x-2">
+              <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-300/60 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-start space-x-2">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 <span>{verificationError}</span>
               </div>
             )}
 
-            <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-xl text-xs font-bold">
+            <div className="flex items-center space-x-2 liquid-glass-subtle p-1 rounded-xl text-xs font-bold">
               <button
                 type="button"
                 onClick={() => {
@@ -4022,7 +4090,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   setVerificationError(null)
                 }}
                 className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
-                  verifyMethod === 'name' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                  verifyMethod === 'name'
+                    ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-white/40'
                 }`}
               >
                 Patient Name
@@ -4035,7 +4105,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   setVerificationError(null)
                 }}
                 className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
-                  verifyMethod === 'phone' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                  verifyMethod === 'phone'
+                    ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-white/40'
                 }`}
               >
                 Mobile Number
@@ -4044,7 +4116,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             <form onSubmit={handleExecuteReportVerification} className="space-y-4">
               <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-700">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
                   {verifyMethod === 'name' ? "Enter Patient's Full Name" : "Enter Patient's Mobile Number (10 digits)"}
                 </label>
                 <input
@@ -4053,7 +4125,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   placeholder={verifyMethod === 'name' ? 'e.g. Ram Bahadur' : '98xxxxxxxx'}
                   value={verificationInput}
                   onChange={(e) => setVerificationInput(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
                 />
               </div>
 
@@ -4064,13 +4136,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     setVerifyingReport(null)
                     setVerificationError(null)
                   }}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                  className="flex-1 py-3 liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-white/50 dark:border-white/10 transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-brand-600/20 cursor-pointer"
+                  className="flex-1 py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold transition shadow-glass-brand border border-white/25 active:scale-[0.98] cursor-pointer"
                 >
                   Verify & Unlock
                 </button>
@@ -4082,3 +4154,4 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     </div>
   )
 }
+

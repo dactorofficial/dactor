@@ -5,11 +5,20 @@
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $apksDir = Join-Path $scriptDir "APKs"
 
-# Resolve latest Clinic & Patient APKs dynamically (supports versioned and legacy filenames)
-$clinicApk = Get-ChildItem -Path $apksDir -Filter "*Clinic*.apk" -ErrorAction SilentlyContinue | 
+# Resolve latest Clinic & Patient APKs dynamically (prefer versioned filenames)
+$clinicApk = Get-ChildItem -Path $apksDir -Filter "*Clinic*v*.apk" -ErrorAction SilentlyContinue | 
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
-$patientApk = Get-ChildItem -Path $apksDir -Filter "*Patient*.apk" -ErrorAction SilentlyContinue | 
+if (-not $clinicApk) {
+    $clinicApk = Get-ChildItem -Path $apksDir -Filter "*Clinic*.apk" -ErrorAction SilentlyContinue | 
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+}
+
+$patientApk = Get-ChildItem -Path $apksDir -Filter "*Patient*v*.apk" -ErrorAction SilentlyContinue | 
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $patientApk) {
+    $patientApk = Get-ChildItem -Path $apksDir -Filter "*Patient*.apk" -ErrorAction SilentlyContinue | 
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+}
 
 $apkPaths = @()
 if ($clinicApk) { $apkPaths += $clinicApk.FullName }

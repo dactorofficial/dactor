@@ -350,22 +350,25 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   }, [patientsAhead, estimatedWaitMinutes])
 
   return (
-    <div className="min-h-screen bg-[#F1F5F9] pb-16">
+    <div className="min-h-screen pb-28 sm:pb-16">
       {/* ========================================================================= */}
-      {/* 1. TOP HEADER: DEEP MEDICAL TEAL (#0D5C4D) MATCHING QueueStatusScreen.kt  */}
+      {/* 1. TOP HEADER: LIQUID GLASS OBSIDIAN / TEAL REFRACTION                     */}
       {/* ========================================================================= */}
-      <div className="w-full bg-[#0D5C4D] text-white pt-8 pb-16 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto space-y-4">
+      <div className="w-full liquid-glass-elevated bg-slate-950/85 text-white pt-6 sm:pt-8 pb-12 sm:pb-16 px-3 sm:px-6 lg:px-8 border-b border-teal-500/20 relative overflow-hidden">
+        {/* Specular Edge Highlight */}
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+
+        <div className="max-w-4xl mx-auto space-y-3 sm:space-y-4 relative z-10">
           {/* Top Brand Capsule Pill + Refresh Action */}
           <div className="flex items-center justify-between">
-            <div className="px-3.5 py-1 rounded-full bg-white/20 text-white text-xs font-semibold backdrop-blur-xs tracking-wide">
+            <div className="px-3 py-1 rounded-full bg-white/10 text-teal-300 text-[11px] sm:text-xs font-semibold backdrop-blur-md tracking-wide truncate max-w-[230px] sm:max-w-none border border-white/15">
               {clinic?.name || 'Dactor • Healthcare Ecosystem'}
             </div>
 
             <button
               onClick={() => fetchQueueData(activeCode)}
               disabled={loading}
-              className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition cursor-pointer"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full liquid-glass-subtle hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer active:scale-95"
               title="Refresh live queue status"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -373,19 +376,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           </div>
 
           {/* Title Row with Back Button */}
-          <div className="flex items-center space-x-3 pt-1">
+          <div className="flex items-center space-x-2.5 sm:space-x-3 pt-1">
             {onNavigateHome && (
               <button
                 onClick={onNavigateHome}
-                className="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition cursor-pointer"
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl liquid-glass-subtle hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer shrink-0 active:scale-95"
                 title="Back to home"
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             )}
             <div>
-              <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Live Queue Position</h1>
-              <p className="text-xs text-white/80 font-medium">Your health, our priority</p>
+              <h1 className="text-xl sm:text-3xl font-black tracking-tight text-white">Live Queue Position</h1>
+              <p className="text-[11px] sm:text-xs text-teal-200/80 font-medium">Your health, our priority</p>
             </div>
           </div>
         </div>
@@ -394,31 +397,31 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       {/* ========================================================================= */}
       {/* 2. OVERLAPPING CONTENT CONTAINER (Negative offset over Teal Header)        */}
       {/* ========================================================================= */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 space-y-5">
+      <div className="max-w-4xl mx-auto px-3 sm:px-6 lg:px-8 -mt-6 sm:-mt-8 space-y-4 sm:space-y-5">
         {/* Search Input Bar (If not loaded or searching another code) */}
-        <div className="bg-white rounded-3xl p-2.5 border border-slate-200/90 shadow-md">
-          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
+        <div className="liquid-glass-elevated rounded-3xl p-2 sm:p-2.5 border-teal-500/30 shadow-glass-elevated">
+          <form onSubmit={handleSearchSubmit} className="flex items-center gap-1.5 sm:gap-2">
             <div className="relative flex-1">
-              <Search className="w-5 h-5 text-[#0D5C4D] absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600 dark:text-teal-400 absolute left-3 sm:left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={inputCode}
                 onChange={(e) => setInputCode(e.target.value)}
-                placeholder="Enter 10-Digit Tracking Code..."
+                placeholder="Enter 10-Digit Code..."
                 maxLength={10}
-                className="w-full pl-11 pr-4 py-2.5 bg-transparent text-base sm:text-lg font-black tracking-wider text-slate-900 placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal outline-none"
+                className="w-full pl-9 sm:pl-11 pr-2 sm:pr-4 py-2 sm:py-2.5 bg-transparent text-sm sm:text-lg font-black tracking-wider text-slate-900 dark:text-white placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal outline-none"
               />
             </div>
             <button
               type="submit"
-              className="px-6 py-3 bg-[#0D5C4D] hover:bg-[#0a483c] text-white text-xs font-bold rounded-2xl shadow-md transition cursor-pointer shrink-0"
+              className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs font-bold rounded-2xl shadow-glass-base transition cursor-pointer shrink-0 active:scale-95 border-t border-white/20"
             >
               {loading ? 'Tracking...' : 'Track'}
             </button>
           </form>
 
           {errorMsg && (
-            <div className="mt-2.5 p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs flex items-center space-x-2">
+            <div className="mt-2 p-2.5 sm:p-3 bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 rounded-2xl text-xs flex items-center space-x-2 backdrop-blur-sm">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
@@ -431,16 +434,16 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         {appointment && (
           <div className="space-y-4 animate-in fade-in duration-200">
             {/* 1. BOOKING CODE CARD WITH COPY BUTTON */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
+            <div className="liquid-glass-card rounded-2xl p-4 flex items-center justify-between">
               <div className="flex items-center space-x-3.5">
-                <div className="w-11 h-11 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                <div className="w-11 h-11 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20 flex items-center justify-center shrink-0">
                   <Activity className="w-5 h-5" />
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
                     BOOKING CODE
                   </span>
-                  <div className="text-lg font-black text-slate-900 tracking-wider font-mono">
+                  <div className="text-lg font-black text-slate-900 dark:text-white tracking-wider font-mono">
                     #{appointment.trackingCode10Digit}
                   </div>
                 </div>
@@ -448,13 +451,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
               <button
                 onClick={handleCopyCode}
-                className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition flex items-center space-x-1.5 text-xs font-semibold cursor-pointer"
+                className="p-2.5 rounded-xl liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5 text-xs font-semibold cursor-pointer active:scale-95"
                 title="Copy code to clipboard"
               >
                 {copyFeedback ? (
                   <>
-                    <Check className="w-4 h-4 text-emerald-600" />
-                    <span className="text-emerald-700 font-bold">Copied!</span>
+                    <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-emerald-700 dark:text-emerald-300 font-bold">Copied!</span>
                   </>
                 ) : (
                   <>
@@ -467,15 +470,15 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
             {/* 2. CLINIC ON BREAK ALERT BANNER (If clinic is on break) */}
             {clinic?.isOnBreak && !isConsultancyCompleted && (
-              <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 flex items-center space-x-3 text-rose-900 shadow-xs">
-                <div className="w-9 h-9 rounded-full bg-rose-500 text-white flex items-center justify-center shrink-0">
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-center space-x-3 text-amber-900 dark:text-amber-300 shadow-glass-sm backdrop-blur-sm">
+                <div className="w-9 h-9 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0">
                   <PauseCircle className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-black uppercase tracking-wider text-rose-800">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-amber-800 dark:text-amber-300">
                     CLINIC IS CURRENTLY ON BREAK
                   </h4>
-                  <p className="text-xs text-rose-700">
+                  <p className="text-xs text-amber-700 dark:text-amber-400/90">
                     Consultations are paused temporarily. They will resume shortly.
                   </p>
                 </div>
@@ -485,10 +488,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             {/* 3. DOCTOR PRESENCE / AWAY BANNER */}
             {!isConsultancyCompleted && !isLabClinic && (
               <div
-                className={`p-3.5 rounded-2xl border text-xs flex items-center space-x-2.5 ${
+                className={`p-3.5 rounded-2xl border text-xs flex items-center space-x-2.5 backdrop-blur-sm ${
                   isDoctorInClinic
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                    : 'bg-amber-50 border-amber-200 text-amber-900'
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-900 dark:text-emerald-300'
+                    : 'bg-amber-500/10 border-amber-500/20 text-amber-900 dark:text-amber-300'
                 }`}
               >
                 <span
@@ -505,34 +508,34 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             )}
 
             {/* 4. MAIN LIVE QUEUE STATUS CARD (Position Badge, Stepper, Slot & Wait) */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-6">
+            <div className="liquid-glass-elevated rounded-3xl p-4 sm:p-6 space-y-4 sm:space-y-6">
               {/* Top Token Row: Position Circle + Dynamic Title */}
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-3 sm:space-x-4">
                 {/* Circular Position Badge with Outer Halo Ring */}
                 <div className="relative flex items-center justify-center shrink-0">
                   <div
-                    className={`w-20 h-20 rounded-full flex items-center justify-center ${
+                    className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center backdrop-blur-md border ${
                       isInsideChamber
-                        ? 'bg-blue-100'
+                        ? 'bg-blue-500/15 border-blue-500/30'
                         : isConsultancyCompleted
-                        ? 'bg-emerald-100'
+                        ? 'bg-emerald-500/15 border-emerald-500/30'
                         : patientsAhead === 0
-                        ? 'bg-emerald-100'
-                        : 'bg-sky-100'
+                        ? 'bg-emerald-500/15 border-emerald-500/30'
+                        : 'bg-teal-500/15 border-teal-500/30'
                     }`}
                   >
                     <div
-                      className={`w-16 h-16 rounded-full flex flex-col items-center justify-center text-white shadow-sm ${
+                      className={`w-13 h-13 sm:w-16 sm:h-16 rounded-full flex flex-col items-center justify-center text-white shadow-glass-base ${
                         isInsideChamber
-                          ? 'bg-blue-600'
+                          ? 'bg-gradient-to-tr from-blue-600 to-indigo-600'
                           : isConsultancyCompleted
-                          ? 'bg-emerald-600'
+                          ? 'bg-gradient-to-tr from-emerald-600 to-teal-600'
                           : patientsAhead === 0
-                          ? 'bg-emerald-600'
-                          : 'bg-[#0284C7]'
+                          ? 'bg-gradient-to-tr from-emerald-600 to-teal-600'
+                          : 'bg-gradient-to-tr from-teal-600 to-cyan-600'
                       }`}
                     >
-                      <span className="text-[8px] font-black uppercase tracking-wider opacity-90 leading-tight">
+                      <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider opacity-90 leading-tight">
                         {isInsideChamber
                           ? 'CURRENT'
                           : isConsultancyCompleted
@@ -541,7 +544,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? 'UP NEXT'
                           : 'POSITION'}
                       </span>
-                      <span className="text-2xl font-black leading-none mt-0.5">
+                      <span className="text-xl sm:text-2xl font-black leading-none mt-0.5">
                         {isInsideChamber
                           ? 'NOW'
                           : isConsultancyCompleted
@@ -555,44 +558,44 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 </div>
 
                 {/* Dynamic Title, Subtitle, and Token Badge */}
-                <div className="flex-1 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <h3
-                      className={`text-lg sm:text-xl font-black ${
+                      className={`text-base sm:text-xl font-black leading-snug ${
                         isLabClinic && effectiveLabStatus === 'prepared'
-                          ? 'text-emerald-700'
+                          ? 'text-emerald-700 dark:text-emerald-300'
                           : isLabClinic && effectiveLabStatus === 'processing'
-                          ? 'text-amber-700'
+                          ? 'text-amber-700 dark:text-amber-300'
                           : isInsideChamber
-                          ? 'text-blue-700'
+                          ? 'text-blue-700 dark:text-blue-300'
                           : isConsultancyCompleted
-                          ? 'text-emerald-700'
-                          : 'text-slate-900'
+                          ? 'text-emerald-700 dark:text-emerald-300'
+                          : 'text-slate-900 dark:text-white'
                       }`}
                     >
                       {isLabClinic
                         ? effectiveLabStatus === 'prepared'
-                          ? 'Status: Report Prepared'
-                          : effectiveLabStatus === 'processing'
-                          ? 'Status: Sample Processing'
-                          : patientsAhead === 0
-                          ? 'Next for Sample Collection!'
-                          : `${patientsAhead} Ahead for Phlebotomy`
-                        : isInsideChamber
-                        ? 'You are in OPD session'
-                        : isConsultancyCompleted
-                        ? 'Consultation completed'
+                        ? 'Status: Report Prepared'
+                        : effectiveLabStatus === 'processing'
+                        ? 'Status: Sample Processing'
                         : patientsAhead === 0
-                        ? "You're next in line!"
-                        : `${patientsAhead} patients ahead`}
+                        ? 'Next for Sample Collection!'
+                        : `${patientsAhead} Ahead for Phlebotomy`
+                      : isInsideChamber
+                      ? 'You are in OPD session'
+                      : isConsultancyCompleted
+                      ? 'Consultation completed'
+                      : patientsAhead === 0
+                      ? "You're next in line!"
+                      : `${patientsAhead} patients ahead`}
                     </h3>
 
-                    <span className="px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200">
+                    <span className="px-2 sm:px-2.5 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[11px] sm:text-xs font-bold">
                       Token #{appointment.queueNumber || 1}
                     </span>
                   </div>
 
-                  <p className="text-xs text-slate-500 font-medium">
+                  <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
                     {isLabClinic
                       ? effectiveLabStatus === 'prepared'
                         ? 'Certified report ready • Verify identity below to view & download file'
@@ -611,10 +614,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               </div>
 
               {/* 4-Step Stepper Progress Bar */}
-              <div className="py-2">
-                <div className="flex items-center justify-between relative">
+              <div className="py-2 overflow-x-auto scrollbar-none">
+                <div className="flex items-center justify-between relative min-w-[270px]">
                   {/* Connecting line behind */}
-                  <div className="absolute top-1/2 left-6 right-6 -translate-y-1/2 h-0.5 bg-slate-200 -z-0" />
+                  <div className="absolute top-1/2 left-4 sm:left-6 right-4 sm:right-6 -translate-y-1/2 h-0.5 bg-slate-200/60 dark:bg-white/10 -z-0" />
 
                   {(isLabClinic
                     ? ['Booked', 'Collected', 'Processing', 'Prepared']
@@ -642,20 +645,20 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     return (
                       <div
                         key={stepName}
-                        className="flex flex-col items-center space-y-1.5 z-10 bg-white px-2"
+                        className="flex flex-col items-center space-y-1 z-10 px-1 sm:px-2"
                       >
                         <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all ${
+                          className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[11px] sm:text-xs font-black transition-all ${
                             isDone || isActive
-                              ? 'bg-[#0D5C4D] text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-400 border border-slate-200'
+                              ? 'bg-gradient-to-tr from-teal-600 to-cyan-600 text-white shadow-glass-sm'
+                              : 'liquid-glass-subtle text-slate-400'
                           }`}
                         >
-                          {isDone ? <Check className="w-4 h-4" /> : idx + 1}
+                          {isDone ? <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : idx + 1}
                         </div>
                         <span
-                          className={`text-[11px] font-bold ${
-                            isActive ? 'text-[#0D5C4D]' : 'text-slate-500'
+                          className={`text-[10px] sm:text-[11px] font-bold ${
+                            isActive ? 'text-teal-600 dark:text-teal-400' : 'text-slate-500 dark:text-slate-400'
                           }`}
                         >
                           {stepName}
@@ -669,26 +672,26 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               {/* Slot & Expected Call Informational Cards (Hidden when completed or lab prepared) */}
               {!isConsultancyCompleted && effectiveLabStatus !== 'prepared' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                       Your Booked Window
                     </span>
-                    <div className="text-base font-black text-slate-900">
+                    <div className="text-base font-black text-slate-900 dark:text-white">
                       {appointment.appointmentTime || 'Real-time queue'}
                     </div>
-                    <span className="text-[11px] text-slate-500">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
                       Date: {appointment.appointmentDate}
                     </span>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-sky-50 border border-sky-200 space-y-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                  <div className="p-4 rounded-2xl liquid-glass-subtle border-teal-500/30 space-y-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
                       Expected Call
                     </span>
-                    <div className="text-base font-black text-sky-900">
+                    <div className="text-base font-black text-teal-900 dark:text-teal-200">
                       {patientsAhead > 0 ? `~${estimatedWaitMinutes} mins` : '< 5 mins'}
                     </div>
-                    <span className="text-[11px] text-sky-700">
+                    <span className="text-[11px] text-teal-700 dark:text-teal-400">
                       {patientsAhead > 0 ? `Approx. ${formattedExpectedTime}` : "You're next in line"}
                     </span>
                   </div>
@@ -697,24 +700,24 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             </div>
 
             {/* 5. CLINIC & DOCTOR PROFILE CARD (Call, Directions & Roster) */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-5">
+            <div className="liquid-glass-card rounded-3xl p-6 space-y-5">
               {/* Clinic Information */}
               <div className="space-y-3">
                 <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-800 dark:text-teal-300 border border-teal-500/20 flex items-center justify-center shrink-0">
                     <Building2 className="w-5 h-5" />
                   </div>
                   <div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
                       HEALTHCARE FACILITY
                     </span>
-                    <h4 className="text-base font-black text-slate-900">
+                    <h4 className="text-base font-black text-slate-900 dark:text-white">
                       {clinic?.name || appointment.clinic?.name || 'OPD Medical Center'}
                     </h4>
                   </div>
                 </div>
 
-                <div className="flex items-start space-x-2 text-xs text-slate-600 pl-1">
+                <div className="flex items-start space-x-2 text-xs text-slate-600 dark:text-slate-300 pl-1">
                   <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                   <span>{clinic?.addressText || 'Nepal'}</span>
                 </div>
@@ -723,7 +726,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <a
                     href={`tel:${clinic?.contactPhone || clinic?.managerPhone || '01-4412345'}`}
-                    className="py-2.5 px-3 rounded-xl border border-[#0D5C4D] text-[#0D5C4D] hover:bg-teal-50 text-xs font-bold transition flex items-center justify-center space-x-1.5"
+                    className="py-2.5 px-3 rounded-xl liquid-glass-subtle text-teal-700 dark:text-teal-300 hover:bg-white/80 dark:hover:bg-slate-800/80 text-xs font-bold transition flex items-center justify-center space-x-1.5 active:scale-95"
                   >
                     <Phone className="w-3.5 h-3.5" />
                     <span>Call clinic</span>
@@ -735,7 +738,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="py-2.5 px-3 rounded-xl border border-[#0D5C4D] text-[#0D5C4D] hover:bg-teal-50 text-xs font-bold transition flex items-center justify-center space-x-1.5"
+                    className="py-2.5 px-3 rounded-xl liquid-glass-subtle text-teal-700 dark:text-teal-300 hover:bg-white/80 dark:hover:bg-slate-800/80 text-xs font-bold transition flex items-center justify-center space-x-1.5 active:scale-95"
                   >
                     <MapPin className="w-3.5 h-3.5" />
                     <span>Directions</span>
@@ -745,8 +748,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
               {/* Attending Doctor Profile (If applicable) */}
               {doctor && (
-                <div className="pt-4 border-t border-slate-100 flex items-start space-x-4">
-                  <div className="w-12 h-12 rounded-2xl bg-[#CCFBF1] text-[#0D5C4D] flex items-center justify-center font-black text-lg shrink-0 overflow-hidden">
+                <div className="pt-4 border-t border-slate-200/50 dark:border-white/10 flex items-start space-x-4">
+                  <div className="w-12 h-12 rounded-2xl bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 flex items-center justify-center font-black text-lg shrink-0 overflow-hidden">
                     {doctor.profilePictureUrl ? (
                       <img
                         src={doctor.profilePictureUrl}
@@ -759,16 +762,16 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   </div>
 
                   <div className="flex-1 space-y-0.5">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
                       ATTENDING DOCTOR
                     </span>
-                    <h5 className="font-bold text-slate-900 text-sm">
+                    <h5 className="font-bold text-slate-900 dark:text-white text-sm">
                       {doctor.fullName.startsWith('Dr.') ? doctor.fullName : `Dr. ${doctor.fullName}`}
                     </h5>
-                    <p className="text-xs font-semibold text-teal-700">
+                    <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
                       {doctor.specialty || 'General OPD Specialist'}
                     </p>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
                       {doctor.education ? `${doctor.education} • ` : ''}
                       Consultation for general health & OPD
                     </p>
@@ -779,12 +782,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
             {/* 6. BOOKED DIAGNOSTIC LAB TESTS CARD (If applicable) */}
             {Boolean(appointment.selectedTests && appointment.selectedTests.length > 0) && (
-              <div className="bg-purple-50/70 border border-purple-200 rounded-3xl p-5 space-y-2">
-                <div className="flex items-center space-x-2 text-purple-900 font-bold text-xs uppercase tracking-wider">
-                  <FlaskConical className="w-4 h-4 text-purple-600" />
+              <div className="liquid-glass-subtle border-purple-500/30 rounded-3xl p-5 space-y-2">
+                <div className="flex items-center space-x-2 text-purple-900 dark:text-purple-300 font-bold text-xs uppercase tracking-wider">
+                  <FlaskConical className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                   <span>Booked Diagnostic Lab Investigations</span>
                 </div>
-                <p className="text-xs font-bold text-purple-950">
+                <p className="text-xs font-bold text-purple-950 dark:text-purple-200">
                   {appointment.selectedTests?.join(', ')}
                 </p>
               </div>
@@ -792,14 +795,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
             {/* 7. ACTIVE IN-CHAMBER OPD CONSULTATION TIMER BANNER */}
             {isInsideChamber && (
-              <div className="bg-blue-50 border-2 border-blue-500 rounded-3xl p-5 space-y-2 text-blue-900">
+              <div className="liquid-glass-elevated border-blue-500/50 rounded-3xl p-5 space-y-2 text-blue-900 dark:text-blue-300">
                 <div className="flex items-center space-x-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />
-                  <span className="text-xs font-black uppercase tracking-wider text-blue-800">
+                  <span className="text-xs font-black uppercase tracking-wider text-blue-800 dark:text-blue-300">
                     Active Consultation Session in Progress
                   </span>
                 </div>
-                <p className="text-xs font-bold text-blue-950">
+                <p className="text-xs font-bold text-blue-950 dark:text-blue-200">
                   Please step into the consultation room and discuss your symptoms with the attending specialist.
                 </p>
               </div>
@@ -807,25 +810,25 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
             {/* 8. CONSULTATION COMPLETED & PRESCRIPTION / BILL READY */}
             {isConsultancyCompleted && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-3xl p-6 space-y-4">
+              <div className="liquid-glass-card border-emerald-500/30 rounded-3xl p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2 text-emerald-900">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <div className="flex items-center space-x-2 text-emerald-900 dark:text-emerald-300">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                     <h4 className="font-black text-sm">Consultation Finished & Bill Ready</h4>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black">
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 text-xs font-black">
                     COMPLETED
                   </span>
                 </div>
 
-                <p className="text-xs text-emerald-800 font-medium">
+                <p className="text-xs text-emerald-800 dark:text-emerald-300/90 font-medium">
                   Total Bill: NPR {appointment.feeAmount || 500} • Status: {appointment.paymentStatus === 'paid' ? 'Paid' : 'Settled at Reception'}
                 </p>
 
                 <div className="flex items-center gap-3 pt-1">
                   <button
                     onClick={() => setShowPrescriptionModal(true)}
-                    className="flex-1 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer"
+                    className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95 border-t border-white/20"
                   >
                     <Receipt className="w-4 h-4" />
                     <span>Prescription & Bill Summary</span>
@@ -839,11 +842,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             {/* (NO SEPARATE PORTAL: FILE CHECKING & REPORTS DIRECTLY INTEGRATED HERE)*/}
             {/* ===================================================================== */}
             {(isLabClinic || labReports.length > 0) && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-4">
+              <div className="liquid-glass-elevated rounded-3xl p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2.5">
-                    <FileText className="w-5 h-5 text-teal-600" />
-                    <h4 className="text-sm font-black text-slate-900">
+                    <FileText className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                    <h4 className="text-sm font-black text-slate-900 dark:text-white">
                       Diagnostic Lab Reports & Files
                     </h4>
                   </div>
@@ -851,10 +854,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <span
                     className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${
                       effectiveLabStatus === 'prepared'
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        ? 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20'
                         : effectiveLabStatus === 'processing'
-                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                        : 'bg-sky-100 text-sky-800 border border-sky-200'
+                        ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20'
+                        : 'bg-teal-500/10 text-teal-800 dark:text-teal-300 border border-teal-500/20'
                     }`}
                   >
                     {effectiveLabStatus === 'prepared'
@@ -867,12 +870,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
                 {effectiveLabStatus === 'prepared' ? (
                   <div className="space-y-3">
-                    <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-900 space-y-1">
+                    <div className="p-3.5 rounded-2xl liquid-glass-subtle border-emerald-500/30 text-xs text-emerald-900 dark:text-emerald-300 space-y-1">
                       <div className="font-bold flex items-center space-x-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                         <span>Certified Diagnostic Report Prepared</span>
                       </div>
-                      <p className="text-[11px] text-emerald-700">
+                      <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
                         {isReportIdentityVerified
                           ? `✓ Identity verified (${appointment.patientName}). Access and download your digital report below.`
                           : '🔒 Confidential medical report. Verify patient name or mobile number to view or download file.'}
@@ -882,7 +885,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     <div className="flex flex-wrap items-center gap-2 pt-1">
                       <button
                         onClick={() => handleActionWithAuth('view_report')}
-                        className="flex-1 py-2.5 px-4 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer"
+                        className="flex-1 py-2.5 px-4 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95 border-t border-white/20"
                       >
                         <Eye className="w-4 h-4" />
                         <span>{isReportIdentityVerified ? 'View Report In-App' : 'Verify & View Report'}</span>
@@ -890,7 +893,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
                       <button
                         onClick={() => handleActionWithAuth('download_report')}
-                        className="py-2.5 px-4 border border-teal-700 text-teal-700 hover:bg-teal-50 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer"
+                        className="py-2.5 px-4 liquid-glass-subtle text-teal-700 dark:text-teal-300 hover:bg-white/80 dark:hover:bg-slate-800/80 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
                       >
                         <Download className="w-4 h-4" />
                         <span>Download PDF</span>
@@ -898,22 +901,22 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     </div>
                   </div>
                 ) : effectiveLabStatus === 'processing' ? (
-                  <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
+                  <div className="p-4 rounded-2xl liquid-glass-subtle border-amber-500/30 text-xs text-amber-900 dark:text-amber-300 space-y-1">
                     <div className="font-bold flex items-center space-x-1.5">
-                      <Hourglass className="w-4 h-4 text-amber-600" />
+                      <Hourglass className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                       <span>Sample Collected • Processing in Laboratory</span>
                     </div>
-                    <p className="text-[11px] text-amber-700">
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400">
                       Your biological sample has been received and transferred to the diagnostic chamber. As soon as the certified pathologist signs off, this screen will transition to Prepared and unlock the report file.
                     </p>
                   </div>
                 ) : (
-                  <div className="p-4 rounded-2xl bg-sky-50 border border-sky-200 text-xs text-sky-900 space-y-1">
+                  <div className="p-4 rounded-2xl liquid-glass-subtle border-teal-500/30 text-xs text-teal-900 dark:text-teal-300 space-y-1">
                     <div className="font-bold flex items-center space-x-1.5">
-                      <FlaskConical className="w-4 h-4 text-sky-600" />
+                      <FlaskConical className="w-4 h-4 text-teal-600 dark:text-teal-400" />
                       <span>Waiting in Queue for Sample Collection</span>
                     </div>
-                    <p className="text-[11px] text-sky-700">
+                    <p className="text-[11px] text-teal-700 dark:text-teal-400">
                       Please present your token #{appointment.queueNumber || 1} at the phlebotomy collection counter.
                     </p>
                   </div>
@@ -926,7 +929,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               <div className="flex items-center justify-between text-xs pt-2">
                 <button
                   onClick={() => handleActionWithAuth('reschedule')}
-                  className="font-bold text-slate-600 hover:text-slate-900 hover:underline cursor-pointer flex items-center space-x-1"
+                  className="font-bold text-slate-600 dark:text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition cursor-pointer flex items-center space-x-1 active:scale-95"
                 >
                   <Calendar className="w-3.5 h-3.5" />
                   <span>Reschedule Visit</span>
@@ -934,7 +937,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
                 <button
                   onClick={() => handleActionWithAuth('cancel')}
-                  className="font-bold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer"
+                  className="font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition cursor-pointer active:scale-95"
                 >
                   Cancel Appointment
                 </button>
@@ -948,22 +951,22 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       {/* SECURITY VERIFICATION MODAL                                               */}
       {/* ========================================================================= */}
       {showVerificationModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-100">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-4 sm:p-6 space-y-3.5 sm:space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2 text-slate-900 font-bold text-base">
-                <Lock className="w-5 h-5 text-[#0D5C4D]" />
+              <div className="flex items-center space-x-2 text-slate-900 dark:text-white font-bold text-sm sm:text-base">
+                <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600 dark:text-teal-400" />
                 <span>Patient Identity Verification</span>
               </div>
               <button
                 onClick={() => setShowVerificationModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-full"
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full cursor-pointer transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-500">
+            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
               For privacy and medical data protection, please confirm the registered Patient's Full Name or Mobile Number.
             </p>
 
@@ -973,7 +976,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 value={verificationInput}
                 onChange={(e) => setVerificationInput(e.target.value)}
                 placeholder="Enter Patient Name or Mobile..."
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0D5C4D]"
+                className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 liquid-glass-input rounded-xl font-bold text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
 
               {verifyError && (
@@ -984,13 +987,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowVerificationModal(false)}
-                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
+                  className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-800/80 cursor-pointer active:scale-95"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#0D5C4D] hover:bg-[#0a483c] text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+                  className="px-4 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold shadow-glass-sm cursor-pointer active:scale-95 border-t border-white/20"
                 >
                   Verify & Unlock
                 </button>
@@ -1004,20 +1007,20 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       {/* IN-APP LAB REPORT FILE VIEWER MODAL                                       */}
       {/* ========================================================================= */}
       {showReportModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="liquid-glass-modal rounded-3xl max-w-2xl w-full p-4 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-200/50 dark:border-white/10 pb-3">
               <div>
-                <h3 className="text-base font-black text-slate-900">
+                <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
                   {selectedReportToView?.testName || 'Diagnostic Pathology Report'}
                 </h3>
-                <span className="text-xs text-slate-400">
+                <span className="text-[11px] sm:text-xs text-slate-400 dark:text-slate-500">
                   Patient: {appointment?.patientName} • Token #{appointment?.queueNumber || 1}
                 </span>
               </div>
               <button
                 onClick={() => setShowReportModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-full"
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full cursor-pointer transition"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1025,14 +1028,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
             {selectedReportToView?.reportFileUrl ? (
               <div className="space-y-3">
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
+                <div className="p-3.5 sm:p-4 liquid-glass-subtle rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
-                    <FileText className="w-8 h-8 text-teal-600" />
+                    <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-teal-600 dark:text-teal-400 shrink-0" />
                     <div>
-                      <span className="text-xs font-bold text-slate-800 block">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
                         Official Signed Lab Report
                       </span>
-                      <span className="text-[11px] text-slate-500">
+                      <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400">
                         File Type: PDF / Digital Image
                       </span>
                     </div>
@@ -1042,14 +1045,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     download
-                    className="px-4 py-2 bg-[#0D5C4D] hover:bg-[#0a483c] text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5"
+                    className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-1.5 shadow-glass-sm active:scale-95 border-t border-white/20"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Download File</span>
                   </a>
                 </div>
 
-                <div className="w-full h-80 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
+                <div className="w-full h-64 sm:h-80 rounded-2xl overflow-hidden border border-slate-200/50 dark:border-white/10 bg-slate-900/20 flex items-center justify-center">
                   <iframe
                     src={selectedReportToView.reportFileUrl}
                     title="Lab Report Document"
@@ -1058,12 +1061,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="p-8 text-center space-y-2 bg-slate-50 rounded-2xl border border-slate-200">
-                <FileText className="w-10 h-10 mx-auto text-teal-600" />
-                <h4 className="text-sm font-bold text-slate-800">
+              <div className="p-6 sm:p-8 text-center space-y-2 liquid-glass-subtle rounded-2xl">
+                <FileText className="w-8 h-8 sm:w-10 sm:h-10 mx-auto text-teal-600 dark:text-teal-400" />
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
                   Diagnostic Report Prepared in Center
                 </h4>
-                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
                   Your physical certified test report is prepared and signed by the pathologist at {clinic?.name || 'the clinic desk'}. A digital scan will synchronize directly to this portal.
                 </p>
               </div>
@@ -1076,49 +1079,49 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       {/* PRESCRIPTION & BILL MODAL                                                 */}
       {/* ========================================================================= */}
       {showPrescriptionModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-4 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-200/50 dark:border-white/10 pb-3">
               <div className="flex items-center space-x-2">
-                <Receipt className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-base font-black text-slate-900">
+                <Receipt className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400" />
+                <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
                   Prescription & Billing Receipt
                 </h3>
               </div>
               <button
                 onClick={() => setShowPrescriptionModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-full"
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full cursor-pointer transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl space-y-1">
-                <div className="flex justify-between font-bold text-slate-800">
+              <div className="p-3 liquid-glass-subtle rounded-xl space-y-1">
+                <div className="flex justify-between font-bold text-slate-800 dark:text-slate-200">
                   <span>Patient Name:</span>
                   <span>{appointment?.patientName}</span>
                 </div>
-                <div className="flex justify-between text-slate-600">
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Facility:</span>
                   <span>{clinic?.name || 'OPD Clinic'}</span>
                 </div>
-                <div className="flex justify-between text-slate-600">
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Attending Doctor:</span>
                   <span>{doctor?.fullName || 'OPD Specialist'}</span>
                 </div>
-                <div className="flex justify-between text-slate-600">
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Visit Date:</span>
                   <span>{appointment?.appointmentDate}</span>
                 </div>
               </div>
 
-              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-900 space-y-1">
+              <div className="p-3 liquid-glass-subtle border-emerald-500/30 text-emerald-900 dark:text-emerald-300 rounded-xl space-y-1">
                 <div className="flex justify-between font-bold text-sm">
                   <span>Total Consultation Fee:</span>
                   <span>NPR {appointment?.feeAmount || 500}</span>
                 </div>
-                <div className="flex justify-between text-[11px] text-emerald-700">
+                <div className="flex justify-between text-[11px] text-emerald-700 dark:text-emerald-400">
                   <span>Payment Status:</span>
                   <span className="font-bold uppercase">{appointment?.paymentStatus || 'Paid'}</span>
                 </div>
@@ -1128,7 +1131,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             <div className="pt-2 flex justify-end">
               <button
                 onClick={() => setShowPrescriptionModal(false)}
-                className="px-5 py-2.5 bg-slate-800 text-white rounded-xl text-xs font-bold"
+                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-xs font-bold shadow-glass-sm cursor-pointer active:scale-95 border-t border-white/20"
               >
                 Close
               </button>
@@ -1141,13 +1144,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       {/* RESCHEDULE DATE MODAL                                                     */}
       {/* ========================================================================= */}
       {showRescheduleModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-black text-slate-900">Reschedule Consultation</h3>
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-4 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-200/50 dark:border-white/10 pb-3">
+              <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">Reschedule Consultation</h3>
               <button
                 onClick={() => setShowRescheduleModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-full"
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full cursor-pointer transition"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1155,33 +1158,33 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
             <form onSubmit={handleConfirmReschedule} className="space-y-3">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 block">Select New Date</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">Select New Date</label>
                 <input
                   type="date"
                   min={new Date().toISOString().split('T')[0]}
                   value={rescheduleDate}
                   onChange={(e) => setRescheduleDate(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-[#0D5C4D]"
+                  className="w-full px-3.5 sm:px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
                   required
                 />
               </div>
 
               {rescheduleMsg && (
-                <p className="text-xs text-emerald-700 font-bold">{rescheduleMsg}</p>
+                <p className="text-xs text-emerald-700 dark:text-emerald-400 font-bold">{rescheduleMsg}</p>
               )}
 
-              <div className="pt-2 flex justify-end space-x-2">
+              <div className="pt-2 flex items-center justify-end space-x-2">
                 <button
                   type="button"
                   onClick={() => setShowRescheduleModal(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-3.5 sm:px-4 py-2 text-xs font-bold liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-800/80 rounded-xl cursor-pointer active:scale-95"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={rescheduleProcessing}
-                  className="px-5 py-2 bg-[#0D5C4D] hover:bg-[#0a483c] text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
+                  className="px-4 sm:px-5 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs font-bold rounded-xl shadow-glass-sm cursor-pointer active:scale-95 border-t border-white/20"
                 >
                   {rescheduleProcessing ? 'Saving...' : 'Confirm Reschedule'}
                 </button>

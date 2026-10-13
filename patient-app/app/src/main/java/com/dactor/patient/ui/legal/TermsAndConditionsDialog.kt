@@ -1,41 +1,56 @@
 package com.dactor.patient.ui.legal
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Gavel
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 
 @Composable
 fun TermsAndConditionsDialog(
+    isMandatory: Boolean = false,
     onAccept: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
+    var isAgreed by remember { mutableStateOf(false) }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isMandatory) onDismiss()
+        },
+        properties = DialogProperties(
+            dismissOnBackPress = !isMandatory,
+            dismissOnClickOutside = !isMandatory
+        ),
         icon = {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(52.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Default.HealthAndSafety,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
@@ -43,14 +58,17 @@ fun TermsAndConditionsDialog(
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    "Terms & Conditions & Privacy Policy",
+                    "Terms of Service & Privacy Policy",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
+                    fontSize = 17.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    "Compliant with Nepal Healthcare Laws & Google Play Health Policies",
+                    "Transparent Data Usage & Nepal Healthcare Compliance",
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
         },
@@ -58,75 +76,135 @@ fun TermsAndConditionsDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 480.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .heightIn(max = 480.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    "Effective Date: October 2026 • Dactor Nepal Healthcare Platform",
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Medium
-                )
+                // Scrollable legal & data usage sections
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Last Updated: October 2026 • Dactor Nepal Digital Healthcare Platform",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
 
-                // Clause 1: Medical Disclaimer & Emergency Notice
-                SectionCard(
-                    title = "1. Medical Disclaimer & Emergency Protocol (Call 102)",
-                    body = "IMPORTANT: Dactor is an outpatient (OPD) queue tracking, slot scheduling, and clinic discovery platform in Nepal. Dactor does NOT provide emergency medical services or automated diagnostic advice. In any acute medical emergency, severe chest pain, trauma, or life-threatening situation, call Nepal Ambulance (102) or go immediately to the nearest hospital emergency room."
-                )
+                    // Section 1: Data Usage Transparency
+                    SectionCard(
+                        title = "1. What We Do With Your Data (Data Handling Policy)",
+                        body = "At Dactor, your medical privacy is sacred. Here is full disclosure of how we handle your information:\n\n" +
+                                "• Information We Collect: Your name, mobile number, age, gender, email, booked clinic/doctor, appointment time slots, diagnostic lab tests, uploaded lab reports (PDF/images), device push notification token (FCM), and foreground GPS coordinates.\n" +
+                                "• How We Use It: Strictly to generate live OPD tokens, compute real-time queue wait estimates, send high-priority alerts when your turn is near or doctor is free, verify your identity for lab report downloads, and generate billing invoices.\n" +
+                                "• Storage & Encryption: All data in transit and at rest is secured via industry-standard TLS 1.3 encryption and Supabase/Firebase cloud isolation.\n" +
+                                "• ZERO Data Selling: We DO NOT sell, rent, monetize, or share your personal health or contact information with third-party advertisers or data brokers under any circumstances."
+                    )
 
-                // Clause 2: Nepal Medical Council & Licensed Practitioners
-                SectionCard(
-                    title = "2. Nepal Medical Council (NMC) & Professional Care",
-                    body = "All clinical consultations, physical exams, prescriptions, and lab interpretations are provided by independent medical practitioners registered with the Nepal Medical Council (NMC) under the Nepal Medical Council Act 2020. Dactor does not practice medicine and is not liable for medical outcomes."
-                )
+                    // Section 2: Medical Disclaimer & Emergency Notice
+                    SectionCard(
+                        title = "2. Medical Disclaimer & Emergency Protocol (Dial 102)",
+                        body = "IMPORTANT: Dactor is an outpatient (OPD) queue tracking, slot scheduling, and clinic discovery platform in Nepal. Dactor is NOT an emergency response service and does not provide automated diagnostic triage. In acute emergencies, severe chest pain, major trauma, or life-threatening crises, immediately call Nepal Ambulance (102) or go to the nearest hospital Emergency Room (ER)."
+                    )
 
-                // Clause 3: Nepal Privacy Act 2075 & Health Data Protection
-                SectionCard(
-                    title = "3. Nepal Individual Privacy Act 2075 & Data Security",
-                    body = "In accordance with Nepal's Individual Privacy Act 2075 (2018) and Privacy Rules 2077, your personal information (Name, Nepal Mobile Number, Email, and Booked Tokens) is encrypted and protected. Your medical data will never be sold, rented, or shared with third-party advertisers."
-                )
+                    // Section 3: Live Queue, Arrival Windows & Opt-in Early Calls
+                    SectionCard(
+                        title = "3. Live Queue Tracking & Early Arrival Notifications",
+                        body = "• Slot Windows: Dactor displays estimated arrival windows (e.g., 'around 3:20 PM' or '3:15 – 3:30 PM') because clinical consultation times vary per patient.\n" +
+                                "• Non-Opted Patients: Patients who do not opt in retain their fixed scheduled slot. We will never show an estimated time earlier than your slot start time.\n" +
+                                "• Opt-In Early Call: If you explicitly toggle 'Allow Early Call' during booking, the clinic may notify your device when the doctor is free ahead of schedule so you can choose to come in early."
+                    )
 
-                // Clause 4: Google Play Store Health Apps Policy Compliance
-                SectionCard(
-                    title = "4. Google Play Store Health & User Data Policy Compliance",
-                    body = "Dactor adheres to Google Play Health Apps Policies. Health data transmitted between the app and our secure cloud infrastructure is protected using modern TLS 1.3 encryption. Location access is strictly used to display nearby verified clinics on OpenStreetMap and is not tracked in the background."
-                )
+                    // Section 4: Diagnostic Lab Reports Privacy Gate
+                    SectionCard(
+                        title = "4. 3-Stage Diagnostic Lab Pipeline & Identity Gate",
+                        body = "Diagnostic tests progress through 3 verified stages: (1) Sample Collected, (2) Processing in Lab, and (3) Prepared & Uploaded. To protect sensitive pathology results from unauthorized access, report downloads require verified patient identity matching your booked full name."
+                    )
 
-                // Clause 5: Google Play Account Deletion & 30-Day Archive
-                SectionCard(
-                    title = "5. Right to Erasure & 30-Day Account Deletion Policy",
-                    body = "Under Google Play Account Deletion Requirements, patients retain the right to delete their account at any time via Profile Settings. Deletion places your account into a 30-day archive freeze. If you change your mind, you may log in within 30 days and cancel the deletion with one click; otherwise, account records are permanently purged."
-                )
+                    // Section 5: Nepal Healthcare & Privacy Laws
+                    SectionCard(
+                        title = "5. Nepal Privacy Act 2075 & Electronic Transactions Act 2063",
+                        body = "In compliance with Nepal's Individual Privacy Act 2075 (2018), Privacy Rules 2077, and Electronic Transactions Act 2063, your health information is confidential. Digital OPD tokens, queue confirmations, and electronic receipts generated on Dactor carry electronic validity under Nepal law."
+                    )
 
-                // Clause 6: Fee Transparency & Nepal Consumer Protection
-                SectionCard(
-                    title = "6. Consultation Fees & Consumer Protection Act 2075",
-                    body = "All consultation fees and clinic token prices are transparently displayed in Nepalese Rupees (NPR). When paying through eSewa, Khalti, or clinic reception, payments adhere to Nepal Rastra Bank (NRB) digital payment bylaws and the attending clinic's published cancellation policy."
-                )
+                    // Section 6: Google Play Store Health Apps Policy & Right to Erasure
+                    SectionCard(
+                        title = "6. Google Play Health Apps Compliance & Account Deletion",
+                        body = "Dactor complies with Google Play Health Apps and User Data Policies. Location permissions are used strictly in the foreground to locate nearby clinics on OpenStreetMap and are never tracked in the background. You have the right to delete your account at any time via Profile Settings with a 30-day grace period."
+                    )
 
-                // Clause 7: Electronic Transactions Act 2063
-                SectionCard(
-                    title = "7. Digital Tokens & Electronic Transactions Act 2063",
-                    body = "Digital OPD tokens, booking confirmations, and tracking codes generated on Dactor carry electronic validity under Nepal's Electronic Transactions Act 2063 (2008)."
-                )
+                    // Section 7: Nepal Medical Council (NMC) & Consultations
+                    SectionCard(
+                        title = "7. Nepal Medical Council (NMC) & Doctor-Patient Relationship",
+                        body = "All medical examinations, prescriptions, and advice are provided independently by practitioners registered with the Nepal Medical Council (NMC) under the NMC Act 2020. Dactor acts solely as a scheduling and queue management technology intermediary."
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // MANDATORY CHECKBOX
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isAgreed) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    border = BorderStroke(1.dp, if (isAgreed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isAgreed = !isAgreed }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = isAgreed,
+                            onCheckedChange = { isAgreed = it },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "I have read, understood, and accept Dactor's Privacy Policy, Data Usage Terms, and Terms of Service.",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    onAccept?.invoke()
-                    onDismiss()
+                    if (isAgreed) {
+                        onAccept?.invoke()
+                        onDismiss()
+                    }
                 },
-                shape = RoundedCornerShape(10.dp)
+                enabled = isAgreed,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (onAccept != null) "Accept & Agree" else "I Understand & Agree")
+                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "Accept & Proceed",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
             }
         },
         dismissButton = {
-            if (onAccept != null) {
-                TextButton(onClick = onDismiss) {
-                    Text("Decline")
+            if (!isMandatory) {
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Close", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -137,7 +215,7 @@ fun TermsAndConditionsDialog(
 private fun SectionCard(title: String, body: String) {
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth()
     ) {

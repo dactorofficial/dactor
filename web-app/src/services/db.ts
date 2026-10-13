@@ -409,6 +409,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       payment_status: normalizePaymentStatus(appt.paymentStatus),
       fee_amount: Number(appt.feeAmount) || 0,
       is_walkin: isWalkin,
+      opt_in_early_call: Boolean(appt.optInEarlyCall),
     }
 
     if (appt.selectedTests && appt.selectedTests.length > 0) {
@@ -1616,6 +1617,7 @@ function mapAppointment(a: any): Appointment {
     feeAmount: Number(a.fee_amount || 0),
     queueNumber: qe?.queue_position || a.queue_number || 1,
     notes: a.notes || (a.is_walkin ? 'Walk-In Reception Registration' : ''),
+    optInEarlyCall: Boolean(a.opt_in_early_call),
     createdAt: a.created_at,
     updatedAt: qe?.updated_at || a.updated_at,
     selectedTests: parsedTests,
@@ -2627,5 +2629,47 @@ export async function cancelClinicInvitation(invitationId: string, clinicId: str
     localStorage.setItem(`dactor_clinic_invitations_${clinicId}`, JSON.stringify(updated))
   } catch {}
   return true
+}
+
+// ==========================================
+// SYSTEM SETTINGS & SUPPORT HELPDESK API
+// ==========================================
+export async function getSupportUrl(): Promise<string> {
+  const DEFAULT_SUPPORT_URL = 'https://dactorofficial.github.io/support'
+  try {
+    // 1. Try system_settings table
+    const { data: setRes, error: setErr } = await supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'support_url')
+      .single()
+
+    if (!setErr && setRes?.value) {
+      localStorage.setItem('dactor_support_url', setRes.value)
+      return setRes.value
+    }
+  } catch {}
+
+  try {
+    // 2. Query medical_specialties where name = 'system_config:support_url'
+    const { data: specRes, error: specErr } = await supabase
+      .from('medical_specialties')
+      .select('search_keywords')
+      .eq('name', 'system_config:support_url')
+      .single()
+
+    if (!specErr && specRes?.search_keywords) {
+      localStorage.setItem('dactor_support_url', specRes.search_keywords)
+      return specRes.search_keywords
+    }
+  } catch {}
+
+  // 3. Fallback to localStorage or default URL
+  try {
+    const cached = localStorage.getItem('dactor_support_url')
+    if (cached) return cached
+  } catch {}
+
+  return DEFAULT_SUPPORT_URL
 }
 

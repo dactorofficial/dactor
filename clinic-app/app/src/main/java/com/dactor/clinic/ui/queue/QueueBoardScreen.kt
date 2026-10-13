@@ -53,7 +53,8 @@ data class QueueItemUi(
     val calledAt: String? = null,
     val completedAt: String? = null,
     val consultationDurationSeconds: Long? = null,
-    val selectedLabTests: String? = null
+    val selectedLabTests: String? = null,
+    val optInEarlyCall: Boolean = false
 )
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -315,7 +316,8 @@ fun QueueBoardScreen(
                         calledAt = entry.calledAt,
                         completedAt = entry.completedAt,
                         consultationDurationSeconds = durationSec,
-                        selectedLabTests = appt?.selectedLabTests
+                        selectedLabTests = appt?.selectedLabTests,
+                        optInEarlyCall = appt?.optInEarlyCall ?: false
                     )
                 }
 
@@ -1145,6 +1147,22 @@ fun QueueBoardScreen(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                             }
+                                            if (item.optInEarlyCall) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFFDCFCE7),
+                                                    border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(12.dp))
+                                                        Text("Early Call Opted-In", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF166534))
+                                                    }
+                                                }
+                                            }
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1246,7 +1264,9 @@ fun QueueBoardScreen(
                                                 isDoctorInClinic = true,
                                                 allClinicQueueEntries = rawQueueEntries,
                                                 targetEntry = targetRawEntry,
-                                                fallbackPatientsAhead = patientsAhead
+                                                fallbackPatientsAhead = patientsAhead,
+                                                appointmentTime = item.appointmentTime,
+                                                optInEarlyCall = item.optInEarlyCall
                                             )
                                         }
 
@@ -1534,7 +1554,9 @@ fun QueueBoardScreen(
                                                                 isDoctorInClinic = true,
                                                                 allClinicQueueEntries = rawQueueEntries,
                                                                 targetEntry = targetRaw,
-                                                                fallbackPatientsAhead = peopleAheadCount
+                                                                fallbackPatientsAhead = peopleAheadCount,
+                                                                appointmentTime = item.appointmentTime,
+                                                                optInEarlyCall = item.optInEarlyCall
                                                             )
                                                             val alertTitle = "Your Turn is Coming Soon!"
                                                             val alertBody = when {
@@ -1573,6 +1595,39 @@ fun QueueBoardScreen(
                                                     Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(15.dp))
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Text("Send Alert", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                                }
+                                            }
+
+                                            // Early Arrival Invite Button (Opt-in patients when doctor finishes early)
+                                            if (item.optInEarlyCall && item.status == "waiting") {
+                                                Button(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                             val sentOk = queueRepository?.sendEarlyArrivalInvite(
+                                                                 appointmentId = item.appointmentId,
+                                                                 userId = null,
+                                                                 patientName = item.patientName,
+                                                                 trackingCode = item.trackingCode,
+                                                                 originalSlot = item.appointmentTime.ifBlank { "Scheduled Slot" }
+                                                             ) ?: false
+                                                             notificationSentMessage = if (sentOk) {
+                                                                 "✓ Early arrival push alert sent to ${item.patientName} (Doctor Free Now)."
+                                                             } else {
+                                                                 "⚠ Could not deliver early arrival alert. Please retry."
+                                                             }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = Color(0xFF16A34A),
+                                                        contentColor = Color.White
+                                                    ),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                                    modifier = Modifier.weight(1.1f)
+                                                ) {
+                                                    Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Invite Early", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                                 }
                                             }
 

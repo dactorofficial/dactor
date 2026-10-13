@@ -104,17 +104,17 @@ export const LabReports: React.FC = () => {
       : 'sample_collected'
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <div className="max-w-4xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-6 sm:space-y-8 pb-28 sm:pb-10">
       {/* Header */}
-      <div className="text-center space-y-3">
-        <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-teal-100 text-teal-800 text-xs font-bold uppercase tracking-wider">
-          <FlaskConical className="w-3.5 h-3.5 text-teal-600" />
+      <div className="text-center space-y-2 sm:space-y-3">
+        <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-teal-500/10 dark:bg-teal-400/10 text-teal-800 dark:text-teal-300 text-[11px] sm:text-xs font-bold uppercase tracking-wider border border-teal-500/20 backdrop-blur-md">
+          <FlaskConical className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
           <span>Pathology & Lab Diagnostics</span>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+        <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
           Retrieve Diagnostic Lab Reports
         </h1>
-        <p className="text-sm text-slate-500 font-medium max-w-xl mx-auto">
+        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 font-medium max-w-xl mx-auto leading-relaxed">
           Track 3-stage status and securely access verified lab test reports with patient identity verification.
         </p>
       </div>
@@ -123,29 +123,29 @@ export const LabReports: React.FC = () => {
       <div className="max-w-xl mx-auto">
         <form
           onSubmit={handleSearch}
-          className="p-2 bg-white rounded-3xl border border-slate-200/80 shadow-md flex items-center gap-2"
+          className="p-1.5 sm:p-2 liquid-glass-elevated rounded-2xl sm:rounded-3xl border-teal-500/30 shadow-glass-elevated flex items-center gap-1.5 sm:gap-2"
         >
           <div className="relative flex-1">
             <input
               type="text"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="Enter 10-Digit Tracking Code..."
+              placeholder="Enter 10-Digit Code..."
               maxLength={10}
-              className="w-full px-4 py-3 pl-11 text-lg font-black tracking-wider text-slate-900 bg-transparent focus:outline-none placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal"
+              className="w-full px-3 sm:px-4 py-2.5 sm:py-3 pl-9 sm:pl-11 text-sm sm:text-lg font-black tracking-wider text-slate-900 dark:text-white bg-transparent focus:outline-none placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal"
             />
-            <Search className="w-5 h-5 text-teal-600 absolute left-3.5 top-3.5" />
+            <Search className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600 dark:text-teal-400 absolute left-3 sm:left-3.5 top-1/2 -translate-y-1/2" />
           </div>
           <button
             type="submit"
-            className="px-6 py-3.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-2xl shadow-md shadow-teal-600/20 transition-all shrink-0"
+            className="px-4 sm:px-6 py-2.5 sm:py-3.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl shadow-glass-base transition-all shrink-0 cursor-pointer active:scale-95 border-t border-white/20"
           >
             {loading ? 'Checking...' : 'Check Status'}
           </button>
         </form>
 
         {errorMsg && (
-          <div className="mt-3 p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs flex items-center space-x-2">
+          <div className="mt-2.5 p-3 bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 rounded-2xl text-xs flex items-center space-x-2 backdrop-blur-sm">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
@@ -154,119 +154,119 @@ export const LabReports: React.FC = () => {
 
       {/* Results Area */}
       {searched && (reports.length > 0 || appointment) && (
-        <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-xl space-y-6 animate-in fade-in duration-200">
+        <div className="liquid-glass-elevated rounded-2xl sm:rounded-3xl p-4 sm:p-8 space-y-4 sm:space-y-6 animate-in fade-in duration-200">
           {/* 3-Stage Process Card */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+          <div className="space-y-3 sm:space-y-4">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider text-[11px] sm:text-xs">
                 Laboratory Processing Status
               </span>
-              <span className="text-xs font-black font-mono text-slate-800">
+              <span className="font-black font-mono text-slate-800 dark:text-white">
                 Code: #{code}
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
               <div
-                className={`p-4 rounded-2xl border text-center transition-all ${
+                className={`p-2 sm:p-4 rounded-xl sm:rounded-2xl border text-center transition-all ${
                   currentStatus === 'sample_collected' ||
                   currentStatus === 'processing' ||
                   currentStatus === 'prepared' ||
                   currentStatus === 'delivered'
-                    ? 'bg-brand-50 border-brand-300 text-brand-800'
-                    : 'bg-slate-50 border-slate-200 text-slate-400'
+                    ? 'bg-teal-500/15 border-teal-500/30 text-teal-900 dark:text-teal-200 shadow-glass-sm'
+                    : 'liquid-glass-subtle text-slate-400 opacity-60'
                 }`}
               >
-                <div className="text-[10px] font-bold uppercase">Stage 1</div>
-                <div className="text-xs sm:text-sm font-black mt-1">Sample Collected</div>
+                <div className="text-[9px] sm:text-[10px] font-bold uppercase">Stage 1</div>
+                <div className="text-[11px] sm:text-sm font-black mt-0.5 sm:mt-1 leading-tight">Sample Collected</div>
               </div>
 
               <div
-                className={`p-4 rounded-2xl border text-center transition-all ${
+                className={`p-2 sm:p-4 rounded-xl sm:rounded-2xl border text-center transition-all ${
                   currentStatus === 'processing' ||
                   currentStatus === 'prepared' ||
                   currentStatus === 'delivered'
                     ? currentStatus === 'processing'
-                      ? 'bg-blue-50 border-blue-400 text-blue-800 ring-2 ring-blue-300'
-                      : 'bg-brand-50 border-brand-300 text-brand-800'
-                    : 'bg-slate-50 border-slate-200 text-slate-400'
+                      ? 'bg-blue-500/15 border-blue-500/40 text-blue-900 dark:text-blue-200 ring-2 ring-blue-500/30 shadow-glass-sm'
+                      : 'bg-teal-500/15 border-teal-500/30 text-teal-900 dark:text-teal-200 shadow-glass-sm'
+                    : 'liquid-glass-subtle text-slate-400 opacity-60'
                 }`}
               >
-                <div className="text-[10px] font-bold uppercase">Stage 2</div>
-                <div className="text-xs sm:text-sm font-black mt-1">Processing in Lab</div>
+                <div className="text-[9px] sm:text-[10px] font-bold uppercase">Stage 2</div>
+                <div className="text-[11px] sm:text-sm font-black mt-0.5 sm:mt-1 leading-tight">Processing in Lab</div>
               </div>
 
               <div
-                className={`p-4 rounded-2xl border text-center transition-all ${
+                className={`p-2 sm:p-4 rounded-xl sm:rounded-2xl border text-center transition-all ${
                   currentStatus === 'prepared' || currentStatus === 'delivered'
-                    ? 'bg-brand-50 border-brand-400 text-brand-800 ring-2 ring-brand-300'
-                    : 'bg-slate-50 border-slate-200 text-slate-400'
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-900 dark:text-emerald-200 ring-2 ring-emerald-500/30 shadow-glass-sm'
+                    : 'liquid-glass-subtle text-slate-400 opacity-60'
                 }`}
               >
-                <div className="text-[10px] font-bold uppercase">Stage 3</div>
-                <div className="text-xs sm:text-sm font-black mt-1">Report Prepared</div>
+                <div className="text-[9px] sm:text-[10px] font-bold uppercase">Stage 3</div>
+                <div className="text-[11px] sm:text-sm font-black mt-0.5 sm:mt-1 leading-tight">Report Prepared</div>
               </div>
             </div>
           </div>
 
           {/* If Prepared: Name Verification Unlock */}
           {currentStatus === 'prepared' || currentStatus === 'delivered' ? (
-            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
-              <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm">
-                <Lock className="w-5 h-5 text-brand-600" />
+            <div className="p-4 sm:p-6 liquid-glass-subtle rounded-2xl border-emerald-500/30 space-y-3 sm:space-y-4">
+              <div className="flex items-center space-x-2 text-slate-900 dark:text-white font-bold text-xs sm:text-sm">
+                <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600 dark:text-teal-400 shrink-0" />
                 <span>Patient Name Verification</span>
               </div>
-              <p className="text-xs text-slate-600">
+              <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                 To access and download your certified diagnostic report, please confirm the registered patient's full name.
               </p>
 
               {!isVerified ? (
-                <form onSubmit={handleVerify} className="max-w-md space-y-3">
+                <form onSubmit={handleVerify} className="max-w-md space-y-2.5 sm:space-y-3">
                   <input
                     type="text"
                     value={verifyNameInput}
                     onChange={(e) => setVerifyNameInput(e.target.value)}
                     placeholder="Enter Patient Full Name..."
-                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3.5 sm:px-4 py-2 sm:py-2.5 liquid-glass-input rounded-xl text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                   {verifyError && (
                     <p className="text-xs text-rose-600 font-bold">{verifyError}</p>
                   )}
                   <button
                     type="submit"
-                    className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                    className="w-full sm:w-auto px-5 sm:px-6 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs font-bold rounded-xl shadow-glass-sm transition-all cursor-pointer active:scale-95 border-t border-white/20"
                   >
                     Verify & Unlock Report
                   </button>
                 </form>
               ) : (
-                <div className="space-y-4 pt-2">
-                  <div className="p-3 bg-brand-100 border border-brand-300 rounded-xl flex items-center space-x-2 text-brand-900 text-xs font-bold">
-                    <CheckCircle2 className="w-4 h-4 text-brand-700" />
-                    <span>Identity Verified for: {appointment?.patientName || reports[0]?.patientName}</span>
+                <div className="space-y-3 sm:space-y-4 pt-1 sm:pt-2">
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center space-x-2 text-emerald-900 dark:text-emerald-300 text-xs font-bold">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span className="truncate">Identity Verified: {appointment?.patientName || reports[0]?.patientName}</span>
                   </div>
 
                   {reports.length > 0 && reports[0].reportFileUrl ? (
-                    <div className="p-4 bg-white rounded-xl border border-brand-200 flex items-center justify-between">
+                    <div className="p-3.5 sm:p-4 liquid-glass-card rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                       <div className="flex items-center space-x-3">
-                        <FileText className="w-8 h-8 text-teal-600" />
+                        <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-teal-600 dark:text-teal-400 shrink-0" />
                         <div>
-                          <p className="text-sm font-bold text-slate-900">
+                          <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
                             {reports[0].testName || 'Diagnostic Report File'}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
                             Uploaded on {new Date(reports[0].uploadedAt || Date.now()).toLocaleDateString()}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center space-x-2">
+                      <div className="w-full sm:w-auto flex items-center space-x-2">
                         <a
                           href={reports[0].reportFileUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           download
-                          className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center space-x-1.5"
+                          className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center space-x-1.5 shadow-glass-sm active:scale-95 border-t border-white/20"
                         >
                           <Download className="w-3.5 h-3.5" />
                           <span>Download Report</span>
@@ -274,7 +274,7 @@ export const LabReports: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <div className="p-4 bg-white rounded-xl border border-brand-200 text-xs text-slate-600">
+                    <div className="p-3.5 sm:p-4 liquid-glass-subtle rounded-xl text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                       Your diagnostic report is prepared and ready for collection at the clinic desk. A digital PDF copy will also sync here if uploaded by the lab.
                     </div>
                   )}
@@ -282,11 +282,11 @@ export const LabReports: React.FC = () => {
               )}
             </div>
           ) : (
-            <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-2xl text-xs text-blue-900 flex items-start space-x-3">
-              <Clock className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+            <div className="p-3.5 sm:p-4 liquid-glass-subtle border-blue-500/30 rounded-2xl text-xs text-blue-900 dark:text-blue-300 flex items-start space-x-2.5 sm:space-x-3">
+              <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
               <div>
                 <strong className="block font-bold">Report Still In Preparation</strong>
-                <span>
+                <span className="leading-relaxed text-blue-800 dark:text-blue-300/80">
                   Your diagnostic specimen is being processed. As soon as the certified pathologist signs off, this screen will transition to 'Report Prepared' and allow you to view the file.
                 </span>
               </div>

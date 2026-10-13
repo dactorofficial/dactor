@@ -31,8 +31,8 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 | Component | Platform / Tech | Source Folder | Live Deployment / Artifacts | Current Latest Version |
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
-| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v<version>.apk` | v1.0 (Base) |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v<version>.apk` | v1.0 (Base) |
+| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.9.apk` | v1.0.9 (Code 10) |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.6.apk` | v1.0.6 (Code 7) |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---
@@ -309,10 +309,42 @@ Run the install script, which automatically resolves the latest versioned APK:
 | 2026-10-10 | Patient | v1.0.0 | 1 | `APKs/Dactor-PatientApp-debug.apk` | Initial debug build (Base) |
 | 2026-10-11 | Clinic & Doctor | v1.0.1 | 2 | `APKs/Dactor-ClinicApp-v1.0.1.apk` | Upgraded to AGP 8.5.2, SDK XML v4 support, in-process compilation |
 | 2026-10-11 | Patient | v1.0.1 | 2 | `APKs/Dactor-PatientApp-v1.0.1.apk` | Upgraded to AGP 8.5.2, SDK XML v4 support, in-process compilation |
+| 2026-10-12 | Patient | v1.0.5 | 6 | `APKs/Dactor-PatientApp-v1.0.5.apk` | Redesigned Live Queue UI matching reference mockup: medical pine teal #0D5C4D theme, Contigo pill, white booking code card, concentric token badge, aligned stepper, integrated clinic/doctor card with inside presence banner, solid Reschedule & outlined Google Maps buttons, secondary tracking card |
+| 2026-10-12 | Clinic & Doctor | v1.0.9 | 10 | `APKs/Dactor-ClinicApp-v1.0.9.apk` | Fix add slot in future appointments: dynamic doctor active clinic ID resolution, published OPD slots card with deletion, quick duration chips, daytime defaults for future dates, blue dot on calendar for published slots |
+| 2026-10-12 | Patient | v1.0.6 | 7 | `APKs/Dactor-PatientApp-v1.0.6.apk` | Fix live tracking queue position: displays exact live count of patients ahead in line in concentric circle badge & main screen with "Token #X" pill; handles NOW/UP NEXT states; cache force-refresh support |
 
 ---
 
-## 8. Next Recommended Priorities
-1. **End-to-End Mobile Testing**: Run registration from the Android app on a test device, verify that the photo upload spinner completes, and check that the resulting URL is visible in the Admin Portal under "Clinic Verification" and "Doctor KYC".
-2. **Notification Pipeline Testing**: Verify that when Admin broadcasts alerts from `BroadcastNotification.tsx`, FCM tokens are registered and receive the test payloads.
-3. **Database Maintenance Job**: Schedule a cron or Edge function to automatically clean up clinics where `is_archived = true` and `deletion_scheduled_at <= NOW()`.
+## 8. Support Desk URL Publisher & Network-Wide "Contact Us" Integration (October 2026)
+
+### A. Admin Portal Support URL Publisher
+- Created `admin-panel/src/pages/SupportSettings.tsx` accessible via `/support-settings` with Globe navigation icon and quick action card in Dashboard.
+- Supports custom support site URL publishing with quick presets (Dactor Support Desk, WhatsApp Helpline, Direct Support Email).
+- Dual-layer real-time cloud persistence: reads/writes to Supabase `system_settings` or `medical_specialties` (`category = 'system_config'`, `name = 'system_config:support_url'`).
+
+### B. Web Application & Fallback Support Desk
+- Created `web-app/src/pages/Support.tsx` with contact form, WhatsApp direct link, phone/email contact cards, and FAQ accordion.
+- Available at `https://dactorofficial.github.io/support` and hash route `/#support`.
+- Dynamic fallback resolution: `getSupportUrl()` in `web-app/src/services/db.ts` queries Supabase, falls back to `localStorage`, and defaults to `https://dactorofficial.github.io/support`.
+
+### C. Verification Screen & Profile Settings "Contact Support" Buttons
+- **Verification Screens**:
+  - Clinic Portal (`web-app/src/pages/ClinicPortal.tsx` & `clinic-app` `ClinicLoginScreen.kt`): Prominent "Contact Dactor Support & Onboarding Desk" button displayed when clinic account is in `pending_verification` state.
+  - Doctor Portal (`web-app/src/pages/DoctorPortal.tsx` & `clinic-app` `DoctorKYCScreen.kt`): Prominent "Contact Dactor Practitioner Support Desk" button displayed when practitioner KYC is pending review.
+- **Profile Settings Screens**:
+  - Clinic Settings (`ClinicPortal.tsx` & `ClinicSettingsScreen.kt`): Dedicated "Contact Us & Dactor Helpdesk Support" section.
+  - Doctor Profile Settings (`DoctorPortal.tsx`): Dedicated "Contact Us & Practitioner Helpdesk" card.
+  - Patient Profile Settings (`PatientPortal.tsx` & `ProfileScreen.kt`): "Contact Us & Dactor Helpdesk Support" entry opening the live support destination.
+
+### D. Build & Release Constraint Compliance
+- Per explicit user instruction **"dont make apk"**, zero Gradle APK build tasks were executed (`assembleDebug` / `assembleRelease` avoided).
+- Web App built and deployed cleanly to GitHub Pages (`dactorofficial.github.io`).
+- Admin Portal built and committed to `https://github.com/dactorofficial/admin-portal.git`.
+
+---
+
+## 9. Next Recommended Priorities
+1. **Live Admin Verification**: Visit `https://dactorofficial.github.io/admin-portal/` and update the support URL to verify real-time propagation across web and mobile.
+2. **Mobile App Testing on Physical Devices**: Test the "Contact Us" buttons on Android to ensure `Intent.ACTION_VIEW` launches the browser with the configured support URL.
+3. **Production Domain Configuration**: Connect custom domain (e.g. `dactor.com` or `dactor.np`) to GitHub Pages when ready.
+

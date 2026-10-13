@@ -16,7 +16,9 @@ import com.dactor.patient.R
 import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.DactorNotification
+import com.dactor.patient.data.model.NotificationTemplate
 import com.dactor.patient.data.model.NotificationTemplateData
+import com.dactor.patient.data.model.NotificationType
 import com.dactor.patient.data.model.QueueEntry
 import com.dactor.patient.di.AppModule
 import io.github.jan.supabase.postgrest.postgrest
@@ -121,21 +123,19 @@ class NotificationWatchdogService : Service() {
                             val autoApptKey = "auto_appt_today_${appt.id}"
                             if (appt.checkinStatus in listOf("waiting", "checked_in") && !sessionManager.isNotificationSeen(autoApptKey)) {
                                 sessionManager.markNotificationSeen(autoApptKey)
-                                val msg = NotificationTemplateData.buildMessageWithMeta(
-                                    cleanMessage = "Hi ${appt.patientName}, your appointment (#$code) is scheduled for today at $slotTime. Track your live queue turn anytime.",
-                                    leftLabel = "Estimated Wait",
-                                    leftValue = estWait,
-                                    rightLabel = "Appointment Time",
-                                    rightValue = slotTime,
-                                    trackingCode = code
+                                val msg = NotificationTemplate.AppointmentReminder.buildMessage(
+                                    patientName = appt.patientName,
+                                    code = code,
+                                    slotTime = slotTime,
+                                    estWait = estWait
                                 )
                                 NotificationHelper.showSystemNotification(
                                     context = applicationContext,
                                     id = (autoApptKey.hashCode() and 0x7FFFFFFF) % 100000,
-                                    title = "Appointment Reminder • #$code",
+                                    title = NotificationTemplate.AppointmentReminder.buildTitle(code),
                                     message = msg,
                                     appointmentId = code,
-                                    type = "queue_alert"
+                                    type = NotificationType.QUEUE_ALERT.key
                                 )
                             }
 
@@ -145,21 +145,19 @@ class NotificationWatchdogService : Service() {
                                 if (!sessionManager.isNotificationSeen(autoPosKey)) {
                                     sessionManager.markNotificationSeen(autoPosKey)
                                     val waitLabel = if (qEntry.queuePosition == 1) "Up Next (~5 mins)" else "~10-15 mins"
-                                    val msg = NotificationTemplateData.buildMessageWithMeta(
-                                        cleanMessage = "Hi ${appt.patientName}, you are now #${qEntry.queuePosition} in the live queue (#$code). Please be ready near the consultation room.",
-                                        leftLabel = "Estimated Time Left",
-                                        leftValue = waitLabel,
-                                        rightLabel = "Queue Position",
-                                        rightValue = "#${qEntry.queuePosition} (Queue Position #${qEntry.queuePosition})",
-                                        trackingCode = code
+                                    val msg = NotificationTemplate.QueueApproaching.buildMessage(
+                                        patientName = appt.patientName,
+                                        code = code,
+                                        queuePosition = qEntry.queuePosition,
+                                        waitLabel = waitLabel
                                     )
                                     NotificationHelper.showSystemNotification(
                                         context = applicationContext,
                                         id = (autoPosKey.hashCode() and 0x7FFFFFFF) % 100000,
-                                        title = "Your Turn Is Approaching (#${qEntry.queuePosition})",
+                                        title = NotificationTemplate.QueueApproaching.buildTitle(qEntry.queuePosition),
                                         message = msg,
                                         appointmentId = code,
-                                        type = "queue_alert"
+                                        type = NotificationType.QUEUE_ALERT.key
                                     )
                                 }
                             }
@@ -169,21 +167,18 @@ class NotificationWatchdogService : Service() {
                                 val autoInsideKey = "auto_inside_${appt.id}"
                                 if (!sessionManager.isNotificationSeen(autoInsideKey)) {
                                     sessionManager.markNotificationSeen(autoInsideKey)
-                                    val msg = NotificationTemplateData.buildMessageWithMeta(
-                                        cleanMessage = "Hi ${appt.patientName}, the doctor is calling you inside now for appointment #$code. Please proceed to the room immediately.",
-                                        leftLabel = "Estimated Time Left",
-                                        leftValue = "Now (0 mins)",
-                                        rightLabel = "Your Token",
-                                        rightValue = "Token #${qEntry?.queuePosition ?: 1}",
-                                        trackingCode = code
+                                    val msg = NotificationTemplate.DoctorCallingInside.buildMessage(
+                                        patientName = appt.patientName,
+                                        code = code,
+                                        queuePosition = qEntry?.queuePosition ?: 1
                                     )
                                     NotificationHelper.showSystemNotification(
                                         context = applicationContext,
                                         id = (autoInsideKey.hashCode() and 0x7FFFFFFF) % 100000,
-                                        title = "Doctor Calling You Inside Now!",
+                                        title = NotificationTemplate.DoctorCallingInside.buildTitle(),
                                         message = msg,
                                         appointmentId = code,
-                                        type = "queue_alert"
+                                        type = NotificationType.QUEUE_ALERT.key
                                     )
                                 }
                             }
@@ -193,42 +188,34 @@ class NotificationWatchdogService : Service() {
                                 val autoProcKey = "auto_lab_proc_${appt.id}"
                                 if (!sessionManager.isNotificationSeen(autoProcKey)) {
                                     sessionManager.markNotificationSeen(autoProcKey)
-                                    val msg = NotificationTemplateData.buildMessageWithMeta(
-                                        cleanMessage = "Hi ${appt.patientName}, your lab sample for #$code has been collected and is now processing in the laboratory.",
-                                        leftLabel = "Lab Status",
-                                        leftValue = "Processing",
-                                        rightLabel = "Tracking Code",
-                                        rightValue = "#$code",
-                                        trackingCode = code
+                                    val msg = NotificationTemplate.LabProcessing.buildMessage(
+                                        patientName = appt.patientName,
+                                        code = code
                                     )
                                     NotificationHelper.showSystemNotification(
                                         context = applicationContext,
                                         id = (autoProcKey.hashCode() and 0x7FFFFFFF) % 100000,
-                                        title = "Sample Collected • Processing Started",
+                                        title = NotificationTemplate.LabProcessing.buildTitle(),
                                         message = msg,
                                         appointmentId = code,
-                                        type = "lab_report"
+                                        type = NotificationType.LAB_PROCESSING.key
                                     )
                                 }
                             } else if (appt.checkinStatus == "prepared") {
                                 val autoPrepKey = "auto_lab_prep_${appt.id}"
                                 if (!sessionManager.isNotificationSeen(autoPrepKey)) {
                                     sessionManager.markNotificationSeen(autoPrepKey)
-                                    val msg = NotificationTemplateData.buildMessageWithMeta(
-                                        cleanMessage = "Hi ${appt.patientName}, your diagnostic lab report for #$code is prepared and ready to view or download.",
-                                        leftLabel = "Report Status",
-                                        leftValue = "Prepared & Ready",
-                                        rightLabel = "Verification",
-                                        rightValue = "Name / Mobile",
-                                        trackingCode = code
+                                    val msg = NotificationTemplate.LabReportReady.buildMessage(
+                                        patientName = appt.patientName,
+                                        code = code
                                     )
                                     NotificationHelper.showSystemNotification(
                                         context = applicationContext,
                                         id = (autoPrepKey.hashCode() and 0x7FFFFFFF) % 100000,
-                                        title = "Lab Report Prepared (#$code)",
+                                        title = NotificationTemplate.LabReportReady.buildTitle(code),
                                         message = msg,
                                         appointmentId = code,
-                                        type = "lab_report"
+                                        type = NotificationType.LAB_REPORT.key
                                     )
                                 }
                             }

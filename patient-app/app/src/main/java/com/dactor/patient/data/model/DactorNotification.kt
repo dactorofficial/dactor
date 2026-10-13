@@ -51,8 +51,8 @@ data class NotificationTemplateData(
             val match = META_REGEX.find(rawMessage)
             val cleanMsg = rawMessage.replace(META_REGEX, "").trim()
 
-            // Strictly identify if this is a queue status reminder
-            val isQueueReminderType = type == "queue_alert" ||
+            val notifType = NotificationType.from(type)
+            val isQueueReminderType = notifType in listOf(NotificationType.QUEUE_ALERT, NotificationType.DOCTOR_ARRIVAL, NotificationType.MANUAL_ALERT) ||
                 title.contains("Queue", ignoreCase = true) ||
                 title.contains("Turn", ignoreCase = true) ||
                 cleanMsg.contains("queue", ignoreCase = true) ||
@@ -78,7 +78,7 @@ data class NotificationTemplateData(
                     rightLabel = map["rightLabel"]?.takeIf { it.isNotBlank() } ?: "Your Appointment Time",
                     rightValue = map["rightVal"]?.takeIf { it.isNotBlank() } ?: "Active Queue",
                     trackingCode = map["code"],
-                    isQueueReminder = isQueueReminderType || type == "manual_alert"
+                    isQueueReminder = isQueueReminderType || notifType == NotificationType.MANUAL_ALERT
                 )
             }
 
@@ -87,7 +87,7 @@ data class NotificationTemplateData(
             val timeMatch = Regex("""(\d{1,2}:\d{2}\s*(?:AM|PM))""", RegexOption.IGNORE_CASE).find(cleanMsg)
 
             return when {
-                type == "lab_report" || title.contains("Report", ignoreCase = true) -> NotificationTemplateData(
+                notifType in listOf(NotificationType.LAB_REPORT, NotificationType.LAB_PROCESSING) || title.contains("Report", ignoreCase = true) -> NotificationTemplateData(
                     title = title.ifBlank { "Lab Report Prepared" },
                     cleanMessage = cleanMsg,
                     leftLabel = "Report Status",
@@ -96,7 +96,7 @@ data class NotificationTemplateData(
                     rightValue = "Ready to View",
                     isQueueReminder = false
                 )
-                type == "clinic_break" || title.contains("Break", ignoreCase = true) -> NotificationTemplateData(
+                notifType == NotificationType.CLINIC_BREAK || title.contains("Break", ignoreCase = true) -> NotificationTemplateData(
                     title = title.ifBlank { "Clinic is on Break" },
                     cleanMessage = cleanMsg,
                     leftLabel = "Estimated Time Left",
@@ -105,7 +105,7 @@ data class NotificationTemplateData(
                     rightValue = timeMatch?.groupValues?.get(1) ?: "Paused Briefly",
                     isQueueReminder = false
                 )
-                type == "broadcast" || type == "announcement" -> NotificationTemplateData(
+                notifType in listOf(NotificationType.BROADCAST, NotificationType.ANNOUNCEMENT) -> NotificationTemplateData(
                     title = title.ifBlank { "Dactor Announcement" },
                     cleanMessage = cleanMsg,
                     leftLabel = "",
