@@ -386,32 +386,81 @@ class AppointmentRepository @Inject constructor(
                 } catch (ignored: Exception) {}
             }
 
-            // Compute next queue position for this clinic and insert into queue_entries
+            // Compute slot-aware queue position:
+            // Put the walkin patient in the last position of their specific time slot,
+            // and shift all patients in subsequent time slots down (+1).
             try {
-                val existingQueue = supabaseClient.postgrest["queue_entries"]
-                    .select { filter { eq("clinic_id", created.clinicId) } }
+                val activeQueue = supabaseClient.postgrest["queue_entries"]
+                    .select {
+                        filter {
+                            eq("clinic_id", created.clinicId)
+                            or {
+                                eq("status", "waiting")
+                                eq("status", "inside")
+                            }
+                        }
+                    }
                     .decodeList<QueueEntry>()
-                val alreadyInQueue = existingQueue.any { it.appointmentId == created.id }
+                val alreadyInQueue = activeQueue.any { it.appointmentId == created.id }
                 if (!alreadyInQueue) {
-                    val nextPos = (existingQueue
-                        .filter { it.status == "waiting" || it.status == "inside" }
-                        .maxOfOrNull { it.queuePosition } ?: 0) + 1
+                    val targetSlotMinutes = parseTimeToMinutes(created.appointmentTime)
+                    val activeAppts = try {
+                        supabaseClient.postgrest["appointments"]
+                            .select {
+                                filter {
+                                    eq("clinic_id", created.clinicId)
+                                }
+                            }
+                            .decodeList<Appointment>()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                    val apptMap = activeAppts.associateBy { it.id }
+
+                    // Preceding entries: patient inside cabin OR patients in earlier or same time slot
+                    val precedingEntries = activeQueue.filter { entry ->
+                        if (entry.status == "inside") return@filter true
+                        val appt = apptMap[entry.appointmentId]
+                        val slotMins = parseTimeToMinutes(appt?.appointmentTime)
+                        slotMins <= targetSlotMinutes
+                    }
+
+                    val insertPos = (precedingEntries.maxOfOrNull { it.queuePosition } ?: precedingEntries.size) + 1
+
+                    // Shift all entries with queuePosition >= insertPos down by 1 in descending order
+                    val laterEntries = activeQueue
+                        .filter { it.queuePosition >= insertPos }
+                        .sortedByDescending { it.queuePosition }
+
+                    for (later in laterEntries) {
+                        val shiftedPos = later.queuePosition + 1
+                        try {
+                            supabaseClient.postgrest["queue_entries"]
+                                .update({ set("queue_position", shiftedPos) }) {
+                                    filter { eq("id", later.id) }
+                                }
+                        } catch (shiftErr: Exception) {
+                            shiftErr.printStackTrace()
+                        }
+                    }
+
+                    // Insert the new walkin entry at insertPos
                     val queueEntryDto = QueueEntryInsertDto(
                         id = UUID.randomUUID().toString(),
                         appointmentId = created.id,
                         clinicId = created.clinicId,
                         doctorId = created.doctorId,
-                        queuePosition = nextPos,
+                        queuePosition = insertPos,
                         status = "waiting"
                     )
                     supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
+
+                    // Reindex active queue chronologically to ensure clean contiguous numbering
+                    reindexActiveQueueChronologically(created.clinicId)
                 }
             } catch (qEx: Exception) {
                 qEx.printStackTrace()
             }
-
-            // Chronologically sort queue by time slot so earlier time slots precede later time slots
-            reindexActiveQueueChronologically(created.clinicId)
 
             created
         } catch (e: Exception) {
@@ -704,25 +753,35 @@ class AppointmentRepository @Inject constructor(
             val apptMap = appointments.associateBy { it.id }
 
             // Chronological slot sort:
-            // Patients in earlier time slots (e.g. 3-4 PM) strictly precede patients in later time slots (4-5 PM).
-            // Within the same time slot, preserve original relative queue position.
+            // 1. Patient inside consultation cabin strictly maintains position #1
+            // 2. Patients in earlier time slots (e.g. 2-3 PM) precede later time slots (3-4 PM).
+            // 3. Within the same time slot, preserve relative queue position.
             val sortedEntries = activeEntries.sortedWith(
-                compareBy<QueueEntry> { entry ->
-                    val appt = apptMap[entry.appointmentId]
-                    parseTimeToMinutes(appt?.appointmentTime)
-                }.thenBy { it.queuePosition }
+                compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
+                    .thenBy { entry ->
+                        val appt = apptMap[entry.appointmentId]
+                        parseTimeToMinutes(appt?.appointmentTime)
+                    }.thenBy { it.queuePosition }
             )
+
+            // Safe two-pass update to eliminate duplicate key collision
+            for (entry in sortedEntries) {
+                try {
+                    supabaseClient.postgrest["queue_entries"]
+                        .update({ set("queue_position", - (entry.queuePosition + 10000)) }) {
+                            filter { eq("id", entry.id) }
+                        }
+                } catch (ignored: Exception) {}
+            }
 
             sortedEntries.forEachIndexed { index, entry ->
                 val newPos = index + 1
-                if (entry.queuePosition != newPos) {
-                    try {
-                        supabaseClient.postgrest["queue_entries"]
-                            .update({ set("queue_position", newPos) }) {
-                                filter { eq("id", entry.id) }
-                            }
-                    } catch (ignored: Exception) {}
-                }
+                try {
+                    supabaseClient.postgrest["queue_entries"]
+                        .update({ set("queue_position", newPos) }) {
+                            filter { eq("id", entry.id) }
+                        }
+                } catch (ignored: Exception) {}
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -767,17 +826,41 @@ class AppointmentRepository @Inject constructor(
         fun parseTimeToMinutes(timeStr: String?): Int {
             if (timeStr.isNullOrBlank()) return 23 * 60 + 59
             return try {
-                val clean = timeStr.trim()
-                val firstPart = clean.split("-").first().trim()
-                val isPm = clean.contains("PM", ignoreCase = true)
-                val isAm = clean.contains("AM", ignoreCase = true)
+                val clean = timeStr.trim().uppercase()
+                val parts = clean.split("-", "–", "TO")
+                val firstPart = parts.first().trim()
+                val secondPart = if (parts.size > 1) parts[1].trim() else ""
+
                 val match = Regex("(\\d{1,2})(?::(\\d{2}))?").find(firstPart)
                 if (match != null) {
                     var h = match.groupValues[1].toIntOrNull() ?: 12
                     val m = match.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0
+
+                    val firstHasAm = firstPart.contains("AM")
+                    val firstHasPm = firstPart.contains("PM")
+                    val secondHasAm = secondPart.contains("AM")
+                    val secondHasPm = secondPart.contains("PM")
+
+                    val isAm = when {
+                        firstHasAm -> true
+                        firstHasPm -> false
+                        secondHasAm -> true
+                        secondHasPm && h in 7..11 -> true
+                        else -> false
+                    }
+
+                    val isPm = when {
+                        firstHasPm -> true
+                        firstHasAm -> false
+                        secondHasPm && h in 1..6 -> true
+                        secondHasPm && h == 12 -> true
+                        else -> false
+                    }
+
                     if (isPm && h < 12) h += 12
                     if (isAm && h == 12) h = 0
                     if (!isPm && !isAm && h in 1..6) h += 12
+
                     h * 60 + m
                 } else {
                     12 * 60

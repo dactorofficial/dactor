@@ -85,24 +85,43 @@ private const val RECENT_SEARCHES_PREFS = "patient_recent_searches"
 private const val RECENT_SEARCHES_KEY = "recent_queries_v1"
 
 private val EMPTY_STATE_SPECIALTY_CHIPS = listOf(
-    "Skin",
-    "Heart",
-    "Child",
-    "Eye",
-    "Dental",
-    "General Physician"
+    "Dermatology (Skin)",
+    "Cardiology (Heart)",
+    "Pediatrics (Child)",
+    "Orthopedic",
+    "Eye (Ophthalmology)",
+    "Dental Care",
+    "General Physician",
+    "MRI Scan",
+    "CT Scan",
+    "Digital X-Ray",
+    "Ultrasound (USG)",
+    "Blood Test (CBC)",
+    "Pathology Lab",
+    "ECG / EKG",
+    "Gynecology",
+    "ENT Specialist"
 )
 
 private val FILTER_SPECIALTY_OPTIONS = listOf(
-    "Skin",
-    "Heart",
-    "Child",
-    "Eye",
-    "Dental",
-    "General Physician",
+    "Dermatology (Skin)",
+    "Cardiology (Heart)",
+    "Pediatrics (Child)",
     "Orthopedic",
-    "Gynecologist",
-    "ENT Specialist"
+    "Eye (Ophthalmology)",
+    "Dental Care",
+    "General Physician",
+    "Gynecology",
+    "ENT Specialist",
+    "Neurology",
+    "Psychiatry",
+    "MRI Scan",
+    "CT Scan",
+    "Digital X-Ray",
+    "Ultrasound (USG)",
+    "Blood Test & CBC",
+    "Pathology Lab",
+    "ECG / Echo"
 )
 
 private fun loadRecentSearches(context: Context): List<String> {
@@ -147,6 +166,7 @@ private fun clearAllRecentSearches(context: Context): List<String> {
 fun PatientSearchScreen(
     navController: NavController,
     initialDate: String = "",
+    initialQuery: String = "",
     clinicRepository: ClinicRepository? = null,
     doctorRepository: DoctorRepository? = null,
     slotRepository: SlotRepository? = null,
@@ -162,8 +182,8 @@ fun PatientSearchScreen(
     val todayStr = remember { today.toString() }
 
     // Preserve search state across navigation to Doctor/Clinic profile and back
-    var searchInput by rememberSaveable { mutableStateOf("") }
-    var debouncedQuery by rememberSaveable { mutableStateOf("") }
+    var searchInput by rememberSaveable { mutableStateOf(initialQuery) }
+    var debouncedQuery by rememberSaveable { mutableStateOf(initialQuery) }
     var browseMode by rememberSaveable { mutableStateOf("") } // "", "all_doctors", "all_clinics"
     var seeAllGroup by rememberSaveable { mutableStateOf("") } // "", "doctors", "clinics", "specialties"
 

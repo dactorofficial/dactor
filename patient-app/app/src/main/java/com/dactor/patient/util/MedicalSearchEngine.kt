@@ -212,14 +212,32 @@ object MedicalSearchEngine {
         "kft" to listOf("kft", "kidney", "renal", "lab", "nephro"),
         "creatinine" to listOf("kft", "kidney", "renal", "lab"),
 
-        // Radiology & Scans
-        "xray" to listOf("radiolog", "imaging"),
-        "x-ray" to listOf("radiolog", "imaging"),
-        "ultrasound" to listOf("radiolog", "sonolog"),
-        "usg" to listOf("radiolog", "sonolog"),
-        "ct" to listOf("radiolog", "imaging"),
-        "mri" to listOf("radiolog", "imaging"),
-        "scan" to listOf("radiolog", "imaging"),
+        // Radiology, Scans & Diagnostic Imaging
+        "xray" to listOf("xray", "x-ray", "radiolog", "radiograph", "imaging", "diagnostic", "lab"),
+        "x-ray" to listOf("xray", "x-ray", "radiolog", "radiograph", "imaging", "diagnostic", "lab"),
+        "digital x-ray" to listOf("xray", "x-ray", "radiolog", "imaging"),
+        "ultrasound" to listOf("ultrasound", "usg", "sonolog", "radiolog", "imaging", "diagnostic", "lab"),
+        "usg" to listOf("ultrasound", "usg", "sonolog", "radiolog", "imaging", "diagnostic", "lab"),
+        "sonography" to listOf("ultrasound", "usg", "sonolog", "imaging"),
+        "ct" to listOf("ct", "ct scan", "computed tomography", "radiolog", "imaging", "scan", "diagnostic", "lab"),
+        "ct scan" to listOf("ct", "ct scan", "computed tomography", "radiolog", "imaging", "scan", "diagnostic", "lab"),
+        "computed tomography" to listOf("ct", "ct scan", "radiolog", "imaging"),
+        "mri" to listOf("mri", "magnetic resonance", "radiolog", "imaging", "scan", "diagnostic", "lab"),
+        "mri scan" to listOf("mri", "magnetic resonance", "radiolog", "imaging", "scan", "diagnostic", "lab"),
+        "magnetic resonance" to listOf("mri", "imaging", "radiolog"),
+        "scan" to listOf("scan", "mri", "ct", "ultrasound", "radiolog", "imaging"),
+        "ecg" to listOf("ecg", "ekg", "electrocardiogram", "cardio", "heart", "diagnostic", "lab"),
+        "ekg" to listOf("ecg", "ekg", "electrocardiogram", "cardio", "heart", "diagnostic", "lab"),
+        "echo" to listOf("echo", "echocardiograph", "cardio", "heart", "diagnostic", "lab"),
+        "echocardiogram" to listOf("echo", "echocardiograph", "cardio", "diagnostic"),
+        "echocardiography" to listOf("echo", "echocardiograph", "cardio", "diagnostic"),
+        "endoscopy" to listOf("endoscop", "colonoscop", "gastro", "diagnostic", "lab"),
+        "colonoscopy" to listOf("colonoscop", "endoscop", "gastro", "diagnostic"),
+        "mammography" to listOf("mammograph", "breast", "radiolog", "imaging", "scan"),
+        "mammogram" to listOf("mammograph", "breast", "radiolog", "imaging"),
+        "biopsy" to listOf("biopsy", "histopathol", "patholog", "lab"),
+        "histopathology" to listOf("histopathol", "cytol", "patholog", "lab"),
+        "cytology" to listOf("cytol", "histopathol", "patholog", "lab"),
 
         // Surgery
         "surgery" to listOf("surgeon", "surgery", "surgical"),
@@ -332,7 +350,25 @@ object MedicalSearchEngine {
         "flu" to listOf("General Physician"),
         "general" to listOf("General Physician", "Internal Medicine"),
         "physician" to listOf("General Physician", "Internal Medicine"),
-        "physio" to listOf("Physiotherapist", "Rehabilitation")
+        "physio" to listOf("Physiotherapist", "Rehabilitation"),
+
+        // Lab tests & Scans suggestions
+        "mri" to listOf("MRI (Magnetic Resonance)", "Diagnostic Lab", "Radiology & Imaging"),
+        "ct" to listOf("CT Scan (Computed Tomography)", "Diagnostic Lab", "Radiology & Imaging"),
+        "scan" to listOf("MRI Scan", "CT Scan", "Ultrasound (USG)", "Radiology"),
+        "xray" to listOf("Digital X-Ray", "Radiology & Imaging", "Diagnostic Lab"),
+        "x-ray" to listOf("Digital X-Ray", "Radiology & Imaging", "Diagnostic Lab"),
+        "usg" to listOf("Ultrasound (USG)", "Sonography", "Diagnostic Lab"),
+        "ultrasound" to listOf("Ultrasound (USG)", "Sonography", "Diagnostic Lab"),
+        "sonography" to listOf("Ultrasound (USG)", "Diagnostic Lab"),
+        "blood" to listOf("Blood Tests & CBC", "Pathology Lab", "Hematology"),
+        "cbc" to listOf("Complete Blood Count (CBC)", "Pathology Lab"),
+        "ecg" to listOf("ECG (Electrocardiogram)", "Cardiology Lab", "Diagnostic Lab"),
+        "ekg" to listOf("ECG (Electrocardiogram)", "Cardiology Lab"),
+        "echo" to listOf("Echocardiography (Echo)", "Cardiology Lab"),
+        "endoscopy" to listOf("Endoscopy", "Gastroenterologist", "Diagnostic Lab"),
+        "mammography" to listOf("Mammography", "Radiology & Imaging", "Diagnostic Lab"),
+        "biopsy" to listOf("Pathology & Biopsy", "Histopathology Lab")
     )
 
     private val suggestedSpecialtiesCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()

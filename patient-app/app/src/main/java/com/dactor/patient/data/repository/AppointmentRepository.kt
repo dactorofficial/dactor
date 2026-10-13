@@ -4,6 +4,7 @@ import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.BillingInvoice
 import com.dactor.patient.data.model.InvoiceItem
 import com.dactor.patient.data.model.Profile
+import com.dactor.patient.data.model.QueueEntry
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.Dispatchers
@@ -538,21 +539,68 @@ class AppointmentRepository @Inject constructor(
             try {
                 val existingQ = supabaseClient.postgrest["queue_entries"]
                     .select { filter { eq("appointment_id", created.id) } }
-                    .decodeList<com.dactor.patient.data.model.QueueEntry>()
+                    .decodeList<QueueEntry>()
                     .firstOrNull()
                 if (existingQ == null) {
-                    val existingEntries = supabaseClient.postgrest["queue_entries"]
-                        .select { filter { eq("clinic_id", created.clinicId) } }
-                        .decodeList<com.dactor.patient.data.model.QueueEntry>()
-                    val nextPos = (existingEntries
-                        .filter { it.status == "waiting" || it.status == "inside" }
-                        .maxOfOrNull { it.queuePosition } ?: 0) + 1
+                    val activeQueue = supabaseClient.postgrest["queue_entries"]
+                        .select {
+                            filter {
+                                eq("clinic_id", created.clinicId)
+                                or {
+                                    eq("status", "waiting")
+                                    eq("status", "inside")
+                                }
+                            }
+                        }
+                        .decodeList<QueueEntry>()
+
+                    val targetSlotMinutes = parseTimeToMinutes(created.appointmentTime)
+                    val activeAppts = try {
+                        supabaseClient.postgrest["appointments"]
+                            .select {
+                                filter {
+                                    eq("clinic_id", created.clinicId)
+                                }
+                            }
+                            .decodeList<Appointment>()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                    val apptMap = activeAppts.associateBy { it.id }
+
+                    // Preceding entries: patient inside cabin OR patients in earlier or same time slot
+                    val precedingEntries = activeQueue.filter { entry ->
+                        if (entry.status == "inside") return@filter true
+                        val appt = apptMap[entry.appointmentId]
+                        val slotMins = parseTimeToMinutes(appt?.appointmentTime)
+                        slotMins <= targetSlotMinutes
+                    }
+
+                    val insertPos = (precedingEntries.maxOfOrNull { it.queuePosition } ?: precedingEntries.size) + 1
+
+                    // Shift all entries with queuePosition >= insertPos down by 1 in descending order
+                    val laterEntries = activeQueue
+                        .filter { it.queuePosition >= insertPos }
+                        .sortedByDescending { it.queuePosition }
+
+                    for (later in laterEntries) {
+                        val shiftedPos = later.queuePosition + 1
+                        try {
+                            supabaseClient.postgrest["queue_entries"]
+                                .update({ set("queue_position", shiftedPos) }) {
+                                    filter { eq("id", later.id) }
+                                }
+                        } catch (shiftErr: Exception) {
+                            shiftErr.printStackTrace()
+                        }
+                    }
+
                     val queueEntryDto = QueueEntryInsertDto(
-                        id = java.util.UUID.randomUUID().toString(),
+                        id = UUID.randomUUID().toString(),
                         appointmentId = created.id,
                         clinicId = created.clinicId,
                         doctorId = created.doctorId,
-                        queuePosition = nextPos,
+                        queuePosition = insertPos,
                         status = "waiting"
                     )
                     supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
@@ -560,6 +608,8 @@ class AppointmentRepository @Inject constructor(
                         .update({ set("checkin_status", "checked_in") }) {
                             filter { eq("id", created.id) }
                         }
+
+                    reindexActiveQueueChronologically(created.clinicId)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1070,6 +1120,72 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
+    suspend fun reindexActiveQueueChronologically(clinicId: String) = withContext(Dispatchers.IO) {
+        try {
+            val activeEntries = supabaseClient.postgrest["queue_entries"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                        or {
+                            eq("status", "waiting")
+                            eq("status", "inside")
+                        }
+                    }
+                }
+                .decodeList<QueueEntry>()
+
+            if (activeEntries.isEmpty()) return@withContext
+
+            val apptIds = activeEntries.map { it.appointmentId }.filter { it.isNotBlank() }
+            val appointments = try {
+                supabaseClient.postgrest["appointments"]
+                    .select {
+                        filter {
+                            isIn("id", apptIds)
+                        }
+                    }
+                    .decodeList<Appointment>()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val apptMap = appointments.associateBy { it.id }
+
+            // Chronological slot sort:
+            // 1. Patient inside consultation cabin strictly maintains position #1
+            // 2. Patients in earlier time slots (e.g. 2-3 PM) precede later time slots (3-4 PM).
+            // 3. Within the same time slot, preserve relative queue position.
+            val sortedEntries = activeEntries.sortedWith(
+                compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
+                    .thenBy { entry ->
+                        val appt = apptMap[entry.appointmentId]
+                        parseTimeToMinutes(appt?.appointmentTime)
+                    }.thenBy { it.queuePosition }
+            )
+
+            // Safe two-pass update to eliminate duplicate key collision
+            for (entry in sortedEntries) {
+                try {
+                    supabaseClient.postgrest["queue_entries"]
+                        .update({ set("queue_position", - (entry.queuePosition + 10000)) }) {
+                            filter { eq("id", entry.id) }
+                        }
+                } catch (ignored: Exception) {}
+            }
+
+            sortedEntries.forEachIndexed { index, entry ->
+                val newPos = index + 1
+                try {
+                    supabaseClient.postgrest["queue_entries"]
+                        .update({ set("queue_position", newPos) }) {
+                            filter { eq("id", entry.id) }
+                        }
+                } catch (ignored: Exception) {}
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     companion object {
         fun isValidUuid(str: String?): Boolean {
             if (str.isNullOrBlank()) return false
@@ -1102,6 +1218,58 @@ class AppointmentRepository @Inject constructor(
                 }
             } catch (_: Exception) {
                 "09:30:00"
+            }
+        }
+
+        /**
+         * Parses arbitrary slot or appointment strings (e.g. "2-3", "2:00 - 3:00",
+         * "02:00 PM - 03:00 PM", "11:00 AM - 12:00 PM", "14:00 - 15:00") into minutes from midnight
+         * to enable exact chronological comparison.
+         */
+        fun parseTimeToMinutes(timeStr: String?): Int {
+            if (timeStr.isNullOrBlank()) return 12 * 60
+            return try {
+                val clean = timeStr.trim().uppercase()
+                val parts = clean.split("-", "–", "TO")
+                val firstPart = parts.first().trim()
+                val secondPart = if (parts.size > 1) parts[1].trim() else ""
+
+                val match = Regex("(\\d{1,2})(?::(\\d{2}))?").find(firstPart)
+                if (match != null) {
+                    var h = match.groupValues[1].toIntOrNull() ?: 12
+                    val m = match.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0
+
+                    val firstHasAm = firstPart.contains("AM")
+                    val firstHasPm = firstPart.contains("PM")
+                    val secondHasAm = secondPart.contains("AM")
+                    val secondHasPm = secondPart.contains("PM")
+
+                    val isAm = when {
+                        firstHasAm -> true
+                        firstHasPm -> false
+                        secondHasAm -> true
+                        secondHasPm && h in 7..11 -> true
+                        else -> false
+                    }
+
+                    val isPm = when {
+                        firstHasPm -> true
+                        firstHasAm -> false
+                        secondHasPm && h in 1..6 -> true
+                        secondHasPm && h == 12 -> true
+                        else -> false
+                    }
+
+                    if (isPm && h < 12) h += 12
+                    if (isAm && h == 12) h = 0
+                    if (!isPm && !isAm && h in 1..6) h += 12
+
+                    h * 60 + m
+                } else {
+                    12 * 60
+                }
+            } catch (e: Exception) {
+                12 * 60
             }
         }
     }

@@ -424,17 +424,55 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
 
     if (error) throw error
 
-    // Enroll into live queue_entries automatically
+    // Enroll into live queue_entries with slot-aware ordering:
+    // Place walk-in / appointment at the LAST position of their time slot, and shift later appointments (+1)
     let nextPos = 1
     try {
-      const { data: existingQueue } = await supabase
-        .from('queue_entries')
-        .select('queue_position')
-        .eq('clinic_id', appt.clinicId)
-        .order('queue_position', { ascending: false })
-        .limit(1)
+      const targetSlotTime = appt.appointmentTime || apptTime
+      const targetSlotMinutes = parseTimeToMinutes(targetSlotTime)
 
-      nextPos = ((existingQueue?.[0]?.queue_position as number) || 0) + 1
+      const { data: activeEntries } = await supabase
+        .from('queue_entries')
+        .select('id, appointment_id, queue_position, status')
+        .eq('clinic_id', appt.clinicId)
+        .in('status', ['waiting', 'inside'])
+        .order('queue_position', { ascending: true })
+
+      if (!activeEntries || activeEntries.length === 0) {
+        nextPos = 1
+      } else {
+        const apptIds = activeEntries.map((e) => e.appointment_id).filter(Boolean)
+        const { data: activeAppts } = await supabase
+          .from('appointments')
+          .select('id, appointment_time, appointment_date')
+          .in('id', apptIds)
+
+        const apptMap = new Map<string, any>((activeAppts || []).map((a) => [a.id, a]))
+
+        // Preceding entries: patient inside cabin OR patients in earlier or same time slot
+        const preceding = activeEntries.filter((entry) => {
+          if (entry.status === 'inside') return true
+          const a = apptMap.get(entry.appointment_id)
+          const slotMins = parseTimeToMinutes(a?.appointment_time)
+          return slotMins <= targetSlotMinutes
+        })
+
+        // Target insertion position is right after the last preceding patient in this slot
+        nextPos = (preceding.length > 0 ? Math.max(...preceding.map((p) => p.queue_position || 0)) : 0) + 1
+
+        // Shift all active entries with queue_position >= nextPos down (+1) in descending order to avoid key collision
+        const laterEntries = activeEntries
+          .filter((entry) => (entry.queue_position || 0) >= nextPos)
+          .sort((a, b) => (b.queue_position || 0) - (a.queue_position || 0))
+
+        for (const entry of laterEntries) {
+          const shifted = (entry.queue_position || 0) + 1
+          await supabase
+            .from('queue_entries')
+            .update({ queue_position: shifted, updated_at: new Date().toISOString() })
+            .eq('id', entry.id)
+        }
+      }
 
       await supabase.from('queue_entries').insert({
         id: crypto.randomUUID(),
@@ -445,7 +483,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
         status: 'waiting',
       })
     } catch (qErr) {
-      console.warn('Queue entry auto-enroll warning:', qErr)
+      console.warn('Queue entry slot-aware auto-enroll warning:', qErr)
     }
 
     // Increment slot booked_count if applicable
@@ -1393,6 +1431,52 @@ export async function sendManualNotification(
   }
 }
 
+export async function sendEarlyArrivalInviteNotification(
+  appointmentId: string,
+  patientName: string,
+  trackingCode: string,
+  originalSlot?: string,
+  userId?: string
+): Promise<boolean> {
+  return sendEarlyArrivalInvite({
+    appointmentId,
+    patientName,
+    trackingCode,
+    originalSlot,
+    userId,
+  })
+}
+
+export async function sendEarlyArrivalInvite(params: {
+  appointmentId: string
+  patientName: string
+  trackingCode: string
+  originalSlot?: string
+  userId?: string
+}): Promise<boolean> {
+  try {
+    const title = '⚡ Doctor is Free Now! Come in early?'
+    const slotText = params.originalSlot ? ` (Booked slot: ${params.originalSlot})` : ''
+    const message = `Dear ${params.patientName}, the doctor has finished consultations earlier than scheduled. Since you opted in for early calls, you are welcome to come in early now!${slotText}`
+    const { error } = await supabase.from('notifications').insert({
+      id: crypto.randomUUID(),
+      appointment_id: params.appointmentId && params.appointmentId.length === 36 ? params.appointmentId : null,
+      user_id: params.userId && params.userId.length === 36 ? params.userId : null,
+      title,
+      message,
+      type: 'early_arrival',
+      target_audience: 'specific',
+      is_read: false,
+      created_at: new Date().toISOString(),
+    })
+    return !error
+  } catch (err) {
+    console.error('Error sending early arrival invite:', err)
+    return false
+  }
+}
+
+
 export async function searchPatientRecords(clinicId: string, searchQuery: string): Promise<Appointment[]> {
   try {
     const q = searchQuery.trim().toLowerCase()
@@ -1752,20 +1836,52 @@ export function generate10DigitTrackingCode(): string {
 // PATIENT PORTAL API & WORKFLOW HELPERS
 // ==========================================
 
-export function parseTimeToMinutes(timeStr: string): number {
-  if (!timeStr) return 0
-  const clean = timeStr.trim().toUpperCase()
-  const isPM = clean.includes('PM')
-  const isAM = clean.includes('AM')
-  const timeOnly = clean.replace(/AM|PM/g, '').trim()
-  const parts = timeOnly.split(':')
-  let hours = parseInt(parts[0] || '0', 10)
-  const minutes = parseInt(parts[1] || '0', 10)
+export function parseTimeToMinutes(timeStr?: string): number {
+  if (!timeStr) return 23 * 60 + 59
+  try {
+    const clean = timeStr.trim().toUpperCase()
+    const parts = clean.split(/[-–]|TO/)
+    const firstPart = parts[0]?.trim() || clean
+    const secondPart = parts[1]?.trim() || ''
 
-  if (isPM && hours < 12) hours += 12
-  if (isAM && hours === 12) hours = 0
+    const m = firstPart.match(/^(\d{1,2})(?::(\d{2}))?/)
+    if (!m) return 12 * 60
+    let hours = parseInt(m[1], 10)
+    const minutes = parseInt(m[2] || '0', 10)
 
-  return hours * 60 + minutes
+    const firstHasAm = firstPart.includes('AM')
+    const firstHasPm = firstPart.includes('PM')
+    const secondHasAm = secondPart.includes('AM')
+    const secondHasPm = secondPart.includes('PM')
+
+    const isAm = firstHasAm
+      ? true
+      : firstHasPm
+      ? false
+      : secondHasAm
+      ? true
+      : secondHasPm && hours >= 7 && hours <= 11
+      ? true
+      : false
+
+    const isPm = firstHasPm
+      ? true
+      : firstHasAm
+      ? false
+      : secondHasPm && hours >= 1 && hours <= 6
+      ? true
+      : secondHasPm && hours === 12
+      ? true
+      : false
+
+    if (isPm && hours < 12) hours += 12
+    if (isAm && hours === 12) hours = 0
+    if (!isPm && !isAm && hours >= 1 && hours <= 6) hours += 12
+
+    return hours * 60 + minutes
+  } catch {
+    return 12 * 60
+  }
 }
 
 export function isSlotTimeExpired(slotDate: string, endTimeStr: string): boolean {

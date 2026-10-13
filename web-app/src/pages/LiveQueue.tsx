@@ -31,6 +31,7 @@ import {
   Hourglass,
   Receipt,
   ArrowLeft,
+  Zap,
 } from 'lucide-react'
 import { Appointment, Clinic, Doctor, LabReport, BillingInvoice } from '../types'
 import {
@@ -337,17 +338,99 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   // Doctor presence flag
   const isDoctorInClinic = doctor?.isInClinic !== false
 
-  // Formatted expected call time
-  const formattedExpectedTime = useMemo(() => {
-    if (patientsAhead === 0) return 'Next in line'
-    try {
-      const now = new Date()
-      now.setMinutes(now.getMinutes() + estimatedWaitMinutes)
-      return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    } catch {
-      return `~${estimatedWaitMinutes} mins`
+  // Helper to parse slot start time
+  const slotStartDate = useMemo(() => {
+    if (!appointment?.appointmentTime) return null
+    const token = appointment.appointmentTime.split(/[-–]|to/)[0]?.trim()
+    if (!token) return null
+    const m = token.match(/^(\d{1,2}):(\d{2})(?:\s*([APap][Mm]))?/)
+    if (!m) return null
+    let hours = parseInt(m[1], 10)
+    const minutes = parseInt(m[2], 10)
+    const ampm = m[3]?.toUpperCase()
+    if (ampm === 'PM' && hours < 12) hours += 12
+    if (ampm === 'AM' && hours === 12) hours = 0
+    const d = new Date()
+    d.setHours(hours, minutes, 0, 0)
+    return d
+  }, [appointment?.appointmentTime])
+
+  const {
+    effectiveExpectedTime,
+    timeWindowText,
+    approxTimeText,
+    suggestedArrivalText,
+    slotNoticeText,
+    canOfferEarlyArrival,
+    displayWaitText
+  } = useMemo(() => {
+    const now = new Date()
+    const isDoctorFree = isDoctorInClinic && !inConsultationPatient && clinic?.isOnBreak !== true
+
+    let arrivalStr = ''
+    let slotStartFmt = ''
+    if (slotStartDate) {
+      const arr = new Date(slotStartDate.getTime() - 15 * 60000)
+      arrivalStr = arr.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      slotStartFmt = slotStartDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     }
-  }, [patientsAhead, estimatedWaitMinutes])
+
+    const arrivalAdvice = arrivalStr ? `Please arrive by ${arrivalStr}.` : ''
+    const notice = slotStartDate
+      ? (patientsAhead === 0
+          ? `No one ahead of you. Your slot starts at ${slotStartFmt}. ${arrivalAdvice}`
+          : `${patientsAhead} ${patientsAhead === 1 ? 'person' : 'people'} ahead. Your slot starts at ${slotStartFmt}. ${arrivalAdvice}`)
+      : (patientsAhead === 0
+          ? 'No one ahead of you. You are up next!'
+          : `${patientsAhead} ahead in line. Est. wait: ~${estimatedWaitMinutes} mins`)
+
+    const dynamicTime = new Date(now.getTime() + estimatedWaitMinutes * 60000)
+    const isSlotInFuture = slotStartDate ? now.getTime() < slotStartDate.getTime() : false
+    const canEarly = Boolean(isDoctorFree && isSlotInFuture && appointment?.optInEarlyCall && patientsAhead === 0)
+
+    let finalExpected: Date
+    let waitText: string
+
+    if (slotStartDate && isSlotInFuture) {
+      if (canEarly) {
+        finalExpected = now
+        waitText = 'Doctor Free Now'
+      } else {
+        if (dynamicTime.getTime() > slotStartDate.getTime()) {
+          finalExpected = dynamicTime
+          const diffMins = Math.round((dynamicTime.getTime() - now.getTime()) / 60000)
+          waitText = `~${diffMins} min`
+        } else {
+          finalExpected = slotStartDate
+          const diffMins = Math.round((slotStartDate.getTime() - now.getTime()) / 60000)
+          waitText = diffMins > 60 ? `Starts at ${slotStartFmt}` : `~${diffMins} min`
+        }
+      }
+    } else if (slotStartDate && !isSlotInFuture) {
+      finalExpected = dynamicTime
+      waitText = patientsAhead === 0 ? 'Soon, be ready' : `~${estimatedWaitMinutes} min`
+    } else {
+      finalExpected = dynamicTime
+      waitText = patientsAhead === 0 ? '< 5 min' : `~${estimatedWaitMinutes} min`
+    }
+
+    const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    const startWin = new Date(finalExpected.getTime() - 5 * 60000)
+    const endWin = new Date(finalExpected.getTime() + 10 * 60000)
+
+    return {
+      effectiveExpectedTime: finalExpected,
+      timeWindowText: `${fmt(startWin)} – ${fmt(endWin)}`,
+      approxTimeText: `around ${fmt(finalExpected)}`,
+      suggestedArrivalText: arrivalAdvice,
+      slotNoticeText: notice,
+      canOfferEarlyArrival: canEarly,
+      displayWaitText: waitText
+    }
+  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, appointment?.optInEarlyCall, patientsAhead, estimatedWaitMinutes])
+
+  // Formatted expected call time
+  const formattedExpectedTime = approxTimeText
 
   return (
     <div className="min-h-screen pb-28 sm:pb-16">
@@ -606,9 +689,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       ? 'Currently with specialist in consultation cabin'
                       : isConsultancyCompleted
                       ? 'Thank you for visiting • Prescription & bill available below'
-                      : patientsAhead === 0
+                      : slotNoticeText || (patientsAhead === 0
                       ? '0 patients ahead • Please stay close to the consultation cabin'
-                      : `${patientsAhead} ahead in line • Est. wait: ~${estimatedWaitMinutes} mins`}
+                      : `${patientsAhead} ahead in line • Est. wait: ~${estimatedWaitMinutes} mins`)}
                   </p>
                 </div>
               </div>
@@ -671,30 +754,45 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
               {/* Slot & Expected Call Informational Cards (Hidden when completed or lab prepared) */}
               {!isConsultancyCompleted && effectiveLabStatus !== 'prepared' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                      Your Booked Window
-                    </span>
-                    <div className="text-base font-black text-slate-900 dark:text-white">
-                      {appointment.appointmentTime || 'Real-time queue'}
+                <div className="space-y-3 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        Your Booked Window
+                      </span>
+                      <div className="text-base font-black text-slate-900 dark:text-white">
+                        {appointment.appointmentTime || 'Real-time queue'}
+                      </div>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {suggestedArrivalText || `Date: ${appointment.appointmentDate}`}
+                      </span>
                     </div>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Date: {appointment.appointmentDate}
-                    </span>
+
+                    <div className={`p-4 rounded-2xl liquid-glass-subtle space-y-0.5 ${canOfferEarlyArrival ? 'border border-emerald-500/40 bg-emerald-500/10' : 'border-teal-500/30'}`}>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${canOfferEarlyArrival ? 'text-emerald-700 dark:text-emerald-300' : 'text-teal-700 dark:text-teal-300'}`}>
+                        {canOfferEarlyArrival ? '⚡ Doctor Free Early' : 'Expected Window'}
+                      </span>
+                      <div className={`text-base font-black ${canOfferEarlyArrival ? 'text-emerald-900 dark:text-emerald-200' : 'text-teal-900 dark:text-teal-200'}`}>
+                        {displayWaitText}
+                      </div>
+                      <span className={`text-[11px] ${canOfferEarlyArrival ? 'text-emerald-700 dark:text-emerald-400 font-semibold' : 'text-teal-700 dark:text-teal-400'}`}>
+                        {timeWindowText} ({approxTimeText})
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl liquid-glass-subtle border-teal-500/30 space-y-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                      Expected Call
-                    </span>
-                    <div className="text-base font-black text-teal-900 dark:text-teal-200">
-                      {patientsAhead > 0 ? `~${estimatedWaitMinutes} mins` : '< 5 mins'}
+                  {/* ⚡ Early Arrival Invite Banner if doctor is free now */}
+                  {canOfferEarlyArrival && (
+                    <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-900 dark:text-emerald-200 flex items-start space-x-3">
+                      <Zap className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="text-xs font-bold">⚡ Doctor is Free Now! Come in early?</div>
+                        <div className="text-[11px] text-emerald-700 dark:text-emerald-300/90 mt-0.5 leading-relaxed">
+                          The doctor finished earlier consultations ahead of schedule. Since you opted in at booking, you can proceed to the clinic now!
+                        </div>
+                      </div>
                     </div>
-                    <span className="text-[11px] text-teal-700 dark:text-teal-400">
-                      {patientsAhead > 0 ? `Approx. ${formattedExpectedTime}` : "You're next in line"}
-                    </span>
-                  </div>
+                  )}
                 </div>
               )}
             </div>

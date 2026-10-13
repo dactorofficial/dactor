@@ -741,7 +741,12 @@ fun ClinicSettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Clinical Specialties (Multi-Select)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(
+                                if (selectedType == "diagnostic_lab") "Lab Services & Scans (Multi-Select)"
+                                else "Clinical Specialties (Multi-Select)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
                             Text(
                                 "${selectedSpecialties.size} Selected",
                                 fontSize = 12.sp,
@@ -750,29 +755,53 @@ fun ClinicSettingsScreen(
                             )
                         }
                         Text(
-                            "Select all medical departments provided at your facility. When patients search for symptoms or conditions (e.g. eye, teeth, skin, heart, child), matching specialties direct them to your clinic.",
+                            if (selectedType == "diagnostic_lab") "Select all diagnostic tests, imaging scans, and pathology offerings provided (e.g. MRI, CT Scan, X-Ray, Blood Tests). When patients search for tests or scans, matching offerings direct them to your lab."
+                            else "Select all medical departments provided at your facility (e.g. skin, heart, child, bone). When patients search for symptoms or conditions, matching specialties direct them to your clinic.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        val allSpecNames = if (availableSpecialtiesList.isNotEmpty()) {
+                        val allSpecNames = if (selectedType == "diagnostic_lab") {
+                            listOf(
+                                "MRI (Magnetic Resonance Imaging)",
+                                "CT Scan (Computed Tomography)",
+                                "Digital X-Ray (Radiography)",
+                                "Ultrasound (USG / Sonography)",
+                                "Blood Tests & CBC (Hematology)",
+                                "Pathology & Biopsy",
+                                "Clinical Biochemistry",
+                                "Microbiology & Culture",
+                                "ECG (Electrocardiogram)",
+                                "Echocardiography (Echo)",
+                                "Urine & Stool Analysis",
+                                "Endoscopy & Colonoscopy",
+                                "Histopathology & Cytology",
+                                "Mammography & Breast Scan",
+                                "Thyroid & Hormone Profile",
+                                "Lipid Profile & Cardiac Markers",
+                                "Allergy & Immunology Tests",
+                                "Bone Densitometry (BMD/DEXA)"
+                            )
+                        } else if (availableSpecialtiesList.isNotEmpty()) {
                             availableSpecialtiesList.map { it.name }
                         } else {
                             listOf(
-                                "Dental Care & Dentistry",
-                                "Ophthalmology (Eye Care)",
+                                "General Medicine & Physician",
                                 "Dermatology & Skin Care",
                                 "Cardiology (Heart Care)",
-                                "Orthopedics & Joint Care",
                                 "Pediatrics & Child Health",
-                                "ENT (Ear, Nose & Throat)",
+                                "Orthopedics & Joint Care",
                                 "Gynecology & Obstetrics",
-                                "General Medicine & Physician",
-                                "Gastroenterology",
+                                "ENT (Ear, Nose & Throat)",
+                                "Ophthalmology (Eye Care)",
+                                "Dental Care & Dentistry",
                                 "Neurology (Brain & Nerve)",
                                 "Psychiatry & Mental Health",
+                                "Gastroenterology & Liver",
+                                "Pulmonology & Chest Care",
                                 "Urology & Kidney Care",
-                                "Pathology & Diagnostic Lab"
+                                "Endocrinology & Diabetes",
+                                "Oncology & Cancer Care"
                             )
                         }
 

@@ -1232,19 +1232,40 @@ fun DoctorDashboardScreen(
                     // 5. Specialization
                     Text("Specialization *", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
 
-                    val specOptions = if (editPractitionerRole == "lab_technician") {
+                    val isLabContext = editPractitionerRole == "lab_technician" || clinic?.type == "diagnostic_lab"
+                    val specOptions = if (isLabContext) {
                         listOf(
-                            "Medical Lab Technician",
-                            "Pathology & Hematology Technician",
+                            "MRI Specialist & Radiographer",
+                            "CT Scan Specialist & Technologist",
+                            "Digital X-Ray Technologist",
+                            "Ultrasound (USG) Sonographer",
+                            "Medical Lab Technician (MLT)",
+                            "Pathology & Hematology Specialist",
                             "Clinical Biochemistry Technician",
                             "Microbiology Lab Technician",
-                            "Histopathology & Cytology Technician",
-                            "Phlebotomist & Sample Collection"
+                            "ECG & Echo Technician",
+                            "Phlebotomist & Sample Collector",
+                            "Histopathology & Cytology Technician"
                         )
                     } else if (masterSpecialtiesList.isNotEmpty()) {
                         masterSpecialtiesList.map { it.name }
                     } else {
-                        commonSpecialties
+                        listOf(
+                            "General Physician & Medicine",
+                            "Dermatologist (Skin & Hair)",
+                            "Cardiologist (Heart Care)",
+                            "Pediatrician (Child Health)",
+                            "Orthopedic Surgeon & Joint Care",
+                            "Gynecology & Obstetrics",
+                            "ENT Specialist (Ear, Nose, Throat)",
+                            "Ophthalmology (Eye Care)",
+                            "Dental Care & Dentistry",
+                            "Neurology (Brain & Nerve)",
+                            "Psychiatry & Mental Health",
+                            "Gastroenterology & Liver",
+                            "Pulmonology (Chest & Lungs)",
+                            "Urology & Kidney Care"
+                        )
                     }
 
                     Row(
@@ -1266,8 +1287,8 @@ fun DoctorDashboardScreen(
                         label = { Text("Specialty") },
                         placeholder = {
                             Text(
-                                if (editPractitionerRole == "lab_technician") "e.g. Medical Lab Technician"
-                                else "e.g. Cardiologist"
+                                if (isLabContext) "e.g. MRI Specialist, Medical Lab Technician, Pathology"
+                                else "e.g. Cardiologist, Dermatologist, Pediatrics"
                             )
                         },
                         leadingIcon = { Icon(Icons.Default.MedicalServices, contentDescription = null) },

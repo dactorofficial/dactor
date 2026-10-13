@@ -119,6 +119,45 @@ fun DactorNavHost(
             )
         }
         composable(
+            route = "search?date={date}&query={query}",
+            arguments = listOf(
+                androidx.navigation.navArgument("date") { defaultValue = ""; nullable = true },
+                androidx.navigation.navArgument("query") { defaultValue = ""; nullable = true }
+            ),
+            enterTransition = {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
+                    androidx.compose.animation.slideInVertically(
+                        animationSpec = androidx.compose.animation.core.tween(240),
+                        initialOffsetY = { it / 8 }
+                    )
+            },
+            exitTransition = {
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))
+            },
+            popEnterTransition = {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180))
+            },
+            popExitTransition = {
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) +
+                    androidx.compose.animation.slideOutVertically(
+                        animationSpec = androidx.compose.animation.core.tween(220),
+                        targetOffsetY = { it / 8 }
+                    )
+            }
+        ) { backStackEntry ->
+            val dateParam = backStackEntry.arguments?.getString("date") ?: ""
+            val queryParam = backStackEntry.arguments?.getString("query") ?: ""
+            com.dactor.patient.ui.search.PatientSearchScreen(
+                navController = navController,
+                initialDate = dateParam,
+                initialQuery = queryParam,
+                clinicRepository = clinicRepository,
+                doctorRepository = doctorRepository,
+                slotRepository = slotRepository,
+                sessionManager = sessionManager
+            )
+        }
+        composable(
             route = "search?date={date}",
             enterTransition = {
                 androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
@@ -145,6 +184,7 @@ fun DactorNavHost(
             com.dactor.patient.ui.search.PatientSearchScreen(
                 navController = navController,
                 initialDate = dateParam,
+                initialQuery = "",
                 clinicRepository = clinicRepository,
                 doctorRepository = doctorRepository,
                 slotRepository = slotRepository,
@@ -171,6 +211,7 @@ fun DactorNavHost(
             com.dactor.patient.ui.search.PatientSearchScreen(
                 navController = navController,
                 initialDate = "",
+                initialQuery = "",
                 clinicRepository = clinicRepository,
                 doctorRepository = doctorRepository,
                 slotRepository = slotRepository,

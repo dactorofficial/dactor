@@ -1,7 +1,7 @@
 /**
  * Client-side Image Compressor for Dactor Web Portal
  * Automatically compresses images (bills, receipts, prescriptions, lab reports)
- * to <= 500 KB (target 100 KB - 300 KB) before uploading to Supabase Storage,
+ * to <= 300 KB (target 100 KB - 250 KB) before uploading to Supabase Storage,
  * saving storage while preserving clear readability of medical text and figures.
  */
 
@@ -14,7 +14,7 @@ export interface CompressionResult {
 
 export async function compressImage(
   file: File,
-  maxSizeBytes: number = 500 * 1024, // 500 KB max limit
+  maxSizeBytes: number = 300 * 1024, // 300 KB max limit
   targetMaxDim: number = 1600
 ): Promise<File> {
   // If not an image (e.g. PDF), return original file

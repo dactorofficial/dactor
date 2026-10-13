@@ -50,6 +50,7 @@ import {
   Headphones,
   ExternalLink,
   HelpCircle,
+  Zap,
 } from 'lucide-react'
 import { GlassCard, GlassButton, GlassBadge } from '../components/glass'
 import {
@@ -104,6 +105,7 @@ import {
   saveWeeklySchedule,
   updateDoctor,
   sendManualNotification,
+  sendEarlyArrivalInviteNotification,
   checkEmailPortalAssociation,
   getClinicPatientDirectory,
   getSupportUrl,
@@ -153,6 +155,39 @@ interface TimingEstimateResult {
   isOnBreak: boolean
   isSoonBeReady: boolean
   remainingMinutes: number
+  timeWindowText?: string
+  approxTimeText?: string
+  slotNoticeText?: string
+  canOfferEarlyArrival?: boolean
+  suggestedArrivalText?: string
+}
+
+function parseSlotStartTime(slotStr?: string): Date | null {
+  if (!slotStr) return null
+  const token = slotStr.split(/[-–]|to/)[0]?.trim()
+  if (!token) return null
+  const m = token.match(/^(\d{1,2}):(\d{2})(?:\s*([APap][Mm]))?/)
+  if (!m) return null
+  let hours = parseInt(m[1], 10)
+  const minutes = parseInt(m[2], 10)
+  const ampm = m[3]?.toUpperCase()
+  if (ampm === 'PM' && hours < 12) hours += 12
+  if (ampm === 'AM' && hours === 12) hours = 0
+  const d = new Date()
+  d.setHours(hours, minutes, 0, 0)
+  return d
+}
+
+function formatTimeWindow(d: Date, spreadMinutes = 15): string {
+  const start = new Date(d.getTime() - 5 * 60000)
+  const end = new Date(d.getTime() + Math.max(5, spreadMinutes - 5) * 60000)
+  const fmt = (x: Date) => x.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return `${fmt(start)} – ${fmt(end)}`
+}
+
+function formatApproxTime(d: Date): string {
+  const fmt = (x: Date) => x.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return `around ${fmt(d)}`
 }
 
 // Real timing estimate calculation
@@ -163,6 +198,14 @@ function calculateLiveQueueTimingEstimate(
   doctor: Doctor | null,
   now = new Date()
 ): TimingEstimateResult {
+  const formatTime = (d: Date) => {
+    let h = d.getHours()
+    const m = d.getMinutes().toString().padStart(2, '0')
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    h = h % 12 || 12
+    return `${h.toString().padStart(2, '0')}:${m} ${ampm}`
+  }
+
   // 1. Check if doctor is not inside the clinic
   if (doctor && doctor.isInClinic === false) {
     return {
@@ -173,6 +216,8 @@ function calculateLiveQueueTimingEstimate(
       isOnBreak: false,
       isSoonBeReady: false,
       remainingMinutes: 0,
+      timeWindowText: 'Doctor Away',
+      approxTimeText: 'Doctor Away',
     }
   }
 
@@ -186,76 +231,28 @@ function calculateLiveQueueTimingEstimate(
       isOnBreak: true,
       isSoonBeReady: false,
       remainingMinutes: 0,
+      timeWindowText: 'On Break',
+      approxTimeText: 'On Break',
     }
   }
 
   // Determine average consultation time
-  const avgMins =
+  const avgMins = Math.max(
+    1,
     clinic.avgTimeMode === 'manual'
       ? clinic.manualAvgConsultationTimeMinutes || 10
       : clinic.calculatedAvgConsultationTimeMinutes || clinic.avgConsultationTimeMinutes || 10
+  )
 
-  // 3. Check Clinic Opening Time from weekly schedule
-  let openTimeStr = '08:00 AM'
-  try {
-    if (clinic.weeklyScheduleJson) {
-      const parsed: DayScheduleInfo[] = JSON.parse(clinic.weeklyScheduleJson)
-      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-      const todayName = dayNames[now.getDay()]
-      const todaySched = parsed.find((s) => s.day === todayName)
-      if (todaySched?.openTime) {
-        openTimeStr = todaySched.openTime
-      }
-    }
-  } catch {}
-
-  // Parse openTimeStr into today's Date
-  const openingDate = new Date(now)
-  try {
-    const parts = openTimeStr.trim().split(/[:\s]/)
-    let hours = parseInt(parts[0], 10)
-    const mins = parseInt(parts[1], 10) || 0
-    const meridian = parts[2]?.toUpperCase()
-    if (meridian === 'PM' && hours < 12) hours += 12
-    if (meridian === 'AM' && hours === 12) hours = 0
-    openingDate.setHours(hours, mins, 0, 0)
-  } catch {
-    openingDate.setHours(8, 0, 0, 0)
-  }
-
-  const formatTime = (d: Date) => {
-    let h = d.getHours()
-    const m = d.getMinutes().toString().padStart(2, '0')
-    const ampm = h >= 12 ? 'PM' : 'AM'
-    h = h % 12 || 12
-    return `${h.toString().padStart(2, '0')}:${m} ${ampm}`
-  }
-
-  // If clinic has NOT started yet (now < openingDate)
-  if (now.getTime() < openingDate.getTime()) {
-    const waitingList = allTodayAppts.filter((a) => a.checkinStatus === 'waiting')
-    const pos = waitingList.findIndex((a) => a.id === targetAppt.id)
-    const waitMins = pos >= 0 ? (pos + 1) * avgMins : avgMins
-    const exactDate = new Date(openingDate.getTime() + (pos >= 0 ? pos * avgMins * 60000 : 0))
-    const exactStr = formatTime(exactDate)
-
-    return {
-      statusText: `Clinic starts at ${openTimeStr}. Your estimated consultation time is ${exactStr}.`,
-      estimatedWait: `${waitMins} mins (Starts at ${openTimeStr})`,
-      exactTimeStr: exactStr,
-      isDoctorAway: false,
-      isOnBreak: false,
-      isSoonBeReady: false,
-      remainingMinutes: waitMins,
-    }
-  }
-
-  // Clinic is open and running now
-  const insidePatient = allTodayAppts.find(
+  // 3. Count ONLY active people. Strictly exclude completed, cancelled and no-show patients.
+  const activeAppts = allTodayAppts.filter(
+    (a) => a.checkinStatus === 'waiting' || a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside'
+  )
+  const insidePatient = activeAppts.find(
     (a) => a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside'
   )
 
-  // Target patient is inside cabin
+  // If target patient is inside
   if (insidePatient && insidePatient.id === targetAppt.id) {
     return {
       statusText: 'Patient is currently inside doctor cabin.',
@@ -265,84 +262,17 @@ function calculateLiveQueueTimingEstimate(
       isOnBreak: false,
       isSoonBeReady: false,
       remainingMinutes: 0,
+      timeWindowText: 'Now in cabin',
+      approxTimeText: 'In cabin now',
     }
   }
 
-  // If NO patient is inside cabin
-  if (!insidePatient) {
-    // Check if doctor has been idle for > 5 mins
-    const completedAppts = allTodayAppts
-      .filter((a) => a.checkinStatus === 'completed')
-      .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
-
-    if (completedAppts.length > 0) {
-      const lastCompletedTime = new Date(completedAppts[0].updatedAt || completedAppts[0].createdAt || now)
-      const idleMinutes = Math.floor((now.getTime() - lastCompletedTime.getTime()) / 60000)
-      if (idleMinutes >= 5) {
-        return {
-          statusText: 'Doctor is not seeing patient, wait a few moments',
-          estimatedWait: 'Wait a few moments',
-          exactTimeStr: 'Wait a few moments',
-          isDoctorAway: false,
-          isOnBreak: false,
-          isSoonBeReady: false,
-          remainingMinutes: 5,
-        }
-      }
-    }
-
-    // Doctor is ready for next waiting patient
-    const waitingList = allTodayAppts.filter((a) => a.checkinStatus === 'waiting')
-    const pos = waitingList.findIndex((a) => a.id === targetAppt.id)
-
-    if (pos === 0) {
-      return {
-        statusText: 'Your turn is next! Soon, be ready.',
-        estimatedWait: 'Soon, be ready',
-        exactTimeStr: 'Soon, be ready',
-        isDoctorAway: false,
-        isOnBreak: false,
-        isSoonBeReady: true,
-        remainingMinutes: 2,
-      }
-    }
-
-    const waitMins = Math.max(0, pos * avgMins)
-    const exactDate = new Date(now.getTime() + waitMins * 60000)
-    const exactStr = formatTime(exactDate)
-
-    if (waitMins <= 3 || exactDate <= now) {
-      return {
-        statusText: 'Your turn is approaching! Soon, be ready.',
-        estimatedWait: 'Soon, be ready',
-        exactTimeStr: 'Soon, be ready',
-        isDoctorAway: false,
-        isOnBreak: false,
-        isSoonBeReady: true,
-        remainingMinutes: waitMins,
-      }
-    }
-
-    return {
-      statusText: `Estimated wait: ${waitMins} mins. Expected at ${exactStr}.`,
-      estimatedWait: `${waitMins} mins`,
-      exactTimeStr: exactStr,
-      isDoctorAway: false,
-      isOnBreak: false,
-      isSoonBeReady: false,
-      remainingMinutes: waitMins,
-    }
-  }
-
-  // Someone IS inside cabin
-  const insideStart = new Date(insidePatient.updatedAt || insidePatient.createdAt || now)
-  const elapsedMinutes = Math.max(0, Math.floor((now.getTime() - insideStart.getTime()) / 60000))
-  const remainingForInside = Math.max(0, avgMins - elapsedMinutes)
-
-  const waitingList = allTodayAppts.filter((a) => a.checkinStatus === 'waiting')
-  const pos = waitingList.findIndex((a) => a.id === targetAppt.id)
-
-  if (pos < 0) {
+  // If target patient is already completed or cancelled
+  if (
+    targetAppt.checkinStatus === 'completed' ||
+    targetAppt.checkinStatus === 'no_show' ||
+    targetAppt.checkinStatus === 'cancelled'
+  ) {
     return {
       statusText: `Status: ${targetAppt.checkinStatus.toUpperCase()}`,
       estimatedWait: '–',
@@ -354,30 +284,94 @@ function calculateLiveQueueTimingEstimate(
     }
   }
 
-  const totalWaitMins = remainingForInside + pos * avgMins
-  const exactDate = new Date(now.getTime() + totalWaitMins * 60000)
-  const exactStr = formatTime(exactDate)
+  // People ahead in active queue
+  const waitingList = activeAppts.filter((a) => a.checkinStatus === 'waiting')
+  const pos = waitingList.findIndex((a) => a.id === targetAppt.id)
+  const patientsAhead = pos >= 0 ? pos + (insidePatient ? 1 : 0) : 0
 
-  if (totalWaitMins <= 3 || exactDate <= now) {
-    return {
-      statusText: 'Your turn is approaching! Soon, be ready.',
-      estimatedWait: 'Soon, be ready',
-      exactTimeStr: 'Soon, be ready',
-      isDoctorAway: false,
-      isOnBreak: false,
-      isSoonBeReady: true,
-      remainingMinutes: totalWaitMins,
-    }
+  // Slot timing analysis
+  const slotStartDate = parseSlotStartTime(targetAppt.appointmentTime)
+  const isSlotInFuture = slotStartDate ? now.getTime() < slotStartDate.getTime() : false
+  const isDoctorFree = Boolean(doctor && doctor.isInClinic !== false && !insidePatient && !clinic.isOnBreak)
+  const canEarly = Boolean(isDoctorFree && isSlotInFuture && targetAppt.optInEarlyCall && patientsAhead === 0)
+
+  let arrivalAdvice = ''
+  let slotStartFmt = ''
+  if (slotStartDate) {
+    const arr = new Date(slotStartDate.getTime() - 15 * 60000)
+    arrivalAdvice = `Please arrive by ${formatTime(arr)}.`
+    slotStartFmt = formatTime(slotStartDate)
   }
 
+  const slotNotice = slotStartDate
+    ? (patientsAhead === 0
+        ? `No one ahead of you. Your slot starts at ${slotStartFmt}. ${arrivalAdvice}`.trim()
+        : `${patientsAhead} ${patientsAhead === 1 ? 'person' : 'people'} ahead. Your slot starts at ${slotStartFmt}. ${arrivalAdvice}`.trim())
+    : (patientsAhead === 0
+        ? 'No one ahead of you. You are up next!'
+        : `${patientsAhead} ahead in line. Est. wait: ~${patientsAhead * avgMins} mins`)
+
+  // Dynamic wait based on active queue
+  let remainingForInside = 0
+  if (insidePatient) {
+    const insideStart = new Date(insidePatient.updatedAt || insidePatient.createdAt || now)
+    const elapsedMinutes = Math.max(0, Math.floor((now.getTime() - insideStart.getTime()) / 60000))
+    remainingForInside = Math.max(0, avgMins - elapsedMinutes)
+  }
+  const dynamicWaitMins = remainingForInside + (pos >= 0 ? pos * avgMins : 0)
+  const dynamicExpectedTime = new Date(now.getTime() + dynamicWaitMins * 60000)
+
+  let finalExpectedTime: Date
+  let waitStr: string
+  let remainingMins: number
+
+  if (slotStartDate && isSlotInFuture) {
+    if (canEarly) {
+      finalExpectedTime = now
+      waitStr = 'Doctor Free Now'
+      remainingMins = 0
+    } else {
+      // Slot floor enforcement: never show a time earlier than slot start, unless opted in
+      if (dynamicExpectedTime.getTime() > slotStartDate.getTime()) {
+        finalExpectedTime = dynamicExpectedTime
+        remainingMins = Math.max(0, Math.round((dynamicExpectedTime.getTime() - now.getTime()) / 60000))
+        waitStr = `~${remainingMins} mins`
+      } else {
+        finalExpectedTime = slotStartDate
+        remainingMins = Math.max(0, Math.round((slotStartDate.getTime() - now.getTime()) / 60000))
+        waitStr = remainingMins > 60 ? `Starts at ${slotStartFmt}` : `~${remainingMins} mins`
+      }
+    }
+  } else if (slotStartDate && !isSlotInFuture) {
+    // Current time at or after slot (e.g. running late at 3:20 PM)
+    finalExpectedTime = dynamicExpectedTime
+    remainingMins = dynamicWaitMins
+    waitStr = patientsAhead === 0 ? 'Soon, be ready' : `~${dynamicWaitMins} mins`
+  } else {
+    // Walk-in or no slot
+    finalExpectedTime = dynamicExpectedTime
+    remainingMins = dynamicWaitMins
+    waitStr = patientsAhead === 0 ? 'Soon, be ready' : `~${dynamicWaitMins} mins`
+  }
+
+  const windowText = formatTimeWindow(finalExpectedTime)
+  const approxText = formatApproxTime(finalExpectedTime)
+
+  const isSoon = patientsAhead === 0 || remainingMins <= 3 || waitStr.includes('Soon') || canEarly
+
   return {
-    statusText: `Approx. ${totalWaitMins} mins remaining (${exactStr}).`,
-    estimatedWait: `${totalWaitMins} mins`,
-    exactTimeStr: exactStr,
+    statusText: slotNotice,
+    estimatedWait: waitStr,
+    exactTimeStr: `${windowText} (${approxText})`,
     isDoctorAway: false,
     isOnBreak: false,
-    isSoonBeReady: false,
-    remainingMinutes: totalWaitMins,
+    isSoonBeReady: isSoon,
+    remainingMinutes: remainingMins,
+    timeWindowText: windowText,
+    approxTimeText: approxText,
+    slotNoticeText: slotNotice,
+    canOfferEarlyArrival: canEarly,
+    suggestedArrivalText: arrivalAdvice,
   }
 }
 
@@ -686,6 +680,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [walkinRetainedAppt, setWalkinRetainedAppt] = useState<Appointment | null>(null)
   const [walkinLookupLoading, setWalkinLookupLoading] = useState(false)
   const [walkinLookupError, setWalkinLookupError] = useState<string | null>(null)
+  const [walkinSlotTime, setWalkinSlotTime] = useState('')
+  const [walkinSlotId, setWalkinSlotId] = useState('')
+  const [walkinAvailableSlots, setWalkinAvailableSlots] = useState<Slot[]>([])
+  const [walkinUseCustomSlot, setWalkinUseCustomSlot] = useState(false)
 
   // 3 Clinic Types Classification for active clinic
   const isLabClinic = useMemo(() => {
@@ -939,6 +937,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     loadSlots()
   }, [slotDoctorId, slotDate, refreshKey])
 
+  // Load today's published slots for walk-in appointment registration
+  useEffect(() => {
+    const docId = walkinDoctorId || clinicDoctors[0]?.id
+    if (!docId) return
+    const today = new Date().toISOString().split('T')[0]
+    getSlotsByDoctorAndDate(docId, today)
+      .then((slots) => setWalkinAvailableSlots(slots || []))
+      .catch((err) => console.error('Error loading walkin slots:', err))
+  }, [walkinDoctorId, clinicDoctors, refreshKey])
+
   // Recalculate bill total amount when line items change
   useEffect(() => {
     if (billItems.length > 0) {
@@ -1136,7 +1144,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     try {
       let regDocUrl: string | undefined
       if (regClinicDocFile) {
-        const compressed = await compressImage(regClinicDocFile, 500)
+        const compressed = await compressImage(regClinicDocFile, 300 * 1024)
         regDocUrl =
           (await uploadClinicDocument(`reg_${regClinicDocFile.name}`, compressed, 'clinic_registration_docs')) ||
           undefined
@@ -1145,7 +1153,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       const picUrls: string[] = []
       for (let i = 0; i < regClinicPictures.length; i++) {
         const pic = regClinicPictures[i]
-        const compressed = await compressImage(pic, 500)
+        const compressed = await compressImage(pic, 300 * 1024)
         const u = await uploadClinicDocument(`pic_${i}_${pic.name}`, compressed, 'clinic_pictures')
         if (u) picUrls.push(u)
       }
@@ -1639,6 +1647,33 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
+  // Early Arrival Invite Trigger for Opted-in Patients
+  const handleSendEarlyInvite = async (appt: Appointment) => {
+    if (!selectedClinic) return
+    const confirmed = window.confirm(
+      `Send "⚡ Doctor is Free Now! Come in early?" push alert to ${appt.patientName}?`
+    )
+    if (!confirmed) return
+
+    try {
+      const ok = await sendEarlyArrivalInviteNotification(
+        appt.id,
+        appt.patientName,
+        appt.trackingCode10Digit,
+        appt.appointmentTime,
+        appt.userId
+      )
+      if (ok) {
+        alert(`⚡ Early arrival push notification successfully pushed to ${appt.patientName}'s device!`)
+      } else {
+        alert('Could not send notification. Please try again.')
+      }
+    } catch (err) {
+      console.error('Error inviting early:', err)
+      alert('Failed to send early invitation.')
+    }
+  }
+
   // Doctor onboarding form validation
   const validateDoctorOnboarding = () => {
     const errors: { [key: string]: string } = {}
@@ -1732,7 +1767,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         patientMobile: walkinMobile.trim(),
         patientEmail: walkinEmail.trim() || undefined,
         appointmentDate: new Date().toISOString().split('T')[0],
-        appointmentTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        appointmentTime: walkinSlotTime.trim() || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        slotId: walkinSlotId || undefined,
         checkinStatus: 'waiting',
         paymentStatus: 'paid',
         feeAmount: finalFee,
@@ -1747,6 +1783,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         setWalkinAge('')
         setWalkinMobile('')
         setWalkinEmail('')
+        setWalkinSlotTime('')
+        setWalkinSlotId('')
+        setWalkinUseCustomSlot(false)
         setWalkinSelectedTests([])
         setWalkinIsFollowup(false)
         setWalkinFollowupCode('')
@@ -1980,11 +2019,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
     if (file.type.startsWith('image/')) {
       const origSizeKb = Math.round(file.size / 1024)
-      const compressed = await compressImage(file, 500 * 1024, 1600)
+      const compressed = await compressImage(file, 300 * 1024, 1600)
       const newSizeKb = Math.round(compressed.size / 1024)
       setBillReceiptFile(compressed)
       setBillReceiptCompressionInfo(
-        `Optimized receipt image from ${origSizeKb} KB down to ${newSizeKb} KB`
+        `Optimized receipt image from ${origSizeKb} KB down to ${newSizeKb} KB (≤ 300 KB)`
       )
     } else {
       setBillReceiptFile(file)
@@ -2046,11 +2085,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
     if (file.type.startsWith('image/')) {
       const origSizeKb = Math.round(file.size / 1024)
-      const compressed = await compressImage(file, 500 * 1024, 1800)
+      const compressed = await compressImage(file, 300 * 1024, 1800)
       const newSizeKb = Math.round(compressed.size / 1024)
       setReportFile(compressed)
       setReportCompressionInfo(
-        `Optimized report scan from ${origSizeKb} KB down to ${newSizeKb} KB`
+        `Optimized report scan from ${origSizeKb} KB down to ${newSizeKb} KB (≤ 300 KB)`
       )
     } else {
       setReportFile(file)
@@ -2239,9 +2278,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       return
     }
     setUploadingDoctorPhoto(true)
-    setDoctorPhotoMsg('Compressing photo to <= 500 KB...')
+    setDoctorPhotoMsg('Compressing photo to <= 300 KB...')
     try {
-      const compressed = await compressImage(doctorPhotoFile, 400)
+      const compressed = await compressImage(doctorPhotoFile, 300 * 1024)
       setDoctorPhotoMsg('Uploading to Supabase doctor_photos storage...')
       const publicUrl = await uploadDoctorPhoto(doctorPhotoTarget.id, compressed, doctorPhotoFile.name)
       if (!publicUrl) throw new Error('Failed to upload doctor photo to Supabase storage.')
@@ -2286,7 +2325,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setUploadingClinicPhoto(true)
     setClinicPhotoStatusMsg('Compressing facility image...')
     try {
-      const compressed = await compressImage(file, 500)
+      const compressed = await compressImage(file, 300 * 1024)
       setClinicPhotoStatusMsg('Uploading to Supabase clinic_photos storage...')
       const publicUrl = await uploadClinicPhoto(selectedClinic.id, compressed, file.name)
       if (!publicUrl) throw new Error('Failed to upload photo to Supabase storage.')
@@ -2833,7 +2872,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <span>Government Registration / PAN Certificate</span>
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Auto-compressed to &le;500 KB before uploading to Supabase storage.
+                    Auto-compressed to &le;300 KB before uploading to Supabase storage.
                   </p>
                   <input
                     type="file"
@@ -3825,6 +3864,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           </td>
                           <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
                             <div>{appt.patientName}</div>
+                            {appt.optInEarlyCall && (
+                              <div className="mt-0.5">
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40 text-[10px] font-bold">
+                                  <Zap className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                                  <span>Early Call Opted-In</span>
+                                </span>
+                              </div>
+                            )}
                             {appt.patientMobile && (
                               <a
                                 href={`tel:${appt.patientMobile}`}
@@ -3972,6 +4019,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             >
                               <Printer className="w-3.5 h-3.5 inline" />
                             </button>
+
+                            {/* ⚡ Invite Early for Opted-In Patients */}
+                            {appt.optInEarlyCall && isWaiting && (
+                              <button
+                                type="button"
+                                onClick={() => handleSendEarlyInvite(appt)}
+                                className="px-2 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-800 dark:text-emerald-300 border border-emerald-400/50 rounded-lg font-bold text-[11px] cursor-pointer inline-flex items-center space-x-1"
+                                title="Send 'Doctor is free now. Come in early?' push notification to patient"
+                              >
+                                <Zap className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                <span>Invite Early</span>
+                              </button>
+                            )}
 
                             {/* Push Alert */}
                             <button
@@ -4355,6 +4415,87 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </select>
                 </div>
               )}
+
+              {/* Consultation Time Slot Window Selector */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">
+                    Consultation Time Slot Window
+                  </label>
+                  {walkinAvailableSlots.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWalkinUseCustomSlot(!walkinUseCustomSlot)
+                        setWalkinSlotTime('')
+                        setWalkinSlotId('')
+                      }}
+                      className="text-[11px] font-semibold text-brand-600 hover:text-brand-700 hover:underline"
+                    >
+                      {walkinUseCustomSlot ? 'Pick Published Slot' : 'Enter Custom Slot'}
+                    </button>
+                  )}
+                </div>
+
+                {!walkinUseCustomSlot && walkinAvailableSlots.length > 0 ? (
+                  <select
+                    value={walkinSlotId}
+                    onChange={(e) => {
+                      const selId = e.target.value
+                      setWalkinSlotId(selId)
+                      const found = walkinAvailableSlots.find((s) => s.id === selId)
+                      if (found) {
+                        setWalkinSlotTime(`${found.startTime} - ${found.endTime}`)
+                      } else {
+                        setWalkinSlotTime('')
+                      }
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    <option value="">Current Time / Immediate OPD</option>
+                    {walkinAvailableSlots.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.startTime} - {s.endTime} ({s.bookedCount || 0}/{s.maxCapacity || 5} booked)
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="space-y-1.5">
+                    <input
+                      type="text"
+                      placeholder="e.g. 2:00 PM - 3:00 PM or 2-3 (Leave empty for Immediate OPD)"
+                      value={walkinSlotTime}
+                      onChange={(e) => {
+                        setWalkinSlotTime(e.target.value)
+                        setWalkinSlotId('')
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {['9:00 - 10:00 AM', '10:00 - 11:00 AM', '11:00 - 12:00 PM', '2:00 - 3:00 PM', '3:00 - 4:00 PM', '4:00 - 5:00 PM'].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            setWalkinSlotTime(preset)
+                            setWalkinSlotId('')
+                          }}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition ${
+                            walkinSlotTime === preset
+                              ? 'bg-brand-500 text-white border-brand-600'
+                              : 'bg-white/80 text-slate-600 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                  Walk-in patient will be placed at the last position of the selected time slot, and all subsequent time slot patients will automatically shift down (+1).
+                </p>
+              </div>
 
               {/* Submit Button */}
               <GlassButton
@@ -4827,6 +4968,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         </td>
                         <td className="py-3.5 px-4 font-bold text-slate-900">
                           <div>{appt.patientName}</div>
+                          {appt.optInEarlyCall && (
+                            <div className="mt-0.5">
+                              <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-800 border border-emerald-400/40 text-[10px] font-bold">
+                                <Zap className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>Early Call Opted-In</span>
+                              </span>
+                            </div>
+                          )}
                           {appt.notes && (
                             <div className="mt-0.5 text-[10px] text-amber-800 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200 inline-block">
                               Remark: {appt.notes}
@@ -4866,6 +5015,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           >
                             Shift Date
                           </button>
+                          {appt.optInEarlyCall && appt.checkinStatus !== 'completed' && appt.checkinStatus !== 'no_show' && (
+                            <button
+                              type="button"
+                              onClick={() => handleSendEarlyInvite(appt)}
+                              className="px-2.5 py-1 bg-emerald-50/85 hover:bg-emerald-100 text-emerald-800 rounded-lg text-[11px] font-bold cursor-pointer inline-flex items-center space-x-1"
+                              title="Send 'Doctor is free now. Come in early?' push alert to patient"
+                            >
+                              <Zap className="w-3 h-3 text-emerald-600" />
+                              <span>Invite Early</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleOpenPushAlertModal(appt)}
@@ -6921,7 +7081,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   />
                 </label>
                 <p className="text-[10px] text-slate-400 text-center mt-1.5">
-                  Images are automatically compressed to ≤ 500 KB and uploaded to public Supabase storage.
+                  Images are automatically compressed to ≤ 300 KB and uploaded to public Supabase storage.
                 </p>
               </div>
             )}
@@ -7393,7 +7553,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               {/* Compressed Image Attachment */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-700 block">
-                  Attach Bill / Prescription Image (Auto-Compress to &le; 500 KB)
+                  Attach Bill / Prescription Image (Auto-Compress to &le; 300 KB)
                 </label>
                 <input
                   type="file"

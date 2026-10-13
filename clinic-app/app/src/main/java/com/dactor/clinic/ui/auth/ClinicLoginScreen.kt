@@ -2078,25 +2078,48 @@ fun ClinicLoginScreen(
                                 )
                             }
 
-                            // Clinic Specialties (Multi-Select)
-                            val allClinicSpecOptions = if (availableSpecialtiesList.isNotEmpty()) {
+                            // Clinic Specialties & Diagnostic Services (Multi-Select based on clinicType)
+                            val allClinicSpecOptions = if (clinicType == "diagnostic_lab") {
+                                listOf(
+                                    "MRI (Magnetic Resonance Imaging)",
+                                    "CT Scan (Computed Tomography)",
+                                    "Digital X-Ray (Radiography)",
+                                    "Ultrasound (USG / Sonography)",
+                                    "Blood Tests & CBC (Hematology)",
+                                    "Pathology & Biopsy",
+                                    "Clinical Biochemistry",
+                                    "Microbiology & Culture",
+                                    "ECG (Electrocardiogram)",
+                                    "Echocardiography (Echo)",
+                                    "Urine & Stool Analysis",
+                                    "Endoscopy & Colonoscopy",
+                                    "Histopathology & Cytology",
+                                    "Mammography & Breast Scan",
+                                    "Thyroid & Hormone Profile",
+                                    "Lipid Profile & Cardiac Markers",
+                                    "Allergy & Immunology Tests",
+                                    "Bone Densitometry (BMD/DEXA)"
+                                )
+                            } else if (availableSpecialtiesList.isNotEmpty()) {
                                 availableSpecialtiesList.map { it.name }
                             } else {
                                 listOf(
-                                    "Dental Care & Dentistry",
-                                    "Ophthalmology (Eye Care)",
+                                    "General Medicine & Physician",
                                     "Dermatology & Skin Care",
                                     "Cardiology (Heart Care)",
-                                    "Orthopedics & Joint Care",
                                     "Pediatrics & Child Health",
-                                    "ENT (Ear, Nose & Throat)",
+                                    "Orthopedics & Joint Care",
                                     "Gynecology & Obstetrics",
-                                    "General Medicine & Physician",
-                                    "Gastroenterology",
+                                    "ENT (Ear, Nose & Throat)",
+                                    "Ophthalmology (Eye Care)",
+                                    "Dental Care & Dentistry",
                                     "Neurology (Brain & Nerve)",
                                     "Psychiatry & Mental Health",
+                                    "Gastroenterology & Liver",
+                                    "Pulmonology & Chest Care",
                                     "Urology & Kidney Care",
-                                    "Pathology & Diagnostic Lab"
+                                    "Endocrinology & Diabetes",
+                                    "Oncology & Cancer Care"
                                 )
                             }
 
@@ -2106,7 +2129,12 @@ fun ClinicLoginScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Clinic Specialties (Select Multiple):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        if (clinicType == "diagnostic_lab") "Lab Services & Scans (Select Multiple):"
+                                        else "Clinic Specialties (Select Multiple):",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                     Text(
                                         "${clinicSpecialties.size} Selected",
                                         fontSize = 11.sp,
@@ -2115,7 +2143,8 @@ fun ClinicLoginScreen(
                                     )
                                 }
                                 Text(
-                                    "Select all departments you operate. When patients search for symptoms (e.g. eye, teeth, skin, heart), your clinic will match.",
+                                    if (clinicType == "diagnostic_lab") "Select all diagnostic tests, imaging scans, and lab services offered (e.g. MRI, CT Scan, X-Ray, Blood Tests). Patients searching for scans will match your lab."
+                                    else "Select all medical departments you operate (e.g. skin, heart, child, bone). Patients searching for symptoms will match your clinic.",
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -2531,28 +2560,38 @@ fun ClinicLoginScreen(
                             }
 
                             // 5. Specialization
-                            val docSpecOptions = if (doctorPractitionerRole == "lab_technician") {
+                            val docSpecOptions = if (clinicType == "diagnostic_lab" || doctorPractitionerRole == "lab_technician") {
                                 listOf(
-                                    "Medical Lab Technician",
-                                    "Pathology & Hematology Technician",
+                                    "MRI Specialist & Radiographer",
+                                    "CT Scan Specialist & Technologist",
+                                    "Digital X-Ray Technologist",
+                                    "Ultrasound (USG) Sonographer",
+                                    "Medical Lab Technician (MLT)",
+                                    "Pathology & Hematology Specialist",
                                     "Clinical Biochemistry Technician",
                                     "Microbiology Lab Technician",
-                                    "Histopathology & Cytology Technician",
-                                    "Phlebotomist & Sample Collection"
+                                    "ECG & Echo Technician",
+                                    "Phlebotomist & Sample Collector",
+                                    "Histopathology & Cytology Technician"
                                 )
                             } else if (availableSpecialtiesList.isNotEmpty()) {
                                 availableSpecialtiesList.map { it.name }
                             } else {
                                 listOf(
-                                    "General Physician",
-                                    "Cardiology (Heart Care)",
+                                    "General Physician & Medicine",
+                                    "Dermatologist (Skin & Hair)",
+                                    "Cardiologist (Heart Care)",
+                                    "Pediatrician (Child Health)",
+                                    "Orthopedic Surgeon & Joint Care",
+                                    "Gynecology & Obstetrics",
+                                    "ENT Specialist (Ear, Nose, Throat)",
                                     "Ophthalmology (Eye Care)",
                                     "Dental Care & Dentistry",
-                                    "Dermatology & Skin Care",
-                                    "Orthopedics & Joint Care",
-                                    "Pediatrics & Child Health",
-                                    "ENT (Ear, Nose & Throat)",
-                                    "Gynecology & Obstetrics"
+                                    "Neurology (Brain & Nerve)",
+                                    "Psychiatry & Mental Health",
+                                    "Gastroenterology & Liver",
+                                    "Pulmonology (Chest & Lungs)",
+                                    "Urology & Kidney Care"
                                 )
                             }
                             Row(
@@ -2577,8 +2616,8 @@ fun ClinicLoginScreen(
                                 label = { Text("Specialization *") },
                                 placeholder = {
                                     Text(
-                                        if (doctorPractitionerRole == "lab_technician") "e.g. Medical Lab Technician, Pathology"
-                                        else "e.g. Cardiologist, Pediatrics, Orthopedics"
+                                        if (clinicType == "diagnostic_lab" || doctorPractitionerRole == "lab_technician") "e.g. MRI Specialist, CT Scan Technician, Pathology"
+                                        else "e.g. Cardiologist, Dermatologist, Pediatrics, Orthopedics"
                                     )
                                 },
                                 leadingIcon = { Icon(Icons.Default.MedicalServices, contentDescription = null) },

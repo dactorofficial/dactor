@@ -25,7 +25,12 @@ sealed class NavRoutes(val route: String) {
         }
     }
     object Search : NavRoutes("search") {
-        fun createRoute(date: String = "") = if (date.isNotBlank()) "search?date=$date" else "search"
+        fun createRoute(date: String = "", query: String = ""): String {
+            val params = mutableListOf<String>()
+            if (date.isNotBlank()) params.add("date=$date")
+            if (query.isNotBlank()) params.add("query=${android.net.Uri.encode(query)}")
+            return if (params.isNotEmpty()) "search?${params.joinToString("&")}" else "search"
+        }
     }
     object BookingForm : NavRoutes("booking_form/{slotId}") {
         fun createRoute(slotId: String) = "booking_form/$slotId"

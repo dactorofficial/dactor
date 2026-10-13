@@ -514,16 +514,24 @@ class QueueRepository @Inject constructor(
                     }.thenBy { it.queuePosition }
             )
 
+            // Two-pass update with negative offsets to prevent unique key violation
+            for (entry in sortedEntries) {
+                try {
+                    supabaseClient.postgrest["queue_entries"]
+                        .update({ set("queue_position", - (entry.queuePosition + 10000)) }) {
+                            filter { eq("id", entry.id) }
+                        }
+                } catch (ignored: Exception) {}
+            }
+
             sortedEntries.forEachIndexed { index, entry ->
                 val newPosition = index + 1
-                if (entry.queuePosition != newPosition) {
-                    try {
-                        supabaseClient.postgrest["queue_entries"]
-                            .update({ set("queue_position", newPosition) }) {
-                                filter { eq("id", entry.id) }
-                            }
-                    } catch (ignored: Exception) {}
-                }
+                try {
+                    supabaseClient.postgrest["queue_entries"]
+                        .update({ set("queue_position", newPosition) }) {
+                            filter { eq("id", entry.id) }
+                        }
+                } catch (ignored: Exception) {}
             }
             true
         } catch (e: Exception) {

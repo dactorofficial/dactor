@@ -86,6 +86,42 @@ data class DoctorHomeItem(
     val practicingClinics: List<Clinic>
 )
 
+data class HomeCategoryItem(
+    val title: String,
+    val subtitle: String,
+    val searchTerm: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val isLab: Boolean
+)
+
+val HOME_SPECIALIST_AND_LAB_CATEGORIES = listOf(
+    // Medical Specialists
+    HomeCategoryItem("Dermatology", "Skin & Hair", "Dermatologist", Icons.Default.Face, false),
+    HomeCategoryItem("Cardiology", "Heart Care", "Cardiologist", Icons.Default.Favorite, false),
+    HomeCategoryItem("Pediatrics", "Child Health", "Pediatrician", Icons.Default.ChildCare, false),
+    HomeCategoryItem("Orthopedics", "Bone & Joint", "Orthopedic", Icons.Default.Accessibility, false),
+    HomeCategoryItem("Gynecology", "Women's Care", "Gynecologist", Icons.Default.Female, false),
+    HomeCategoryItem("ENT Care", "Ear, Nose, Throat", "ENT Specialist", Icons.Default.Hearing, false),
+    HomeCategoryItem("Eye Care", "Vision & Optics", "Ophthalmologist", Icons.Default.Visibility, false),
+    HomeCategoryItem("Dental", "Teeth & Oral", "Dentist", Icons.Default.HealthAndSafety, false),
+    HomeCategoryItem("Neurology", "Brain & Nerve", "Neurologist", Icons.Default.Psychology, false),
+    HomeCategoryItem("General OPD", "Physician", "General Physician", Icons.Default.LocalHospital, false),
+    HomeCategoryItem("Psychiatry", "Mental Health", "Psychiatrist", Icons.Default.Person, false),
+    HomeCategoryItem("Gastro", "Stomach & Liver", "Gastroenterologist", Icons.Default.MedicalServices, false),
+    
+    // Diagnostic Labs & Scans
+    HomeCategoryItem("MRI Scan", "Imaging & Scan", "MRI", Icons.Default.Biotech, true),
+    HomeCategoryItem("CT Scan", "Computed Scan", "CT Scan", Icons.Default.Biotech, true),
+    HomeCategoryItem("Digital X-Ray", "Radiology", "X-Ray", Icons.Default.CameraAlt, true),
+    HomeCategoryItem("Ultrasound (USG)", "Sonography", "Ultrasound", Icons.Default.Sensors, true),
+    HomeCategoryItem("Blood Tests", "CBC & Pathology", "Blood Test", Icons.Default.Bloodtype, true),
+    HomeCategoryItem("Pathology", "Biopsy & Tests", "Pathology", Icons.Default.Science, true),
+    HomeCategoryItem("ECG / Echo", "Heart Rhythm", "ECG", Icons.Default.MonitorHeart, true),
+    HomeCategoryItem("Urine Analysis", "Diagnostic Lab", "Urine", Icons.Default.WaterDrop, true),
+    HomeCategoryItem("Endoscopy", "Diagnostic Scan", "Endoscopy", Icons.Default.Videocam, true),
+    HomeCategoryItem("Mammography", "Breast Imaging", "Mammography", Icons.Default.Image, true)
+)
+
 private val DEFAULT_NEPAL_MAJOR_LOCATIONS = listOf(
     "All Nepal",
     "Kathmandu",
@@ -667,6 +703,7 @@ fun HomeTab(
     var hasInitializedGps by rememberSaveable { mutableStateOf(false) }
     var showLocationDialog by remember { mutableStateOf(false) }
     var showEnableGpsDialog by remember { mutableStateOf(false) }
+    var showMapPicker by remember { mutableStateOf(false) }
 
     val gpsSettingsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -1242,6 +1279,89 @@ fun HomeTab(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+        }
+
+        // ── SPECIALISTS & DIAGNOSTIC LABS CATEGORIES SECTION ──
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp, bottom = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Specialists & Diagnostic Labs",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "View All",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable {
+                        navController.navigate(NavRoutes.Search.createRoute(selectedDate.toString())) {
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(HOME_SPECIALIST_AND_LAB_CATEGORIES) { cat ->
+                    Surface(
+                        onClick = {
+                            navController.navigate(
+                                NavRoutes.Search.createRoute(selectedDate.toString(), cat.searchTerm)
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (cat.isLab) Color(0xFFEFF6FF) else Color(0xFFF0FDF4),
+                        border = BorderStroke(1.dp, if (cat.isLab) Color(0xFFBFDBFE) else Color(0xFFBBF7D0)),
+                        shadowElevation = 0.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = cat.icon,
+                                contentDescription = null,
+                                tint = if (cat.isLab) Color(0xFF1D4ED8) else Color(0xFF15803D),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = cat.title,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (cat.isLab) Color(0xFF1E3A8A) else Color(0xFF14532D)
+                                )
+                                Text(
+                                    text = cat.subtitle,
+                                    fontSize = 9.sp,
+                                    color = if (cat.isLab) Color(0xFF2563EB) else Color(0xFF16A34A),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -2597,6 +2717,43 @@ fun HomeTab(
                         }
                     }
 
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showLocationDialog = false
+                                showMapPicker = true
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Map,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "Pick Location on Free Map",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    text = "Tap on interactive map to set your exact location",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                     LazyColumn(
@@ -2639,6 +2796,23 @@ fun HomeTab(
                     Text("Close")
                 }
             }
+        )
+    }
+
+    if (showMapPicker) {
+        com.dactor.patient.ui.components.OpenStreetMapPicker(
+            initialAddress = selectedLocation,
+            initialLat = userLatitude ?: 27.7052,
+            initialLng = userLongitude ?: 85.3193,
+            onSaveLocation = { address, lat, lng ->
+                userLatitude = lat
+                userLongitude = lng
+                selectedLocation = address
+                isLiveGpsActive = true
+                showMapPicker = false
+                Toast.makeText(context, "Location set on Map: $address", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showMapPicker = false }
         )
     }
 

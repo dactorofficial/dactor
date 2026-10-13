@@ -416,7 +416,7 @@ fun OpenStreetMapPicker(
                                     settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                 }
                                 settings.cacheMode = WebSettings.LOAD_DEFAULT
-                                settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                                settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 DactorApp/2.0"
                                 webChromeClient = WebChromeClient()
                                 webViewClient = object : WebViewClient() {
                                     override fun onReceivedSslError(view: WebView?, handler: android.webkit.SslErrorHandler?, error: android.net.http.SslError?) {
@@ -441,7 +441,6 @@ fun OpenStreetMapPicker(
                                     <head>
                                       <meta charset="utf-8" />
                                       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                                      <meta name="referrer" content="no-referrer" />
                                       <style>
                                         * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
                                         html, body {
@@ -538,13 +537,11 @@ fun OpenStreetMapPicker(
                                           function getTileUrls(z, x, y) {
                                             var maxTile = Math.pow(2, z);
                                             var wrappedX = ((x % maxTile) + maxTile) % maxTile;
-                                            var sub = ['a', 'b', 'c', 'd'][Math.abs(wrappedX + y) % 4];
+                                            var sub = ['a', 'b', 'c'][Math.abs(wrappedX + y) % 3];
                                             return [
-                                              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/' + z + '/' + y + '/' + wrappedX,
+                                              'https://tile.openstreetmap.org/' + z + '/' + wrappedX + '/' + y + '.png',
                                               'https://' + sub + '.basemaps.cartocdn.com/rastertiles/voyager/' + z + '/' + wrappedX + '/' + y + '.png',
-                                              'https://tile.openstreetmap.fr/hot/' + z + '/' + wrappedX + '/' + y + '.png',
-                                              'https://' + sub + '.basemaps.cartocdn.com/light_all/' + z + '/' + wrappedX + '/' + y + '.png',
-                                              'https://tile.openstreetmap.org/' + z + '/' + wrappedX + '/' + y + '.png'
+                                              'https://tile.openstreetmap.fr/hot/' + z + '/' + wrappedX + '/' + y + '.png'
                                             ];
                                           }
 
@@ -592,8 +589,6 @@ fun OpenStreetMapPicker(
                                                   img = document.createElement('img');
                                                   img.className = 'map-tile';
                                                   img.alt = '';
-                                                  img.referrerPolicy = 'no-referrer';
-                                                  img.crossOrigin = 'anonymous';
                                                   var urls = getTileUrls(zoom, tx, ty);
                                                   var urlIdx = 0;
                                                   img.onerror = function() {
