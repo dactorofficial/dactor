@@ -24,9 +24,12 @@ import { LiquidAuroraBackground } from './components/glass'
 const getTabFromUrl = (): string => {
   if (typeof window === 'undefined') return 'home'
 
-  // 1. Check URL query parameters (e.g. ?page=support or ?tab=clinics)
+  // 1. Check URL query parameters (e.g. ?clinic=123 or ?page=support or ?tab=clinics)
   try {
     const params = new URLSearchParams(window.location.search)
+    if (params.get('clinic') || params.get('clinicId')) return 'clinic-detail'
+    if (params.get('code') || params.get('track')) return 'live-queue'
+
     const tabParam = params.get('tab') || params.get('page')
     if (tabParam) {
       const cleanParam = tabParam.toLowerCase().trim()
@@ -35,6 +38,7 @@ const getTabFromUrl = (): string => {
       if (cleanParam === 'doctor' || cleanParam === 'doctor-portal' || cleanParam === 'practitioner') return 'doctor-portal'
       if (cleanParam === 'portal' || cleanParam === 'admin-portal' || cleanParam === 'clinic-portal' || cleanParam === 'clinic') return 'portal'
       if (cleanParam === 'clinics') return 'clinics'
+      if (cleanParam === 'clinic-detail') return 'clinic-detail'
       if (cleanParam === 'lab-reports' || cleanParam === 'reports') return 'lab-reports'
       if (cleanParam === 'average-time' || cleanParam === 'wait-time') return 'average-time'
       if (cleanParam === 'live-queue' || cleanParam === 'queue') return 'live-queue'
@@ -43,7 +47,7 @@ const getTabFromUrl = (): string => {
     }
   } catch {}
 
-  // 2. Check URL Hash (e.g. #clinics, #live-queue, #broken-link)
+  // 2. Check URL Hash (e.g. #clinics, #live-queue, #clinic-detail)
   const rawHash = window.location.hash.toLowerCase()
   if (rawHash) {
     const hash = rawHash.replace(/^#\/?/, '').replace(/\/$/, '').split('?')[0]
@@ -53,7 +57,7 @@ const getTabFromUrl = (): string => {
     if (hash === 'doctor' || hash === 'doctor-portal' || hash === 'practitioner') return 'doctor-portal'
     if (hash === 'portal' || hash === 'admin-portal' || hash === 'clinic-portal' || hash === 'clinic') return 'portal'
     if (hash === 'clinics') return 'clinics'
-    if (hash === 'clinic-detail') return 'clinic-detail'
+    if (hash === 'clinic-detail' || hash.startsWith('clinic')) return 'clinic-detail'
     if (hash === 'lab-reports' || hash === 'reports') return 'lab-reports'
     if (hash === 'average-time' || hash === 'wait-time') return 'average-time'
     if (hash === 'live-queue' || hash === 'queue') return 'live-queue'
@@ -87,9 +91,44 @@ export const App: React.FC = () => {
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(() => {
     try {
       const p = new URLSearchParams(window.location.search)
-      return p.get('clinic') || p.get('clinicId') || null
+      if (p.get('clinic')) return p.get('clinic')
+      if (p.get('clinicId')) return p.get('clinicId')
+      if (window.location.hash) {
+        const hashParams = new URLSearchParams(window.location.hash.split('?')[1] || '')
+        return hashParams.get('clinic') || hashParams.get('clinicId') || null
+      }
+      return null
     } catch {
       return null
+    }
+  })
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search)
+      if (p.get('doctor')) return p.get('doctor')
+      if (p.get('doctorId')) return p.get('doctorId')
+      if (window.location.hash) {
+        const hashParams = new URLSearchParams(window.location.hash.split('?')[1] || '')
+        return hashParams.get('doctor') || hashParams.get('doctorId') || null
+      }
+      return null
+    } catch {
+      return null
+    }
+  })
+  const [autoOpenBooking, setAutoOpenBooking] = useState<boolean>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search)
+      const action = p.get('action') || p.get('intent')
+      if (action === 'book' || action === 'appointment' || action === 'reserve') return true
+      if (window.location.hash) {
+        const hashParams = new URLSearchParams(window.location.hash.split('?')[1] || '')
+        const hashAction = hashParams.get('action') || hashParams.get('intent')
+        return hashAction === 'book' || hashAction === 'appointment' || hashAction === 'reserve'
+      }
+      return false
+    } catch {
+      return false
     }
   })
   const [activeTrackingCode, setActiveTrackingCode] = useState<string>(() => {
@@ -187,11 +226,31 @@ export const App: React.FC = () => {
     }
   }, [])
 
-  // Navigation handler
+  // Navigation handler with deep link support
   const handleNavigate = (tab: string, params?: any) => {
-    if (tab === 'clinic-detail' && params?.clinicId) {
-      setSelectedClinicId(params.clinicId)
+    if (tab === 'clinic-detail' && (params?.clinicId || selectedClinicId)) {
+      const cId = params?.clinicId || selectedClinicId
+      setSelectedClinicId(cId)
+      if (params?.doctorId !== undefined) {
+        setSelectedDoctorId(params.doctorId || null)
+      }
+      if (params?.action === 'book' || params?.autoOpenBooking) {
+        setAutoOpenBooking(true)
+      } else {
+        setAutoOpenBooking(false)
+      }
       setActiveTab('clinic-detail')
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.set('clinic', cId!)
+        if (params?.doctorId) url.searchParams.set('doctor', params.doctorId)
+        else url.searchParams.delete('doctor')
+        if (params?.action === 'book') url.searchParams.set('action', 'book')
+        else url.searchParams.delete('action')
+        url.searchParams.delete('tab')
+        url.searchParams.delete('page')
+        window.history.pushState({}, '', url.toString())
+      } catch {}
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
@@ -201,6 +260,19 @@ export const App: React.FC = () => {
     }
 
     setActiveTab(tab)
+    try {
+      const url = new URL(window.location.href)
+      if (tab === 'home') {
+        url.search = ''
+      } else {
+        url.searchParams.delete('clinic')
+        url.searchParams.delete('doctor')
+        url.searchParams.delete('action')
+        url.searchParams.set('tab', tab)
+      }
+      window.history.pushState({}, '', url.toString())
+    } catch {}
+
     if (window.location.hash !== `#${tab}`) {
       window.location.hash = `#${tab}`
     }
@@ -282,6 +354,8 @@ export const App: React.FC = () => {
         {activeTab === 'clinic-detail' && selectedClinicId && (
           <ClinicDetail
             clinicId={selectedClinicId}
+            initialDoctorId={selectedDoctorId || undefined}
+            autoOpenBooking={autoOpenBooking}
             onBack={() => handleNavigate('clinics')}
             onOpenLiveQueue={handleOpenLiveQueue}
           />

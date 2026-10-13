@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "seo": "node scripts/generate-seo.js",
+    "build": "node scripts/generate-seo.js && tsc && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

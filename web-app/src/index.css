@@ -62,14 +62,16 @@
 
 @layer base {
   html {
+    color-scheme: light;
     -webkit-tap-highlight-color: transparent;
     text-size-adjust: 100%;
     -webkit-text-size-adjust: 100%;
     scroll-behavior: smooth;
   }
   body {
+    color-scheme: light;
     background-color: #f8fafc;
-    color: #1e293b;
+    color: #0f172a;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     overflow-x: hidden;
     width: 100%;

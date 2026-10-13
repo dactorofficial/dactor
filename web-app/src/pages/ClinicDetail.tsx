@@ -38,15 +38,20 @@ import {
   getAppointmentByTrackingCode,
 } from '../services/db'
 import { supabase } from '../lib/supabase'
+import { updatePageSEO } from '../utils/seo'
 
 interface ClinicDetailProps {
   clinicId: string
+  initialDoctorId?: string
+  autoOpenBooking?: boolean
   onBack: () => void
   onOpenLiveQueue: (trackingCode: string) => void
 }
 
 export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   clinicId,
+  initialDoctorId,
+  autoOpenBooking,
   onBack,
   onOpenLiveQueue,
 }) => {
@@ -155,8 +160,23 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         setActiveTab('opd')
       }
 
-      if (dData.length > 0 && !selectedDoctor) {
+      if (initialDoctorId) {
+        const found = dData.find(
+          (d) =>
+            d.id === initialDoctorId ||
+            d.fullName.toLowerCase().includes(initialDoctorId.toLowerCase())
+        )
+        if (found) {
+          setSelectedDoctor(found)
+        } else if (dData.length > 0 && !selectedDoctor) {
+          setSelectedDoctor(dData[0])
+        }
+      } else if (dData.length > 0 && !selectedDoctor) {
         setSelectedDoctor(dData[0])
+      }
+
+      if (autoOpenBooking) {
+        setShowBookingModal(true)
       }
     } catch (err) {
       console.error('Failed to load clinic details:', err)
@@ -164,6 +184,36 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       setLoading(false)
     }
   }
+
+  // Synchronize Google & AI Search SEO with active Clinic & Doctor
+  useEffect(() => {
+    if (!clinic) return
+
+    const pageTitle = selectedDoctor
+      ? `Book Dr. ${selectedDoctor.fullName} (${selectedDoctor.specialty || 'Specialist'}) at ${clinic.name} | Dactor Nepal`
+      : `Book Appointment - ${clinic.name} | Live OPD Queue & Doctors - Dactor`
+
+    const pageDesc = selectedDoctor
+      ? `Book online appointment with Dr. ${selectedDoctor.fullName} (${selectedDoctor.specialty || 'Doctor'}) at ${clinic.name}, ${clinic.city || 'Nepal'}. Track live queue token numbers and estimated wait times on Dactor.`
+      : `Book doctor appointments, OPD tokens, and diagnostic tests at ${clinic.name}, ${clinic.city || 'Nepal'}. Real-time patient token tracker and wait time estimation on Dactor.`
+
+    updatePageSEO({
+      title: pageTitle,
+      description: pageDesc,
+      canonicalUrl: `https://dactorofficial.github.io/?clinic=${clinic.id}${selectedDoctor ? `&doctor=${selectedDoctor.id}` : ''}`,
+      clinic,
+      doctor: selectedDoctor,
+      allDoctors: doctors,
+    })
+
+    return () => {
+      updatePageSEO({
+        title: "Dactor - Nepal's Realtime Healthcare OPD Queue, Clinic Portal & Lab Ecosystem",
+        description: "Dactor connects patients, clinics, polyclinics, and diagnostic pathology labs across Nepal. Track live OPD token queue numbers, calculate estimated wait times, book doctor appointments, order diagnostic tests, and download certified medical reports.",
+        canonicalUrl: 'https://dactorofficial.github.io/',
+      })
+    }
+  }, [clinic, selectedDoctor, doctors])
 
   // 3 Clinic Types Classification
   const isLabClinic = useMemo(() => {
