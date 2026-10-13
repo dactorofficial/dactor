@@ -337,6 +337,8 @@ export const QUICK_SPECIALTY_SUGGESTIONS = [
   'ENT Specialist',
   'General Physician',
   'Diagnostic Lab Tests',
+  'MRI & CT Scan Imaging',
+  'Pathology & Blood Tests',
 ]
 
 /**

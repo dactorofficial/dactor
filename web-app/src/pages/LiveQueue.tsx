@@ -435,9 +435,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   return (
     <div className="min-h-screen pb-28 sm:pb-16">
       {/* ========================================================================= */}
-      {/* 1. TOP HEADER: LIQUID GLASS OBSIDIAN / TEAL REFRACTION                     */}
+      {/* 1. TOP HEADER: DARK OBSIDIAN / TEAL REFRACTION                     */}
       {/* ========================================================================= */}
-      <div className="w-full liquid-glass-elevated bg-slate-950/85 text-white pt-6 sm:pt-8 pb-12 sm:pb-16 px-3 sm:px-6 lg:px-8 border-b border-teal-500/20 relative overflow-hidden">
+      <div className="w-full bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white pt-6 sm:pt-8 pb-12 sm:pb-16 px-3 sm:px-6 lg:px-8 border-b border-teal-500/20 relative overflow-hidden shadow-glass-elevated">
         {/* Specular Edge Highlight */}
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
 
@@ -451,7 +451,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             <button
               onClick={() => fetchQueueData(activeCode)}
               disabled={loading}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full liquid-glass-subtle hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer active:scale-95"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 flex items-center justify-center text-white transition cursor-pointer active:scale-95 shadow-glass-sm"
               title="Refresh live queue status"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -463,7 +463,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             {onNavigateHome && (
               <button
                 onClick={onNavigateHome}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl liquid-glass-subtle hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer shrink-0 active:scale-95"
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 flex items-center justify-center text-white transition cursor-pointer shrink-0 active:scale-95 shadow-glass-sm"
                 title="Back to home"
               >
                 <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -471,7 +471,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             )}
             <div>
               <h1 className="text-xl sm:text-3xl font-black tracking-tight text-white">Live Queue Position</h1>
-              <p className="text-[11px] sm:text-xs text-teal-200/80 font-medium">Your health, our priority</p>
+              <p className="text-[11px] sm:text-xs text-teal-300/90 font-medium">Your health, our priority</p>
             </div>
           </div>
         </div>

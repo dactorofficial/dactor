@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename)
 
 const SUPABASE_URL = 'https://ojfoofojcpabqegxmsab.supabase.co'
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qZm9vZm9qY3BhYnFlZ3htc2FiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNTM1MTgsImV4cCI6MjEwNTkyOTUxOH0.pH1yOGykaaQTzlQxeCvcQ78HQwxhTSi4yA8JmvT-Y9Y'
-const BASE_URL = 'https://dactorofficial.github.io'
+const BASE_URL = 'https://dactorofficial.github.io/dactor'
 
 async function generateSitemap() {
   console.log('Generating dynamic SEO sitemap from Supabase...')

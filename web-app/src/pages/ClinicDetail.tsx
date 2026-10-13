@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Sparkles,
   ChevronRight,
+  ChevronLeft,
   CreditCard,
   Download,
   RefreshCw,
@@ -29,6 +30,7 @@ import {
   getDoctorsByClinic,
   getClinicServices,
   getSlots,
+  getMonthSlots,
   createAppointment,
   generate10DigitTrackingCode,
   isSlotTimeExpired,
@@ -360,6 +362,117 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       active = false
     }
   }, [clinicId, selectedDate])
+
+  // Month Calendar View State matching mobile app Workflow
+  const todayIso = useMemo(() => new Date().toISOString().split('T')[0], [])
+  const currentYearMonth = useMemo(() => {
+    const now = new Date()
+    return { year: now.getFullYear(), month: now.getMonth() }
+  }, [])
+  const [viewedYearMonth, setViewedYearMonth] = useState<{ year: number; month: number }>(() => {
+    const now = new Date()
+    return { year: now.getFullYear(), month: now.getMonth() }
+  })
+  const [monthSlotsMap, setMonthSlotsMap] = useState<Record<string, Slot[]>>({})
+  const [monthSlotsLoading, setMonthSlotsLoading] = useState(false)
+
+  // Load slots for the whole visible month in one call, and refetch when month or doctor changes
+  useEffect(() => {
+    let active = true
+    async function fetchMonth() {
+      if (!clinicId) return
+      setMonthSlotsLoading(true)
+      const yr = viewedYearMonth.year
+      const mo = viewedYearMonth.month + 1
+      const startStr = `${yr}-${String(mo).padStart(2, '0')}-01`
+      const lastDay = new Date(yr, mo, 0).getDate()
+      const endStr = `${yr}-${String(mo).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+
+      try {
+        const slotsMap = await getMonthSlots(clinicId, startStr, endStr)
+        if (!active) return
+        setMonthSlotsMap(slotsMap)
+      } catch (err) {
+        console.error('Error loading month slots:', err)
+      } finally {
+        if (active) setMonthSlotsLoading(false)
+      }
+    }
+    fetchMonth()
+    return () => {
+      active = false
+    }
+  }, [clinicId, viewedYearMonth.year, viewedYearMonth.month])
+
+  // Helper to compute calendar date state (1. Available, 2. Fully booked, 3. Closed, 4. Past)
+  const computeCalendarDateState = (dateStr: string): 'available' | 'fully_booked' | 'closed' | 'past' => {
+    if (dateStr < todayIso) return 'past'
+
+    if (clinic?.declaredHolidays && clinic.declaredHolidays.includes(dateStr)) {
+      return 'closed'
+    }
+
+    if (clinic?.weeklyScheduleJson) {
+      try {
+        const parsed = JSON.parse(clinic.weeklyScheduleJson)
+        if (Array.isArray(parsed)) {
+          const dObj = new Date(dateStr + 'T00:00:00')
+          const dayName = dObj.toLocaleDateString('en-US', { weekday: 'short' }).toLowerCase()
+          const match = parsed.find((p: any) =>
+            String(p.day || '').toLowerCase().startsWith(dayName)
+          )
+          if (match && match.isOpen === false) {
+            return 'closed'
+          }
+        }
+      } catch {}
+    }
+
+    const rawSlots = (monthSlotsMap[dateStr] || []).filter((s) => s.isAvailable !== false)
+    const relevantSlots = selectedDoctor
+      ? rawSlots.filter((s) => !s.doctorId || s.doctorId === selectedDoctor.id)
+      : rawSlots
+
+    const activeSlots =
+      dateStr === todayIso
+        ? relevantSlots.filter((s) => !isSlotTimeExpired(dateStr, s.endTime || s.startTime))
+        : relevantSlots
+
+    if (activeSlots.length === 0) {
+      return 'closed'
+    }
+
+    const hasCapacity = activeSlots.some(
+      (s) => Math.max(0, (s.maxCapacity || 10) - (s.bookedCount || 0)) > 0
+    )
+
+    return hasCapacity ? 'available' : 'fully_booked'
+  }
+
+  // Find next available date across next 60 days
+  const nextAvailableDate = useMemo(() => {
+    const now = new Date()
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(now)
+      d.setDate(d.getDate() + i)
+      const iso = d.toISOString().split('T')[0]
+      if (computeCalendarDateState(iso) === 'available') {
+        return iso
+      }
+    }
+    return null
+  }, [todayIso, clinic, selectedDoctor, monthSlotsMap])
+
+  // Auto-select: default today if available, otherwise next available date
+  useEffect(() => {
+    if (Object.keys(monthSlotsMap).length === 0) return
+    const todayState = computeCalendarDateState(todayIso)
+    if (todayState === 'available') {
+      setSelectedDate(todayIso)
+    } else if (nextAvailableDate && selectedDate === todayIso) {
+      setSelectedDate(nextAvailableDate)
+    }
+  }, [monthSlotsMap, todayIso, nextAvailableDate])
 
   // 5-minute countdown timer when on payment step
   useEffect(() => {
@@ -1375,62 +1488,207 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             <div className="liquid-glass-elevated p-6 rounded-3xl space-y-6 sticky top-28">
               <h3 className="text-lg font-black text-slate-900 dark:text-white">Book OPD Consultation</h3>
 
-              {/* Date Selection */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">Select Date</label>
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  {[0, 1, 2].map((offset) => {
-                    const d = new Date()
-                    d.setDate(d.getDate() + offset)
-                    const iso = d.toISOString().split('T')[0]
-                    const label =
-                      offset === 0
-                        ? 'Today'
-                        : offset === 1
-                        ? 'Tomorrow'
-                        : d.toLocaleDateString([], { weekday: 'short' })
-                    const isSelected = selectedDate === iso
-
-                    return (
-                      <button
-                        key={iso}
-                        type="button"
-                        onClick={() => setSelectedDate(iso)}
-                        className={`p-2.5 rounded-xl border font-bold transition-all cursor-pointer active:scale-95 ${
-                          isSelected
-                            ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white border-teal-500 shadow-glass-base'
-                            : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-800/70'
-                        }`}
-                      >
-                        <span className="block text-[10px] opacity-80 uppercase">{label}</span>
-                        <span className="text-xs font-black">
-                          {d.getDate()} {d.toLocaleDateString([], { month: 'short' })}
-                        </span>
-                      </button>
-                    )
-                  })}
+              {/* Date Selection: Interactive Month Calendar with 4 states */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 block flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Select Date (Month View)</span>
+                  </label>
+                  {monthSlotsLoading && (
+                    <span className="text-[10px] text-teal-600 font-semibold animate-pulse flex items-center gap-1">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      <span>Checking slots...</span>
+                    </span>
+                  )}
                 </div>
+
+                {/* Month Navigator */}
+                <div className="p-3.5 rounded-2xl liquid-glass-subtle border border-slate-200/80 space-y-2.5">
+                  <div className="flex items-center justify-between px-1">
+                    <button
+                      type="button"
+                      disabled={
+                        viewedYearMonth.year === currentYearMonth.year &&
+                        viewedYearMonth.month === currentYearMonth.month
+                      }
+                      onClick={() => {
+                        const isPrevAllowed =
+                          viewedYearMonth.year > currentYearMonth.year ||
+                          (viewedYearMonth.year === currentYearMonth.year &&
+                            viewedYearMonth.month > currentYearMonth.month)
+                        if (isPrevAllowed) {
+                          setViewedYearMonth((prev) => {
+                            const m = prev.month === 0 ? 11 : prev.month - 1
+                            const y = prev.month === 0 ? prev.year - 1 : prev.year
+                            return { year: y, month: m }
+                          })
+                        }
+                      }}
+                      className={`p-1.5 rounded-xl transition ${
+                        viewedYearMonth.year > currentYearMonth.year ||
+                        (viewedYearMonth.year === currentYearMonth.year &&
+                          viewedYearMonth.month > currentYearMonth.month)
+                          ? 'hover:bg-slate-200/70 text-slate-800 cursor-pointer active:scale-95'
+                          : 'opacity-25 cursor-not-allowed text-slate-400'
+                      }`}
+                      title="Previous month"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    <span className="text-xs font-black text-slate-900 tracking-wide">
+                      {new Date(viewedYearMonth.year, viewedYearMonth.month, 1).toLocaleDateString(
+                        'en-US',
+                        { month: 'long', year: 'numeric' }
+                      )}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewedYearMonth((prev) => {
+                          const m = prev.month === 11 ? 0 : prev.month + 1
+                          const y = prev.month === 11 ? prev.year + 1 : prev.year
+                          return { year: y, month: m }
+                        })
+                      }}
+                      className="p-1.5 rounded-xl hover:bg-slate-200/70 text-slate-800 cursor-pointer active:scale-95 transition"
+                      title="Next month"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Days of week header */}
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                      <span key={d} className="text-[10px] font-bold text-slate-500 uppercase">
+                        {d}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Month Grid with 4 States and Status Dots */}
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {Array.from({
+                      length: new Date(viewedYearMonth.year, viewedYearMonth.month, 1).getDay(),
+                    }).map((_, i) => (
+                      <div key={`empty-${i}`} className="h-8" />
+                    ))}
+                    {Array.from({
+                      length: new Date(viewedYearMonth.year, viewedYearMonth.month + 1, 0).getDate(),
+                    }).map((_, i) => {
+                      const dayNum = i + 1
+                      const dateStr = `${viewedYearMonth.year}-${String(
+                        viewedYearMonth.month + 1
+                      ).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
+                      const dateState = computeCalendarDateState(dateStr)
+                      const isSelectable = dateState === 'available'
+                      const isSelected = selectedDate === dateStr
+
+                      return (
+                        <button
+                          key={dateStr}
+                          type="button"
+                          disabled={!isSelectable}
+                          onClick={() => setSelectedDate(dateStr)}
+                          className={`h-8 sm:h-9 rounded-xl flex flex-col items-center justify-center relative transition-all ${
+                            isSelected
+                              ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white font-black shadow-sm ring-2 ring-teal-500/30'
+                              : isSelectable
+                              ? 'hover:bg-teal-50 text-slate-900 font-bold cursor-pointer active:scale-95'
+                              : dateState === 'past'
+                              ? 'text-slate-300 cursor-not-allowed'
+                              : dateState === 'fully_booked'
+                              ? 'text-slate-600 bg-amber-50/50 cursor-not-allowed'
+                              : 'text-slate-400 bg-slate-100/50 cursor-not-allowed'
+                          }`}
+                        >
+                          <span className="text-[11px] leading-none">{dayNum}</span>
+                          {/* Status Dot */}
+                          {dateState !== 'past' && (
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
+                                isSelected
+                                  ? 'bg-white'
+                                  : dateState === 'available'
+                                  ? 'bg-emerald-500'
+                                  : dateState === 'fully_booked'
+                                  ? 'bg-amber-500'
+                                  : 'bg-slate-400'
+                              }`}
+                            />
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Calendar Legend */}
+                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-around text-[10px] text-slate-600 font-semibold">
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                      <span>Available</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                      <span>Fully booked</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
+                      <span>Closed</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Next available date alert / quick jump */}
+                {nextAvailableDate && nextAvailableDate !== selectedDate && (
+                  <div className="p-2.5 rounded-xl bg-teal-50/90 border border-teal-200/90 flex items-center justify-between text-xs text-teal-900 font-semibold animate-in fade-in">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <Calendar className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                      <span className="truncate">
+                        Next Open: {new Date(nextAvailableDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetD = new Date(nextAvailableDate + 'T00:00:00')
+                        setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
+                        setSelectedDate(nextAvailableDate)
+                      }}
+                      className="text-[11px] font-bold text-teal-700 underline hover:text-teal-900 cursor-pointer shrink-0 ml-2"
+                    >
+                      Book for this date
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Slot Time Picker */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">Select Time Slot</label>
-                  {slotsLoading && <RefreshCw className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 animate-spin" />}
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Available Slots ({new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })})
+                  </label>
+                  {slotsLoading && <RefreshCw className="w-3.5 h-3.5 text-teal-600 animate-spin" />}
                 </div>
 
                 {isSelectedDateHoliday ? (
-                  <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs font-bold text-rose-700 dark:text-rose-300">
+                  <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs font-bold text-rose-700">
                     This clinic has declared {selectedDate} as an official holiday. Please pick another date.
                   </div>
                 ) : displaySlots.length === 0 ? (
-                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 space-y-1">
                     <div className="font-bold flex items-center space-x-1.5">
                       <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>No Slots Published for This Date</span>
+                      <span>No Slots Available on {selectedDate}</span>
                     </div>
-                    <p className="text-[11px] text-amber-700 dark:text-amber-400">
-                      The center has not published OPD consultation slots for {selectedDate}. Please select another date or contact the clinic reception desk.
+                    <p className="text-[11px] text-amber-700">
+                      {nextAvailableDate
+                        ? `The center has no open slots on this date. Next availability is on ${new Date(nextAvailableDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}.`
+                        : 'No open OPD consultation slots available for this date. Please pick another date above.'}
                     </p>
                   </div>
                 ) : (
@@ -1451,7 +1709,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                               ? 'liquid-glass-subtle opacity-40 cursor-not-allowed line-through'
                               : isSelected
                               ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white border-teal-500 shadow-glass-base cursor-pointer'
-                              : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-800/70 cursor-pointer active:scale-95'
+                              : 'liquid-glass-subtle text-slate-700 hover:bg-white/70 cursor-pointer active:scale-95'
                           }`}
                         >
                           <span className="block">{slotItem.timeLabel}</span>
@@ -1470,35 +1728,48 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               {/* Summary */}
               <div className="p-4 liquid-glass-subtle rounded-2xl text-xs space-y-1.5">
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">Specialist:</span>
-                  <span className="font-bold text-slate-900 dark:text-white">
+                  <span className="text-slate-500">Specialist:</span>
+                  <span className="font-bold text-slate-900">
                     {selectedDoctor?.fullName || 'Clinic OPD Doctor'}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 dark:text-slate-400">Slot:</span>
-                  <span className="font-bold text-slate-900 dark:text-white">
+                  <span className="text-slate-500">Slot:</span>
+                  <span className="font-bold text-slate-900">
                     {selectedDate} {selectedSlotTime ? `at ${selectedSlotTime}` : ''}
                   </span>
                 </div>
-                <div className="flex justify-between pt-1 border-t border-slate-200/50 dark:border-white/10 font-bold">
-                  <span className="text-slate-700 dark:text-slate-300">Total Fee:</span>
-                  <span className="text-teal-700 dark:text-teal-300 text-sm">
+                <div className="flex justify-between pt-1 border-t border-slate-200/50 font-bold">
+                  <span className="text-slate-700">Total Fee:</span>
+                  <span className="text-teal-700 text-sm">
                     Rs. {selectedDoctor?.consultationFee || 500}
                   </span>
                 </div>
               </div>
 
+              {/* Action Button: Book for selected date or switch to next available date */}
               <button
                 type="button"
-                disabled={!selectedSlotTime || isSelectedDateHoliday}
+                disabled={(!selectedSlotTime || isSelectedDateHoliday) && !nextAvailableDate}
                 onClick={() => {
+                  if (!selectedSlotTime && nextAvailableDate) {
+                    const targetD = new Date(nextAvailableDate + 'T00:00:00')
+                    setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
+                    setSelectedDate(nextAvailableDate)
+                    return
+                  }
                   setBookingStep('details')
                   setShowBookingModal(true)
                 }}
                 className="w-full py-3.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-glass-base active:scale-[0.98] transition-all flex items-center justify-center space-x-2 cursor-pointer border-t border-white/20"
               >
-                <span>Proceed to Patient Details</span>
+                <span>
+                  {selectedSlotTime
+                    ? `Proceed to Patient Details (${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+                    : nextAvailableDate
+                    ? `Book on Another Date (${new Date(nextAvailableDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+                    : 'Select an Available Slot'}
+                </span>
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>

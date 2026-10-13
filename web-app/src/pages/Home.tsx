@@ -57,7 +57,7 @@ const NEPAL_MAJOR_LOCATIONS = [
 
 // Common department / symptom chips from real app
 const SPECIALTY_CHIPS = [
-  { id: 'all', label: 'All Specialties' },
+  { id: 'all', label: 'All Clinics & Labs' },
   { id: 'skin', label: 'Skin / Dermatology' },
   { id: 'heart', label: 'Heart / Cardiology' },
   { id: 'ortho', label: 'Bone & Joint (Orthopedics)' },
@@ -66,6 +66,10 @@ const SPECIALTY_CHIPS = [
   { id: 'dental', label: 'Dental Care' },
   { id: 'general', label: 'General Medicine' },
   { id: 'ent', label: 'ENT (Ear, Nose & Throat)' },
+  { id: 'lab', label: 'Diagnostic Pathology Lab' },
+  { id: 'mri', label: 'MRI Scan' },
+  { id: 'ct', label: 'CT Scan' },
+  { id: 'ultrasound', label: 'Ultrasound / USG / X-Ray' },
 ]
 
 export const Home: React.FC<HomeProps> = ({
@@ -169,11 +173,38 @@ export const Home: React.FC<HomeProps> = ({
     // Specialty chip filter
     if (selectedSpecialty !== 'all') {
       const target = selectedSpecialty.toLowerCase()
-      result = result.filter(
-        (c) =>
+      result = result.filter((c) => {
+        if (target === 'lab') {
+          return (
+            c.type === 'diagnostic_lab' ||
+            c.specialties?.some((s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog'))
+          )
+        }
+        if (target === 'mri') {
+          return (
+            c.specialties?.some((s) => s.toLowerCase().includes('mri') || s.toLowerCase().includes('radiolog')) ||
+            c.name.toLowerCase().includes('mri') ||
+            c.type === 'diagnostic_lab'
+          )
+        }
+        if (target === 'ct') {
+          return (
+            c.specialties?.some((s) => s.toLowerCase().includes('ct') || s.toLowerCase().includes('radiolog') || s.toLowerCase().includes('scan')) ||
+            c.name.toLowerCase().includes('ct') ||
+            c.type === 'diagnostic_lab'
+          )
+        }
+        if (target === 'ultrasound') {
+          return (
+            c.specialties?.some((s) => s.toLowerCase().includes('ultrasound') || s.toLowerCase().includes('usg') || s.toLowerCase().includes('x-ray') || s.toLowerCase().includes('xray')) ||
+            c.type === 'diagnostic_lab'
+          )
+        }
+        return (
           c.specialties?.some((s) => s.toLowerCase().includes(target)) ||
           c.doctorsList.some((d) => d.specialty?.toLowerCase().includes(target))
-      )
+        )
+      })
     }
 
     // Sorting
@@ -702,11 +733,16 @@ export const Home: React.FC<HomeProps> = ({
                   {/* Bottom: Fee & Book OPD Action */}
                   <div className="p-4 pt-3 border-t border-slate-100/70 flex items-center justify-between gap-2">
                     <div className="truncate">
-                      <span className="text-xs font-bold text-slate-800">
+                      <span className="text-xs font-bold text-slate-800 block truncate">
                         {doc?.consultationFee
                           ? `Fee: Rs. ${doc.consultationFee}`
                           : `Avg: ~${clinic.avgConsultationTimeMinutes || 10}m`}
                       </span>
+                      {!isDocInClinic && clinic.type !== 'diagnostic_lab' && (
+                        <span className="text-[10px] text-teal-700 font-semibold block">
+                          Next slot available
+                        </span>
+                      )}
                     </div>
 
                     <button
@@ -714,7 +750,13 @@ export const Home: React.FC<HomeProps> = ({
                       onClick={() => onNavigate('clinic-detail', { clinicId: clinic.id })}
                       className="px-3.5 py-2 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white font-bold rounded-xl text-xs transition-all shadow-glass-brand border border-white/30 hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-1.5 cursor-pointer shrink-0"
                     >
-                      <span>{clinic.type === 'diagnostic_lab' ? 'Book Lab' : 'Book OPD'}</span>
+                      <span>
+                        {clinic.type === 'diagnostic_lab'
+                          ? 'Book Lab'
+                          : isDocInClinic
+                          ? 'Book OPD'
+                          : 'Book on Another Date'}
+                      </span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>

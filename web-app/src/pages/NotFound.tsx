@@ -87,21 +87,21 @@ export const NotFound: React.FC<NotFoundProps> = ({
             </div>
 
             {/* Main Headings */}
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-900 dark:text-white tracking-tight mt-2 mb-3">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-900 tracking-tight mt-2 mb-3">
               Page or Link Not Found
             </h1>
-            <p className="max-w-2xl text-base sm:text-lg text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
+            <p className="max-w-2xl text-base sm:text-lg text-slate-600 font-medium leading-relaxed">
               The healthcare route, booking link, or page you are trying to visit has been moved, expired, or does not exist.
             </p>
 
             {/* Diagnostic attempted URL snippet */}
             {displayPath && displayPath !== '/' && (
-              <div className="mt-5 w-full max-w-xl p-3 rounded-2xl bg-slate-900/5 dark:bg-slate-950/40 border border-slate-300/40 dark:border-slate-800/80 flex items-center justify-between gap-3 text-left">
+              <div className="mt-5 w-full max-w-xl p-3 rounded-2xl bg-slate-100/90 border border-slate-200/90 flex items-center justify-between gap-3 text-left">
                 <div className="min-w-0 flex-1">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-0.5">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 block mb-0.5">
                     Attempted Location
                   </span>
-                  <code className="text-xs sm:text-sm font-mono text-rose-600 dark:text-rose-400 truncate block font-semibold">
+                  <code className="text-xs sm:text-sm font-mono text-rose-600 truncate block font-semibold">
                     {displayPath}
                   </code>
                 </div>

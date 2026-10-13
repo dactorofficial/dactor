@@ -188,6 +188,35 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const [specialtiesList, setSpecialtiesList] = useState<MedicalSpecialty[]>([])
   const [qualificationsList, setQualificationsList] = useState<MedicalQualification[]>([])
   const [allClinics, setAllClinics] = useState<Clinic[]>([])
+  const [regClinicTypeFilter, setRegClinicTypeFilter] = useState<
+    'all' | 'single_visit' | 'multi_visit' | 'diagnostic_lab'
+  >('all')
+
+  const displayedClinics = useMemo(() => {
+    if (regClinicTypeFilter === 'all') return allClinics
+    if (regClinicTypeFilter === 'diagnostic_lab') {
+      return allClinics.filter(
+        (c) =>
+          c.type === 'diagnostic_lab' ||
+          c.type?.includes('lab') ||
+          c.name?.toLowerCase().includes('lab') ||
+          c.name?.toLowerCase().includes('imaging') ||
+          c.name?.toLowerCase().includes('mri') ||
+          c.name?.toLowerCase().includes('scan') ||
+          c.specialties?.some(
+            (s) =>
+              s.toLowerCase().includes('lab') ||
+              s.toLowerCase().includes('patholog') ||
+              s.toLowerCase().includes('mri') ||
+              s.toLowerCase().includes('scan')
+          )
+      )
+    }
+    if (regClinicTypeFilter === 'single_visit') {
+      return allClinics.filter((c) => c.type === 'single_visit' || c.type === 'single_doctor')
+    }
+    return allClinics.filter((c) => c.type === 'multi_visit' || c.type === 'polyclinic')
+  }, [allClinics, regClinicTypeFilter])
 
   // Load initial taxonomies and existing session
   useEffect(() => {
@@ -967,11 +996,26 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                   ))}
                   {specialtiesList.length === 0 && (
                     <>
-                      <option value="General Physician" className="dark:bg-slate-900 text-slate-900 dark:text-white">General Physician</option>
-                      <option value="Cardiology (Heart Care)" className="dark:bg-slate-900 text-slate-900 dark:text-white">Cardiology (Heart Care)</option>
-                      <option value="Pediatrics & Child Health" className="dark:bg-slate-900 text-slate-900 dark:text-white">Pediatrics & Child Health</option>
-                      <option value="Orthopedics & Joint Care" className="dark:bg-slate-900 text-slate-900 dark:text-white">Orthopedics & Joint Care</option>
-                      <option value="Dermatology & Skin Care" className="dark:bg-slate-900 text-slate-900 dark:text-white">Dermatology & Skin Care</option>
+                      <option value="General Physician" className="text-slate-900">General Physician & Internal Medicine</option>
+                      <option value="Cardiology (Heart Care)" className="text-slate-900">Cardiology (Heart Specialist)</option>
+                      <option value="Dermatology & Skin Care" className="text-slate-900">Dermatology & Venereology (Skin, Hair & Cosmetology)</option>
+                      <option value="Pediatrics & Child Health" className="text-slate-900">Pediatrics & Neonatology (Child Specialist)</option>
+                      <option value="Orthopedics & Joint Care" className="text-slate-900">Orthopedics & Joint Replacement (Bone & Spine)</option>
+                      <option value="Gynecology & Obstetrics" className="text-slate-900">Gynecology & Obstetrics (Women's Health)</option>
+                      <option value="Ophthalmology (Eye Care)" className="text-slate-900">Ophthalmology (Eye Specialist)</option>
+                      <option value="ENT (Ear, Nose & Throat)" className="text-slate-900">ENT (Ear, Nose & Throat Specialist)</option>
+                      <option value="Dental Surgery & Orthodontics" className="text-slate-900">Dental Surgery & Oral Health</option>
+                      <option value="Neurology & Neurosurgery" className="text-slate-900">Neurology & Neurosurgery (Brain & Nerve)</option>
+                      <option value="Gastroenterology & Hepatology" className="text-slate-900">Gastroenterology (Stomach, Liver & Digestion)</option>
+                      <option value="Pulmonology (Chest & Lungs)" className="text-slate-900">Pulmonology & Respiratory Medicine</option>
+                      <option value="Nephrology & Urology" className="text-slate-900">Nephrology & Urology (Kidney & Urinary)</option>
+                      <option value="Psychiatry & Behavioral Health" className="text-slate-900">Psychiatry & Mental Health</option>
+                      <option value="Diagnostic Radiology (MRI, CT, USG, X-Ray)" className="text-slate-900">Diagnostic Radiology (MRI, CT Scan, Ultrasound, X-Ray)</option>
+                      <option value="Clinical Pathology & Lab Medicine" className="text-slate-900">Clinical Pathology & Diagnostic Laboratory Medicine</option>
+                      <option value="Endocrinology & Diabetology" className="text-slate-900">Endocrinology & Diabetes Specialist</option>
+                      <option value="General & Laparoscopic Surgery" className="text-slate-900">General & Laparoscopic Surgery</option>
+                      <option value="Physiotherapy & Rehabilitation" className="text-slate-900">Physiotherapy & Physical Rehabilitation</option>
+                      <option value="Oncology (Cancer Care)" className="text-slate-900">Oncology (Cancer Specialist)</option>
                     </>
                   )}
                 </select>
@@ -1069,18 +1113,30 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Clinic Affiliation (Optional)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                    Clinic Affiliation (Optional)
+                  </label>
+                  <select
+                    value={regClinicTypeFilter}
+                    onChange={(e) => setRegClinicTypeFilter(e.target.value as any)}
+                    className="text-[10px] font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 border border-teal-500/20 rounded-lg px-2 py-0.5 cursor-pointer"
+                  >
+                    <option value="all">All Center Types</option>
+                    <option value="single_visit">Single-Doctor OPD</option>
+                    <option value="multi_visit">Multi-Specialty Polyclinic</option>
+                    <option value="diagnostic_lab">Diagnostic Lab & Imaging (MRI/CT)</option>
+                  </select>
+                </div>
                 <select
                   value={regClinicId}
                   onChange={(e) => setRegClinicId(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
                 >
                   <option value="" className="dark:bg-slate-900 text-slate-900 dark:text-white">Independent / Multi-Clinic Practice</option>
-                  {allClinics.map((c) => (
+                  {displayedClinics.map((c) => (
                     <option key={c.id} value={c.id} className="dark:bg-slate-900 text-slate-900 dark:text-white">
-                      {c.name} ({c.addressText || 'Nepal'})
+                      {c.name} • {c.type === 'diagnostic_lab' ? 'Diagnostic Lab (MRI/CT)' : c.type === 'single_visit' ? 'Single-Doctor' : 'Polyclinic'} ({c.addressText || 'Nepal'})
                     </option>
                   ))}
                 </select>

@@ -619,6 +619,35 @@ export async function getSlots(clinicId: string, date: string): Promise<Slot[]> 
   }
 }
 
+export async function getMonthSlots(
+  clinicId: string,
+  startDate: string,
+  endDate: string
+): Promise<Record<string, Slot[]>> {
+  try {
+    const { data, error } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('clinic_id', clinicId)
+      .gte('slot_date', startDate)
+      .lte('slot_date', endDate)
+      .order('start_time', { ascending: true })
+
+    if (error) throw error
+    const map: Record<string, Slot[]> = {}
+    for (const raw of data || []) {
+      const slot = mapSlot(raw)
+      const d = slot.slotDate
+      if (!map[d]) map[d] = []
+      map[d].push(slot)
+    }
+    return map
+  } catch (err) {
+    console.error('Error fetching month slots:', err)
+    return {}
+  }
+}
+
 export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
   try {
     const dbPayload = {

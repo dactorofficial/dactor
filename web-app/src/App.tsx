@@ -78,7 +78,14 @@ const getTabFromUrl = (): string => {
   }
 
   // 3. Check pathname (e.g. /support, /clinics, /unknown-page)
-  const path = window.location.pathname.toLowerCase().replace(/\/$/, '')
+  let path = window.location.pathname.toLowerCase().replace(/\/$/, '')
+  // Support GitHub Pages project subpath /dactor or /dactor/
+  if (path === '/dactor' || path === '/dactor/index.html' || path === '/dactor/index') {
+    path = ''
+  } else if (path.startsWith('/dactor/')) {
+    path = path.slice('/dactor'.length).replace(/\/$/, '')
+  }
+
   if (!path || path === '' || path === '/' || path === '/index.html' || path === '/index') return 'home'
 
   if (path.includes('support') || path.includes('contact') || path.includes('helpdesk')) return 'support'

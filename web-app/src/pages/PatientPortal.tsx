@@ -4103,8 +4103,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           MODAL: PATIENT AUTHENTICATION (LOGIN / SIGNUP)
       ========================================== */}
       {showAuthModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-white/40 dark:border-white/10 space-y-6 relative animate-in fade-in zoom-in-95 overflow-hidden">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-white/60 space-y-6 relative animate-in fade-in zoom-in-95 overflow-hidden">
             {/* Top specular refraction sheen */}
             <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
 
@@ -4113,32 +4113,32 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 setShowAuthModal(false)
                 setPendingBookingRedirectNotice(false)
               }}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="text-center space-y-1">
-              <div className="w-14 h-14 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center mx-auto mb-3 shadow-inner border border-teal-500/20">
+              <div className="w-14 h-14 rounded-2xl bg-teal-500/10 text-teal-600 flex items-center justify-center mx-auto mb-3 shadow-inner border border-teal-500/20">
                 <User className="w-7 h-7" />
               </div>
-              <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight">
                 Patient Health Portal
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
+              <p className="text-xs text-slate-600 max-w-xs mx-auto font-medium">
                 Sign in with your verified Google account to track live queue tokens, access lab reports & manage appointments.
               </p>
             </div>
 
             {/* Pending Booking Redirect Notice matching patient-app LoginScreen.kt lines 607-620 */}
             {pendingBookingRedirectNotice && (
-              <div className="p-4 rounded-2xl liquid-glass-subtle border border-teal-500/30 text-left flex items-start space-x-3 animate-in fade-in">
-                <Info className="w-5 h-5 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
+              <div className="p-4 rounded-2xl bg-teal-50/80 border border-teal-500/30 text-left flex items-start space-x-3 animate-in fade-in">
+                <Info className="w-5 h-5 text-teal-600 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
-                  <div className="font-bold text-xs text-slate-900 dark:text-white">
+                  <div className="font-bold text-xs text-slate-900">
                     Sign In Required to Book Appointment
                   </div>
-                  <p className="text-[11px] text-teal-700 dark:text-teal-300 leading-snug">
+                  <p className="text-[11px] text-teal-800 leading-snug font-medium">
                     Your selected clinic, doctor, date, and slot position are saved. You'll return right where you left off after signing in.
                   </p>
                 </div>
@@ -4146,7 +4146,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             )}
 
             {authError && (
-              <div className="p-3.5 rounded-xl liquid-glass-subtle border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-semibold space-y-2.5">
+              <div className="p-3.5 rounded-xl bg-rose-50/80 border border-rose-500/30 text-rose-700 text-xs font-semibold space-y-2.5">
                 <div className="flex items-start space-x-2">
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <span>{authError}</span>
@@ -4158,7 +4158,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     handleGoogleSignIn()
                   }}
                   disabled={authSubmitting}
-                  className="w-full py-2 px-3 rounded-lg liquid-glass-card hover:bg-rose-500/20 border border-rose-500/30 text-rose-800 dark:text-rose-200 font-bold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
+                  className="w-full py-2 px-3 rounded-lg bg-white hover:bg-rose-50 border border-rose-300 text-rose-800 font-bold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer shadow-xs"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Try With Different Google Account</span>
@@ -4172,7 +4172,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={authSubmitting}
-                className="w-full py-3.5 liquid-glass-card hover:bg-white/80 dark:hover:bg-slate-800/80 text-slate-900 dark:text-white font-black text-xs rounded-2xl border border-white/60 dark:border-white/10 shadow-sm hover:shadow-md transition-all flex items-center justify-center space-x-3 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                className="w-full py-3.5 bg-white hover:bg-slate-50 text-slate-900 font-black text-xs rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex items-center justify-center space-x-3 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -4183,34 +4183,34 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 <span>{authSubmitting ? 'Connecting...' : 'Continue with Google'}</span>
               </button>
 
-              <div className="p-3.5 liquid-glass-subtle rounded-2xl border border-white/40 dark:border-white/10 text-left space-y-1">
-                <div className="flex items-center space-x-1.5 text-slate-800 dark:text-slate-200 font-bold text-xs">
-                  <ShieldCheck className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+              <div className="p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200/80 text-left space-y-1">
+                <div className="flex items-center space-x-1.5 text-slate-900 font-bold text-xs">
+                  <ShieldCheck className="w-4 h-4 text-teal-600" />
                   <span>Single-Role Patient Identity</span>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
                   Your Google identity ensures verified authentication. First-time users will specify their full name, phone number, and age to maintain your personal health records.
                 </p>
               </div>
 
               {/* Cross-Portal Quick Navigation Links */}
-              <div className="pt-2 border-t border-white/20 dark:border-white/5 space-y-1.5 text-center text-[11px]">
-                <p className="text-slate-500 dark:text-slate-400">
+              <div className="pt-2 border-t border-slate-200/60 space-y-1.5 text-center text-[11px]">
+                <p className="text-slate-600">
                   Are you a Medical Doctor?{' '}
                   <a
                     href="#doctor-portal"
                     onClick={() => setShowAuthModal(false)}
-                    className="font-bold text-teal-600 dark:text-teal-400 hover:underline"
+                    className="font-bold text-teal-700 hover:text-teal-900 hover:underline"
                   >
                     Doctor Login & NMC Registration →
                   </a>
                 </p>
-                <p className="text-slate-500 dark:text-slate-400">
+                <p className="text-slate-600">
                   Are you a Clinic / Hospital Manager?{' '}
                   <a
                     href="#portal"
                     onClick={() => setShowAuthModal(false)}
-                    className="font-bold text-teal-600 dark:text-teal-400 hover:underline"
+                    className="font-bold text-teal-700 hover:text-teal-900 hover:underline"
                   >
                     Clinic Portal & Onboarding →
                   </a>
