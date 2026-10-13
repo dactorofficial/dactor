@@ -534,6 +534,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [ticketStatusFilter, setTicketStatusFilter] = useState<'all' | 'open' | 'in_progress' | 'resolved'>('all')
   const [updatingTicketCode, setUpdatingTicketCode] = useState<string | null>(null)
 
+  useEffect(() => {
+    const handleHash = () => {
+      try {
+        const hash = window.location.hash.toLowerCase()
+        if (
+          hash.includes('tickets') ||
+          hash.includes('tab=tickets') ||
+          hash.includes('desk=tickets') ||
+          hash.includes('admin-tickets') ||
+          hash.includes('support_tickets')
+        ) {
+          setDeskTab('tickets')
+        }
+      } catch {}
+    }
+    handleHash()
+    window.addEventListener('hashchange', handleHash)
+    return () => window.removeEventListener('hashchange', handleHash)
+  }, [])
+
   // Queue Board Segmented Sub-Tab (QueueBoardScreen.kt: Waiting vs Past/Completed)
   const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'past'>('waiting')
 

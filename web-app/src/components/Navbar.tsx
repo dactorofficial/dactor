@@ -13,6 +13,8 @@ import {
   Sparkles,
   User,
   Ticket,
+  ShieldCheck,
+  Headphones,
 } from 'lucide-react'
 import dactorLogo from '../assets/logo.png'
 
@@ -153,6 +155,21 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Check Help Request</span>
             </button>
 
+            {/* Quick Admin Helpdesk Access Button */}
+            <button
+              onClick={() => {
+                setActiveTab('portal')
+                window.location.hash = '#portal?tab=tickets'
+                window.dispatchEvent(new HashChangeEvent('hashchange'))
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
+              className="hidden 2xl:flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold text-purple-700 hover:text-purple-900 bg-purple-50/80 hover:bg-purple-100 border border-purple-200/80 rounded-xl transition-all duration-150 shadow-glass-sm hover:scale-[1.02] active:scale-[0.98] cursor-pointer backdrop-blur-md"
+              title="Admin Support Tickets Helpdesk"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+              <span>Admin Tickets</span>
+            </button>
+
             {/* Notification Bell */}
             <button
               onClick={onOpenNotificationModal}
@@ -171,7 +188,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* ROLE-SPECIFIC PORTAL SEGREGATION                          */}
             {/* ========================================================= */}
             {activePortalRole === 'clinic_manager' ? (
-              /* CLINIC MANAGER DESK VIEW: ONLY Clinic Center button and Manager Logout */
+              /* CLINIC MANAGER DESK VIEW: Clinic Center, Admin Tickets, and Logout */
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setActiveTab('portal')}
@@ -180,6 +197,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Building2 className="w-3.5 h-3.5" />
                   <span>Clinic Center</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('portal')
+                    window.location.hash = '#portal?tab=tickets'
+                    window.dispatchEvent(new HashChangeEvent('hashchange'))
+                  }}
+                  className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white shadow-sm border border-purple-500/40 cursor-pointer"
+                  title="Admin Support Tickets Directory"
+                >
+                  <Headphones className="w-3.5 h-3.5 text-purple-300" />
+                  <span>Admin Tickets</span>
                 </button>
 
                 {currentUserEmail && (
@@ -392,6 +422,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Check Help Request Status</span>
               </button>
 
+              <button
+                onClick={() => {
+                  setActiveTab('portal')
+                  window.location.hash = '#portal?tab=tickets'
+                  setMobileMenuOpen(false)
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                }}
+                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-purple-900 bg-purple-50 border border-purple-200/80 shadow-xs"
+              >
+                <ShieldCheck className="w-4 h-4 text-purple-600" />
+                <span>Admin Tickets Desk (Staff)</span>
+              </button>
+
               {/* STRICT ROLE-SPECIFIC MOBILE PORTAL BUTTONS */}
               {activePortalRole === 'clinic_manager' ? (
                 <>
@@ -404,6 +447,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <Building2 className="w-4 h-4" />
                     <span>Clinic & Lab Center</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setActiveTab('portal')
+                      window.location.hash = '#portal?tab=tickets'
+                      setMobileMenuOpen(false)
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-purple-700 to-indigo-700 shadow-sm"
+                  >
+                    <Headphones className="w-4 h-4" />
+                    <span>Admin Support Tickets Desk</span>
                   </button>
                   {onLogout && (
                     <button

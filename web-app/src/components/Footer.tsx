@@ -153,6 +153,18 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   <span>Reception Walk-In Tokens</span>
                 </button>
               </li>
+              <li>
+                <button
+                  onClick={() => {
+                    window.location.hash = '#portal?tab=tickets'
+                    onNavigate('portal')
+                  }}
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left text-purple-300 font-medium"
+                >
+                  <ChevronRight className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Admin Tickets Desk (Helpdesk)</span>
+                </button>
+              </li>
             </ul>
           </div>
 
@@ -184,7 +196,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                 <Phone className="w-4 h-4 text-cyan-400 shrink-0" />
                 <span>OPD Support Desk / Hotline</span>
               </div>
-              <div className="pt-1">
+              <div className="pt-1 flex flex-col space-y-1.5">
                 <button
                   onClick={() => {
                     window.location.hash = '#support'
@@ -194,6 +206,16 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                 >
                   <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Submit New Help Request</span>
+                </button>
+                <button
+                  onClick={() => {
+                    window.location.hash = '#portal?tab=tickets'
+                    onNavigate('portal')
+                  }}
+                  className="hover:text-purple-300 transition-colors flex items-center space-x-1 cursor-pointer text-left text-xs text-purple-400 font-semibold"
+                >
+                  <ChevronRight className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Admin Helpdesk Manager →</span>
                 </button>
               </div>
             </div>

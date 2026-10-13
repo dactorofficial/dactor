@@ -309,9 +309,9 @@ export const Support: React.FC = () => {
         </div>
       </div>
 
-      {/* Primary Access Point Switcher: Submit Request vs Check Request Status */}
+      {/* Primary Access Point Switcher: Submit Request vs Check Request Status vs Admin Desk */}
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-        <div className="inline-flex p-1.5 rounded-2xl liquid-glass-subtle border border-white/60 shadow-glass-sm gap-1.5">
+        <div className="inline-flex p-1.5 rounded-2xl liquid-glass-subtle border border-white/60 shadow-glass-sm gap-1.5 flex-wrap justify-center">
           <button
             type="button"
             onClick={() => setSupportView('submit')}
@@ -344,7 +344,54 @@ export const Support: React.FC = () => {
             <Ticket className="w-4 h-4" />
             <span>Check Help Request Status</span>
           </button>
+
+          <a
+            href="#portal?tab=tickets"
+            onClick={() => {
+              window.location.hash = '#portal?tab=tickets'
+              window.dispatchEvent(new HashChangeEvent('hashchange'))
+            }}
+            className="flex items-center space-x-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 hover:brightness-110 text-white shadow-md shadow-purple-900/20 border border-white/20"
+            title="Open Central Support Helpdesk & Tickets Directory for Clinic Admins"
+          >
+            <ShieldCheck className="w-4 h-4 text-purple-300" />
+            <span>Admin Tickets Desk</span>
+          </a>
         </div>
+      </div>
+
+      {/* Administrator & Support Desk Staff Access Gateway */}
+      <div className="p-5 sm:p-6 rounded-3xl liquid-glass-subtle border border-purple-300/60 dark:border-purple-500/30 bg-gradient-to-r from-purple-50/70 via-indigo-50/50 to-purple-50/70 dark:from-purple-950/30 dark:via-indigo-950/20 dark:to-purple-950/30 flex flex-col md:flex-row items-center justify-between gap-5 shadow-glass-sm text-left">
+        <div className="flex items-start sm:items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-purple-600/30 border border-white/30">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base font-black text-slate-900 dark:text-white">
+                Clinic & Platform Administrator Access
+              </h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300 border border-purple-200 dark:border-purple-700">
+                Staff Only
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-xl">
+              Are you an authorized support desk agent or clinic administrator? Access the Central Tickets Directory to review incoming patient & doctor inquiries, assign statuses, and post official administrator resolution notes.
+            </p>
+          </div>
+        </div>
+
+        <a
+          href="#portal?tab=tickets"
+          onClick={() => {
+            window.location.hash = '#portal?tab=tickets'
+            window.dispatchEvent(new HashChangeEvent('hashchange'))
+          }}
+          className="px-5 py-3 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:brightness-110 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-purple-600/25 transition active:scale-[0.98] cursor-pointer whitespace-nowrap shrink-0 border border-white/30"
+        >
+          <Headphones className="w-4 h-4" />
+          <span>Open Admin Tickets Directory →</span>
+        </a>
       </div>
 
       {/* Interactive Ticket Submission Form / Tracking Desk & FAQs */}

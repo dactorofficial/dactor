@@ -55,7 +55,17 @@ const getTabFromUrl = (): string => {
     if (hash === 'support' || hash === 'contact' || hash === 'helpdesk') return 'support'
     if (hash === 'patient' || hash === 'patient-portal' || hash === 'my-health') return 'patient-portal'
     if (hash === 'doctor' || hash === 'doctor-portal' || hash === 'practitioner') return 'doctor-portal'
-    if (hash === 'portal' || hash === 'admin-portal' || hash === 'clinic-portal' || hash === 'clinic') return 'portal'
+    if (
+      hash === 'portal' ||
+      hash === 'admin-portal' ||
+      hash === 'clinic-portal' ||
+      hash === 'clinic' ||
+      hash === 'tickets' ||
+      hash === 'admin-tickets' ||
+      hash === 'helpdesk-admin' ||
+      hash === 'admin'
+    )
+      return 'portal'
     if (hash === 'clinics') return 'clinics'
     if (hash === 'clinic-detail' || hash.startsWith('clinic')) return 'clinic-detail'
     if (hash === 'lab-reports' || hash === 'reports') return 'lab-reports'
@@ -74,7 +84,14 @@ const getTabFromUrl = (): string => {
   if (path.includes('support') || path.includes('contact') || path.includes('helpdesk')) return 'support'
   if (path.includes('patient') || path.includes('my-health')) return 'patient-portal'
   if (path.includes('doctor') || path.includes('practitioner')) return 'doctor-portal'
-  if (path.includes('admin-portal') || path.includes('/portal') || path.includes('clinic-portal')) return 'portal'
+  if (
+    path.includes('admin-portal') ||
+    path.includes('/portal') ||
+    path.includes('clinic-portal') ||
+    path.includes('tickets') ||
+    path.includes('admin')
+  )
+    return 'portal'
   if (path.includes('clinics')) return 'clinics'
   if (path.includes('lab-reports')) return 'lab-reports'
   if (path.includes('average-time')) return 'average-time'
