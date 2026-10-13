@@ -82,7 +82,7 @@ export async function signInWithFirebaseGoogle(): Promise<FirebaseAuthUser> {
           await (window as any).dactorFirebase.signInWithRedirect()
           return new Promise(() => {}) // Browser is navigating to accounts.google.com
         }
-        throw new Error('Google Sign-In popup was blocked by your browser. Please allow popups for dactorofficial.github.io.')
+        throw new Error(`Google Sign-In popup was blocked by your browser. Please allow popups for ${window.location.hostname}.`)
       }
 
       if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
@@ -102,7 +102,7 @@ export async function signInWithFirebaseGoogle(): Promise<FirebaseAuthUser> {
           }
         } catch (sbErr: any) {
           throw new Error(
-            'Google OAuth Domain Authorization: Please ensure "dactorofficial.github.io" is listed in Firebase Authentication -> Settings -> Authorized Domains.'
+            `Google OAuth Domain Authorization: Please ensure "${window.location.hostname}" (or "rajanpurbe.github.io") is added in Firebase Console -> Authentication -> Settings -> Authorized Domains.`
           )
         }
       }

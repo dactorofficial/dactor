@@ -2752,7 +2752,7 @@ export async function cancelClinicInvitation(invitationId: string, clinicId: str
 // SYSTEM SETTINGS & SUPPORT HELPDESK API
 // ==========================================
 export async function getSupportUrl(): Promise<string> {
-  const DEFAULT_SUPPORT_URL = 'https://dactorofficial.github.io/support'
+  const DEFAULT_SUPPORT_URL = 'https://rajanpurbe.github.io/Dactor/support'
   try {
     // 1. Try system_settings table
     const { data: setRes, error: setErr } = await supabase

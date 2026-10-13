@@ -208,9 +208,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false)
   const [supportUrl, setSupportUrl] = useState<string>(() => {
     try {
-      return localStorage.getItem('dactor_support_url') || 'https://dactorofficial.github.io/support'
+      return localStorage.getItem('dactor_support_url') || 'https://rajanpurbe.github.io/Dactor/support'
     } catch {
-      return 'https://dactorofficial.github.io/support'
+      return 'https://rajanpurbe.github.io/Dactor/support'
     }
   })
 

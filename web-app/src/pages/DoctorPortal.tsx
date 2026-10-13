@@ -113,9 +113,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
   const [supportUrl, setSupportUrl] = useState<string>(() => {
     try {
-      return localStorage.getItem('dactor_support_url') || 'https://dactorofficial.github.io/support'
+      return localStorage.getItem('dactor_support_url') || 'https://rajanpurbe.github.io/Dactor/support'
     } catch {
-      return 'https://dactorofficial.github.io/support'
+      return 'https://rajanpurbe.github.io/Dactor/support'
     }
   })
 

@@ -2848,6 +2848,7 @@ fun HomeTab(
     }
 }
 }
+}
 
 // =========================================================================
 // TAB 1: DIRECTORY & RECORDS (Clinic Name, Doctor + Image, Date/Time, Bills)
@@ -6811,5 +6812,5 @@ fun ProfileTab(
         )
     }
 }
-}
+
 
