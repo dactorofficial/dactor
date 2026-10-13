@@ -7,6 +7,8 @@ import {
   ShieldCheck,
   Heart,
   ChevronRight,
+  LifeBuoy,
+  Headphones,
 } from 'lucide-react'
 import dactorLogo from '../assets/logo.png'
 
@@ -96,6 +98,18 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   <span>Live Wait Time Insights</span>
                 </button>
               </li>
+              <li>
+                <button
+                  onClick={() => {
+                    window.location.hash = '#support?view=track'
+                    onNavigate('support')
+                  }}
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left text-cyan-300 font-medium"
+                >
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Check Help Request Status</span>
+                </button>
+              </li>
             </ul>
           </div>
 
@@ -144,8 +158,20 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
 
           {/* Contact & Support */}
           <div className="space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-white">Contact</h4>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-white">Help & Contact</h4>
             <div className="space-y-2.5 text-sm text-slate-400">
+              <div className="pt-0.5">
+                <button
+                  onClick={() => {
+                    window.location.hash = '#support?view=track'
+                    onNavigate('support')
+                  }}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-500/20 to-cyan-500/20 border border-cyan-400/40 text-cyan-300 hover:text-white font-bold text-xs transition cursor-pointer hover:bg-cyan-500/30 shadow-xs"
+                >
+                  <LifeBuoy className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Check Help Request Status</span>
+                </button>
+              </div>
               <div className="flex items-start space-x-2.5">
                 <MapPin className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
                 <span>Kathmandu & All Nepal Medical Hubs</span>
@@ -157,6 +183,18 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               <div className="flex items-center space-x-2.5">
                 <Phone className="w-4 h-4 text-cyan-400 shrink-0" />
                 <span>OPD Support Desk / Hotline</span>
+              </div>
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    window.location.hash = '#support'
+                    onNavigate('support')
+                  }}
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left text-xs text-slate-400"
+                >
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
+                  <span>Submit New Help Request</span>
+                </button>
               </div>
             </div>
           </div>

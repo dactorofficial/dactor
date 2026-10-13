@@ -3069,3 +3069,42 @@ export async function updateSupportTicketStatus(
   return true
 }
 
+export async function getSupportTicketByCodeOrContact(query: string): Promise<SupportTicket | null> {
+  if (!query || !query.trim()) return null
+  const clean = query.trim().toUpperCase()
+  const cleanAlphanumeric = clean.replace(/[^A-Z0-9]/g, '')
+  const cleanPhone = query.replace(/\D/g, '')
+  const cleanEmail = query.trim().toLowerCase()
+
+  const list = await getSupportTickets()
+
+  // 1. Exact or normalized match on ticketCode
+  const byCode = list.find((t) => {
+    const tCode = (t.ticketCode || '').toUpperCase()
+    const tCodeClean = tCode.replace(/[^A-Z0-9]/g, '')
+    return (
+      tCode === clean ||
+      (cleanAlphanumeric.length >= 4 && tCodeClean.includes(cleanAlphanumeric)) ||
+      (cleanAlphanumeric.length >= 4 && cleanAlphanumeric.includes(tCodeClean))
+    )
+  })
+  if (byCode) return byCode
+
+  // 2. Match by contact phone (at least 7 digits)
+  if (cleanPhone.length >= 7) {
+    const byPhone = list.find((t) => {
+      const p = (t.phone || '').replace(/\D/g, '')
+      return p.length >= 7 && (p.includes(cleanPhone) || cleanPhone.includes(p))
+    })
+    if (byPhone) return byPhone
+  }
+
+  // 3. Match by Gmail / Email
+  if (query.includes('@')) {
+    const byEmail = list.find((t) => (t.email || '').toLowerCase() === cleanEmail)
+    if (byEmail) return byEmail
+  }
+
+  return null
+}
+

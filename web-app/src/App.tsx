@@ -434,11 +434,18 @@ export const App: React.FC = () => {
         authRole={authRole}
       />
 
-      {/* Global Interactive Modals */}
       <LiveTrackerModal
         isOpen={trackerModalOpen}
         onClose={() => setTrackerModalOpen(false)}
         onOpenFullQueue={handleOpenLiveQueue}
+        onNavigateSupport={(ticketCode) => {
+          if (ticketCode) {
+            window.location.hash = `#support?track=${encodeURIComponent(ticketCode)}`
+          } else {
+            window.location.hash = '#support?view=track'
+          }
+          setActiveTab('support')
+        }}
       />
 
       <LabReportModal

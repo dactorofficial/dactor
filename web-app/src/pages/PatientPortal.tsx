@@ -49,6 +49,8 @@ import {
   Tag,
   Headphones,
   HelpCircle,
+  LifeBuoy,
+  MessageSquare,
 } from 'lucide-react'
 function triggerConfettiBurst() {
   try {
@@ -126,6 +128,7 @@ import {
   PatientProfile,
   PatientTransactionRecord,
   PaymentGatewaysConfig,
+  SupportTicket,
 } from '../types'
 import {
   getClinics,
@@ -154,6 +157,8 @@ import {
   cancelPatientArchive,
   deletePatientProfilePermanently,
   getSupportUrl,
+  getSupportTickets,
+  getSupportTicketByCodeOrContact,
 } from '../services/db'
 import {
   firebaseSignOut,
@@ -227,8 +232,16 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<
-    'appointments' | 'book' | 'transactions' | 'reports' | 'notifications' | 'family'
+    'appointments' | 'book' | 'transactions' | 'reports' | 'notifications' | 'family' | 'help'
   >('appointments')
+
+  // Support / Help Requests State
+  const [patientTickets, setPatientTickets] = useState<SupportTicket[]>([])
+  const [loadingPatientTickets, setLoadingPatientTickets] = useState(false)
+  const [ticketSearchInput, setTicketSearchInput] = useState('')
+  const [ticketLookupResult, setTicketLookupResult] = useState<SupportTicket | null>(null)
+  const [isSearchingTicket, setIsSearchingTicket] = useState(false)
+  const [ticketSearchError, setTicketSearchError] = useState<string | null>(null)
 
   // Copied code feedback
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
@@ -693,7 +706,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     loadAppointments()
     loadTransactions()
     loadNotifications()
+    loadMySupportTickets()
   }, [patientUser])
+
+  useEffect(() => {
+    if (activeTab === 'help') {
+      loadMySupportTickets()
+    }
+  }, [activeTab])
 
   // ==========================================
   // DATA LOADERS
@@ -780,6 +800,57 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         localStorage.setItem('dactor_patient_tracking_codes', JSON.stringify(updated))
       }
     } catch {}
+  }
+
+  async function loadMySupportTickets() {
+    setLoadingPatientTickets(true)
+    try {
+      const all = await getSupportTickets()
+      const pEmail = patientUser?.email?.trim().toLowerCase()
+      const pPhone = (patientUser?.phone || '').replace(/\D/g, '')
+
+      let deviceTicketCodes: string[] = []
+      try {
+        const raw = localStorage.getItem('dactor_recent_tickets')
+        if (raw) deviceTicketCodes = JSON.parse(raw)
+      } catch {}
+
+      const filtered = all.filter((t) => {
+        if (deviceTicketCodes.includes(t.ticketCode)) return true
+        const tEmail = t.email?.trim().toLowerCase()
+        const tPhone = (t.phone || '').replace(/\D/g, '')
+        if (pEmail && tEmail && tEmail === pEmail) return true
+        if (pPhone && pPhone.length >= 7 && tPhone && tPhone.includes(pPhone)) return true
+        return false
+      })
+      setPatientTickets(filtered)
+    } catch {} finally {
+      setLoadingPatientTickets(false)
+    }
+  }
+
+  const handleSearchPatientTicket = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    const q = ticketSearchInput.trim()
+    if (!q) {
+      setTicketSearchError('Please enter a Ticket ID, phone number, or email.')
+      return
+    }
+    setIsSearchingTicket(true)
+    setTicketSearchError(null)
+    setTicketLookupResult(null)
+    try {
+      const res = await getSupportTicketByCodeOrContact(q)
+      if (res) {
+        setTicketLookupResult(res)
+      } else {
+        setTicketSearchError('No support ticket found matching this code or contact info.')
+      }
+    } catch {
+      setTicketSearchError('Unable to check ticket status. Please try again.')
+    } finally {
+      setIsSearchingTicket(false)
+    }
   }
 
   // ==========================================
@@ -1807,6 +1878,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             { id: 'reports', label: 'Diagnostic Lab Reports', icon: FileText, badge: patientLabReports.length },
             { id: 'notifications', label: 'Queue Alerts & Updates', icon: Bell, badge: unreadCount },
             { id: 'family', label: 'Family Profiles', icon: Users, badge: familyMembers.length },
+            {
+              id: 'help',
+              label: 'Help Requests',
+              icon: Headphones,
+              badge: patientTickets.filter((t) => t.status === 'open' || t.status === 'in_progress').length,
+            },
           ].map((tab) => {
             const Icon = tab.icon
             const isActive = activeTab === tab.id
@@ -3720,6 +3797,293 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             )}
           </div>
         )}
+
+        {/* ==========================================
+            TAB 7: HELP REQUESTS & SUPPORT TICKETS
+        ========================================== */}
+        {activeTab === 'help' && (
+          <div className="liquid-glass-card rounded-3xl p-6 sm:p-8 shadow-sm border border-white/40 dark:border-white/10 space-y-6">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/20 dark:border-white/5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-500/20">
+                    <LifeBuoy className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
+                    Help Requests & Support Status
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Track resolution updates for your submitted inquiries, live queue issues, or clinic support.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadMySupportTickets}
+                  disabled={loadingPatientTickets}
+                  className="p-2 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 liquid-glass-subtle rounded-xl transition cursor-pointer"
+                  title="Refresh Help Requests"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingPatientTickets ? 'animate-spin' : ''}`} />
+                </button>
+                <a
+                  href="#support"
+                  onClick={() => {
+                    window.location.hash = '#support'
+                    window.dispatchEvent(new HashChangeEvent('hashchange'))
+                  }}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-teal-500/20 transition cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Submit New Request</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Instant Ticket Search Bar */}
+            <div className="p-4 sm:p-5 rounded-2xl liquid-glass-subtle border border-indigo-200/60 dark:border-indigo-500/20 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Search className="w-4 h-4 text-indigo-500" />
+                  <span>Check Any Ticket by ID, Phone, or Gmail</span>
+                </span>
+                <span className="text-[11px] text-slate-500 font-mono">e.g. #DAC-TKT-1082</span>
+              </div>
+              <form onSubmit={handleSearchPatientTicket} className="flex gap-2">
+                <input
+                  type="text"
+                  value={ticketSearchInput}
+                  onChange={(e) => setTicketSearchInput(e.target.value)}
+                  placeholder="Enter Ticket ID (#DAC-TKT-...) or contact phone / email"
+                  className="flex-1 px-4 py-2.5 rounded-xl liquid-glass-input text-xs sm:text-sm font-semibold border border-white/60 dark:border-white/10 text-slate-900 dark:text-white"
+                />
+                <button
+                  type="submit"
+                  disabled={isSearchingTicket || !ticketSearchInput.trim()}
+                  className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-sky-600 hover:brightness-105 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-xs whitespace-nowrap"
+                >
+                  {isSearchingTicket ? 'Searching...' : 'Check Status'}
+                </button>
+              </form>
+
+              {ticketSearchError && (
+                <div className="p-3 bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{ticketSearchError}</span>
+                </div>
+              )}
+
+              {ticketLookupResult && (
+                <div className="p-4 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-indigo-300/60 dark:border-indigo-500/30 space-y-3 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400">
+                        {ticketLookupResult.ticketCode}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyCode(ticketLookupResult.ticketCode)}
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                        title="Copy Ticket ID"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                        ticketLookupResult.status === 'resolved'
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                          : ticketLookupResult.status === 'in_progress'
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                          : ticketLookupResult.status === 'closed'
+                          ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300'
+                      }`}
+                    >
+                      {ticketLookupResult.status === 'resolved'
+                        ? 'Resolved'
+                        : ticketLookupResult.status === 'in_progress'
+                        ? 'In Progress'
+                        : ticketLookupResult.status === 'closed'
+                        ? 'Closed'
+                        : 'Open / In Queue'}
+                    </span>
+                  </div>
+
+                  <div className="text-xs text-slate-600 dark:text-slate-300">
+                    <span className="font-bold text-slate-700 dark:text-slate-200">Category: </span>
+                    {(ticketLookupResult as any).reasonCategory || ticketLookupResult.category || 'General Inquiry'}
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-xs text-slate-700 dark:text-slate-300 italic">
+                    "{ticketLookupResult.message}"
+                  </div>
+
+                  {ticketLookupResult.adminNotes && (
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300">
+                      <div className="font-bold mb-1 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Admin Resolution Notes:</span>
+                      </div>
+                      <p>{ticketLookupResult.adminNotes}</p>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <a
+                      href={`#support?track=${encodeURIComponent(ticketLookupResult.ticketCode)}`}
+                      onClick={() => {
+                        window.location.hash = `#support?track=${encodeURIComponent(ticketLookupResult.ticketCode)}`
+                        window.dispatchEvent(new HashChangeEvent('hashchange'))
+                      }}
+                      className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                    >
+                      <span>Open Full Support Desk & WhatsApp →</span>
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* List of Tickets linked to Patient Profile / Device */}
+            <div className="space-y-4">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Your Registered Help Requests ({patientTickets.length})
+              </h4>
+
+              {loadingPatientTickets ? (
+                <div className="py-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-teal-500" />
+                  <span>Loading your help requests...</span>
+                </div>
+              ) : patientTickets.length === 0 ? (
+                <div className="text-center py-10 space-y-3 liquid-glass-subtle rounded-2xl border border-white/30 dark:border-white/10 p-6">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto">
+                    <Headphones className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                    No Help Requests Found
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                    You haven't submitted any help requests from this account yet, or your past inquiries are under a different phone number.
+                  </p>
+                  <div className="pt-2">
+                    <a
+                      href="#support"
+                      onClick={() => {
+                        window.location.hash = '#support'
+                        window.dispatchEvent(new HashChangeEvent('hashchange'))
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-500 text-white font-bold text-xs shadow-xs hover:bg-teal-600 transition"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Contact Support Now</span>
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {patientTickets.map((t) => (
+                    <div
+                      key={t.id || t.ticketCode}
+                      className="p-5 rounded-2xl liquid-glass-subtle border border-white/40 dark:border-white/10 space-y-3 hover:border-indigo-400/50 transition shadow-xs"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
+                            {t.ticketCode}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyCode(t.ticketCode)}
+                            className="text-slate-400 hover:text-slate-600 transition"
+                            title="Copy Code"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                            t.status === 'resolved'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                              : t.status === 'in_progress'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                              : t.status === 'closed'
+                              ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300'
+                          }`}
+                        >
+                          {t.status === 'resolved'
+                            ? 'Resolved'
+                            : t.status === 'in_progress'
+                            ? 'In Progress'
+                            : t.status === 'closed'
+                            ? 'Closed'
+                            : 'Open'}
+                        </span>
+                      </div>
+
+                      <div className="text-xs">
+                        <span className="text-slate-400 font-medium">Category: </span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                          {(t as any).reasonCategory || t.category || 'General Inquiry'}
+                        </span>
+                        <div className="text-[11px] text-slate-400">
+                          {t.createdAt ? new Date(t.createdAt).toLocaleDateString() : 'Recent'}
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 italic bg-white/40 dark:bg-slate-900/40 p-2.5 rounded-xl border border-white/20 dark:border-white/5">
+                        "{t.message}"
+                      </p>
+
+                      {t.adminNotes && (
+                        <div className="p-3 bg-emerald-50/80 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300">
+                          <div className="font-bold flex items-center gap-1 mb-0.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Resolution Notes:</span>
+                          </div>
+                          <p className="font-medium text-emerald-900 dark:text-emerald-200">
+                            {t.adminNotes}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="pt-2 border-t border-white/30 dark:border-white/5 flex items-center justify-between text-xs">
+                        <a
+                          href={`#support?track=${encodeURIComponent(t.ticketCode)}`}
+                          onClick={() => {
+                            window.location.hash = `#support?track=${encodeURIComponent(t.ticketCode)}`
+                            window.dispatchEvent(new HashChangeEvent('hashchange'))
+                          }}
+                          className="font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
+                        >
+                          <span>Track Live Details</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </a>
+
+                        <a
+                          href={`https://wa.me/9779800000000?text=${encodeURIComponent(
+                            `Hello Dactor Support Desk, following up on Help Request Ticket ${t.ticketCode}.`
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>WhatsApp</span>
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ==========================================
@@ -3916,8 +4280,23 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 {isUpdatingProfile ? 'Saving...' : 'Save Profile Changes'}
               </button>
 
-              {/* Helpdesk & Support Link */}
-              <div className="pt-1">
+              {/* Helpdesk & Support Links */}
+              <div className="pt-1 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditProfileModal(false)
+                    setActiveTab('help')
+                  }}
+                  className="w-full py-2.5 px-4 rounded-xl liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 border border-teal-200 dark:border-teal-500/20 text-teal-700 dark:text-teal-300 font-bold text-xs flex items-center justify-between transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <LifeBuoy className="w-4 h-4 text-teal-500" />
+                    <span>Check My Help Request Status</span>
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                </button>
+
                 <a
                   href={supportUrl.startsWith('http') || supportUrl.startsWith('mailto:') ? supportUrl : `https://${supportUrl}`}
                   target="_blank"

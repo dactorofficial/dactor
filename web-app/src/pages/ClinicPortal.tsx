@@ -54,6 +54,7 @@ import {
   Copy,
   MessageSquare,
   Mail,
+  LifeBuoy,
 } from 'lucide-react'
 import { GlassCard, GlassButton, GlassBadge } from '../components/glass'
 import {
@@ -2612,6 +2613,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
           {/* Action Buttons */}
           <div className="space-y-3 pt-2">
+            <a
+              href="#support?view=track"
+              onClick={() => {
+                window.location.hash = '#support?view=track'
+                window.dispatchEvent(new HashChangeEvent('hashchange'))
+              }}
+              className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-sky-600 hover:brightness-110 text-white font-bold rounded-2xl shadow-lg border border-indigo-400/40 transition-all flex items-center justify-center space-x-2 text-sm cursor-pointer active:scale-[0.98]"
+            >
+              <LifeBuoy className="w-4 h-4" />
+              <span>Check Help Request Status</span>
+            </a>
+
             <a
               href={supportUrl.startsWith('http') || supportUrl.startsWith('mailto:') ? supportUrl : `https://${supportUrl}`}
               target="_blank"
@@ -7524,16 +7537,37 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </p>
                 </div>
               </div>
-              <a
-                href={supportUrl.startsWith('http') || supportUrl.startsWith('mailto:') ? supportUrl : `https://${supportUrl}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs shadow-md shadow-indigo-600/20 transition cursor-pointer shrink-0"
-              >
-                <HelpCircle className="w-4 h-4" />
-                <span>Open Support Desk</span>
-                <ExternalLink className="w-3.5 h-3.5 ml-1 opacity-80" />
-              </a>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <a
+                  href="#support?view=track"
+                  onClick={() => {
+                    window.location.hash = '#support?view=track'
+                    window.dispatchEvent(new HashChangeEvent('hashchange'))
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl liquid-glass-subtle hover:bg-white/80 dark:hover:bg-slate-800 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 font-bold text-xs transition cursor-pointer"
+                >
+                  <LifeBuoy className="w-4 h-4 text-indigo-500" />
+                  <span>Check Help Request Status</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setDeskTab('tickets')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-purple-600/10 hover:bg-purple-600/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 font-bold text-xs transition cursor-pointer"
+                >
+                  <Headphones className="w-4 h-4 text-purple-500" />
+                  <span>Admin Tickets Desk</span>
+                </button>
+                <a
+                  href={supportUrl.startsWith('http') || supportUrl.startsWith('mailto:') ? supportUrl : `https://${supportUrl}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs shadow-md shadow-indigo-600/20 transition cursor-pointer"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                  <span>Open Support Desk</span>
+                  <ExternalLink className="w-3.5 h-3.5 ml-1 opacity-80" />
+                </a>
+              </div>
             </div>
           </GlassCard>
         </div>
