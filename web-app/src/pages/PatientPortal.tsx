@@ -129,6 +129,7 @@ import {
 } from '../types'
 import {
   getClinics,
+  getDoctors,
   getDoctorsByClinic,
   getClinicServices,
   getSlots,
@@ -255,6 +256,33 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [selectedService, setSelectedService] = useState<ClinicService | null>(null)
   const [selectedLabTests, setSelectedLabTests] = useState<ClinicService[]>([])
   const [bookingMode, setBookingMode] = useState<'opd' | 'lab'>('opd')
+  const [allDoctors, setAllDoctors] = useState<Doctor[]>([])
+  const [selectedCityFilter, setSelectedCityFilter] = useState<string>('all')
+  const [viewingBillAppt, setViewingBillAppt] = useState<Appointment | null>(null)
+
+  const clinicDoctorsMap = useMemo(() => {
+    const map: Record<string, Doctor[]> = {}
+    for (const doc of allDoctors) {
+      if (doc.clinicId) {
+        if (!map[doc.clinicId]) map[doc.clinicId] = []
+        map[doc.clinicId].push(doc)
+      }
+    }
+    return map
+  }, [allDoctors])
+
+  const availableCities = useMemo(() => {
+    const set = new Set<string>()
+    for (const c of clinics) {
+      if (c.city && c.city.trim()) set.add(c.city.trim())
+      else if (c.addressText) {
+        const parts = c.addressText.split(',')
+        const last = parts[parts.length - 1]?.trim()
+        if (last && last.length < 25) set.add(last)
+      }
+    }
+    return Array.from(set)
+  }, [clinics])
 
   // Polyclinic Follow-Up Visit State
   const [isReturningPatient, setIsReturningPatient] = useState(false)
@@ -435,6 +463,31 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [newRescheduleTime, setNewRescheduleTime] = useState<string>('10:00 AM - 11:00 AM')
   const [rescheduleReason, setRescheduleReason] = useState<string>('')
   const [isRescheduling, setIsRescheduling] = useState(false)
+  const [rescheduleAvailableSlots, setRescheduleAvailableSlots] = useState<Slot[]>([])
+  const [isLoadingRescheduleSlots, setIsLoadingRescheduleSlots] = useState(false)
+
+  // Dynamically load published timed slots when rescheduling
+  useEffect(() => {
+    if (rescheduleAppt && rescheduleAppt.clinicId && newRescheduleDate) {
+      setIsLoadingRescheduleSlots(true)
+      getSlots(rescheduleAppt.clinicId, newRescheduleDate)
+        .then((slots) => {
+          const avail = (slots || []).filter(
+            (s) =>
+              s.isAvailable !== false &&
+              (!rescheduleAppt.doctorId || !s.doctorId || s.doctorId === rescheduleAppt.doctorId)
+          )
+          setRescheduleAvailableSlots(avail)
+          if (avail.length > 0) {
+            setNewRescheduleTime(`${avail[0].startTime} - ${avail[0].endTime}`)
+          }
+        })
+        .catch(() => setRescheduleAvailableSlots([]))
+        .finally(() => setIsLoadingRescheduleSlots(false))
+    } else {
+      setRescheduleAvailableSlots([])
+    }
+  }, [rescheduleAppt, newRescheduleDate])
 
   // ==========================================
   // LAB REPORTS PRIVACY VERIFICATION & SEARCH
@@ -484,10 +537,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             setShowEditProfileModal(true)
           }
         }
-        // Load clinics for booking
-        const cList = await getClinics()
+        // Load clinics and doctors for booking
+        const [cList, docList] = await Promise.all([getClinics(), getDoctors()])
         const activeClinics = cList.filter((c) => !c.isArchived)
         setClinics(activeClinics)
+        setAllDoctors(docList)
 
         // Restore pending booking redirect if exists
         const pendingRaw = localStorage.getItem('dactor_pending_booking_redirect')
@@ -813,9 +867,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // BOOKING WIZARD HANDLERS
   // ==========================================
   // When Clinic is selected, load its doctors, services, and payment config
-  const handleSelectClinic = async (clinic: Clinic) => {
+  const handleSelectClinic = async (clinic: Clinic, preselectedDoctor?: Doctor) => {
     setSelectedClinic(clinic)
-    setSelectedDoctor(null)
+    setSelectedDoctor(preselectedDoctor || null)
     setSelectedService(null)
     setSelectedLabTests([])
     setSelectedSlot(null)
@@ -852,7 +906,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         }
       } else {
         setBookingMode('opd')
-        if (docs.length > 0) setSelectedDoctor(docs[0])
+        if (preselectedDoctor) {
+          const matched = docs.find((d) => d.id === preselectedDoctor.id) || preselectedDoctor
+          setSelectedDoctor(matched)
+        } else if (docs.length > 0) {
+          setSelectedDoctor(docs[0])
+        }
       }
 
       setBookingStep(2)
@@ -1472,6 +1531,75 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     win.document.close()
   }
 
+  const handlePrintAppointmentBill = (appt: Appointment) => {
+    const win = window.open('', '_blank', 'width=800,height=750')
+    if (!win) return
+    const clinicTitle = appt.clinic?.name || 'Dactor Certified Healthcare Center'
+    const clinicAddr = appt.clinic?.addressText || 'Kathmandu, Nepal'
+    const docTitle = appt.doctor?.fullName || 'General OPD Specialist'
+    const docSpec = appt.doctor?.specialty || 'General Medicine'
+    const isPaid = appt.paymentStatus === 'paid'
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Dactor Bill Slip - #${appt.trackingCode10Digit}</title>
+          <style>
+            body { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; padding: 32px; color: #0f172a; background: #fff; }
+            .box { max-width: 650px; margin: 0 auto; border: 2px solid #0d9488; border-radius: 16px; padding: 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #f0fdfa; padding-bottom: 16px; margin-bottom: 18px; }
+            .badge { background: ${isPaid ? '#ecfdf5' : '#fffbeb'}; color: ${isPaid ? '#047857' : '#b45309'}; border: 1px solid ${isPaid ? '#a7f3d0' : '#fde68a'}; padding: 6px 12px; border-radius: 999px; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+            .code-box { background: #f0fdf4; border: 1px dashed #14b8a6; border-radius: 12px; padding: 12px 16px; margin: 16px 0; text-align: center; }
+            .code { font-family: monospace; font-size: 28px; font-weight: 900; letter-spacing: 4px; color: #0f766e; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+            th, td { padding: 9px 8px; text-align: left; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+            th { color: #64748b; text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+            .total-row { border-top: 2px solid #0f172a; font-size: 16px; font-weight: 900; color: #0f172a; }
+            .footer { margin-top: 24px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 14px; }
+          </style>
+        </head>
+        <body>
+          <div class="box">
+            <div class="header">
+              <div>
+                <h2 style="margin:0;font-size:20px;color:#0f172a;">${clinicTitle}</h2>
+                <p style="margin:3px 0 0;font-size:12px;color:#64748b;">${clinicAddr}</p>
+                <p style="margin:2px 0 0;font-size:11px;font-weight:700;color:#0d9488;">Official Medical Consultation Invoice & Token Slip</p>
+              </div>
+              <span class="badge">${isPaid ? 'PAID ONLINE' : 'PAYABLE AT CLINIC'}</span>
+            </div>
+
+            <div class="code-box">
+              <div style="font-size:10px;text-transform:uppercase;color:#0f766e;font-weight:800;letter-spacing:1px;">10-Digit Live OPD Queue Token</div>
+              <div class="code">#${appt.trackingCode10Digit}</div>
+              <div style="font-size:11px;color:#475569;margin-top:2px;">Present this token at the reception desk for instant queue check-in</div>
+            </div>
+
+            <table>
+              <tr><th>Invoice No.</th><td><strong style="font-family:monospace;">INV-${appt.trackingCode10Digit}</strong></td></tr>
+              <tr><th>Patient Name</th><td><strong>${appt.patientName}</strong> (${appt.patientAge || '–'} Yrs, ${appt.patientGender || '–'})</td></tr>
+              <tr><th>Attending Doctor</th><td>Dr. ${docTitle} (${docSpec})</td></tr>
+              <tr><th>Scheduled Date & Slot</th><td><strong>${appt.appointmentDate}</strong> • ${appt.appointmentTime}</td></tr>
+              <tr><th>Registered Phone</th><td><span style="font-family:monospace;">${appt.patientMobile || '–'}</span></td></tr>
+              <tr><th>Doctor Consultation Charge</th><td>NPR ${appt.feeAmount || 0}</td></tr>
+              <tr><th>Clinic Token & Registration</th><td><span style="color:#059669;font-weight:700;">FREE / INCLUDED</span></td></tr>
+              <tr class="total-row"><th>Total Payable Amount</th><td style="color:#0d9488;font-size:17px;font-weight:900;">NPR ${appt.feeAmount || 0}</td></tr>
+              <tr><th>Payment Mode</th><td>${appt.paymentMethod ? appt.paymentMethod.toUpperCase() : (isPaid ? 'DIGITAL GATEWAY' : 'CASH / FONEPAY AT RECEPTION')}</td></tr>
+            </table>
+
+            <div class="footer">
+              <p style="margin:0;font-weight:700;color:#334155;">Verified by Dactor Unified Health Cloud Ecosystem</p>
+              <p style="margin:3px 0 0;font-size:10px;">Generated automatically on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</p>
+            </div>
+          </div>
+          <script>window.onload = function() { window.print(); }</script>
+        </body>
+      </html>
+    `)
+    win.document.close()
+  }
+
   const handleLogout = () => {
     firebaseSignOut()
     localStorage.removeItem('dactor_patient_email')
@@ -1918,10 +2046,19 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               window.location.hash = '#live-queue'
                             }
                           }}
-                          className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 rounded-xl transition shadow-xs cursor-pointer active:scale-[0.98]"
+                          className="flex-1 flex items-center justify-center space-x-1.5 px-3 py-2 text-xs font-bold text-white bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 rounded-xl transition shadow-xs cursor-pointer active:scale-[0.98]"
                         >
                           <Activity className="w-3.5 h-3.5" />
-                          <span>Live Queue Board</span>
+                          <span>Queue Board</span>
+                        </button>
+
+                        <button
+                          onClick={() => setViewingBillAppt(appt)}
+                          className="px-3 py-2 text-xs font-bold text-teal-700 dark:text-teal-300 liquid-glass-card hover:bg-teal-500/20 rounded-xl transition border border-teal-500/30 flex items-center gap-1 cursor-pointer active:scale-[0.98]"
+                          title="View Official Medical Bill / Slip"
+                        >
+                          <Receipt className="w-3.5 h-3.5" />
+                          <span>Bill Slip</span>
                         </button>
 
                         {!isCancelled && appt.checkinStatus !== 'completed' && (
@@ -2053,6 +2190,29 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       )
                     })}
                   </div>
+
+                  {/* City Selector if multiple cities available */}
+                  {availableCities.length > 1 && (
+                    <div className="flex items-center justify-center pt-1">
+                      <div className="flex items-center space-x-1.5 liquid-glass-subtle px-3 py-1.5 rounded-xl border border-white/40 dark:border-white/10 text-xs font-bold">
+                        <MapPin className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                        <span className="text-slate-500">City / Region:</span>
+                        <select
+                          value={selectedCityFilter}
+                          onChange={(e) => setSelectedCityFilter(e.target.value)}
+                          className="bg-transparent font-bold text-slate-800 dark:text-white outline-none cursor-pointer"
+                        >
+                          <option value="all" className="dark:bg-slate-900">All Locations</option>
+                          {availableCities.map((city) => (
+                            <option key={city} value={city} className="dark:bg-slate-900">
+                              {city}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Quick Symptoms Suggestion Chips */}
                   <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs justify-center pt-1 scrollbar-none">
                     <span className="font-bold text-slate-400 dark:text-slate-500 shrink-0 text-[11px] uppercase tracking-wider">
@@ -2095,11 +2255,20 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       if (clinicCategoryFilter === 'single_doctor' && !isSingle) return null
                       if (clinicCategoryFilter === 'polyclinic' && !isPoly) return null
 
-                      if (!clinicSearchQuery.trim()) {
-                        return { c, isLab, isSingle, isPoly, score: 10, matchReason: undefined }
+                      if (selectedCityFilter !== 'all') {
+                        const cityMatch =
+                          (c.city || '').toLowerCase() === selectedCityFilter.toLowerCase() ||
+                          (c.addressText || '').toLowerCase().includes(selectedCityFilter.toLowerCase())
+                        if (!cityMatch) return null
                       }
 
-                      const match = matchClinic(c, [], [], clinicSearchQuery)
+                      const clinicDocs = clinicDoctorsMap[c.id] || []
+
+                      if (!clinicSearchQuery.trim()) {
+                        return { c, isLab, isSingle, isPoly, score: 10, matchReason: undefined, matchedDoctor: undefined }
+                      }
+
+                      const match = matchClinic(c, clinicDocs, [], clinicSearchQuery)
                       if (!match.isMatch) return null
 
                       return {
@@ -2109,6 +2278,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         isPoly,
                         score: match.score,
                         matchReason: match.matchHighlightReason,
+                        matchedDoctor: match.matchedDoctors?.[0],
                       }
                     })
                     .filter(Boolean)
@@ -2139,7 +2309,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                       {scored.map((item) => {
                         if (!item) return null
-                        const { c, isLab, isSingle, matchReason } = item
+                        const { c, isLab, isSingle, matchReason, matchedDoctor } = item
 
                         const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
                           `${c.name} ${c.addressText || ''}`
@@ -2148,11 +2318,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         return (
                           <div
                             key={c.id}
-                            onClick={() => handleSelectClinic(c)}
+                            onClick={() => handleSelectClinic(c, matchedDoctor)}
                             className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 hover:border-teal-500/60 hover:shadow-lg hover:shadow-teal-500/10 cursor-pointer transition flex flex-col justify-between group overflow-hidden"
                           >
                             {/* Card Header with Type Badge */}
                             <div className="p-6 space-y-3">
+                              {matchedDoctor && (
+                                <div className="p-2 bg-teal-500/10 border border-teal-500/20 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-teal-800 dark:text-teal-300">
+                                  <Stethoscope className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                                  <span className="truncate">Matched Doctor: Dr. {matchedDoctor.fullName} ({matchedDoctor.specialty || 'Specialist'})</span>
+                                </div>
+                              )}
                               <div className="flex items-center justify-between">
                                 {isLab ? (
                                   <span className="inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
@@ -3131,6 +3307,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </p>
                 </div>
 
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setViewingBillAppt(confirmedBooking)}
+                    className="w-full py-3 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-xs rounded-xl shadow-glass-brand border border-white/20 transition flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+                  >
+                    <Receipt className="w-4 h-4" />
+                    <span>View & Download Official Invoice Slip</span>
+                  </button>
+                </div>
+
                 <div className="flex items-center space-x-3">
                   <button
                     onClick={() => {
@@ -3628,6 +3815,30 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   Your Google identity ensures verified authentication. First-time users will specify their full name, phone number, and age to maintain your personal health records.
                 </p>
               </div>
+
+              {/* Cross-Portal Quick Navigation Links */}
+              <div className="pt-2 border-t border-white/20 dark:border-white/5 space-y-1.5 text-center text-[11px]">
+                <p className="text-slate-500 dark:text-slate-400">
+                  Are you a Medical Doctor?{' '}
+                  <a
+                    href="#doctor-portal"
+                    onClick={() => setShowAuthModal(false)}
+                    className="font-bold text-teal-600 dark:text-teal-400 hover:underline"
+                  >
+                    Doctor Login & NMC Registration →
+                  </a>
+                </p>
+                <p className="text-slate-500 dark:text-slate-400">
+                  Are you a Clinic / Hospital Manager?{' '}
+                  <a
+                    href="#portal"
+                    onClick={() => setShowAuthModal(false)}
+                    className="font-bold text-teal-600 dark:text-teal-400 hover:underline"
+                  >
+                    Clinic Portal & Onboarding →
+                  </a>
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -3998,20 +4209,47 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Preferred Time Slot *</label>
-                <select
-                  value={newRescheduleTime}
-                  onChange={(e) => setNewRescheduleTime(e.target.value)}
-                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none"
-                >
-                  <option value="09:00 AM - 10:00 AM">09:00 AM - 10:00 AM (Morning)</option>
-                  <option value="10:00 AM - 11:00 AM">10:00 AM - 11:00 AM (Morning)</option>
-                  <option value="11:00 AM - 12:00 PM">11:00 AM - 12:00 PM (Noon)</option>
-                  <option value="02:00 PM - 03:00 PM">02:00 PM - 03:00 PM (Afternoon)</option>
-                  <option value="03:00 PM - 04:00 PM">03:00 PM - 04:00 PM (Afternoon)</option>
-                  <option value="04:00 PM - 05:00 PM">04:00 PM - 05:00 PM (Evening)</option>
-                  <option value="05:00 PM - 06:00 PM">05:00 PM - 06:00 PM (Evening)</option>
-                </select>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Preferred Time Slot *</label>
+                  {isLoadingRescheduleSlots && (
+                    <span className="text-[10px] text-teal-600 animate-pulse font-semibold">Loading doctor slots...</span>
+                  )}
+                </div>
+                {rescheduleAvailableSlots.length > 0 ? (
+                  <select
+                    value={newRescheduleTime}
+                    onChange={(e) => setNewRescheduleTime(e.target.value)}
+                    className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none"
+                  >
+                    <optgroup label="Published Doctor Slots">
+                      {rescheduleAvailableSlots.map((s) => (
+                        <option key={s.id} value={`${s.startTime} - ${s.endTime}`}>
+                          {s.startTime} - {s.endTime} ({s.bookedCount || 0}/{s.maxCapacity || 5} booked)
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="General Time Slots">
+                      <option value="09:00 AM - 10:00 AM">09:00 AM - 10:00 AM (Morning)</option>
+                      <option value="11:00 AM - 12:00 PM">11:00 AM - 12:00 PM (Noon)</option>
+                      <option value="02:00 PM - 03:00 PM">02:00 PM - 03:00 PM (Afternoon)</option>
+                      <option value="04:00 PM - 05:00 PM">04:00 PM - 05:00 PM (Evening)</option>
+                    </optgroup>
+                  </select>
+                ) : (
+                  <select
+                    value={newRescheduleTime}
+                    onChange={(e) => setNewRescheduleTime(e.target.value)}
+                    className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none"
+                  >
+                    <option value="09:00 AM - 10:00 AM">09:00 AM - 10:00 AM (Morning)</option>
+                    <option value="10:00 AM - 11:00 AM">10:00 AM - 11:00 AM (Morning)</option>
+                    <option value="11:00 AM - 12:00 PM">11:00 AM - 12:00 PM (Noon)</option>
+                    <option value="02:00 PM - 03:00 PM">02:00 PM - 03:00 PM (Afternoon)</option>
+                    <option value="03:00 PM - 04:00 PM">03:00 PM - 04:00 PM (Afternoon)</option>
+                    <option value="04:00 PM - 05:00 PM">04:00 PM - 05:00 PM (Evening)</option>
+                    <option value="05:00 PM - 06:00 PM">05:00 PM - 06:00 PM (Evening)</option>
+                  </select>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -4148,6 +4386,187 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: OFFICIAL APPOINTMENT BILL & SLIP
+      ========================================== */}
+      {viewingBillAppt && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-glass-modal border border-white/60 dark:border-white/15 space-y-6 relative animate-in fade-in zoom-in-95 my-8">
+            <button
+              onClick={() => setViewingBillAppt(null)}
+              className="absolute top-5 right-5 p-1.5 rounded-full liquid-glass-subtle text-slate-500 hover:text-slate-800 dark:hover:text-white transition cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Bill Header */}
+            <div className="flex items-start justify-between border-b border-white/40 dark:border-white/10 pb-4">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-brand-600 dark:text-brand-400 block">
+                  Official Medical Invoice & OPD Slip
+                </span>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                  {viewingBillAppt.clinic?.name || 'Dactor Certified Healthcare Center'}
+                </h3>
+                {viewingBillAppt.clinic?.addressText && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-slate-400" />
+                    <span>{viewingBillAppt.clinic.addressText}</span>
+                  </p>
+                )}
+              </div>
+              <div className="text-right">
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/25">
+                  {viewingBillAppt.paymentStatus === 'paid' ? 'PAID' : 'PAYABLE AT CLINIC'}
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 block mt-1">
+                  INV-#{viewingBillAppt.trackingCode10Digit}
+                </span>
+              </div>
+            </div>
+
+            {/* 10-Digit Live Token Badge */}
+            <div className="p-4 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300 block">
+                  OPD Live Queue Token
+                </span>
+                <span className="font-mono text-2xl font-black text-slate-900 dark:text-white tracking-wider">
+                  #{viewingBillAppt.trackingCode10Digit}
+                </span>
+              </div>
+              <button
+                onClick={() => handleCopyCode(viewingBillAppt.trackingCode10Digit)}
+                className="px-3 py-1.5 rounded-xl liquid-glass-subtle text-xs font-bold text-teal-700 dark:text-teal-300 border border-teal-500/30 flex items-center gap-1.5 cursor-pointer"
+              >
+                {copiedCode === viewingBillAppt.trackingCode10Digit ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Token</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Details Table */}
+            <div className="grid grid-cols-2 gap-3 text-xs bg-white/40 dark:bg-slate-800/40 p-4 rounded-2xl border border-white/50 dark:border-white/10">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Patient Name</span>
+                <span className="font-bold text-slate-900 dark:text-white text-sm">
+                  {viewingBillAppt.patientName}
+                </span>
+                <span className="text-slate-500 text-[11px] block">
+                  {viewingBillAppt.patientAge || '–'} Yrs • {viewingBillAppt.patientGender || '–'}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Attending Doctor</span>
+                <span className="font-bold text-slate-900 dark:text-white text-sm">
+                  {viewingBillAppt.doctor?.fullName || 'General OPD Specialist'}
+                </span>
+                <span className="text-brand-600 dark:text-brand-400 text-[11px] font-semibold block">
+                  {viewingBillAppt.doctor?.specialty || 'General Medicine'}
+                </span>
+              </div>
+
+              <div className="pt-2 border-t border-white/30 dark:border-white/10">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Appointment Date</span>
+                <span className="font-bold text-slate-900 dark:text-white">
+                  {viewingBillAppt.appointmentDate}
+                </span>
+              </div>
+
+              <div className="pt-2 border-t border-white/30 dark:border-white/10">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Scheduled Slot</span>
+                <span className="font-bold text-slate-900 dark:text-white">
+                  {viewingBillAppt.appointmentTime}
+                </span>
+              </div>
+
+              <div className="col-span-2 pt-2 border-t border-white/30 dark:border-white/10 flex justify-between">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Contact Phone</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                    {viewingBillAppt.patientMobile || 'Not provided'}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Payment Mode</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                    {viewingBillAppt.paymentMethod?.toUpperCase() || (viewingBillAppt.paymentStatus === 'paid' ? 'ONLINE DIGITAL' : 'CASH AT RECEPTION')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Itemized Charges */}
+            <div className="space-y-2 text-xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                Itemized Fee Breakdown
+              </span>
+              <div className="divide-y divide-white/40 dark:divide-white/10 border-y border-white/40 dark:border-white/10 py-1">
+                <div className="flex justify-between py-1.5 font-medium text-slate-700 dark:text-slate-300">
+                  <span>Doctor Consultation / OPD Entry Fee</span>
+                  <span className="font-bold">NPR {viewingBillAppt.feeAmount || 0}</span>
+                </div>
+                {viewingBillAppt.selectedTests && viewingBillAppt.selectedTests.length > 0 && (
+                  viewingBillAppt.selectedTests.map((t, idx) => (
+                    <div key={idx} className="flex justify-between py-1.5 text-slate-600 dark:text-slate-400">
+                      <span>Diagnostic Test: {t}</span>
+                      <span className="font-semibold">Included</span>
+                    </div>
+                  ))
+                )}
+                <div className="flex justify-between py-1.5 text-slate-500">
+                  <span>Dactor Cloud Verification & Live Queue Tracking</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">FREE / WAIVED</span>
+                </div>
+                <div className="flex justify-between py-2 text-sm font-black text-slate-900 dark:text-white">
+                  <span>Total Amount Payable</span>
+                  <span className="text-teal-600 dark:text-teal-400">NPR {viewingBillAppt.feeAmount || 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Official Stamp & Security Seal */}
+            <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-slate-500 text-[11px] flex items-center justify-between border border-white/40 dark:border-white/10">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span>Digitally Authenticated • Dactor Health Cloud Network</span>
+              </div>
+              <span className="font-mono text-[10px] text-slate-400">
+                {new Date(viewingBillAppt.createdAt || Date.now()).toLocaleDateString()}
+              </span>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setViewingBillAppt(null)}
+                className="flex-1 py-3 liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-white/50 dark:border-white/10 transition cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePrintAppointmentBill(viewingBillAppt)}
+                className="flex-1 py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold transition shadow-glass-brand border border-white/25 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>Print Official Slip</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

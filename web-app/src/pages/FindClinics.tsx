@@ -17,8 +17,8 @@ import {
   X,
   History,
 } from 'lucide-react'
-import { Clinic } from '../types'
-import { getClinics } from '../services/db'
+import { Clinic, Doctor } from '../types'
+import { getClinics, getDoctors } from '../services/db'
 import {
   matchClinic,
   QUICK_SPECIALTY_SUGGESTIONS,
@@ -36,16 +36,29 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
   initialFilter = 'all',
 }) => {
   const [clinics, setClinics] = useState<Clinic[]>([])
+  const [allDoctors, setAllDoctors] = useState<Doctor[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState(initialFilter)
   const [recentSearches, setRecentSearches] = useState<string[]>(() => getRecentSearches())
 
+  const clinicDoctorsMap = useMemo(() => {
+    const map: Record<string, Doctor[]> = {}
+    for (const doc of allDoctors) {
+      if (doc.clinicId) {
+        if (!map[doc.clinicId]) map[doc.clinicId] = []
+        map[doc.clinicId].push(doc)
+      }
+    }
+    return map
+  }, [allDoctors])
+
   useEffect(() => {
     async function load() {
       try {
-        const data = await getClinics()
+        const [data, docList] = await Promise.all([getClinics(), getDoctors()])
         setClinics(data)
+        setAllDoctors(docList)
       } catch (err) {
         console.error('Failed to load clinics', err)
       } finally {
@@ -93,11 +106,13 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
         if (filterType === 'single_doctor' && !isSingle) return null
         if (filterType === 'polyclinic' && !isPoly) return null
 
+        const clinicDocs = clinicDoctorsMap[clinic.id] || []
+
         if (!searchTerm.trim()) {
-          return { clinic, score: 10, isLab, isSingle, isPoly, matchReason: undefined }
+          return { clinic, score: 10, isLab, isSingle, isPoly, matchReason: undefined, matchedDoctor: undefined }
         }
 
-        const match = matchClinic(clinic, [], [], searchTerm)
+        const match = matchClinic(clinic, clinicDocs, [], searchTerm)
         if (!match.isMatch) return null
 
         return {
@@ -107,6 +122,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
           isSingle,
           isPoly,
           matchReason: match.matchHighlightReason,
+          matchedDoctor: match.matchedDoctors?.[0],
         }
       })
       .filter(Boolean)
@@ -242,7 +258,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {scoredClinics.map((item) => {
             if (!item) return null
-            const { clinic, isLab, isSingle, isPoly, matchReason } = item
+            const { clinic, isLab, isSingle, isPoly, matchReason, matchedDoctor } = item
 
             let hoursText = `Avg ~${clinic.avgConsultationTimeMinutes || 10} min / token`
             if (clinic.weeklyScheduleJson) {
@@ -340,6 +356,13 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                       <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 backdrop-blur-sm">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span className="truncate">{matchReason}</span>
+                      </div>
+                    )}
+
+                    {matchedDoctor && (
+                      <div className="p-2 bg-teal-500/10 border border-teal-500/20 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-teal-800 dark:text-teal-300 backdrop-blur-sm">
+                        <Stethoscope className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                        <span className="truncate">Attending Doctor: Dr. {matchedDoctor.fullName} ({matchedDoctor.specialty || 'Specialist'})</span>
                       </div>
                     )}
 

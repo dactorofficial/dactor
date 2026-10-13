@@ -8,6 +8,7 @@ export interface Clinic {
   addressText?: string
   latitude?: number
   longitude?: number
+  city?: string
   autoNotifyThreshold?: number
   description?: string
   panNumber?: string
@@ -104,6 +105,7 @@ export interface Slot {
   maxCapacity: number
   bookedCount: number
   isAvailable?: boolean
+  isBreak?: boolean
 }
 
 export interface ClinicService {
@@ -131,6 +133,7 @@ export interface Appointment {
   appointmentTime: string
   checkinStatus: string // booked, waiting, in_consultation, completed, cancelled, no_show
   paymentStatus: string // unpaid, paid, partial
+  paymentMethod?: string
   feeAmount: number
   queueNumber?: number
   queuePosition?: number

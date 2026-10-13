@@ -742,6 +742,7 @@ export async function shiftAppointmentDate(
   try {
     const updatePayload: any = {
       appointment_date: newDate,
+      checkin_status: 'waiting',
       updated_at: new Date().toISOString(),
     }
     if (newTime) {
@@ -756,6 +757,87 @@ export async function shiftAppointmentDate(
       .single()
 
     if (error) throw error
+
+    // Manage Queue Entry on Reschedule
+    try {
+      const todayStr = new Date().toISOString().split('T')[0]
+      const targetTime = newTime || updatedAppt?.appointment_time
+      const targetMinutes = parseTimeToMinutes(targetTime)
+
+      const { data: existingQ } = await supabase
+        .from('queue_entries')
+        .select('*')
+        .eq('appointment_id', appointmentId)
+        .maybeSingle()
+
+      if (newDate === todayStr) {
+        // Patient rescheduled to today: reposition slot-aware
+        const { data: activeEntries } = await supabase
+          .from('queue_entries')
+          .select('id, appointment_id, queue_position, status')
+          .eq('clinic_id', updatedAppt.clinic_id)
+          .neq('appointment_id', appointmentId)
+          .in('status', ['waiting', 'inside'])
+          .order('queue_position', { ascending: true })
+
+        const apptIds = (activeEntries || []).map((e) => e.appointment_id).filter(Boolean)
+        const { data: activeAppts } = apptIds.length > 0
+          ? await supabase.from('appointments').select('id, appointment_time').in('id', apptIds)
+          : { data: [] }
+        const apptMap = new Map<string, any>((activeAppts || []).map((a) => [a.id, a]))
+
+        const preceding = (activeEntries || []).filter((entry) => {
+          if (entry.status === 'inside') return true
+          const a = apptMap.get(entry.appointment_id)
+          const slotMins = parseTimeToMinutes(a?.appointment_time)
+          return slotMins <= targetMinutes
+        })
+
+        const nextPos = (preceding.length > 0 ? Math.max(...preceding.map((p) => p.queue_position || 0)) : 0) + 1
+
+        // Shift all entries with queue_position >= nextPos down (+1)
+        const laterEntries = (activeEntries || [])
+          .filter((entry) => (entry.queue_position || 0) >= nextPos)
+          .sort((a, b) => (b.queue_position || 0) - (a.queue_position || 0))
+
+        for (const entry of laterEntries) {
+          await supabase
+            .from('queue_entries')
+            .update({ queue_position: (entry.queue_position || 0) + 1, updated_at: new Date().toISOString() })
+            .eq('id', entry.id)
+        }
+
+        if (existingQ) {
+          await supabase
+            .from('queue_entries')
+            .update({
+              queue_position: nextPos,
+              status: 'waiting',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingQ.id)
+        } else {
+          await supabase.from('queue_entries').insert({
+            id: crypto.randomUUID(),
+            appointment_id: appointmentId,
+            clinic_id: updatedAppt.clinic_id,
+            doctor_id: updatedAppt.doctor_id || null,
+            queue_position: nextPos,
+            status: 'waiting',
+          })
+        }
+      } else {
+        // Rescheduled to a future date: remove from today's active queue
+        if (existingQ) {
+          await supabase
+            .from('queue_entries')
+            .update({ status: 'scheduled', updated_at: new Date().toISOString() })
+            .eq('id', existingQ.id)
+        }
+      }
+    } catch (qErr) {
+      console.warn('Queue adjustment warning during reschedule:', qErr)
+    }
 
     // Create reschedule alert notification for the patient
     try {
