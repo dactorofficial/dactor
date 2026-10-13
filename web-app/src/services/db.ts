@@ -15,6 +15,7 @@ import {
   PatientProfile,
   PatientTransactionRecord,
   PaymentGatewaysConfig,
+  SupportTicket,
 } from '../types'
 
 // ==========================================
@@ -2787,5 +2788,202 @@ export async function getSupportUrl(): Promise<string> {
   } catch {}
 
   return DEFAULT_SUPPORT_URL
+}
+
+const LOCAL_STORAGE_TICKETS_KEY = 'dactor_support_tickets_v1'
+
+export async function createSupportTicket(ticket: {
+  name?: string
+  email: string
+  phone: string
+  role?: 'clinic' | 'doctor' | 'patient' | 'other'
+  category: string
+  customReason?: string
+  message?: string
+}): Promise<SupportTicket> {
+  const ticketId = crypto.randomUUID()
+  const randomSuffix = Math.floor(100000 + Math.random() * 900000)
+  const ticketCode = `DAC-TKT-${randomSuffix}`
+  const nowIso = new Date().toISOString()
+
+  const newTicket: SupportTicket = {
+    id: ticketId,
+    ticketCode,
+    name: ticket.name?.trim() || 'Valued User',
+    email: ticket.email.trim(),
+    phone: ticket.phone.trim(),
+    role: ticket.role || 'patient',
+    category: ticket.category || 'General Support',
+    customReason: ticket.customReason?.trim() || undefined,
+    message: ticket.message?.trim() || `Inquiry regarding ${ticket.category}`,
+    status: 'open',
+    createdAt: nowIso,
+  }
+
+  // 1. Save to Supabase notifications table (type: 'support_ticket')
+  try {
+    const formattedTitle = `[Support Ticket #${ticketCode}] ${newTicket.category}`
+    const payload = {
+      id: ticketId,
+      title: formattedTitle,
+      message: JSON.stringify(newTicket),
+      type: 'support_ticket',
+      target_audience: 'specific',
+      is_read: false,
+    }
+    const { error } = await supabase.from('notifications').insert(payload)
+    if (error) {
+      console.warn('Supabase notifications insert warning for support ticket:', error)
+    }
+  } catch (err) {
+    console.warn('Network error saving ticket to Supabase:', err)
+  }
+
+  // 2. Also cache in localStorage for instant offline access & Admin Portal sync
+  try {
+    const cachedRaw = localStorage.getItem(LOCAL_STORAGE_TICKETS_KEY)
+    const cached: SupportTicket[] = cachedRaw ? JSON.parse(cachedRaw) : []
+    const updated = [newTicket, ...cached.filter((t) => t.ticketCode !== ticketCode)]
+    localStorage.setItem(LOCAL_STORAGE_TICKETS_KEY, JSON.stringify(updated.slice(0, 100)))
+  } catch {}
+
+  return newTicket
+}
+
+export async function getSupportTickets(): Promise<SupportTicket[]> {
+  const ticketMap = new Map<string, SupportTicket>()
+
+  // 1. Load from Supabase notifications table
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .or('type.eq.support_ticket,title.ilike.%[Support%')
+      .order('created_at', { ascending: false })
+
+    if (!error && Array.isArray(data)) {
+      data.forEach((row: any) => {
+        try {
+          if (row.message && row.message.trim().startsWith('{')) {
+            const parsed = JSON.parse(row.message)
+            if (parsed.ticketCode) {
+              ticketMap.set(parsed.ticketCode, {
+                ...parsed,
+                id: row.id || parsed.id,
+                status: row.is_read ? (parsed.status === 'open' ? 'resolved' : parsed.status) : parsed.status,
+                createdAt: row.created_at || parsed.createdAt,
+              })
+              return
+            }
+          }
+
+          // Fallback parsing for legacy raw text notifications
+          const title = row.title || ''
+          const matchCode = title.match(/#([A-Z0-9-]+)/)
+          const tCode = matchCode ? matchCode[1] : `TKT-${(row.id || '').substring(0, 6)}`
+          const matchCategory = title.replace(/^\[Support Inquiry\]\s*/i, '').split('-')[0]?.trim() || 'General'
+
+          const msg = row.message || ''
+          const emailMatch = msg.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/)?.[0] || 'Unknown'
+          const phoneMatch = msg.match(/(?:\+?\d{1,4}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b98\d{8}\b/)?.[0] || '–'
+
+          ticketMap.set(tCode, {
+            id: row.id,
+            ticketCode: tCode,
+            name: title.split('-')?.[1]?.split('(')?.[0]?.trim() || 'Valued User',
+            email: emailMatch,
+            phone: phoneMatch,
+            role: 'patient',
+            category: matchCategory,
+            message: msg,
+            status: row.is_read ? 'resolved' : 'open',
+            createdAt: row.created_at || new Date().toISOString(),
+          })
+        } catch {}
+      })
+    }
+  } catch (err) {
+    console.warn('Error fetching support tickets from Supabase:', err)
+  }
+
+  // 2. Merge with localStorage cache
+  try {
+    const cachedRaw = localStorage.getItem(LOCAL_STORAGE_TICKETS_KEY)
+    if (cachedRaw) {
+      const cached: SupportTicket[] = JSON.parse(cachedRaw)
+      cached.forEach((t) => {
+        if (!ticketMap.has(t.ticketCode)) {
+          ticketMap.set(t.ticketCode, t)
+        }
+      })
+    }
+  } catch {}
+
+  // 3. Return sorted by createdAt descending
+  return Array.from(ticketMap.values()).sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )
+}
+
+export async function updateSupportTicketStatus(
+  ticketCode: string,
+  newStatus: 'open' | 'in_progress' | 'resolved' | 'closed',
+  adminNotes?: string
+): Promise<boolean> {
+  const isResolved = newStatus === 'resolved' || newStatus === 'closed'
+
+  // Update in localStorage
+  try {
+    const cachedRaw = localStorage.getItem(LOCAL_STORAGE_TICKETS_KEY)
+    if (cachedRaw) {
+      const cached: SupportTicket[] = JSON.parse(cachedRaw)
+      const updated = cached.map((t) =>
+        t.ticketCode === ticketCode
+          ? {
+              ...t,
+              status: newStatus,
+              resolvedAt: isResolved ? new Date().toISOString() : undefined,
+              adminNotes: adminNotes ?? t.adminNotes,
+            }
+          : t
+      )
+      localStorage.setItem(LOCAL_STORAGE_TICKETS_KEY, JSON.stringify(updated))
+    }
+  } catch {}
+
+  // Update in Supabase notifications
+  try {
+    const { data: rows } = await supabase
+      .from('notifications')
+      .select('*')
+      .ilike('title', `%${ticketCode}%`)
+
+    if (Array.isArray(rows) && rows.length > 0) {
+      for (const row of rows) {
+        let updatedMessage = row.message
+        if (row.message && row.message.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(row.message)
+            parsed.status = newStatus
+            if (isResolved) parsed.resolvedAt = new Date().toISOString()
+            if (adminNotes) parsed.adminNotes = adminNotes
+            updatedMessage = JSON.stringify(parsed)
+          } catch {}
+        }
+
+        await supabase
+          .from('notifications')
+          .update({
+            is_read: isResolved,
+            message: updatedMessage,
+          })
+          .eq('id', row.id)
+      }
+    }
+  } catch (err) {
+    console.warn('Error updating ticket in Supabase:', err)
+  }
+
+  return true
 }
 

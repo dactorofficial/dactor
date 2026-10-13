@@ -28,21 +28,21 @@ data class CompressedFileResult(
 ) {
     val formattedSummary: String
         get() = if (wasCompressed && compressedSizeBytes < originalSizeBytes) {
-            "${FileCompressor.formatSize(originalSizeBytes)} → ${FileCompressor.formatSize(compressedSizeBytes)} (≤ 500 KB)"
+            "${FileCompressor.formatSize(originalSizeBytes)} → ${FileCompressor.formatSize(compressedSizeBytes)} (≤ 300 KB)"
         } else {
-            "${FileCompressor.formatSize(compressedSizeBytes)} (≤ 500 KB)"
+            "${FileCompressor.formatSize(compressedSizeBytes)} (≤ 300 KB)"
         }
 }
 
 /**
  * Compresses images and document files before uploading to Supabase Storage
  * to save cloud storage bandwidth and space.
- * Guarantees images are compressed to <= 500 KB (targeting ~150-380 KB when possible).
+ * Guarantees images are compressed to <= 300 KB (targeting ~150-250 KB when possible).
  */
 object FileCompressor {
 
-    const val MAX_FILE_SIZE_BYTES = 500 * 1024 // 500 KB strict ceiling
-    private const val PREFERRED_TARGET_BYTES = 350 * 1024 // 350 KB preferred target ("if its less its even better")
+    const val MAX_FILE_SIZE_BYTES = 300 * 1024 // 300 KB strict ceiling
+    private const val PREFERRED_TARGET_BYTES = 220 * 1024 // 220 KB preferred target ("if its less its even better")
     private const val MAX_INITIAL_DIMENSION = 1440
 
     fun formatSize(bytes: Int): String {
@@ -54,7 +54,7 @@ object FileCompressor {
     }
 
     /**
-     * Reads a [Uri] from [Context.getContentResolver] and compresses it to <= 500 KB,
+     * Reads a [Uri] from [Context.getContentResolver] and compresses it to <= 300 KB,
      * strictly preserving the file's authentic extension (.pdf, .jpg, .png, etc.).
      */
     suspend fun compressUri(
@@ -81,7 +81,7 @@ object FileCompressor {
     }
 
     /**
-     * Compresses raw bytes (image or PDF document) to <= [maxBytes] (default 500 KB),
+     * Compresses raw bytes (image or PDF document) to <= [maxBytes] (default 300 KB),
      * strictly preserving or setting the real file extension based on magic numbers.
      */
     fun compressBytes(
@@ -217,7 +217,7 @@ object FileCompressor {
                     val candidate = baos.toByteArray()
                     bestBytes = candidate
 
-                    // If we are under softTarget (~350 KB) or at reasonable quality under maxBytes (500 KB)
+                    // If we are under softTarget (~220 KB) or at reasonable quality under maxBytes (300 KB)
                     if (candidate.size <= softTarget || (candidate.size <= maxBytes && q <= 60)) {
                         currentBitmap.recycle()
                         return candidate

@@ -429,7 +429,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     try {
       let photoUrl: string | undefined
       if (regPhotoFile) {
-        const compressed = await compressImage(regPhotoFile, 400)
+        const compressed = await compressImage(regPhotoFile, 300 * 1024)
         photoUrl =
           (await uploadClinicDocument(`doc_photo_${regPhotoFile.name}`, compressed, 'doctor_photos')) ||
           undefined
@@ -437,7 +437,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
       let licenseDocUrl: string | undefined
       if (regLicenseFile) {
-        const compressed = await compressImage(regLicenseFile, 500)
+        const compressed = await compressImage(regLicenseFile, 300 * 1024)
         licenseDocUrl =
           (await uploadClinicDocument(`nmc_${regLicenseFile.name}`, compressed, 'doctor_kyc_docs')) ||
           undefined
@@ -598,7 +598,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     setUpdatingPhoto(true)
     setPhotoUpdateMsg('Compressing & uploading photo...')
     try {
-      const compressed = await compressImage(file, 400)
+      const compressed = await compressImage(file, 300 * 1024)
       const publicUrl = await uploadDoctorPhoto(currentDoctor.id, compressed, file.name)
       if (!publicUrl) throw new Error('Upload failed')
       const ok = await updateDoctor(currentDoctor.id, { profilePictureUrl: publicUrl })

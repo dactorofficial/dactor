@@ -13,21 +13,28 @@ import {
   Stethoscope,
   User,
   ExternalLink,
-  MessageSquare
+  MessageSquare,
+  Copy,
+  Check,
+  Ticket
 } from 'lucide-react'
 import { GlassCard, GlassButton } from '../components/glass'
 import { supabase } from '../lib/supabase'
+import { createSupportTicket } from '../services/db'
 
 export const Support: React.FC = () => {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
-  const [role, setRole] = useState<'clinic' | 'doctor' | 'patient'>('clinic')
-  const [category, setCategory] = useState('Verification & KYC Status')
+  const [role, setRole] = useState<'clinic' | 'doctor' | 'patient'>('patient')
+  const [category, setCategory] = useState('Appointment Booking Issue')
+  const [customReason, setCustomReason] = useState('')
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [successMsg, setSuccessMsg] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [createdTicketCode, setCreatedTicketCode] = useState<string | null>(null)
+  const [copiedCode, setCopiedCode] = useState(false)
 
   // Support phone & email from config
   const [supportPhone, setSupportPhone] = useState('+977 9800000000')
@@ -48,30 +55,66 @@ export const Support: React.FC = () => {
       })
   }, [])
 
+  const handleCopyCode = () => {
+    if (!createdTicketCode) return
+    navigator.clipboard.writeText(createdTicketCode)
+    setCopiedCode(true)
+    setTimeout(() => setCopiedCode(false), 2500)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSubmitting(true)
     setErrorMsg('')
     setSuccessMsg(false)
+    setCreatedTicketCode(null)
+
+    // Only Gmail/Email and Number are compulsory
+    const cleanEmail = email.trim()
+    const cleanPhone = phone.trim()
+
+    if (!cleanEmail) {
+      setErrorMsg('Gmail / Email address is compulsory.')
+      return
+    }
+    if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      setErrorMsg('Please enter a valid Gmail / email address.')
+      return
+    }
+    if (!cleanPhone) {
+      setErrorMsg('Contact phone number is compulsory.')
+      return
+    }
+    if (cleanPhone.replace(/\D/g, '').length < 7) {
+      setErrorMsg('Please enter a valid phone number with at least 7 digits.')
+      return
+    }
+
+    setSubmitting(true)
 
     try {
-      // Record inquiry in notifications for super admin
-      await supabase.from('notifications').insert({
-        title: `[Support Inquiry] ${category} - ${name} (${role})`,
-        message: `From: ${name} (${email}, ${phone})\nRole: ${role}\nCategory: ${category}\n\n${message}`,
-        type: 'queue_alert',
-        target_audience: 'specific',
-        is_read: false
+      const finalCategory = category === 'Other' && customReason.trim()
+        ? `Other: ${customReason.trim()}`
+        : category
+
+      const ticket = await createSupportTicket({
+        name: name.trim() || undefined,
+        email: cleanEmail,
+        phone: cleanPhone,
+        role,
+        category: finalCategory,
+        customReason: customReason.trim() || undefined,
+        message: message.trim() || undefined,
       })
 
+      setCreatedTicketCode(ticket.ticketCode)
       setSuccessMsg(true)
       setName('')
       setEmail('')
       setPhone('')
       setMessage('')
+      setCustomReason('')
     } catch (err: any) {
-      // Even if offline, show graceful confirmation
-      setSuccessMsg(true)
+      setErrorMsg(err?.message || 'Failed to dispatch ticket. Please try again.')
     } finally {
       setSubmitting(false)
     }
@@ -179,10 +222,36 @@ export const Support: React.FC = () => {
               </p>
             </div>
 
-            {successMsg && (
-              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2.5">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                <span>Thank you! Your inquiry has been dispatched to the Dactor Helpdesk team. We will contact you shortly.</span>
+            {createdTicketCode && (
+              <div className="p-5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-900 dark:text-emerald-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span className="font-black text-sm">Help Request Dispatched Successfully!</span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-600 text-white">
+                    Ticket Open
+                  </span>
+                </div>
+                <div className="p-3 bg-white/70 dark:bg-slate-900/60 rounded-xl border border-white/80 dark:border-white/10 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Your Official Ticket ID</span>
+                    <span className="font-mono font-black text-base text-brand-700 dark:text-brand-300">
+                      #{createdTicketCode}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyCode}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 cursor-pointer shadow-sm"
+                  >
+                    {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedCode ? 'Copied' : 'Copy ID'}</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Our central administration desk has received your ticket and will contact you directly via your registered Gmail / phone within 12 business hours.
+                </p>
               </div>
             )}
 
@@ -197,7 +266,7 @@ export const Support: React.FC = () => {
               {/* Role Selector */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                  I Am A <span className="text-rose-500">*</span>
+                  I Am A <span className="text-slate-400 font-normal">(Optional)</span>
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   <button
@@ -241,81 +310,103 @@ export const Support: React.FC = () => {
                 </div>
               </div>
 
-              {/* Name & Email */}
+              {/* Name & Email (Email is Compulsory) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Your Full Name <span className="text-rose-500">*</span>
+                    Your Name <span className="text-slate-400 font-normal">(Optional)</span>
                   </label>
                   <input
                     type="text"
-                    required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Dr. Ramesh Thapa"
+                    placeholder="e.g. Ramesh Thapa"
                     className="w-full px-4 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Registered Email <span className="text-rose-500">*</span>
+                    Gmail / Email Address <span className="text-rose-500 font-black">* (Compulsory)</span>
                   </label>
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="email@example.com"
-                    className="w-full px-4 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none"
+                    placeholder="e.g. yourname@gmail.com"
+                    className="w-full px-4 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
 
-              {/* Phone & Category */}
+              {/* Phone (Compulsory) & Category */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Contact Phone (Nepal)
+                    Contact Phone Number <span className="text-rose-500 font-black">* (Compulsory)</span>
                   </label>
                   <input
                     type="tel"
+                    required
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="98xxxxxxxx"
-                    className="w-full px-4 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none"
+                    placeholder="e.g. 98xxxxxxxx"
+                    className="w-full px-4 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Issue Category
+                    Reason / Issue Category
                   </label>
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full px-4 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none"
                   >
+                    <option value="Appointment Booking Issue">Appointment Booking Issue</option>
+                    <option value="Live Queue & Delay Inquiry">Live Queue & Delay Inquiry</option>
+                    <option value="Payment, Billing & Refund Issue">Payment, Billing & Refund Issue</option>
                     <option value="Verification & KYC Status">Verification & KYC Status</option>
-                    <option value="License Activation & Billing">License Activation & Billing</option>
-                    <option value="Live Queue & Appointment Issue">Live Queue & Appointment Issue</option>
+                    <option value="Doctor Consultation Query">Doctor Consultation Query</option>
                     <option value="Diagnostic Lab Reports Inquiry">Diagnostic Lab Reports Inquiry</option>
-                    <option value="General Technical Support">General Technical Support</option>
+                    <option value="License Activation & Subscription">License Activation & Subscription</option>
+                    <option value="App & Technical Bug Report">App & Technical Bug Report</option>
+                    <option value="Account Access & Login Issue">Account Access & Login Issue</option>
+                    <option value="Clinic Onboarding Help">Clinic Onboarding Help</option>
+                    <option value="Feedback & Suggestions">Feedback & Suggestions</option>
+                    <option value="Other">Other (Specify Reason Below)</option>
                   </select>
                 </div>
               </div>
 
-              {/* Message */}
+              {/* Other Custom Reason Input */}
+              {category === 'Other' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Specify Reason / Subject <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={customReason}
+                    onChange={(e) => setCustomReason(e.target.value)}
+                    placeholder="e.g. Partnership inquiry, Custom integration, Hospital accreditation..."
+                    className="w-full px-4 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Message Details (Optional) */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Message Details <span className="text-rose-500">*</span>
+                  Message Details <span className="text-slate-400 font-normal">(Optional)</span>
                 </label>
                 <textarea
-                  required
                   rows={4}
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Explain your inquiry, include clinic name, NMC number, or 10-digit tracking code if applicable..."
+                  placeholder="Optional notes or details (tracking code, clinic name, doctor license number if relevant)..."
                   className="w-full px-4 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold text-slate-900 dark:text-white outline-none"
                 />
               </div>

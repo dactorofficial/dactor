@@ -7901,7 +7901,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <form onSubmit={handleUploadReportSubmit} className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Upload PDF Report or Scan (Auto-Compress to &le; 500 KB)
+                  Upload PDF Report or Scan (Auto-Compress to &le; 300 KB)
                 </label>
                 <input
                   type="file"

@@ -28,21 +28,21 @@ data class CompressedFileResult(
 ) {
     val formattedSummary: String
         get() = if (wasCompressed && compressedSizeBytes < originalSizeBytes) {
-            "${FileCompressor.formatSize(originalSizeBytes)} → ${FileCompressor.formatSize(compressedSizeBytes)} (≤ 500 KB)"
+            "${FileCompressor.formatSize(originalSizeBytes)} → ${FileCompressor.formatSize(compressedSizeBytes)} (≤ 300 KB)"
         } else {
-            "${FileCompressor.formatSize(compressedSizeBytes)} (≤ 500 KB)"
+            "${FileCompressor.formatSize(compressedSizeBytes)} (≤ 300 KB)"
         }
 }
 
 /**
  * Compresses images and document files before uploading to Supabase Storage
  * to save cloud storage bandwidth and space.
- * Guarantees images are compressed to <= 500 KB (targeting ~150-380 KB when possible).
+ * Guarantees images are compressed to <= 300 KB (targeting ~150-250 KB when possible).
  */
 object FileCompressor {
 
-    const val MAX_FILE_SIZE_BYTES = 500 * 1024 // 500 KB strict ceiling
-    private const val PREFERRED_TARGET_BYTES = 350 * 1024 // 350 KB preferred target ("if its less its even better")
+    const val MAX_FILE_SIZE_BYTES = 300 * 1024 // 300 KB strict ceiling
+    private const val PREFERRED_TARGET_BYTES = 220 * 1024 // 220 KB preferred target ("if its less its even better")
     private const val MAX_INITIAL_DIMENSION = 1440
 
     fun formatSize(bytes: Int): String {

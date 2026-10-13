@@ -12,6 +12,7 @@ import { ClinicPortal } from './pages/ClinicPortal'
 import { PatientPortal } from './pages/PatientPortal'
 import { DoctorPortal } from './pages/DoctorPortal'
 import { Support } from './pages/Support'
+import { NotFound } from './pages/NotFound'
 import { LiveTrackerModal } from './components/LiveTrackerModal'
 import { LabReportModal } from './components/LabReportModal'
 import { NotificationModal } from './components/NotificationModal'
@@ -19,20 +20,53 @@ import { getPatientNotifications } from './services/db'
 import { supabase } from './lib/supabase'
 import { LiquidAuroraBackground } from './components/glass'
 
-// Helper to determine initial tab from URL hash or path
+// Helper to determine initial tab from URL hash, path, or query
 const getTabFromUrl = (): string => {
-  const hash = window.location.hash.toLowerCase().replace('#', '').replace('/', '')
-  if (hash === 'support' || hash === 'contact' || hash === 'helpdesk') return 'support'
-  if (hash === 'patient' || hash === 'patient-portal' || hash === 'my-health') return 'patient-portal'
-  if (hash === 'doctor' || hash === 'doctor-portal' || hash === 'practitioner') return 'doctor-portal'
-  if (hash === 'portal' || hash === 'admin-portal' || hash === 'clinic-portal' || hash === 'clinic') return 'portal'
-  if (hash === 'clinics') return 'clinics'
-  if (hash === 'lab-reports' || hash === 'reports') return 'lab-reports'
-  if (hash === 'average-time' || hash === 'wait-time') return 'average-time'
-  if (hash === 'live-queue' || hash === 'queue') return 'live-queue'
-  if (hash === 'home') return 'home'
+  if (typeof window === 'undefined') return 'home'
 
-  const path = window.location.pathname.toLowerCase()
+  // 1. Check URL query parameters (e.g. ?page=support or ?tab=clinics)
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const tabParam = params.get('tab') || params.get('page')
+    if (tabParam) {
+      const cleanParam = tabParam.toLowerCase().trim()
+      if (cleanParam === 'support' || cleanParam === 'contact' || cleanParam === 'helpdesk') return 'support'
+      if (cleanParam === 'patient' || cleanParam === 'patient-portal' || cleanParam === 'my-health') return 'patient-portal'
+      if (cleanParam === 'doctor' || cleanParam === 'doctor-portal' || cleanParam === 'practitioner') return 'doctor-portal'
+      if (cleanParam === 'portal' || cleanParam === 'admin-portal' || cleanParam === 'clinic-portal' || cleanParam === 'clinic') return 'portal'
+      if (cleanParam === 'clinics') return 'clinics'
+      if (cleanParam === 'lab-reports' || cleanParam === 'reports') return 'lab-reports'
+      if (cleanParam === 'average-time' || cleanParam === 'wait-time') return 'average-time'
+      if (cleanParam === 'live-queue' || cleanParam === 'queue') return 'live-queue'
+      if (cleanParam === 'home') return 'home'
+      return '404'
+    }
+  } catch {}
+
+  // 2. Check URL Hash (e.g. #clinics, #live-queue, #broken-link)
+  const rawHash = window.location.hash.toLowerCase()
+  if (rawHash) {
+    const hash = rawHash.replace(/^#\/?/, '').replace(/\/$/, '').split('?')[0]
+    if (hash === '' || hash === 'home') return 'home'
+    if (hash === 'support' || hash === 'contact' || hash === 'helpdesk') return 'support'
+    if (hash === 'patient' || hash === 'patient-portal' || hash === 'my-health') return 'patient-portal'
+    if (hash === 'doctor' || hash === 'doctor-portal' || hash === 'practitioner') return 'doctor-portal'
+    if (hash === 'portal' || hash === 'admin-portal' || hash === 'clinic-portal' || hash === 'clinic') return 'portal'
+    if (hash === 'clinics') return 'clinics'
+    if (hash === 'clinic-detail') return 'clinic-detail'
+    if (hash === 'lab-reports' || hash === 'reports') return 'lab-reports'
+    if (hash === 'average-time' || hash === 'wait-time') return 'average-time'
+    if (hash === 'live-queue' || hash === 'queue') return 'live-queue'
+    if (hash === '404' || hash === 'not-found' || hash === 'error') return '404'
+
+    // If an unknown hash was specifically navigated to, it is a 404 broken link!
+    return '404'
+  }
+
+  // 3. Check pathname (e.g. /support, /clinics, /unknown-page)
+  const path = window.location.pathname.toLowerCase().replace(/\/$/, '')
+  if (!path || path === '' || path === '/' || path === '/index.html' || path === '/index') return 'home'
+
   if (path.includes('support') || path.includes('contact') || path.includes('helpdesk')) return 'support'
   if (path.includes('patient') || path.includes('my-health')) return 'patient-portal'
   if (path.includes('doctor') || path.includes('practitioner')) return 'doctor-portal'
@@ -41,14 +75,31 @@ const getTabFromUrl = (): string => {
   if (path.includes('lab-reports')) return 'lab-reports'
   if (path.includes('average-time')) return 'average-time'
   if (path.includes('live-queue')) return 'live-queue'
+  if (path.includes('home')) return 'home'
+  if (path.includes('404') || path.includes('not-found')) return '404'
 
-  return 'home'
+  // Non-empty unknown path is a 404 broken link
+  return '404'
 }
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>(() => getTabFromUrl())
-  const [selectedClinicId, setSelectedClinicId] = useState<string | null>(null)
-  const [activeTrackingCode, setActiveTrackingCode] = useState<string>('')
+  const [selectedClinicId, setSelectedClinicId] = useState<string | null>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search)
+      return p.get('clinic') || p.get('clinicId') || null
+    } catch {
+      return null
+    }
+  })
+  const [activeTrackingCode, setActiveTrackingCode] = useState<string>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search)
+      return p.get('code') || p.get('track') || ''
+    } catch {
+      return ''
+    }
+  })
   const [clinicFilter, setClinicFilter] = useState<string>('all')
 
   // Authentication State
@@ -236,6 +287,15 @@ export const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'clinic-detail' && !selectedClinicId && (
+          <NotFound
+            attemptedPath="Clinic ID was not specified"
+            onNavigate={handleNavigate}
+            onOpenTrackerModal={() => setTrackerModalOpen(true)}
+            onOpenReportModal={handleOpenReportModal}
+          />
+        )}
+
         {(activeTab === 'live-queue' || activeTab === 'lab-reports') && (
           <LiveQueue
             initialCode={activeTrackingCode}
@@ -262,6 +322,32 @@ export const App: React.FC = () => {
 
         {activeTab === 'portal' && <ClinicPortal />}
         {activeTab === 'support' && <Support />}
+
+        {/* 404 Not Found & Broken Link Handler */}
+        {(activeTab === '404' ||
+          ![
+            'home',
+            'clinics',
+            'clinic-detail',
+            'live-queue',
+            'lab-reports',
+            'average-time',
+            'patient-portal',
+            'doctor-portal',
+            'portal',
+            'support',
+          ].includes(activeTab)) && (
+          <NotFound
+            attemptedPath={
+              typeof window !== 'undefined'
+                ? window.location.pathname + window.location.hash
+                : activeTab
+            }
+            onNavigate={handleNavigate}
+            onOpenTrackerModal={() => setTrackerModalOpen(true)}
+            onOpenReportModal={handleOpenReportModal}
+          />
+        )}
       </main>
 
       <Footer onNavigate={handleNavigate} />

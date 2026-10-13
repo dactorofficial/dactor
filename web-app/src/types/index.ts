@@ -270,3 +270,19 @@ export interface PaymentGatewaysConfig {
   directBank?: GatewayCredentialItem
   testBypassAllowed?: boolean
 }
+
+export interface SupportTicket {
+  id: string
+  ticketCode: string
+  name?: string
+  email: string
+  phone: string
+  role: 'clinic' | 'doctor' | 'patient' | 'other'
+  category: string
+  customReason?: string
+  message?: string
+  status: 'open' | 'in_progress' | 'resolved' | 'closed'
+  createdAt: string
+  resolvedAt?: string
+  adminNotes?: string
+}
