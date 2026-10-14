@@ -137,11 +137,18 @@ fun BillingScreen(
         }
 
         if (billingRepository != null) {
+            val opdFee = appt.feeAmount ?: 0.0
             val existingInv = billingRepository.getInvoiceByAppointment(appt.id)
             if (existingInv != null) {
                 val cleanItems = existingInv.items.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) }
-                lineItems = cleanItems.map {
+                val mapped = cleanItems.map {
                     InvoiceLineItem(name = it.itemName, unitPrice = it.price, quantity = it.quantity)
+                }
+                val hasOpd = mapped.any { it.name.contains("Consultation", ignoreCase = true) || it.name.contains("OPD", ignoreCase = true) }
+                lineItems = if (!hasOpd && opdFee > 0.0) {
+                    listOf(InvoiceLineItem(name = "OPD Doctor Consultation", unitPrice = opdFee, quantity = 1)) + mapped
+                } else {
+                    mapped
                 }
                 paymentRecords = PaymentLedgerHelper.parsePaymentRecords(
                     rawRemarks = existingInv.remarks,
@@ -152,14 +159,18 @@ fun BillingScreen(
                 newPaymentAmountInput = ""
                 newPaymentNote = ""
             } else {
-                lineItems = emptyList()
-                val existingApptFee = appt.feeAmount ?: 0.0
+                lineItems = if (opdFee > 0.0) {
+                    listOf(InvoiceLineItem(name = "OPD Doctor Consultation", unitPrice = opdFee, quantity = 1))
+                } else {
+                    emptyList()
+                }
+                val existingApptFee = opdFee
                 if (appt.paymentStatus.equals("paid", ignoreCase = true) && existingApptFee > 0.0) {
                     paymentRecords = listOf(
                         PaymentRecord(
                             amount = existingApptFee,
                             dateTime = "${appt.appointmentDate} ${appt.appointmentTime ?: "10:00 AM"}",
-                            note = "Initial Consultation Fee"
+                            note = "OPD Consultation Fee"
                         )
                     )
                 } else {
@@ -557,11 +568,22 @@ fun BillingScreen(
                                     val cName = loadedClinic?.name ?: "Dactor Medical Clinic"
                                     val cAddr = loadedClinic?.addressText ?: "Nepal"
 
-                                    val liveItems = if (lineItems.isNotEmpty()) {
+                                    val opdFee = (appt.feeAmount ?: 0.0).takeIf { it > 0.0 } ?: 0.0
+                                    val baseLiveItems = if (lineItems.isNotEmpty()) {
                                         lineItems.map { InvoiceItem(itemName = it.name, quantity = it.quantity, price = it.unitPrice, total = it.total) }
                                     } else {
                                         val clean = apptInvoice?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) }
                                         if (!clean.isNullOrEmpty()) clean else emptyList()
+                                    }
+                                    val hasConsultation = baseLiveItems.any { it.itemName.contains("Consultation", ignoreCase = true) || it.itemName.contains("OPD", ignoreCase = true) }
+                                    val liveItems = if (!hasConsultation && opdFee > 0.0) {
+                                        listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appt.appointmentDate})", quantity = 1, price = opdFee, total = opdFee)) + baseLiveItems
+                                    } else if (baseLiveItems.isNotEmpty()) {
+                                        baseLiveItems
+                                    } else if (opdFee > 0.0) {
+                                        listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appt.appointmentDate})", quantity = 1, price = opdFee, total = opdFee))
+                                    } else {
+                                        emptyList()
                                     }
                                     val livePayments = if (paymentRecords.isNotEmpty()) {
                                         paymentRecords
@@ -998,8 +1020,19 @@ fun BillingScreen(
                         isSaving = true
                         coroutineScope.launch {
                             val finalAppt = selectedAppointment ?: return@launch
-                            val itemsToSave = if (lineItems.isNotEmpty()) {
+                            val opdFee = (finalAppt.feeAmount ?: 0.0).takeIf { it > 0.0 } ?: 0.0
+                            val baseItems = if (lineItems.isNotEmpty()) {
                                 lineItems.map { InvoiceItem(itemName = it.name, quantity = it.quantity, price = it.unitPrice, total = it.total) }
+                            } else {
+                                emptyList()
+                            }
+                            val hasConsultation = baseItems.any { it.itemName.contains("Consultation", ignoreCase = true) || it.itemName.contains("OPD", ignoreCase = true) }
+                            val itemsToSave = if (!hasConsultation && opdFee > 0.0) {
+                                listOf(InvoiceItem(itemName = "OPD Doctor Consultation", quantity = 1, price = opdFee, total = opdFee)) + baseItems
+                            } else if (baseItems.isNotEmpty()) {
+                                baseItems
+                            } else if (opdFee > 0.0) {
+                                listOf(InvoiceItem(itemName = "OPD Doctor Consultation", quantity = 1, price = opdFee, total = opdFee))
                             } else {
                                 val totalToUse = if (totalAmount > 0.0) totalAmount else (totalPaid)
                                 if (totalToUse > 0.0) {

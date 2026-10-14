@@ -265,56 +265,19 @@ fun PatientDirectoryScreen(
     }
 
     // Filtered list for Tab 1 (All Patients Directory for current clinic)
+    // Distinct Directory Entries for Tab 1 (All Patients Directory for current clinic)
+    // Appointments are never combined across different appointment IDs; each discrete appointment has its own record
     val allDirectoryProfiles = remember(registeredPatients, locallyAddedProfiles, appointments) {
-        val combinedMap = linkedMapOf<String, Profile>()
-        val patientProfilesById = registeredPatients.associateBy { it.id }
-        val patientProfilesByPhone = registeredPatients.filter { !it.phone.isNullOrBlank() }.associateBy { it.phone!!.trim() }
-        val patientProfilesByEmail = registeredPatients.filter { it.email.isNotBlank() && !it.email.endsWith("@dactor.internal") }.associateBy { it.email.trim().lowercase() }
+        val list = mutableListOf<Profile>()
+        val seenApptIds = mutableSetOf<String>()
 
-        // 1. Locally added profiles for this clinic
-        locallyAddedProfiles.forEach { p ->
-            combinedMap[p.id] = p
-        }
-
-        // 2. All patients from this clinic's appointments, enriched with registered profiles if available
+        // 1. Each appointment is its own discrete record (keyed by appt.id)
         appointments.forEach { appt ->
-            val cleanEmail = appt.patientEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() && !it.endsWith("@dactor.internal") }
-            val cleanPhone = appt.patientMobile.trim().takeIf { it.isNotBlank() }
-
-            // Find matching profile in registered profiles OR existing in combinedMap
-            val matchProfile = (appt.userId?.let { patientProfilesById[it] })
-                ?: (cleanEmail?.let { patientProfilesByEmail[it] })
-                ?: (cleanPhone?.let { patientProfilesByPhone[it] })
-                ?: (appt.userId?.let { combinedMap[it] })
-                ?: (cleanEmail?.let { email -> combinedMap.values.find { it.email.trim().equals(email, ignoreCase = true) } })
-                ?: (cleanPhone?.let { phone -> combinedMap.values.find { it.phone?.trim() == phone } })
-
-            if (matchProfile != null) {
-                combinedMap[matchProfile.id] = matchProfile.copy(
-                    phone = matchProfile.phone?.takeIf { it.isNotBlank() } ?: appt.patientMobile,
-                    email = matchProfile.email.takeIf { it.isNotBlank() && !it.endsWith("@dactor.internal") } ?: (appt.patientEmail ?: matchProfile.email),
-                    age = matchProfile.age ?: appt.patientAge,
-                    gender = matchProfile.gender ?: appt.patientGender ?: "Male",
-                    fullName = matchProfile.fullName?.takeIf { it.isNotBlank() } ?: appt.patientName
-                )
-            } else {
-                val canonicalId = appt.userId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
-                    ?: (cleanEmail?.let { com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForEmail(it) })
-                    ?: (cleanPhone?.let { com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForPhone(it) })
-                    ?: "appt_patient_${appt.trackingCode10Digit}"
-
-                val existing = combinedMap[canonicalId]
-                if (existing != null) {
-                    combinedMap[canonicalId] = existing.copy(
-                        phone = existing.phone?.takeIf { it.isNotBlank() } ?: appt.patientMobile,
-                        email = existing.email.takeIf { it.isNotBlank() && !it.endsWith("@dactor.internal") } ?: (appt.patientEmail ?: existing.email),
-                        age = existing.age ?: appt.patientAge,
-                        gender = existing.gender ?: appt.patientGender ?: "Male",
-                        fullName = existing.fullName?.takeIf { it.isNotBlank() } ?: appt.patientName
-                    )
-                } else {
-                    combinedMap[canonicalId] = Profile(
-                        id = canonicalId,
+            if (appt.id !in seenApptIds) {
+                seenApptIds.add(appt.id)
+                list.add(
+                    Profile(
+                        id = appt.id,
                         authUid = null,
                         email = appt.patientEmail ?: "",
                         fullName = appt.patientName,
@@ -323,10 +286,20 @@ fun PatientDirectoryScreen(
                         gender = appt.patientGender ?: "Male",
                         age = appt.patientAge
                     )
-                }
+                )
             }
         }
-        combinedMap.values.toList()
+
+        // 2. Standalone registered / locally added profiles that don't have an appointment yet
+        val existingPhones = appointments.map { it.patientMobile.trim() }.filter { it.isNotBlank() }.toSet()
+        val existingUserIds = appointments.mapNotNull { it.userId }.filter { it.isNotBlank() }.toSet()
+        (locallyAddedProfiles + registeredPatients).forEach { p ->
+            val hasAppt = p.id in existingUserIds || (!p.phone.isNullOrBlank() && p.phone!!.trim() in existingPhones)
+            if (!hasAppt && list.none { it.id == p.id }) {
+                list.add(p)
+            }
+        }
+        list
     }
 
     val filteredProfiles = remember(allDirectoryProfiles, appointments, searchQuery) {
@@ -334,21 +307,15 @@ fun PatientDirectoryScreen(
         else {
             val q = searchQuery.trim().lowercase()
             allDirectoryProfiles.filter { p ->
-                val apptId = getDeterministicAppointmentId(p.id)
-                val hasMatchingAppt = appointments.any { appt ->
-                    (appt.userId == p.id ||
-                        (!p.phone.isNullOrBlank() && appt.patientMobile == p.phone) ||
-                        (p.email.isNotBlank() && !p.email.endsWith("@dactor.internal") &&
-                            appt.patientEmail?.trim()?.equals(p.email.trim(), ignoreCase = true) == true)) &&
-                    (appt.trackingCode10Digit.contains(q) || appt.id.lowercase().contains(q) ||
-                        (appt.patientEmail?.lowercase()?.contains(q) == true))
-                }
+                val appt = appointments.find { it.id == p.id }
+                val apptCode = appt?.trackingCode10Digit ?: getDeterministicAppointmentId(p.id)
+                val apptDoctor = appt?.doctorId?.let { dId -> affiliatedDoctors.find { it.id == dId }?.fullName }
                 (p.fullName?.lowercase()?.contains(q) == true) ||
                 (p.phone?.contains(q) == true) ||
                 p.id.lowercase().contains(q) ||
                 p.email.lowercase().contains(q) ||
-                apptId.contains(q) ||
-                hasMatchingAppt
+                apptCode.lowercase().contains(q) ||
+                (apptDoctor?.lowercase()?.contains(q) == true)
             }
         }
     }
@@ -396,7 +363,10 @@ fun PatientDirectoryScreen(
         selectedPatientForDetails = item
         coroutineScope.launch {
             isLoadingHistory = true
-            patientFullHistoryAppts = if (appointmentRepository != null) {
+            patientFullHistoryAppts = if (item.currentAppointment != null) {
+                // Keep discrete: do not combine appointments with different IDs into the same history
+                listOf(item.currentAppointment)
+            } else if (appointmentRepository != null) {
                 appointmentRepository.getAppointmentsForPatient(
                     patientMobile = item.phone,
                     userId = item.userId,
@@ -887,38 +857,43 @@ fun PatientDirectoryScreen(
                                 .weight(1f)
                         ) {
                             items(filteredProfiles, key = { it.id }) { patient ->
-                                val patientAppts = remember(patient.id, patient.phone, patient.email, appointments) {
-                                    appointments.filter {
-                                        (it.userId != null && it.userId == patient.id) ||
-                                        (!patient.phone.isNullOrBlank() && it.patientMobile.trim() == patient.phone.trim()) ||
-                                        (patient.email.isNotBlank() && !patient.email.endsWith("@dactor.internal") &&
-                                            it.patientEmail?.trim()?.equals(patient.email.trim(), ignoreCase = true) == true)
-                                    }.sortedByDescending { it.appointmentDate }
-                                }
-                                val latestAppt = patientAppts.firstOrNull()
+                                val thisAppt = appointments.find { it.id == patient.id }
                                 val deterministicApptId = remember(patient.id) { getDeterministicAppointmentId(patient.id) }
-                                val assignedApptId = latestAppt?.trackingCode10Digit ?: deterministicApptId
-                                val latestDoctor = affiliatedDoctors.find { it.id == latestAppt?.doctorId }
-                                val existingRemark = latestAppt?.let { remarksMap[it.id] }
+                                val assignedApptId = thisAppt?.trackingCode10Digit ?: deterministicApptId
+                                val assignedDoctor = affiliatedDoctors.find { it.id == thisAppt?.doctorId }
+                                val existingRemark = thisAppt?.let { remarksMap[it.id] }
 
                                 val detailItem = PatientDetailItem(
-                                    patientName = patient.fullName ?: "Unnamed Patient",
-                                    age = patient.age,
-                                    gender = patient.gender ?: "Male",
-                                    phone = patient.phone ?: "",
-                                    email = patient.email,
+                                    patientName = patient.fullName ?: (thisAppt?.patientName ?: "Unnamed Patient"),
+                                    age = patient.age ?: thisAppt?.patientAge,
+                                    gender = patient.gender ?: (thisAppt?.patientGender ?: "Male"),
+                                    phone = patient.phone?.ifBlank { thisAppt?.patientMobile ?: "" } ?: (thisAppt?.patientMobile ?: ""),
+                                    email = patient.email.ifBlank { thisAppt?.patientEmail },
                                     trackingCode = assignedApptId,
-                                    userId = patient.id,
-                                    currentAppointment = latestAppt
+                                    userId = thisAppt?.userId ?: patient.id,
+                                    currentAppointment = thisAppt
                                 )
+
+                                val isCompleted = thisAppt?.checkinStatus?.lowercase() in listOf("completed", "done", "visited")
+                                val isCancelled = thisAppt?.checkinStatus?.lowercase() == "cancelled"
 
                                 PatientRecordCardItem(
                                     item = detailItem,
-                                    doctorName = latestDoctor?.fullName ?: (if (latestAppt != null) "Medical Specialist" else "Unassigned"),
-                                    scheduleDate = latestAppt?.appointmentDate ?: today,
-                                    scheduleTime = latestAppt?.appointmentTime ?: "10:00:00",
-                                    queueStatusText = if (latestAppt != null) "In Dr. ${(latestDoctor?.fullName ?: "Specialist").removePrefix("Dr. ").removePrefix("Dr.")}'s OPD Queue" else "Registered in Patient Directory",
-                                    badgeText = if (latestAppt != null) "In Doctor Queue" else "Directory Record",
+                                    doctorName = assignedDoctor?.fullName ?: (if (thisAppt != null) "Medical Specialist" else "Unassigned"),
+                                    scheduleDate = thisAppt?.appointmentDate ?: today,
+                                    scheduleTime = thisAppt?.appointmentTime ?: "10:00:00",
+                                    queueStatusText = when {
+                                        thisAppt == null -> "Registered in Patient Directory"
+                                        isCompleted -> "Visit Completed on ${thisAppt.appointmentDate}"
+                                        isCancelled -> "Cancelled Appointment"
+                                        else -> "In Dr. ${(assignedDoctor?.fullName ?: "Specialist").removePrefix("Dr. ").removePrefix("Dr.")}'s OPD Queue"
+                                    },
+                                    badgeText = when {
+                                        thisAppt == null -> "Directory Record"
+                                        isCompleted -> "Completed"
+                                        isCancelled -> "Cancelled"
+                                        else -> "In Doctor Queue"
+                                    },
                                     existingRemark = existingRemark,
                                     isMultiTypeClinic = isMultiTypeClinic,
                                     onCardClick = { openPatientHistory(detailItem) },
@@ -934,10 +909,10 @@ fun PatientDirectoryScreen(
                                     },
                                     onScheduleNextVisit = {
                                         showScheduleDialogForPatient = detailItem
-                                        scheduleDoctorId = latestAppt?.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                                        scheduleDoctorId = thisAppt?.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
                                     },
                                     onOpenBilling = {
-                                        val targetId = latestAppt?.id ?: assignedApptId
+                                        val targetId = thisAppt?.id ?: assignedApptId
                                         navController.navigate("${NavRoutes.BillingScreen}/$targetId")
                                     }
                                 )

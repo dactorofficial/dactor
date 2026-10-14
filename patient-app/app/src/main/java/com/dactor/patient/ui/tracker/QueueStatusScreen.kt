@@ -275,7 +275,9 @@ fun QueueStatusScreen(
                         } else emptyList()
                         val allPt = appointmentRepository?.getAllPatientAppointments(pUserId, pMobile, pEmail) ?: emptyList()
                         val clinicPt = allPt.filter { it.clinicId == appt.clinicId }
-                        val combined = (byMobile + clinicPt + listOf(appt)).distinctBy { it.id }
+                        val combined = (byMobile + clinicPt + listOf(appt))
+                            .distinctBy { it.id }
+                            .filter { it.patientName.trim().equals(appt.patientName.trim(), ignoreCase = true) }
                         val sorted = combined.sortedWith(
                             compareByDescending<Appointment> { it.appointmentDate }
                                 .thenByDescending { it.appointmentTime }

@@ -132,9 +132,11 @@ fun PatientDetailScreen(
                     userId = remote.userId,
                     trackingCode = remote.trackingCode10Digit
                 )
-                pastVisitsForPatient = allPatientVisits.filter { it.id != remote.id }
-                if (billingRepository != null && allPatientVisits.isNotEmpty()) {
-                    pastRemarksMap = billingRepository.getRemarksForAppointments(allPatientVisits.map { it.id })
+                pastVisitsForPatient = allPatientVisits.filter { 
+                    it.id != remote.id && it.patientName.trim().equals(remote.patientName.trim(), ignoreCase = true) 
+                }
+                if (billingRepository != null && pastVisitsForPatient.isNotEmpty()) {
+                    pastRemarksMap = billingRepository.getRemarksForAppointments(pastVisitsForPatient.map { it.id })
                 }
             }
         }

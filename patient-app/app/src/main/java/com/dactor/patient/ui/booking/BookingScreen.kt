@@ -104,15 +104,27 @@ fun BookingScreen(
     clinicId: String = "",
     initialDoctorId: String? = null,
     initialDate: String? = null,
+    rescheduleApptId: String? = null,
     slotRepository: SlotRepository? = null,
     doctorRepository: DoctorRepository? = null,
     clinicRepository: ClinicRepository? = null,
     authRepository: AuthRepository? = null,
+    appointmentRepository: com.dactor.patient.data.repository.AppointmentRepository? = null,
+    queueRepository: com.dactor.patient.data.repository.QueueRepository? = null,
     sessionManager: com.dactor.patient.data.local.UserSessionManager? = null
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val todayDate = remember { LocalDate.now() }
     val today = remember { todayDate.toString() }
+
+    val pendingReschedule = remember(rescheduleApptId) {
+        sessionManager?.getPendingReschedule()?.takeIf {
+            rescheduleApptId.isNullOrBlank() || it.appointmentId == rescheduleApptId
+        }
+    }
+    val isRescheduleMode = pendingReschedule != null
+    var isExecutingReschedule by remember { mutableStateOf(false) }
 
     val pendingRedirect = remember(clinicId) {
         sessionManager?.getPendingBookingRedirect()?.takeIf { it.clinicId == clinicId }
@@ -175,7 +187,7 @@ fun BookingScreen(
             if (clinicRepository != null) {
                 clinic = clinicRepository.getClinicById(clinicId, forceRefresh = true)
             }
-            val targetDocId = pendingRedirect?.doctorId ?: initialDoctorId
+            val targetDocId = pendingRedirect?.doctorId ?: pendingReschedule?.doctorId ?: initialDoctorId
             if (doctorRepository != null) {
                 val docs = doctorRepository.getDoctors(clinicId).toMutableList()
                 if (!targetDocId.isNullOrBlank() && docs.none { it.id == targetDocId }) {
@@ -352,12 +364,47 @@ fun BookingScreen(
                 Box(modifier = Modifier.padding(16.dp)) {
                     Button(
                         onClick = {
-                            if (isNavigatingToForm) return@Button
+                            if (isNavigatingToForm || isExecutingReschedule) return@Button
                             val chosenSlotId = selectedSlot?.id ?: if (isLabClinic) "synth__lab_$selectedDate" else null
                             if (selectedSlot != null && SlotRepository.isSlotEndTimeOver(selectedSlot.endTime, selectedDate, selectedSlot.startTime)) {
                                 Toast.makeText(context, "This time slot has already passed. Please select an upcoming slot.", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
+
+                            // If in Reschedule Mode: execute reschedule in place without asking for payment or booking form!
+                            if (isRescheduleMode && pendingReschedule != null) {
+                                if (selectedSlot == null) {
+                                    Toast.makeText(context, "Please select an available slot to reschedule", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                isExecutingReschedule = true
+                                coroutineScope.launch {
+                                    try {
+                                        val ok = appointmentRepository?.rescheduleAppointment(
+                                            id = pendingReschedule.appointmentId,
+                                            newDate = selectedDate,
+                                            newTime = selectedSlot.startTime,
+                                            slotId = selectedSlot.id
+                                        ) ?: false
+                                        if (ok) {
+                                            queueRepository?.removeOrCancelQueueEntry(pendingReschedule.appointmentId)
+                                            sessionManager?.clearPendingReschedule()
+                                            Toast.makeText(context, "Rescheduled to $selectedDate at ${selectedSlot.startTime} successfully!", Toast.LENGTH_LONG).show()
+                                            navController.navigate(NavRoutes.QueueStatus.createRoute(pendingReschedule.trackingCode)) {
+                                                popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
+                                            }
+                                        } else {
+                                            Toast.makeText(context, "Failed to reschedule. Please try again.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        isExecutingReschedule = false
+                                    }
+                                }
+                                return@Button
+                            }
+
                             val isUserLoggedIn = sessionManager?.isLoggedIn() == true || (authRepository?.isLoggedIn() == true)
                             if (!isUserLoggedIn) {
                                 redirectToLoginSavingPosition(chosenSlotId)
@@ -367,7 +414,7 @@ fun BookingScreen(
                             isNavigatingToForm = true
                             navController.navigate(NavRoutes.BookingForm.createRoute(chosenSlotId, clinicId))
                         },
-                        enabled = canBookSelectedSlot && !isNavigatingToForm,
+                        enabled = canBookSelectedSlot && !isNavigatingToForm && !isExecutingReschedule,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFF00796B),
@@ -379,15 +426,16 @@ fun BookingScreen(
                             .height(52.dp)
                     ) {
                         Text(
-                            text = if (!canBookSelectedSlot) {
-                                "Select a Published Slot to Book"
-                            } else if (isLabClinic) {
-                                "Select Lab Tests & Book"
-                            } else {
-                                "Book Appointment"
+                            text = when {
+                                isExecutingReschedule -> "Rescheduling..."
+                                isRescheduleMode && !canBookSelectedSlot -> "Select a Slot to Reschedule"
+                                isRescheduleMode && selectedSlot != null -> "Confirm Reschedule to $selectedDate (${selectedSlot.startTime}) • Free"
+                                !canBookSelectedSlot -> "Select a Published Slot to Book"
+                                isLabClinic -> "Select Lab Tests & Book"
+                                else -> "Book Appointment"
                             },
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 14.5.sp
                         )
                         Spacer(Modifier.width(6.dp))
                         Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -405,6 +453,55 @@ fun BookingScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // ── RESCHEDULE MODE BANNER ────────────────────────────────────────
+            if (isRescheduleMode && pendingReschedule != null) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFFEFF6FF),
+                        border = BorderStroke(1.dp, Color(0xFF93C5FD)),
+                        shadowElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Update, contentDescription = null, tint = Color(0xFF1D4ED8), modifier = Modifier.size(20.dp))
+                                    Text("Reschedule Mode", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = Color(0xFF1E3A8A))
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFDBEAFE)
+                                ) {
+                                    Text(
+                                        text = "FEE RETAINED (Rs. 0)",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF1D4ED8),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Rescheduling appointment for ${pendingReschedule.patientName} (Code #${pendingReschedule.trackingCode}).\nSelect your preferred date and slot below. Previous queue token will be updated automatically.",
+                                fontSize = 12.sp,
+                                color = Color(0xFF1E40AF),
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
+                }
+            }
             // ── 0. TRANSACTION FAILED BANNER (Auto-dismisses in 2 seconds) ────
             if (showTransactionFailedBanner) {
                 item {

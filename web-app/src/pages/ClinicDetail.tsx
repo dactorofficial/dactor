@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   ArrowLeft,
+  ArrowRight,
   MapPin,
   Phone,
   Clock,
@@ -23,6 +24,7 @@ import {
   Info,
   Check,
   Layers,
+  Lock,
 } from 'lucide-react'
 import { Clinic, Doctor, ClinicService, Slot, Appointment, PaymentGatewaysConfig } from '../types'
 import {
@@ -123,7 +125,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const [bookingStep, setBookingStep] = useState<'details' | 'payment'>('details')
   const [patientName, setPatientName] = useState('')
   const [patientAge, setPatientAge] = useState('')
-  const [patientGender, setPatientGender] = useState('')
+  const [patientGender, setPatientGender] = useState('Male')
   const [patientMobile, setPatientMobile] = useState('')
   const [patientEmail, setPatientEmail] = useState('')
   const [patientUserId, setPatientUserId] = useState<string | undefined>(undefined)
@@ -330,14 +332,10 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     }
   }, [isSingleDoctorClinic, doctors])
 
-  // Reset returning patient if not polyclinic (unless in Reschedule mode)
-  useEffect(() => {
-    if (!isPolyclinic && isReturningPatient && !isReschedule) {
-      setIsReturningPatient(false)
-      setFollowupCodeInput('')
-      setRetainedAppointment(null)
-    }
-  }, [isPolyclinic, isReturningPatient, isReschedule])
+  // Lock patient details when booking follow-up or rescheduling with a retained appointment
+  const isLockedDetails = useMemo(() => {
+    return Boolean((isReturningPatient && retainedAppointment) || (isReschedule && retainedAppointment))
+  }, [isReturningPatient, retainedAppointment, isReschedule])
 
   // Sync initialTrackingCode prop changes
   useEffect(() => {
@@ -737,7 +735,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     const n = Number(val)
     return val.trim() !== '' && Number.isInteger(n) && n >= 1 && n <= 120
   }
-  const isGenderValid = (val: string) => ['Male', 'Female', 'Other'].includes(val)
+  const isGenderValid = (val: string) => ['Male', 'Female', 'Other'].includes(val || 'Male')
   const isMobileValid = (val: string) => /^9\d{9}$/.test(val.replace(/\D/g, ''))
 
   // Validate form and scroll/focus first missing/invalid field
@@ -778,6 +776,11 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const handleProceedToPaymentStep = (e: React.FormEvent) => {
     e.preventDefault()
     if (!validateDetailsForm()) return
+    // Directly book for free follow-up or reschedule without any payment step
+    if (totalBookingFee === 0 || isLockedDetails || isReschedule) {
+      handleConfirmBookingAndPayment()
+      return
+    }
     setPaymentCountdown(300)
     setBookingStep('payment')
   }
@@ -828,9 +831,16 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       const code10 = generate10DigitTrackingCode()
       const testsSelectedNames = activeTab === 'lab' ? selectedTestList.map((t) => t.serviceName) : []
       const cleanMobile = patientMobile.replace(/\D/g, '')
-      const isFreeBooking = totalBookingFee === 0
+      const isFreeBooking = totalBookingFee === 0 || isLockedDetails
       const isPaidNow = isFreeBooking || selectedPaymentMethod !== 'pay_at_clinic'
       const payStatus = isFreeBooking ? 'paid' : isPaidNow ? 'paid' : 'unpaid'
+
+      // Strictly lock patient details to verified retained appointment when in follow-up/reschedule mode
+      const finalPatientName = isLockedDetails && retainedAppointment ? retainedAppointment.patientName : patientName.trim()
+      const finalPatientAge = isLockedDetails && retainedAppointment ? (retainedAppointment.patientAge || Number(patientAge)) : Number(patientAge)
+      const finalPatientGender = isLockedDetails && retainedAppointment ? (retainedAppointment.patientGender || patientGender || 'Male') : (patientGender || 'Male')
+      const finalPatientMobile = isLockedDetails && retainedAppointment ? (retainedAppointment.patientMobile || cleanMobile) : cleanMobile
+      const finalPatientEmail = isLockedDetails && retainedAppointment ? (retainedAppointment.patientEmail || undefined) : (patientEmail.trim() || undefined)
 
       const created = await createAppointment({
         id: bookingDraftId,
@@ -839,11 +849,11 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         userId: patientUserId,
         slotId: selectedSlotId,
         trackingCode10Digit: code10,
-        patientName: patientName.trim(),
-        patientAge: Number(patientAge),
-        patientGender,
-        patientMobile: cleanMobile,
-        patientEmail: patientEmail.trim() || undefined,
+        patientName: finalPatientName,
+        patientAge: finalPatientAge,
+        patientGender: finalPatientGender,
+        patientMobile: finalPatientMobile,
+        patientEmail: finalPatientEmail,
         appointmentDate: selectedDate,
         appointmentTime: selectedSlotTime || '10:00 AM',
         checkinStatus: 'waiting',
@@ -1423,6 +1433,147 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column: Doctor Selection & Details */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Visit Type Toggle: New Consultation vs Free Follow-Up OR Reschedule Active (Applies to all clinics) */}
+            <div className="p-5 rounded-3xl liquid-glass-elevated space-y-4">
+              {isReschedule ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2 text-cyan-900 dark:text-cyan-300 font-black text-sm">
+                      <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                      <span>Reschedule Mode Active</span>
+                    </div>
+                    <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-cyan-600 text-white">
+                      FEE RETAINED
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    Shifting appointment time for Token ID <strong className="font-mono font-bold">#{retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}</strong>.
+                  </p>
+                  {retainedAppointment && (
+                    <div className="p-3.5 rounded-2xl liquid-glass-subtle text-xs flex items-center justify-between border-cyan-500/30">
+                      <div>
+                        <span className="font-bold text-sm block text-cyan-900 dark:text-cyan-300">
+                          ✓ Patient: {retainedAppointment.patientName}
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                          {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
+                        </span>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-cyan-500/10 text-cyan-800 dark:text-cyan-300 border border-cyan-500/20">
+                        Verified
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                        Consultation Type
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Choose New Consultation or claim a 100% Free Follow-Up with your 10-digit Appointment ID.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsReturningPatient(false)
+                        setFollowupLookupError(null)
+                      }}
+                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer active:scale-95 ${
+                        !isReturningPatient
+                          ? 'border-teal-500 bg-teal-500/10 ring-2 ring-teal-500/20 shadow-glass-sm'
+                          : 'liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-slate-900 dark:text-white">New Patient</span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-600 text-white">
+                          Rs. {selectedDoctor?.consultationFee || 500}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Standard initial consultation</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsReturningPatient(true)
+                        setFollowupLookupError(null)
+                      }}
+                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer active:scale-95 ${
+                        isReturningPatient
+                          ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20 shadow-glass-sm'
+                          : 'liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-slate-900 dark:text-white">Follow-Up Visit</span>
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white uppercase tracking-wider">
+                          FREE
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Free with 10-digit Appointment ID</p>
+                    </button>
+                  </div>
+
+                  {/* Follow-Up 10-digit Input and Retained Box */}
+                  {isReturningPatient && (
+                    <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 space-y-3 animate-in fade-in duration-150 backdrop-blur-sm">
+                      <div>
+                        <label className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block mb-1">
+                          Enter 10-Digit Appointment ID for Follow-Up *
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={10}
+                          value={followupCodeInput}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '').slice(0, 10)
+                            setFollowupCodeInput(val)
+                          }}
+                          placeholder="e.g. 8492049182 (10 digits)"
+                          className="w-full px-3.5 py-2.5 rounded-xl text-sm font-mono font-bold liquid-glass-input text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      {isLookingUpCode && (
+                        <div className="flex items-center space-x-2 text-xs text-emerald-700 dark:text-emerald-400">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Looking up previous appointment details in Supabase...</span>
+                        </div>
+                      )}
+
+                      {retainedAppointment && (
+                        <div className="p-3 rounded-xl liquid-glass-subtle text-xs flex items-center justify-between border-emerald-500/30">
+                          <div>
+                            <span className="font-bold text-sm block text-emerald-900 dark:text-emerald-300">
+                              ✓ Patient Retained: {retainedAppointment.patientName}
+                            </span>
+                            <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                              {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
+                            </span>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
+                            Verified
+                          </span>
+                        </div>
+                      )}
+
+                      {followupLookupError && (
+                        <p className="text-xs text-rose-600 font-bold">{followupLookupError}</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
             {/* 1. SINGLE-VISIT CLINIC BANNER & DEDICATED DOCTOR CARD */}
             {isSingleDoctorClinic ? (
               <div className="space-y-4">
@@ -1502,149 +1653,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 )}
               </div>
             ) : (
-              /* 2. MULTI-VISIT POLYCLINIC: VISIT TYPE + SPECIALISTS ROSTER */
+              /* 2. MULTI-VISIT POLYCLINIC: SPECIALISTS ROSTER */
               <div className="space-y-6">
-                {/* Visit Type Toggle: New Consultation vs Free Follow-Up OR Reschedule Active */}
-                <div className="p-5 rounded-3xl liquid-glass-elevated space-y-4">
-                  {isReschedule ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2 text-cyan-900 dark:text-cyan-300 font-black text-sm">
-                          <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400 shrink-0" />
-                          <span>Reschedule Mode Active</span>
-                        </div>
-                        <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-cyan-600 text-white">
-                          FEE RETAINED
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                        Shifting appointment time for Token ID <strong className="font-mono font-bold">#{retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}</strong>.
-                      </p>
-                      {retainedAppointment && (
-                        <div className="p-3.5 rounded-2xl liquid-glass-subtle text-xs flex items-center justify-between border-cyan-500/30">
-                          <div>
-                            <span className="font-bold text-sm block text-cyan-900 dark:text-cyan-300">
-                              ✓ Patient: {retainedAppointment.patientName}
-                            </span>
-                            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                              {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
-                            </span>
-                          </div>
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-cyan-500/10 text-cyan-800 dark:text-cyan-300 border border-cyan-500/20">
-                            Verified
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                            Visit Type (Multi-Visit Polyclinic)
-                          </h4>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                            Choose New Consultation or claim a 100% Free Follow-Up with your 10-digit Appointment ID.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsReturningPatient(false)
-                            setFollowupLookupError(null)
-                          }}
-                          className={`p-3.5 rounded-2xl border text-left transition cursor-pointer active:scale-95 ${
-                            !isReturningPatient
-                              ? 'border-teal-500 bg-teal-500/10 ring-2 ring-teal-500/20 shadow-glass-sm'
-                              : 'liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-slate-900 dark:text-white">New Patient</span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-600 text-white">
-                              Rs. {selectedDoctor?.consultationFee || 500}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Standard initial consultation</p>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsReturningPatient(true)
-                            setFollowupLookupError(null)
-                          }}
-                          className={`p-3.5 rounded-2xl border text-left transition cursor-pointer active:scale-95 ${
-                            isReturningPatient
-                              ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20 shadow-glass-sm'
-                              : 'liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-slate-900 dark:text-white">Follow-Up Visit</span>
-                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white uppercase tracking-wider">
-                              FREE
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Free with 10-digit Appointment ID</p>
-                        </button>
-                      </div>
-
-                      {/* Follow-Up 10-digit Input and Retained Box */}
-                      {isReturningPatient && (
-                        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 space-y-3 animate-in fade-in duration-150 backdrop-blur-sm">
-                          <div>
-                            <label className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block mb-1">
-                              Enter 10-Digit Appointment ID for Follow-Up *
-                            </label>
-                            <input
-                              type="text"
-                              maxLength={10}
-                              value={followupCodeInput}
-                              onChange={(e) => {
-                                const val = e.target.value.replace(/\D/g, '').slice(0, 10)
-                                setFollowupCodeInput(val)
-                              }}
-                              placeholder="e.g. 8492049182 (10 digits)"
-                              className="w-full px-3.5 py-2.5 rounded-xl text-sm font-mono font-bold liquid-glass-input text-slate-900 dark:text-white"
-                            />
-                          </div>
-
-                          {isLookingUpCode && (
-                            <div className="flex items-center space-x-2 text-xs text-emerald-700 dark:text-emerald-400">
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              <span>Looking up previous appointment details in Supabase...</span>
-                            </div>
-                          )}
-
-                          {retainedAppointment && (
-                            <div className="p-3 rounded-xl liquid-glass-subtle text-xs flex items-center justify-between border-emerald-500/30">
-                              <div>
-                                <span className="font-bold text-sm block text-emerald-900 dark:text-emerald-300">
-                                  ✓ Patient Retained: {retainedAppointment.patientName}
-                                </span>
-                                <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
-                                  {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
-                                </span>
-                              </div>
-                              <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
-                                Verified
-                              </span>
-                            </div>
-                          )}
-
-                          {followupLookupError && (
-                            <p className="text-xs text-rose-600 font-bold">{followupLookupError}</p>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-
                 {/* Specialists Roster Header */}
                 <div className="flex items-center justify-between pt-2">
                   <h3 className="text-lg font-black text-slate-900 dark:text-white">Specialist Doctors on Roster</h3>
@@ -2072,13 +2082,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 <span>
                   {selectedSlotTime
                     ? isReschedule
-                      ? `Confirm Reschedule (${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+                      ? 'Confirm Reschedule'
                       : isReturningPatient && retainedAppointment
-                      ? `Confirm Free Follow-Up (${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
-                      : `Proceed to Patient Details (${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+                      ? 'Confirm Follow-Up'
+                      : 'Book Appointment'
                     : nextAvailableDate
-                    ? `Book on Another Date (${new Date(nextAvailableDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
-                    : 'Select an Available Slot'}
+                    ? 'Book on another date'
+                    : 'Select a Published Slot to Book'}
                 </span>
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -2370,7 +2380,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 </p>
 
                 {/* Optional 1-Tap Fill from Verified Supabase Patient Profile */}
-                {savedProfile && (
+                {savedProfile && !isLockedDetails && (
                   <div className="mb-4 p-3 rounded-2xl liquid-glass-subtle border-teal-500/30 flex items-center justify-between">
                     <div className="text-xs">
                       <span className="font-bold text-teal-900 dark:text-teal-300 block">
@@ -2398,17 +2408,46 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   </div>
                 )}
 
+                {/* Patient Details Locked Banner for Follow-Up or Reschedule */}
+                {isLockedDetails && retainedAppointment && (
+                  <div className="mb-4 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-start space-x-3 text-xs backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 flex items-center justify-center shrink-0 text-emerald-700 dark:text-emerald-300">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                        <span>Patient Details Verified & Locked</span>
+                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                          {isReschedule ? 'Reschedule' : 'Free Follow-Up'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 dark:text-emerald-300/90 mt-0.5">
+                        Verified from previous Appointment #{retainedAppointment.trackingCode10Digit}. Patient name, age, gender, and contact details cannot be altered for a free follow-up consultation.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <form onSubmit={handleProceedToPaymentStep} className="space-y-4" noValidate>
                   {/* Patient Full Name */}
                   <div>
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                      Patient Full Name <span className="text-rose-500">*</span>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center justify-between">
+                      <span>Patient Full Name <span className="text-rose-500">*</span></span>
+                      {isLockedDetails && (
+                        <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1">
+                          <Lock className="w-3 h-3" /> Locked for Follow-Up
+                        </span>
+                      )}
                     </label>
                     <input
                       id="field-patient-name"
                       type="text"
+                      readOnly={isLockedDetails}
+                      disabled={isLockedDetails}
+                      tabIndex={isLockedDetails ? -1 : 0}
                       value={patientName}
                       onChange={(e) => {
+                        if (isLockedDetails) return
                         const val = e.target.value
                         setPatientName(val)
                         if (isNameValid(val) && formErrors.name) {
@@ -2417,12 +2456,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       }}
                       placeholder="Enter patient's full legal name"
                       className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
-                        formErrors.name && !isNameValid(patientName)
+                        isLockedDetails
+                          ? 'bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 cursor-not-allowed border-slate-300 dark:border-slate-700 select-none'
+                          : formErrors.name && !isNameValid(patientName)
                           ? 'border-rose-500 bg-rose-50/60 ring-2 ring-rose-500/20'
                           : 'liquid-glass-input text-slate-900 dark:text-white'
                       } focus:outline-none focus:ring-2 focus:ring-teal-500`}
                     />
-                    {formErrors.name && !isNameValid(patientName) && (
+                    {formErrors.name && !isNameValid(patientName) && !isLockedDetails && (
                       <p className="text-[11px] text-rose-600 font-bold mt-1 flex items-center gap-1">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                         <span>{formErrors.name}</span>
@@ -2433,14 +2474,19 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   {/* Age and Gender Grid */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                        Age (1–120) <span className="text-rose-500">*</span>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center justify-between">
+                        <span>Age (1–120) <span className="text-rose-500">*</span></span>
+                        {isLockedDetails && <Lock className="w-3 h-3 text-emerald-600" />}
                       </label>
                       <input
                         id="field-patient-age"
                         type="number"
+                        readOnly={isLockedDetails}
+                        disabled={isLockedDetails}
+                        tabIndex={isLockedDetails ? -1 : 0}
                         value={patientAge}
                         onChange={(e) => {
+                          if (isLockedDetails) return
                           const val = e.target.value
                           setPatientAge(val)
                           if (isAgeValid(val) && formErrors.age) {
@@ -2451,42 +2497,54 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         min="1"
                         max="120"
                         className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
-                          formErrors.age && !isAgeValid(patientAge)
+                          isLockedDetails
+                            ? 'bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 cursor-not-allowed border-slate-300 dark:border-slate-700 select-none'
+                            : formErrors.age && !isAgeValid(patientAge)
                             ? 'border-rose-500 bg-rose-50/60 ring-2 ring-rose-500/20'
                             : 'liquid-glass-input text-slate-900 dark:text-white'
                         } focus:outline-none focus:ring-2 focus:ring-teal-500`}
                       />
-                      {formErrors.age && !isAgeValid(patientAge) && (
+                      {formErrors.age && !isAgeValid(patientAge) && !isLockedDetails && (
                         <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.age}</p>
                       )}
                     </div>
 
                     <div>
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                        Gender <span className="text-rose-500">*</span>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center justify-between">
+                        <span>Gender <span className="text-rose-500">*</span></span>
+                        {isLockedDetails && <Lock className="w-3 h-3 text-emerald-600" />}
                       </label>
-                      <select
-                        id="field-patient-gender"
-                        value={patientGender}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          setPatientGender(val)
-                          if (isGenderValid(val) && formErrors.gender) {
-                            setFormErrors((prev) => ({ ...prev, gender: '' }))
-                          }
-                        }}
-                        className={`w-full px-3 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
-                          formErrors.gender && !isGenderValid(patientGender)
-                            ? 'border-rose-500 bg-rose-50/60 ring-2 ring-rose-500/20'
-                            : 'liquid-glass-input text-slate-900 dark:text-white'
-                        } focus:outline-none focus:ring-2 focus:ring-teal-500`}
-                      >
-                        <option value="">Select Gender...</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                      </select>
-                      {formErrors.gender && !isGenderValid(patientGender) && (
+                      <div className="grid grid-cols-3 gap-2" id="field-patient-gender">
+                        {(['Male', 'Female', 'Other'] as const).map((g) => {
+                          const isSelected = (patientGender || 'Male') === g
+                          return (
+                            <button
+                              key={g}
+                              type="button"
+                              disabled={isLockedDetails}
+                              onClick={() => {
+                                if (isLockedDetails) return
+                                setPatientGender(g)
+                                if (formErrors.gender) {
+                                  setFormErrors((prev) => ({ ...prev, gender: '' }))
+                                }
+                              }}
+                              className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                                isLockedDetails
+                                  ? isSelected
+                                    ? 'bg-slate-300 dark:bg-slate-700 text-slate-800 dark:text-slate-200 border-transparent cursor-not-allowed'
+                                    : 'opacity-40 cursor-not-allowed border-transparent text-slate-400'
+                                  : isSelected
+                                  ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white border-transparent shadow-md shadow-teal-500/20 cursor-pointer'
+                                  : 'liquid-glass-card text-slate-700 dark:text-slate-300 border-white/60 dark:border-white/10 hover:bg-white/70 cursor-pointer'
+                              }`}
+                            >
+                              {g}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {formErrors.gender && !patientGender && !isLockedDetails && (
                         <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.gender}</p>
                       )}
                     </div>
@@ -2494,15 +2552,24 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
                   {/* Mobile Phone (Strict 10-digit criteria) */}
                   <div>
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                      10-Digit Mobile Number <span className="text-rose-500">*</span>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center justify-between">
+                      <span>10-Digit Mobile Number <span className="text-rose-500">*</span></span>
+                      {isLockedDetails && (
+                        <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1">
+                          <Lock className="w-3 h-3" /> Locked for Follow-Up
+                        </span>
+                      )}
                     </label>
                     <input
                       id="field-patient-mobile"
                       type="tel"
                       maxLength={10}
+                      readOnly={isLockedDetails}
+                      disabled={isLockedDetails}
+                      tabIndex={isLockedDetails ? -1 : 0}
                       value={patientMobile}
                       onChange={(e) => {
+                        if (isLockedDetails) return
                         const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 10)
                         setPatientMobile(digitsOnly)
                         if (isMobileValid(digitsOnly) && formErrors.mobile) {
@@ -2511,12 +2578,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       }}
                       placeholder="98XXXXXXXX (10 digits)"
                       className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
-                        formErrors.mobile && !isMobileValid(patientMobile)
+                        isLockedDetails
+                          ? 'bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 cursor-not-allowed border-slate-300 dark:border-slate-700 select-none'
+                          : formErrors.mobile && !isMobileValid(patientMobile)
                           ? 'border-rose-500 bg-rose-50/60 ring-2 ring-rose-500/20'
                           : 'liquid-glass-input text-slate-900 dark:text-white'
                       } focus:outline-none focus:ring-2 focus:ring-teal-500`}
                     />
-                    {formErrors.mobile && !isMobileValid(patientMobile) && (
+                    {formErrors.mobile && !isMobileValid(patientMobile) && !isLockedDetails && (
                       <p className="text-[11px] text-rose-600 font-bold mt-1">{formErrors.mobile}</p>
                     )}
                   </div>
@@ -2566,13 +2635,31 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white font-bold rounded-xl text-xs transition-all shadow-glass-base cursor-pointer active:scale-95 border-t border-white/20"
+                      disabled={submitting}
+                      className={`flex-1 py-3 text-white font-black rounded-xl text-xs transition-all shadow-glass-base cursor-pointer active:scale-95 border-t border-white/20 flex items-center justify-center space-x-1.5 disabled:opacity-50 ${
+                        totalBookingFee === 0 || isLockedDetails || isReschedule
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700'
+                          : 'bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700'
+                      }`}
                     >
-                      {isReschedule
-                        ? 'Proceed to Confirm Reschedule (Rs. 0)'
-                        : totalBookingFee === 0
-                        ? 'Proceed to Free Follow-Up (Rs. 0)'
-                        : `Continue to Payment (Rs. ${totalBookingFee})`}
+                      {submitting ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>{isReschedule ? 'Shifting Appointment...' : 'Directly Confirming Follow-Up...'}</span>
+                        </>
+                      ) : isReschedule ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Directly Confirm Reschedule (Free)</span>
+                        </>
+                      ) : totalBookingFee === 0 || isLockedDetails ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Directly Book Free Follow-Up (Rs. 0)</span>
+                        </>
+                      ) : (
+                        <span>Continue to Payment (Rs. {totalBookingFee})</span>
+                      )}
                     </button>
                   </div>
                 </form>
@@ -2756,20 +2843,30 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     <div className="flex items-center space-x-3 pt-2">
                       <button
                         type="button"
-                        onClick={() => setBookingStep('details')}
-                        className="py-3 px-4 liquid-glass-subtle hover:bg-white/80 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer active:scale-95"
+                        onClick={() => {
+                          if (window.confirm('Cancelling will stop this transaction and release your reserved slot. You will be redirected back to slot selection. Are you sure?')) {
+                            setShowBookingModal(false)
+                            setBookingStep('details')
+                          }
+                        }}
+                        className="py-3 px-4 border border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 font-bold rounded-xl text-xs transition-colors cursor-pointer active:scale-95"
                       >
-                        Back
+                        Cancel Transaction
                       </button>
                       <button
                         type="button"
                         disabled={submitting || paymentCountdown === 0}
                         onClick={handleConfirmBookingAndPayment}
-                        className="flex-1 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow-glass-base cursor-pointer active:scale-95 border-t border-white/20"
+                        className="flex-1 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow-glass-base cursor-pointer active:scale-95 border-t border-white/20 flex items-center justify-center space-x-1.5"
                       >
-                        {submitting
-                          ? 'Recording in Supabase...'
-                          : `Confirm & Issue Token (Rs. ${totalBookingFee})`}
+                        <ShieldCheck className="w-4 h-4 mr-1 text-teal-200" />
+                        <span>
+                          {submitting
+                            ? 'Processing...'
+                            : totalBookingFee === 0
+                            ? 'Confirm Free Follow-Up'
+                            : 'Confirm & Complete Payment'}
+                        </span>
                       </button>
                     </div>
                   </>

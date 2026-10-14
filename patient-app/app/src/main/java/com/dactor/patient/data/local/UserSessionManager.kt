@@ -206,6 +206,73 @@ class UserSessionManager @Inject constructor(
             .apply()
     }
 
+    data class PendingRescheduleData(
+        val appointmentId: String,
+        val trackingCode: String,
+        val clinicId: String,
+        val doctorId: String?,
+        val patientName: String,
+        val patientMobile: String,
+        val patientAge: String,
+        val patientGender: String,
+        val patientEmail: String? = null,
+        val originalDate: String = "",
+        val originalTime: String? = null
+    )
+
+    fun savePendingReschedule(data: PendingRescheduleData) {
+        prefs.edit()
+            .putBoolean("has_pending_reschedule", true)
+            .putString("reschedule_appt_id", data.appointmentId)
+            .putString("reschedule_tracking_code", data.trackingCode)
+            .putString("reschedule_clinic_id", data.clinicId)
+            .putString("reschedule_doctor_id", data.doctorId)
+            .putString("reschedule_patient_name", data.patientName)
+            .putString("reschedule_patient_mobile", data.patientMobile)
+            .putString("reschedule_patient_age", data.patientAge)
+            .putString("reschedule_patient_gender", data.patientGender)
+            .putString("reschedule_patient_email", data.patientEmail)
+            .putString("reschedule_original_date", data.originalDate)
+            .putString("reschedule_original_time", data.originalTime)
+            .apply()
+    }
+
+    fun getPendingReschedule(): PendingRescheduleData? {
+        if (!prefs.getBoolean("has_pending_reschedule", false)) return null
+        val apptId = prefs.getString("reschedule_appt_id", null) ?: return null
+        val clinicId = prefs.getString("reschedule_clinic_id", "") ?: ""
+        return PendingRescheduleData(
+            appointmentId = apptId,
+            trackingCode = prefs.getString("reschedule_tracking_code", "") ?: "",
+            clinicId = clinicId,
+            doctorId = prefs.getString("reschedule_doctor_id", null),
+            patientName = prefs.getString("reschedule_patient_name", "") ?: "",
+            patientMobile = prefs.getString("reschedule_patient_mobile", "") ?: "",
+            patientAge = prefs.getString("reschedule_patient_age", "") ?: "",
+            patientGender = prefs.getString("reschedule_patient_gender", "") ?: "",
+            patientEmail = prefs.getString("reschedule_patient_email", null),
+            originalDate = prefs.getString("reschedule_original_date", "") ?: "",
+            originalTime = prefs.getString("reschedule_original_time", null)
+        )
+    }
+
+    fun clearPendingReschedule() {
+        prefs.edit()
+            .remove("has_pending_reschedule")
+            .remove("reschedule_appt_id")
+            .remove("reschedule_tracking_code")
+            .remove("reschedule_clinic_id")
+            .remove("reschedule_doctor_id")
+            .remove("reschedule_patient_name")
+            .remove("reschedule_patient_mobile")
+            .remove("reschedule_patient_age")
+            .remove("reschedule_patient_gender")
+            .remove("reschedule_patient_email")
+            .remove("reschedule_original_date")
+            .remove("reschedule_original_time")
+            .apply()
+    }
+
     data class ActivePaymentSession(
         val appointmentId: String,
         val clinicId: String,

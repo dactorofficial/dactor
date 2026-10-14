@@ -115,26 +115,43 @@ class MainActivity : ComponentActivity() {
                             if (!sessionManager.isNotificationSeen(notif.id)) {
                                 sessionManager.markNotificationSeen(notif.id)
 
-                                // Doctor notifications should only be given to patients in the live queue / yet to enter, never completed visits
-                                val isDoctorNotif = notif.type in listOf("doctor_arrival", "doctor_presence", "clinic_break", "doctor_status") ||
-                                    notif.title.contains("doctor", ignoreCase = true) ||
-                                    notif.title.contains("break", ignoreCase = true) ||
-                                    notif.message.contains("doctor is", ignoreCase = true) ||
-                                    notif.message.contains("doctor has", ignoreCase = true) ||
-                                    notif.message.contains("clinic is currently on break", ignoreCase = true)
+                                // Check whether the notification targets a completed/finished appointment
+                                val matchedAppt = patientAppointments.find { appt ->
+                                    (notif.appointmentId != null && (appt.id == notif.appointmentId || appt.trackingCode10Digit == notif.appointmentId)) ||
+                                    (notif.toTemplateData().trackingCode?.isNotBlank() == true && (appt.id == notif.toTemplateData().trackingCode || appt.trackingCode10Digit == notif.toTemplateData().trackingCode))
+                                }
+                                val isMatchedFinished = matchedAppt != null && matchedAppt.checkinStatus.lowercase() in listOf("done", "completed", "cancelled", "finished")
 
-                                if (isDoctorNotif) {
-                                    val matchedAppt = patientAppointments.find { appt ->
-                                        (notif.appointmentId != null && (appt.id == notif.appointmentId || appt.trackingCode10Digit == notif.appointmentId)) ||
-                                        (notif.toTemplateData().trackingCode?.isNotBlank() == true && (appt.id == notif.toTemplateData().trackingCode || appt.trackingCode10Digit == notif.toTemplateData().trackingCode))
-                                    }
-                                    val isMatchedCompleted = matchedAppt != null && matchedAppt.checkinStatus.lowercase() in listOf("done", "completed", "cancelled")
+                                // Lab reports and invoices/bills can still be delivered even if appointment is completed
+                                val isReportOrBill = notif.type in listOf("lab_report", "report_prepared", "billing_invoice", "payment_receipt") ||
+                                    notif.title.contains("report", ignoreCase = true) ||
+                                    notif.title.contains("bill", ignoreCase = true) ||
+                                    notif.title.contains("receipt", ignoreCase = true)
+
+                                // If the appointment is already finished and this is not a report/bill, suppress it!
+                                if (isMatchedFinished && !isReportOrBill) {
+                                    continue
+                                }
+
+                                // Queue alerts, arrival calls, doctor presence, clinic breaks, and "come to clinic" calls require an active queue appointment
+                                val isQueueOrArrivalAlert = notif.type in listOf(
+                                    "doctor_arrival", "doctor_presence", "clinic_break", "doctor_status",
+                                    "manual_alert", "queue_alert", "early_arrival", "turn_call", "urgent_call"
+                                ) || notif.title.contains("doctor", ignoreCase = true)
+                                  || notif.title.contains("clinic", ignoreCase = true)
+                                  || notif.title.contains("queue", ignoreCase = true)
+                                  || notif.title.contains("turn", ignoreCase = true)
+                                  || notif.title.contains("come", ignoreCase = true)
+                                  || notif.title.contains("arrive", ignoreCase = true)
+                                  || notif.message.contains("come to", ignoreCase = true)
+                                  || notif.message.contains("arrive", ignoreCase = true)
+                                  || notif.message.contains("turn", ignoreCase = true)
+
+                                if (isQueueOrArrivalAlert && !isReportOrBill) {
                                     val hasActiveQueueAppt = patientAppointments.any {
                                         it.checkinStatus.lowercase() in listOf("waiting", "checked_in", "booked", "inside", "pending")
                                     }
-
-                                    // Skip doctor alerts if appointment is completed or patient has no active appointment in live queue
-                                    if (isMatchedCompleted || !hasActiveQueueAppt) {
+                                    if (!hasActiveQueueAppt) {
                                         continue
                                     }
                                 }

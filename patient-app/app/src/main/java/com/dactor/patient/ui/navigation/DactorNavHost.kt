@@ -239,6 +239,8 @@ fun DactorNavHost(
                 doctorRepository = doctorRepository,
                 clinicRepository = clinicRepository,
                 authRepository = authRepository,
+                appointmentRepository = appointmentRepository,
+                queueRepository = queueRepository,
                 sessionManager = sessionManager
             )
         }
@@ -253,6 +255,43 @@ fun DactorNavHost(
                 doctorRepository = doctorRepository,
                 clinicRepository = clinicRepository,
                 authRepository = authRepository,
+                appointmentRepository = appointmentRepository,
+                queueRepository = queueRepository,
+                sessionManager = sessionManager
+            )
+        }
+        composable("booking/{clinicId}?doctorId={doctorId}&rescheduleApptId={rescheduleApptId}") { backStackEntry ->
+            val clinicId = backStackEntry.arguments?.getString("clinicId") ?: ""
+            val doctorId = backStackEntry.arguments?.getString("doctorId")
+            val rescheduleApptId = backStackEntry.arguments?.getString("rescheduleApptId")
+            BookingScreen(
+                navController = navController,
+                clinicId = clinicId,
+                initialDoctorId = doctorId,
+                rescheduleApptId = rescheduleApptId,
+                slotRepository = slotRepository,
+                doctorRepository = doctorRepository,
+                clinicRepository = clinicRepository,
+                authRepository = authRepository,
+                appointmentRepository = appointmentRepository,
+                queueRepository = queueRepository,
+                sessionManager = sessionManager
+            )
+        }
+        composable("booking/{clinicId}?rescheduleApptId={rescheduleApptId}") { backStackEntry ->
+            val clinicId = backStackEntry.arguments?.getString("clinicId") ?: ""
+            val rescheduleApptId = backStackEntry.arguments?.getString("rescheduleApptId")
+            BookingScreen(
+                navController = navController,
+                clinicId = clinicId,
+                initialDoctorId = null,
+                rescheduleApptId = rescheduleApptId,
+                slotRepository = slotRepository,
+                doctorRepository = doctorRepository,
+                clinicRepository = clinicRepository,
+                authRepository = authRepository,
+                appointmentRepository = appointmentRepository,
+                queueRepository = queueRepository,
                 sessionManager = sessionManager
             )
         }
@@ -268,6 +307,8 @@ fun DactorNavHost(
                 doctorRepository = doctorRepository,
                 clinicRepository = clinicRepository,
                 authRepository = authRepository,
+                appointmentRepository = appointmentRepository,
+                queueRepository = queueRepository,
                 sessionManager = sessionManager
             )
         }
@@ -284,6 +325,8 @@ fun DactorNavHost(
                 doctorRepository = doctorRepository,
                 clinicRepository = clinicRepository,
                 authRepository = authRepository,
+                appointmentRepository = appointmentRepository,
+                queueRepository = queueRepository,
                 sessionManager = sessionManager
             )
         }

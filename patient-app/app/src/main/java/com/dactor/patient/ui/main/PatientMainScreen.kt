@@ -3727,53 +3727,29 @@ fun RecordsTab(
                                                 }
                                             }
                                         }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        Button(
+                                            onClick = {
+                                                BillPdfDownloader.downloadBillPdf(
+                                                    context = context,
+                                                    appointment = appt,
+                                                    invoice = invoice,
+                                                    clinicName = clinicName,
+                                                    clinicAddress = clinicAddress,
+                                                    doctorName = doctorName,
+                                                    doctorSpecialty = doctorSpec,
+                                                    clinicalRemarks = remarks
+                                                )
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(42.dp)
                                         ) {
-                                            Button(
-                                                onClick = {
-                                                    BillPdfDownloader.downloadBillPdf(
-                                                        context = context,
-                                                        appointment = appt,
-                                                        invoice = invoice,
-                                                        clinicName = clinicName,
-                                                        clinicAddress = clinicAddress,
-                                                        doctorName = doctorName,
-                                                        doctorSpecialty = doctorSpec,
-                                                        clinicalRemarks = remarks
-                                                    )
-                                                },
-                                                shape = RoundedCornerShape(10.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(38.dp)
-                                            ) {
-                                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                Spacer(Modifier.width(6.dp))
-                                                Text("Download Bill PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                            }
-
-                                            OutlinedButton(
-                                                onClick = {
-                                                    editingPaymentAppt = appt
-                                                    editTotalAmountInput = totalBill.toInt().toString()
-                                                    editPaidAmountInput = paidAmount.toInt().toString()
-                                                    editPaymentRemarksInput = remarks ?: ""
-                                                },
-                                                shape = RoundedCornerShape(10.dp),
-                                                border = BorderStroke(1.dp, Color(0xFF00796B)),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(38.dp)
-                                            ) {
-                                                Icon(Icons.Default.Payments, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(15.dp))
-                                                Spacer(Modifier.width(6.dp))
-                                                Text("Paid / Left", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00796B))
-                                            }
+                                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(8.dp))
+                                            Text("Download Bill PDF", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -3856,138 +3832,7 @@ fun RecordsTab(
         )
     }
 
-    // ── UPDATE PAID & LEFT AMOUNT DIALOG ──────────────────────────────────
-    if (editingPaymentAppt != null) {
-        val appt = editingPaymentAppt!!
-        val existingInv = invoiceMap[appt.id]
-        val parsedTotal = editTotalAmountInput.toDoubleOrNull() ?: 0.0
-        val parsedPaid = editPaidAmountInput.toDoubleOrNull() ?: 0.0
-        val computedLeft = (parsedTotal - parsedPaid).coerceAtLeast(0.0)
 
-        AlertDialog(
-            onDismissRequest = { if (!isSavingPayment) editingPaymentAppt = null },
-            title = {
-                Text("Update Bill Payment (Paid & Left)", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Patient: ${appt.patientName} (#${appt.trackingCode10Digit})",
-                        fontSize = 12.sp,
-                        color = Color(0xFF475569),
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    OutlinedTextField(
-                        value = editTotalAmountInput,
-                        onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) editTotalAmountInput = it },
-                        label = { Text("Total Bill Amount (NPR)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = editPaidAmountInput,
-                        onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) editPaidAmountInput = it },
-                        label = { Text("How Much Paid (NPR)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // Quick Paid presets
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        AssistChip(
-                            onClick = { editPaidAmountInput = editTotalAmountInput },
-                            label = { Text("Full Paid", fontSize = 11.sp) }
-                        )
-                        AssistChip(
-                            onClick = { editPaidAmountInput = ((parsedTotal / 2).toInt()).toString() },
-                            label = { Text("50% Paid", fontSize = 11.sp) }
-                        )
-                        AssistChip(
-                            onClick = { editPaidAmountInput = "0" },
-                            label = { Text("Unpaid (0)", fontSize = 11.sp) }
-                        )
-                    }
-
-                    Surface(
-                        color = if (computedLeft > 0.0) Color(0xFFFEF2F2) else Color(0xFFF0FDF4),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, if (computedLeft > 0.0) Color(0xFFFECACA) else Color(0xFFBBF7D0)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "Remaining Balance Left:",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = Color(0xFF1E293B)
-                            )
-                            Text(
-                                "Rs. ${computedLeft.toInt()}",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 15.sp,
-                                color = if (computedLeft > 0.0) Color(0xFFDC2626) else Color(0xFF15803D)
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (appointmentRepository == null) return@Button
-                        isSavingPayment = true
-                        coroutineScope.launch {
-                            val updated = appointmentRepository.saveOrUpdateInvoicePayment(
-                                appointment = appt,
-                                existingInvoice = existingInv,
-                                totalAmount = parsedTotal,
-                                paidAmount = parsedPaid,
-                                remarks = editPaymentRemarksInput.takeIf { it.isNotBlank() }
-                            )
-                            isSavingPayment = false
-                            if (updated != null) {
-                                invoiceMap[appt.id] = updated
-                                Toast.makeText(
-                                    context,
-                                    "Saved! Paid: Rs. ${parsedPaid.toInt()}, Left: Rs. ${computedLeft.toInt()}",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                editingPaymentAppt = null
-                                loadDirectoryRecords()
-                            } else {
-                                Toast.makeText(context, "Could not update bill payment.", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    enabled = !isSavingPayment,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B))
-                ) {
-                    Text(if (isSavingPayment) "Saving..." else "Save Payment")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { editingPaymentAppt = null },
-                    enabled = !isSavingPayment
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 
     // ── ADD PATIENT / LINK RECORD TO DIRECTORY DIALOG ─────────────────────
     if (showAddPatientRecordDialog) {
@@ -5093,9 +4938,28 @@ fun AppointmentsTab(
 
                                 OutlinedButton(
                                     onClick = {
-                                        reschedulingAppt = appt
-                                        rescheduleDate = appt.appointmentDate
-                                        rescheduleTime = appt.appointmentTime ?: "10:00"
+                                        sessionManager?.savePendingReschedule(
+                                            com.dactor.patient.data.local.UserSessionManager.PendingRescheduleData(
+                                                appointmentId = appt.id,
+                                                trackingCode = appt.trackingCode10Digit,
+                                                clinicId = appt.clinicId,
+                                                doctorId = appt.doctorId,
+                                                patientName = appt.patientName,
+                                                patientMobile = appt.patientMobile,
+                                                patientAge = appt.patientAge.toString(),
+                                                patientGender = appt.patientGender ?: "Male",
+                                                patientEmail = appt.patientEmail,
+                                                originalDate = appt.appointmentDate,
+                                                originalTime = appt.appointmentTime
+                                            )
+                                        )
+                                        navController.navigate(
+                                            NavRoutes.Booking.createRoute(
+                                                clinicId = appt.clinicId,
+                                                doctorId = appt.doctorId,
+                                                rescheduleApptId = appt.id
+                                            )
+                                        )
                                     },
                                     shape = RoundedCornerShape(12.dp),
                                     border = BorderStroke(1.dp, Color(0xFF00796B)),
@@ -5115,190 +4979,7 @@ fun AppointmentsTab(
             }
         }
     }
-
-    // ── RESCHEDULE APPOINTMENT DIALOG WITH IDENTITY VERIFICATION ─────────
-    if (reschedulingAppt != null) {
-        val apptToReschedule = reschedulingAppt!!
-        if (!isVerifiedToReschedule) {
-            AlertDialog(
-                onDismissRequest = {
-                    reschedulingAppt = null
-                    rescheduleVerifyInput = ""
-                    rescheduleVerifyError = null
-                },
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF00796B))
-                        Text("Verify Identity to Reschedule", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    }
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = "To reschedule, enter the patient's full name or registered phone number for security.",
-                            fontSize = 12.sp,
-                            color = Color(0xFF475569)
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = rescheduleVerifyMethod == "name",
-                                onClick = {
-                                    rescheduleVerifyMethod = "name"
-                                    rescheduleVerifyInput = ""
-                                    rescheduleVerifyError = null
-                                },
-                                label = { Text("Patient Name", fontSize = 11.sp) }
-                            )
-                            FilterChip(
-                                selected = rescheduleVerifyMethod == "phone",
-                                onClick = {
-                                    rescheduleVerifyMethod = "phone"
-                                    rescheduleVerifyInput = ""
-                                    rescheduleVerifyError = null
-                                },
-                                label = { Text("Phone Number", fontSize = 11.sp) }
-                            )
-                        }
-
-                        OutlinedTextField(
-                            value = rescheduleVerifyInput,
-                            onValueChange = {
-                                rescheduleVerifyInput = it
-                                rescheduleVerifyError = null
-                            },
-                            label = { Text(if (rescheduleVerifyMethod == "name") "Patient's Full Name" else "Registered Phone Number") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = if (rescheduleVerifyMethod == "name") KeyboardType.Text else KeyboardType.Phone
-                            ),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp),
-                            isError = rescheduleVerifyError != null
-                        )
-
-                        if (rescheduleVerifyError != null) {
-                            Text(
-                                text = rescheduleVerifyError ?: "",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            val cleanInput = rescheduleVerifyInput.trim().lowercase()
-                            val cleanName = apptToReschedule.patientName.trim().lowercase()
-                            val cleanPhone = apptToReschedule.patientMobile.filter { it.isDigit() }
-                            val inputDigits = rescheduleVerifyInput.filter { it.isDigit() }
-
-                            val isMatched = if (rescheduleVerifyMethod == "name") {
-                                cleanInput.isNotBlank() && (
-                                    cleanInput == cleanName ||
-                                    (cleanName.length >= 3 && cleanName.contains(cleanInput)) ||
-                                    (cleanInput.length >= 3 && cleanInput.contains(cleanName))
-                                )
-                            } else {
-                                inputDigits.isNotBlank() && (
-                                    inputDigits.takeLast(10) == cleanPhone.takeLast(10) ||
-                                    inputDigits == cleanPhone
-                                )
-                            }
-
-                            if (isMatched) {
-                                isVerifiedToReschedule = true
-                                rescheduleVerifyError = null
-                                rescheduleVerifyInput = ""
-                            } else {
-                                rescheduleVerifyError = "Details do not match. Please verify patient info."
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
-                        shape = RoundedCornerShape(10.dp),
-                        enabled = rescheduleVerifyInput.isNotBlank()
-                    ) {
-                        Text("Verify & Continue", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            reschedulingAppt = null
-                            rescheduleVerifyInput = ""
-                            rescheduleVerifyError = null
-                        }
-                    ) {
-                        Text("Cancel", fontSize = 12.sp)
-                    }
-                }
-            )
-        } else {
-            AlertDialog(
-                onDismissRequest = {
-                    reschedulingAppt = null
-                    isVerifiedToReschedule = false
-                },
-                title = { Text("Select New Schedule", fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Select a new date and time for ${apptToReschedule.patientName}. Current queue token will be released from today's line.", fontSize = 12.sp)
-                        OutlinedTextField(
-                            value = rescheduleDate,
-                            onValueChange = { rescheduleDate = it },
-                            label = { Text("New Date (YYYY-MM-DD)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        OutlinedTextField(
-                            value = rescheduleTime,
-                            onValueChange = { rescheduleTime = it },
-                            label = { Text("New Time (HH:MM)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            if (appointmentRepository != null) {
-                                coroutineScope.launch {
-                                    isRescheduling = true
-                                    appointmentRepository.rescheduleAppointment(apptToReschedule.id, rescheduleDate.trim(), rescheduleTime.trim())
-                                    queueRepository?.removeOrCancelQueueEntry(apptToReschedule.id)
-                                    isRescheduling = false
-                                    reschedulingAppt = null
-                                    isVerifiedToReschedule = false
-                                    loadActiveAppointments()
-                                    Toast.makeText(context, "Rescheduled to $rescheduleDate at $rescheduleTime. Removed from today's queue.", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
-                        shape = RoundedCornerShape(10.dp),
-                        enabled = !isRescheduling
-                    ) {
-                        Text(if (isRescheduling) "Saving..." else "Confirm Reschedule", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            reschedulingAppt = null
-                            isVerifiedToReschedule = false
-                        }
-                    ) {
-                        Text("Cancel", fontSize = 12.sp)
-                    }
-                }
-            )
-        }
-    }
+}
 }
 
 // =========================================================================
@@ -5984,52 +5665,29 @@ fun ProfileTab(
                                             )
                                         }
 
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        Button(
+                                            onClick = {
+                                                BillPdfDownloader.downloadBillPdf(
+                                                    context = context,
+                                                    appointment = appt,
+                                                    invoice = inv,
+                                                    clinicName = cName,
+                                                    clinicAddress = cAddr,
+                                                    doctorName = dName,
+                                                    doctorSpecialty = dSpec,
+                                                    clinicalRemarks = inv?.remarks
+                                                )
+                                            },
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(38.dp)
                                         ) {
-                                            Button(
-                                                onClick = {
-                                                    BillPdfDownloader.downloadBillPdf(
-                                                        context = context,
-                                                        appointment = appt,
-                                                        invoice = inv,
-                                                        clinicName = cName,
-                                                        clinicAddress = cAddr,
-                                                        doctorName = dName,
-                                                        doctorSpecialty = dSpec,
-                                                        clinicalRemarks = inv?.remarks
-                                                    )
-                                                },
-                                                shape = RoundedCornerShape(8.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(34.dp)
-                                            ) {
-                                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                Spacer(Modifier.width(4.dp))
-                                                Text("Download Bill", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                            }
-
-                                            OutlinedButton(
-                                                onClick = {
-                                                    editingProfileBillAppt = appt
-                                                    profileTotalInput = totalBill.toInt().toString()
-                                                    profilePaidInput = paidAmt.toInt().toString()
-                                                },
-                                                shape = RoundedCornerShape(8.dp),
-                                                border = BorderStroke(1.dp, Color(0xFF00796B)),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(34.dp)
-                                            ) {
-                                                Icon(Icons.Default.Edit, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(14.dp))
-                                                Spacer(Modifier.width(4.dp))
-                                                Text("Paid / Left", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00796B))
-                                            }
+                                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Download Bill PDF", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -6414,107 +6072,7 @@ fun ProfileTab(
         }
     }
 
-    // ── EDIT PAID / LEFT BILL DIALOG IN PROFILE ──────────────────────────
-    if (editingProfileBillAppt != null) {
-        val appt = editingProfileBillAppt!!
-        val existingInv = profileInvoiceMap[appt.id]
-        val parsedTotal = profileTotalInput.toDoubleOrNull() ?: 0.0
-        val parsedPaid = profilePaidInput.toDoubleOrNull() ?: 0.0
-        val computedLeft = (parsedTotal - parsedPaid).coerceAtLeast(0.0)
 
-        AlertDialog(
-            onDismissRequest = { if (!isSavingProfilePayment) editingProfileBillAppt = null },
-            title = { Text("Update Bill Payment", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Code #${appt.trackingCode10Digit} • ${appt.appointmentDate}",
-                        fontSize = 12.sp,
-                        color = Color(0xFF475569)
-                    )
-                    OutlinedTextField(
-                        value = profileTotalInput,
-                        onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) profileTotalInput = it },
-                        label = { Text("Total Bill Amount (NPR)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = profilePaidInput,
-                        onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) profilePaidInput = it },
-                        label = { Text("How Much Paid (NPR)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Surface(
-                        color = if (computedLeft > 0.0) Color(0xFFFEF2F2) else Color(0xFFF0FDF4),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, if (computedLeft > 0.0) Color(0xFFFECACA) else Color(0xFFBBF7D0)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Remaining Left:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            Text(
-                                "Rs. ${computedLeft.toInt()}",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 14.sp,
-                                color = if (computedLeft > 0.0) Color(0xFFDC2626) else Color(0xFF15803D)
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (appointmentRepository == null) return@Button
-                        isSavingProfilePayment = true
-                        coroutineScope.launch {
-                            val updated = appointmentRepository.saveOrUpdateInvoicePayment(
-                                appointment = appt,
-                                existingInvoice = existingInv,
-                                totalAmount = parsedTotal,
-                                paidAmount = parsedPaid,
-                                remarks = existingInv?.remarks
-                            )
-                            isSavingProfilePayment = false
-                            if (updated != null) {
-                                profileInvoiceMap[appt.id] = updated
-                                Toast.makeText(
-                                    context,
-                                    "Updated! Paid: Rs. ${parsedPaid.toInt()}, Left: Rs. ${computedLeft.toInt()}",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                editingProfileBillAppt = null
-                                loadProfileBillsAndHistory()
-                            } else {
-                                Toast.makeText(context, "Failed to update payment", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    enabled = !isSavingProfilePayment,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B))
-                ) {
-                    Text(if (isSavingProfilePayment) "Saving..." else "Save Payment")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { editingProfileBillAppt = null },
-                    enabled = !isSavingProfilePayment
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 
     // ── EDIT PROFILE DIALOG ───────────────────────────────────────────────
     if (showEditProfileDialog) {

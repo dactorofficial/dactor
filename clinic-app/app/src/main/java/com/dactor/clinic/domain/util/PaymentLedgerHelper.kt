@@ -63,4 +63,30 @@ object PaymentLedgerHelper {
             logBlock
         }
     }
+
+    fun formatDisplayDateTime(raw: String?): String {
+        if (raw.isNullOrBlank()) return "Date Logged"
+        val trimmed = raw.trim()
+        return try {
+            if (trimmed.contains("T")) {
+                val instant = java.time.Instant.parse(trimmed)
+                val zdt = instant.atZone(java.time.ZoneId.systemDefault())
+                zdt.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"))
+            } else if (trimmed.contains("-") && trimmed.length >= 10) {
+                val parts = trimmed.split(" ")
+                val datePart = java.time.LocalDate.parse(parts[0])
+                val dateFmt = datePart.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy"))
+                if (parts.size > 1) {
+                    val timePart = parts.subList(1, parts.size).joinToString(" ")
+                    "$dateFmt, $timePart"
+                } else {
+                    dateFmt
+                }
+            } else {
+                trimmed
+            }
+        } catch (_: Exception) {
+            trimmed.replace("T", " ").take(19)
+        }
+    }
 }

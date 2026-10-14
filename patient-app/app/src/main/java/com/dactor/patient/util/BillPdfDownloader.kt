@@ -147,25 +147,32 @@ object BillPdfDownloader {
 
             // ── 3. ITEMIZED BILL TABLE ────────────────────────────────────────
             val cleanItems = invoice?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) } ?: emptyList()
-            val effectiveItems: List<InvoiceItem> = if (cleanItems.isNotEmpty()) {
-                cleanItems
-            } else if (!invoice?.items.isNullOrEmpty()) {
-                invoice!!.items
-            } else {
-                val fallbackTotal = invoice?.totalAmount?.takeIf { it > 0.0 }
-                    ?: appointment.feeAmount.takeIf { it > 0.0 }
-                    ?: (invoice?.paidAmount?.takeIf { it > 0.0 } ?: 0.0)
-                if (fallbackTotal > 0.0) {
-                    listOf(
-                        InvoiceItem(
-                            itemName = "Consultation / Service (${appointment.appointmentDate})",
-                            quantity = 1,
-                            price = fallbackTotal,
-                            total = fallbackTotal
+            val opdFee = (appointment.feeAmount ?: 0.0).takeIf { it > 0.0 } ?: 0.0
+            val hasConsultation = cleanItems.any { it.itemName.contains("Consultation", ignoreCase = true) || it.itemName.contains("OPD", ignoreCase = true) }
+
+            val effectiveItems: List<InvoiceItem> = when {
+                cleanItems.isNotEmpty() && !hasConsultation && opdFee > 0.0 -> {
+                    listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee)) + cleanItems
+                }
+                cleanItems.isNotEmpty() -> cleanItems
+                opdFee > 0.0 -> listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee))
+                !invoice?.items.isNullOrEmpty() -> invoice!!.items
+                else -> {
+                    val fallbackTotal = invoice?.totalAmount?.takeIf { it > 0.0 }
+                        ?: (appointment.feeAmount ?: 0.0).takeIf { it > 0.0 }
+                        ?: (invoice?.paidAmount?.takeIf { it > 0.0 } ?: 0.0)
+                    if (fallbackTotal > 0.0) {
+                        listOf(
+                            InvoiceItem(
+                                itemName = "OPD Doctor Consultation (${appointment.appointmentDate})",
+                                quantity = 1,
+                                price = fallbackTotal,
+                                total = fallbackTotal
+                            )
                         )
-                    )
-                } else {
-                    emptyList()
+                    } else {
+                        emptyList()
+                    }
                 }
             }
 
@@ -216,7 +223,7 @@ object BillPdfDownloader {
 
             // ── 4. PAYMENT RECEIPTS & TIME LOG TABLE ─────────────────────────
             val calculatedItemsTotal = effectiveItems.sumOf { if (it.total > 0) it.total else (it.price * it.quantity) }
-            val totalBill = invoice?.totalAmount?.takeIf { it > 0.0 } ?: calculatedItemsTotal.takeIf { it > 0.0 } ?: (invoice?.paidAmount ?: 0.0)
+            val totalBill = calculatedItemsTotal.takeIf { it > 0.0 } ?: (invoice?.totalAmount?.takeIf { it > 0.0 } ?: (invoice?.paidAmount ?: 0.0))
             val paidAmt = invoice?.paidAmount ?: (if (appointment.paymentStatus == "paid") totalBill else 0.0)
             val leftAmt = (totalBill - paidAmt).coerceAtLeast(0.0)
 
@@ -248,7 +255,8 @@ object BillPdfDownloader {
                     textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
                     textPaint.textSize = 9.5f
                     canvas.drawText("${pIdx + 1}", 48f, currentY + 15f, textPaint)
-                    canvas.drawText(p.dateTime, 74f, currentY + 15f, textPaint)
+                    val formattedDateTime = PaymentLedgerHelper.formatDisplayDateTime(p.dateTime)
+                    canvas.drawText(formattedDateTime, 74f, currentY + 15f, textPaint)
                     canvas.drawText((p.note ?: "Payment Received").take(28), 300f, currentY + 15f, textPaint)
 
                     textPaint.color = greenPaid
@@ -353,53 +361,78 @@ object BillPdfDownloader {
 
             // ── SAVE TO DOWNLOADS ─────────────────────────────────────────────
             val cleanCode = appointment.trackingCode10Digit.ifBlank { appointment.id.take(8) }
-            val fileName = "Dactor_Bill_${cleanCode}_${System.currentTimeMillis() % 10000}.pdf"
+            val fileName = "Dactor_Bill_${cleanCode}_${System.currentTimeMillis() % 100000}.pdf"
+
+            // Save to app external files dir first (for guaranteed FileProvider sharing)
+            val appDownloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                ?: File(context.filesDir, "downloads").apply { mkdirs() }
+            val appFile = File(appDownloadDir, fileName)
+            FileOutputStream(appFile).use { out ->
+                pdfDocument.writeTo(out)
+            }
 
             var savedUri: Uri? = null
+
+            // Also copy to public Downloads if on Android Q+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val resolver = context.contentResolver
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                }
-                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                if (uri != null) {
-                    resolver.openOutputStream(uri)?.use { outStream: OutputStream ->
-                        pdfDocument.writeTo(outStream)
+                try {
+                    val resolver = context.contentResolver
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
-                    savedUri = uri
+                    val pubUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    if (pubUri != null) {
+                        resolver.openOutputStream(pubUri)?.use { out ->
+                            appFile.inputStream().use { inp -> inp.copyTo(out) }
+                        }
+                        contentValues.clear()
+                        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        resolver.update(pubUri, contentValues, null, null)
+                        savedUri = pubUri
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             } else {
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (!downloadsDir.exists()) downloadsDir.mkdirs()
-                val outFile = File(downloadsDir, fileName)
-                FileOutputStream(outFile).use { outStream ->
-                    pdfDocument.writeTo(outStream)
+                try {
+                    val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    if (!publicDir.exists()) publicDir.mkdirs()
+                    val pubFile = File(publicDir, fileName)
+                    FileOutputStream(pubFile).use { out ->
+                        appFile.inputStream().use { inp -> inp.copyTo(out) }
+                    }
+                    savedUri = Uri.fromFile(pubFile)
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-                savedUri = Uri.fromFile(outFile)
             }
 
             Toast.makeText(
                 context,
-                "✓ Bill downloaded to Downloads/$fileName",
+                "✓ Bill downloaded: Downloads/$fileName",
                 Toast.LENGTH_LONG
             ).show()
 
-            // Try to open the PDF viewer so the patient can immediately view/share it
-            if (savedUri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                try {
-                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(savedUri, "application/pdf")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(viewIntent)
-                } catch (ignored: Exception) {
-                    // No default PDF viewer installed; file is safely in Downloads
+            // Open with FileProvider for 100% reliable viewing across all Android versions
+            try {
+                val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    appFile
+                )
+                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(contentUri, "application/pdf")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
+                context.startActivity(viewIntent)
+                return contentUri
+            } catch (e: Exception) {
+                // PDF reader not found; file is safely in Downloads
+                return savedUri ?: Uri.fromFile(appFile)
             }
-
-            return savedUri
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(

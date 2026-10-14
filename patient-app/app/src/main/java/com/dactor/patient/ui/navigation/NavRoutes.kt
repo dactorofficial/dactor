@@ -17,10 +17,11 @@ sealed class NavRoutes(val route: String) {
     }
     object Booking : NavRoutes("booking/{clinicId}") {
         fun createRoute(clinicId: String) = "booking/$clinicId"
-        fun createRoute(clinicId: String, doctorId: String?, date: String? = null): String {
+        fun createRoute(clinicId: String, doctorId: String?, date: String? = null, rescheduleApptId: String? = null): String {
             val params = mutableListOf<String>()
             if (!doctorId.isNullOrBlank()) params.add("doctorId=$doctorId")
             if (!date.isNullOrBlank()) params.add("date=$date")
+            if (!rescheduleApptId.isNullOrBlank()) params.add("rescheduleApptId=$rescheduleApptId")
             return if (params.isNotEmpty()) "booking/$clinicId?${params.joinToString("&")}" else "booking/$clinicId"
         }
     }
