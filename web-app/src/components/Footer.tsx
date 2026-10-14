@@ -209,13 +209,13 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                 </button>
                 <button
                   onClick={() => {
-                    window.location.hash = '#portal?tab=tickets'
-                    onNavigate('portal')
+                    window.location.hash = '#support?view=track'
+                    onNavigate('support')
                   }}
-                  className="hover:text-purple-300 transition-colors flex items-center space-x-1 cursor-pointer text-left text-xs text-purple-400 font-semibold"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left text-xs text-slate-400"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Admin Helpdesk Manager →</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
+                  <span>Track Ticket Status</span>
                 </button>
               </div>
             </div>

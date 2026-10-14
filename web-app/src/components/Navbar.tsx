@@ -155,21 +155,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Check Help Request</span>
             </button>
 
-            {/* Quick Admin Helpdesk Access Button */}
-            <button
-              onClick={() => {
-                setActiveTab('portal')
-                window.location.hash = '#portal?tab=tickets'
-                window.dispatchEvent(new HashChangeEvent('hashchange'))
-                window.scrollTo({ top: 0, behavior: 'smooth' })
-              }}
-              className="hidden 2xl:flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold text-purple-700 hover:text-purple-900 bg-purple-50/80 hover:bg-purple-100 border border-purple-200/80 rounded-xl transition-all duration-150 shadow-glass-sm hover:scale-[1.02] active:scale-[0.98] cursor-pointer backdrop-blur-md"
-              title="Admin Support Tickets Helpdesk"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
-              <span>Admin Tickets</span>
-            </button>
-
             {/* Notification Bell */}
             <button
               onClick={onOpenNotificationModal}
@@ -420,19 +405,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <Ticket className="w-4 h-4 text-brand-600" />
                 <span>Check Help Request Status</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setActiveTab('portal')
-                  window.location.hash = '#portal?tab=tickets'
-                  setMobileMenuOpen(false)
-                  window.scrollTo({ top: 0, behavior: 'smooth' })
-                }}
-                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-purple-900 bg-purple-50 border border-purple-200/80 shadow-xs"
-              >
-                <ShieldCheck className="w-4 h-4 text-purple-600" />
-                <span>Admin Tickets Desk (Staff)</span>
               </button>
 
               {/* STRICT ROLE-SPECIFIC MOBILE PORTAL BUTTONS */}

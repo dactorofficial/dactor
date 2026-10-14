@@ -3840,19 +3840,6 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>Submit New Request</span>
                 </a>
-
-                <a
-                  href="#portal?tab=tickets"
-                  onClick={() => {
-                    window.location.hash = '#portal?tab=tickets'
-                    window.dispatchEvent(new HashChangeEvent('hashchange'))
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-purple-600/10 hover:bg-purple-600/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-                  title="Open Admin Central Tickets Directory"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                  <span>Admin Desk</span>
-                </a>
               </div>
             </div>
 

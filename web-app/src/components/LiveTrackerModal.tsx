@@ -434,32 +434,17 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
           </div>
         )}
 
-        {/* Footer Shortcut to Support & Admin Desk */}
-        <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <div className="flex items-center gap-2">
-            <span>Need more help?</span>
-            <button
-              type="button"
-              onClick={() => handleOpenSupportView()}
-              className="text-brand-600 dark:text-cyan-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <Headphones className="w-3.5 h-3.5" />
-              <span>Open Helpdesk</span>
-            </button>
-          </div>
-
-          <a
-            href="#portal?tab=tickets"
-            onClick={() => {
-              window.location.hash = '#portal?tab=tickets'
-              window.dispatchEvent(new HashChangeEvent('hashchange'))
-              onClose()
-            }}
-            className="text-purple-600 dark:text-purple-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+        {/* Footer Shortcut to Support */}
+        <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-white/10 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <span>Need help with a different request?</span>
+          <button
+            type="button"
+            onClick={() => handleOpenSupportView()}
+            className="text-brand-600 dark:text-cyan-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
           >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Admin Tickets Desk →</span>
-          </a>
+            <Headphones className="w-3.5 h-3.5" />
+            <span>Open Helpdesk</span>
+          </button>
         </div>
       </div>
     </div>
