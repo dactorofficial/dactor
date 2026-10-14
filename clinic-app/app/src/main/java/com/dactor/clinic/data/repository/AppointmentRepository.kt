@@ -165,6 +165,8 @@ class AppointmentRepository @Inject constructor(
             val userIdTrimmed = userId?.trim()?.takeIf { it.isNotBlank() }
             val trackingTrimmed = trackingCode?.trim()?.takeIf { it.isNotBlank() }
             val emailTrimmed = patientEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() && !it.endsWith("@dactor.internal") }
+            val detIdEmail = emailTrimmed?.let { com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForEmail(it) }
+            val detIdPhone = mobileTrimmed?.let { com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForPhone(it) }
 
             if (mobileTrimmed == null && userIdTrimmed == null && trackingTrimmed == null && emailTrimmed == null) {
                 return@withContext emptyList()
@@ -178,6 +180,8 @@ class AppointmentRepository @Inject constructor(
                             if (userIdTrimmed != null) eq("user_id", userIdTrimmed)
                             if (trackingTrimmed != null) eq("tracking_code_10_digit", trackingTrimmed)
                             if (emailTrimmed != null) ilike("patient_email", emailTrimmed)
+                            if (detIdEmail != null) eq("user_id", detIdEmail)
+                            if (detIdPhone != null) eq("user_id", detIdPhone)
                         }
                     }
                 }.decodeList<Appointment>()
@@ -247,7 +251,13 @@ class AppointmentRepository @Inject constructor(
 
             val cleanEmail = appointment.patientEmail?.trim()?.lowercase()
                 ?.takeIf { it.isNotBlank() && !it.endsWith("@dactor.internal") }
-            var resolvedUserId = appointment.userId?.takeIf { isValidUuid(it) }
+            val cleanPhone = appointment.patientMobile.filter { it.isDigit() }.takeLast(10)
+            val deterministicProfileId = when {
+                cleanEmail != null -> com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForEmail(cleanEmail)
+                cleanPhone.length == 10 -> com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForPhone(cleanPhone)
+                else -> null
+            }
+            var resolvedUserId = appointment.userId?.takeIf { isValidUuid(it) } ?: deterministicProfileId
 
             if (cleanEmail != null) {
                 try {
@@ -266,51 +276,83 @@ class AppointmentRepository @Inject constructor(
                     if (existingProfile != null) {
                         resolvedUserId = existingProfile.id
                         try {
-                            if (existingProfile.phone.isNullOrBlank() && appointment.patientMobile.isNotBlank()) {
-                                supabaseClient.postgrest["profiles"].update({
-                                    set("phone", appointment.patientMobile.trim())
-                                    if (existingProfile.fullName.isNullOrBlank() && appointment.patientName.isNotBlank()) {
-                                        set("full_name", appointment.patientName.trim())
-                                    }
-                                    if (existingProfile.gender.isNullOrBlank() && !appointment.patientGender.isNullOrBlank()) {
-                                        set("gender", appointment.patientGender)
-                                    }
-                                    if (existingProfile.age == null && appointment.patientAge != null) {
-                                        set("age", appointment.patientAge)
-                                    }
-                                }) {
-                                    filter { eq("id", existingProfile.id) }
-                                }
+                            supabaseClient.postgrest["profiles"].update({
+                                if (appointment.patientMobile.isNotBlank()) set("phone", appointment.patientMobile.trim())
+                                if (appointment.patientName.isNotBlank()) set("full_name", appointment.patientName.trim())
+                                if (!appointment.patientGender.isNullOrBlank()) set("gender", appointment.patientGender)
+                                if (appointment.patientAge != null && appointment.patientAge > 0) set("age", appointment.patientAge)
+                            }) {
+                                filter { eq("id", existingProfile.id) }
                             }
                         } catch (ignored: Exception) {}
                     } else {
-                        val newProfileId = resolvedUserId ?: UUID.randomUUID().toString()
+                        val targetProfileId = resolvedUserId ?: deterministicProfileId ?: UUID.randomUUID().toString()
+                        val profileDto = ProfileInsertDto(
+                            id = targetProfileId,
+                            email = cleanEmail,
+                            fullName = appointment.patientName.trim(),
+                            role = "patient",
+                            phone = appointment.patientMobile.trim(),
+                            gender = appointment.patientGender?.takeIf { it.isNotBlank() },
+                            age = appointment.patientAge?.takeIf { it > 0 }
+                        )
                         try {
-                            val profileDto = ProfileInsertDto(
-                                id = newProfileId,
-                                email = cleanEmail,
-                                fullName = appointment.patientName.trim(),
-                                role = "patient",
-                                phone = appointment.patientMobile.trim(),
-                                gender = appointment.patientGender?.takeIf { it.isNotBlank() },
-                                age = appointment.patientAge?.takeIf { it > 0 }
-                            )
-                            supabaseClient.postgrest["profiles"].insert(profileDto)
-                            resolvedUserId = newProfileId
+                            supabaseClient.postgrest["profiles"].upsert(profileDto)
+                            resolvedUserId = targetProfileId
                         } catch (e: Exception) {
-                            resolvedUserId = null
+                            try {
+                                supabaseClient.postgrest["profiles"].insert(profileDto)
+                                resolvedUserId = targetProfileId
+                            } catch (e2: Exception) {
+                                resolvedUserId = targetProfileId
+                            }
                         }
                     }
                 } catch (ignored: Exception) {}
-            } else if (!appointment.patientMobile.isBlank()) {
-                // Also try matching existing profile by phone number if no email was given
+            } else if (cleanPhone.length == 10) {
+                // Try matching existing profile by phone number or upsert by phone
                 try {
                     val byPhone = supabaseClient.postgrest["profiles"]
-                        .select { filter { eq("phone", appointment.patientMobile.trim()) } }
+                        .select { filter { eq("phone", cleanPhone) } }
                         .decodeList<com.dactor.clinic.data.model.Profile>()
                         .firstOrNull()
                     if (byPhone != null) {
                         resolvedUserId = byPhone.id
+                    } else if (deterministicProfileId != null) {
+                        val fallbackEmail = "patient_${cleanPhone}@dactor.internal"
+                        val profileDto = ProfileInsertDto(
+                            id = deterministicProfileId,
+                            email = fallbackEmail,
+                            fullName = appointment.patientName.trim(),
+                            role = "patient",
+                            phone = cleanPhone,
+                            gender = appointment.patientGender?.takeIf { it.isNotBlank() },
+                            age = appointment.patientAge?.takeIf { it > 0 }
+                        )
+                        try {
+                            supabaseClient.postgrest["profiles"].upsert(profileDto)
+                            resolvedUserId = deterministicProfileId
+                        } catch (_: Exception) {}
+                    }
+                } catch (ignored: Exception) {}
+            }
+
+            // Retroactively update past appointments matching this email or phone so they sync to the same patient id
+            if (!resolvedUserId.isNullOrBlank()) {
+                try {
+                    if (cleanEmail != null) {
+                        supabaseClient.postgrest["appointments"].update({
+                            set("user_id", resolvedUserId)
+                        }) {
+                            filter { ilike("patient_email", cleanEmail) }
+                        }
+                    }
+                    if (cleanPhone.length == 10) {
+                        supabaseClient.postgrest["appointments"].update({
+                            set("user_id", resolvedUserId)
+                        }) {
+                            filter { eq("patient_mobile", appointment.patientMobile.trim()) }
+                        }
                     }
                 } catch (ignored: Exception) {}
             }
@@ -319,6 +361,55 @@ class AppointmentRepository @Inject constructor(
             val validSlotId = appointment.slotId?.takeIf { isValidUuid(it) }
             val validDoctorId = appointment.doctorId?.takeIf { isValidUuid(it) }
             val normalizedTime = normalizeTimeForPostgres(appointment.appointmentTime)
+
+            // ==========================================
+            // IDEMPOTENCY SAFETY GUARDS
+            // ==========================================
+            // 1. If an appointment already exists with this ID, return it immediately
+            if (isValidUuid(appointment.id)) {
+                try {
+                    val existingById = supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("id", appointment.id) } }
+                        .decodeList<Appointment>()
+                        .firstOrNull()
+                    if (existingById != null) {
+                        return@withContext existingById
+                    }
+                } catch (ignored: Exception) {}
+            }
+
+            // 2. If an appointment already exists with this 10-digit tracking code, return it
+            if (trackingCode.isNotBlank()) {
+                try {
+                    val existingByCode = supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("tracking_code_10_digit", trackingCode.trim()) } }
+                        .decodeList<Appointment>()
+                        .firstOrNull()
+                    if (existingByCode != null) {
+                        return@withContext existingByCode
+                    }
+                } catch (ignored: Exception) {}
+            }
+
+            // 3. Deduplication guard against rapid double-taps on reception tablet
+            if (validSlotId != null && appointment.patientMobile.isNotBlank() && appointment.appointmentDate.isNotBlank()) {
+                try {
+                    val existingDup = supabaseClient.postgrest["appointments"]
+                        .select {
+                            filter {
+                                eq("clinic_id", appointment.clinicId)
+                                eq("slot_id", validSlotId)
+                                eq("patient_mobile", appointment.patientMobile.trim())
+                                eq("appointment_date", appointment.appointmentDate)
+                            }
+                        }
+                        .decodeList<Appointment>()
+                        .firstOrNull()
+                    if (existingDup != null) {
+                        return@withContext existingDup
+                    }
+                } catch (ignored: Exception) {}
+            }
 
             val insertDto = AppointmentInsertDto(
                 id = apptId,
@@ -445,15 +536,26 @@ class AppointmentRepository @Inject constructor(
                     }
 
                     // Insert the new walkin entry at insertPos
+                    val cleanDoctorId = created.doctorId?.takeIf { isValidUuid(it) }
                     val queueEntryDto = QueueEntryInsertDto(
                         id = UUID.randomUUID().toString(),
                         appointmentId = created.id,
                         clinicId = created.clinicId,
-                        doctorId = created.doctorId,
+                        doctorId = cleanDoctorId,
                         queuePosition = insertPos,
                         status = "waiting"
                     )
-                    supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
+                    try {
+                        supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
+                    } catch (qErr: Exception) {
+                        try {
+                            // Retry without doctorId in case of FK or UUID constraint mismatch
+                            val fallbackDto = queueEntryDto.copy(doctorId = null)
+                            supabaseClient.postgrest["queue_entries"].insert(fallbackDto)
+                        } catch (qErr2: Exception) {
+                            qErr2.printStackTrace()
+                        }
+                    }
 
                     // Reindex active queue chronologically to ensure clean contiguous numbering
                     reindexActiveQueueChronologically(created.clinicId)

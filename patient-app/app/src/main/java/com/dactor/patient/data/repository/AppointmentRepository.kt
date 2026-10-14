@@ -313,6 +313,15 @@ class AppointmentRepository @Inject constructor(
                     }
                     collected.addAll(byEmail)
                 } catch (ignored: Exception) {}
+
+                // Match by deterministic patient ID generated from this email
+                try {
+                    val deterministicUid = com.dactor.patient.domain.util.PatientIdentitySync.getDeterministicPatientIdForEmail(cleanEmail)
+                    val byDetUid = supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("user_id", deterministicUid) } }
+                        .decodeList<Appointment>()
+                    collected.addAll(byDetUid)
+                } catch (ignored: Exception) {}
             }
 
             // 3. Match by phone number
@@ -323,6 +332,15 @@ class AppointmentRepository @Inject constructor(
                         .select { filter { eq("patient_mobile", cleanPhone) } }
                         .decodeList<Appointment>()
                     collected.addAll(byPhone)
+                } catch (ignored: Exception) {}
+
+                // Match by deterministic patient ID generated from this phone
+                try {
+                    val deterministicPhoneUid = com.dactor.patient.domain.util.PatientIdentitySync.getDeterministicPatientIdForPhone(cleanPhone)
+                    val byDetPhoneUid = supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("user_id", deterministicPhoneUid) } }
+                        .decodeList<Appointment>()
+                    collected.addAll(byDetPhoneUid)
                 } catch (ignored: Exception) {}
             }
 
@@ -465,6 +483,55 @@ class AppointmentRepository @Inject constructor(
         val validSlotId = appointment.slotId?.takeIf { isValidUuid(it) }
         val validDoctorId = appointment.doctorId?.takeIf { isValidUuid(it) }
         val normalizedTime = normalizeTimeForPostgres(appointment.appointmentTime)
+
+        // ==========================================
+        // IDEMPOTENCY SAFETY GUARDS
+        // ==========================================
+        // 1. If an appointment already exists with this ID, return it immediately
+        if (isValidUuid(appointment.id)) {
+            try {
+                val existingById = supabaseClient.postgrest["appointments"]
+                    .select { filter { eq("id", appointment.id) } }
+                    .decodeList<Appointment>()
+                    .firstOrNull()
+                if (existingById != null) {
+                    return@withContext existingById
+                }
+            } catch (ignored: Exception) {}
+        }
+
+        // 2. If an appointment already exists with this 10-digit tracking code, return it
+        if (appointment.trackingCode10Digit.isNotBlank()) {
+            try {
+                val existingByCode = supabaseClient.postgrest["appointments"]
+                    .select { filter { eq("tracking_code_10_digit", appointment.trackingCode10Digit.trim()) } }
+                    .decodeList<Appointment>()
+                    .firstOrNull()
+                if (existingByCode != null) {
+                    return@withContext existingByCode
+                }
+            } catch (ignored: Exception) {}
+        }
+
+        // 3. Deduplication guard against rapid double-taps on poor mobile network
+        if (validSlotId != null && appointment.patientMobile.isNotBlank() && appointment.appointmentDate.isNotBlank()) {
+            try {
+                val existingDup = supabaseClient.postgrest["appointments"]
+                    .select {
+                        filter {
+                            eq("clinic_id", appointment.clinicId)
+                            eq("slot_id", validSlotId)
+                            eq("patient_mobile", appointment.patientMobile.trim())
+                            eq("appointment_date", appointment.appointmentDate)
+                        }
+                    }
+                    .decodeList<Appointment>()
+                    .firstOrNull()
+                if (existingDup != null) {
+                    return@withContext existingDup
+                }
+            } catch (ignored: Exception) {}
+        }
 
         val insertDto = AppointmentInsertDto(
             id = apptId,
