@@ -129,6 +129,7 @@ import {
   PatientTransactionRecord,
   PaymentGatewaysConfig,
   SupportTicket,
+  BillingInvoice,
 } from '../types'
 import {
   getClinics,
@@ -138,6 +139,7 @@ import {
   getSlots,
   createAppointment,
   generate10DigitTrackingCode,
+  getInvoiceForAppointment,
   getPatientProfileByEmail,
   savePatientProfile,
   getAppointmentsByPatient,
@@ -173,6 +175,11 @@ import {
   getRecentSearches,
   saveRecentSearch,
 } from '../utils/searchEngine'
+import {
+  parsePaymentRecords,
+  extractCleanClinicalRemarks,
+  WebPaymentRecord,
+} from '../utils/paymentLedger'
 
 interface PatientPortalProps {
   onNavigateHome?: () => void
@@ -274,6 +281,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [allDoctors, setAllDoctors] = useState<Doctor[]>([])
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>('all')
   const [viewingBillAppt, setViewingBillAppt] = useState<Appointment | null>(null)
+  const [viewingInvoice, setViewingInvoice] = useState<BillingInvoice | null>(null)
+
+  useEffect(() => {
+    if (viewingBillAppt) {
+      getInvoiceForAppointment(viewingBillAppt.id)
+        .then((inv) => setViewingInvoice(inv))
+        .catch(() => setViewingInvoice(null))
+    } else {
+      setViewingInvoice(null)
+    }
+  }, [viewingBillAppt])
 
   const clinicDoctorsMap = useMemo(() => {
     const map: Record<string, Doctor[]> = {}
@@ -590,7 +608,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 if (parsed.selectedSlotId) {
                   const rawSlots = await getSlots(clinicMatch.id, parsed.bookingDate)
                   const validSlots = rawSlots.filter((slot) => {
-                    const isExpired = isSlotTimeExpired(parsed.bookingDate, slot.endTime)
+                    const isExpired = isSlotTimeExpired(parsed.bookingDate, slot.endTime, slot.startTime)
                     const hasCapacity = slot.bookedCount < slot.maxCapacity
                     return !isExpired && hasCapacity && slot.isAvailable !== false
                   })
@@ -1004,7 +1022,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
         // FILTER: Remove slots whose end time has already expired!
         const validSlots = rawSlots.filter((slot) => {
-          const isExpired = isSlotTimeExpired(bookingDate, slot.endTime)
+          const isExpired = isSlotTimeExpired(bookingDate, slot.endTime, slot.startTime)
           const hasCapacity = slot.bookedCount < slot.maxCapacity
           return !isExpired && hasCapacity && slot.isAvailable !== false
         })
@@ -1250,7 +1268,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           if (parsed.selectedSlotId) {
             const rawSlots = await getSlots(clinicMatch.id, parsed.bookingDate)
             const validSlots = rawSlots.filter((slot) => {
-              const isExpired = isSlotTimeExpired(parsed.bookingDate, slot.endTime)
+              const isExpired = isSlotTimeExpired(parsed.bookingDate, slot.endTime, slot.startTime)
               const hasCapacity = slot.bookedCount < slot.maxCapacity
               return !isExpired && hasCapacity && slot.isAvailable !== false
             })

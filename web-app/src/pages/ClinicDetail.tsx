@@ -466,7 +466,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
     const activeSlots =
       dateStr === todayIso
-        ? relevantSlots.filter((s) => !isSlotTimeExpired(dateStr, s.endTime || s.startTime))
+        ? relevantSlots.filter((s) => !isSlotTimeExpired(dateStr, s.endTime || s.startTime, s.startTime))
         : relevantSlots
 
     if (activeSlots.length === 0) {
@@ -590,19 +590,20 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     )
 
     if (filteredDbSlots.length > 0) {
-      return filteredDbSlots.map((s) => {
-        const label = s.endTime ? `${s.startTime.slice(0, 5)} - ${s.endTime.slice(0, 5)}` : s.startTime
-        const expired = isSlotTimeExpired(selectedDate, s.endTime || s.startTime)
-        const full = (s.bookedCount || 0) >= (s.maxCapacity || 10)
-        return {
-          id: s.id,
-          timeLabel: label,
-          rawStart: s.startTime,
-          remaining: Math.max(0, (s.maxCapacity || 10) - (s.bookedCount || 0)),
-          disabled: expired || full || s.isAvailable === false,
-          reason: expired ? 'Expired' : full ? 'Full' : '',
-        }
-      })
+      return filteredDbSlots
+        .filter((s) => !isSlotTimeExpired(selectedDate, s.endTime || s.startTime, s.startTime))
+        .map((s) => {
+          const label = s.endTime ? `${s.startTime.slice(0, 5)} - ${s.endTime.slice(0, 5)}` : s.startTime
+          const full = (s.bookedCount || 0) >= (s.maxCapacity || 10)
+          return {
+            id: s.id,
+            timeLabel: label,
+            rawStart: s.startTime,
+            remaining: Math.max(0, (s.maxCapacity || 10) - (s.bookedCount || 0)),
+            disabled: full || s.isAvailable === false,
+            reason: full ? 'Full' : '',
+          }
+        })
     }
 
     // Strictly rely on clinic-published slots from Supabase (NEVER generate fake/fallback slots)

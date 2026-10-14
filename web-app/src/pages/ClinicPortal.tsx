@@ -100,6 +100,7 @@ import {
   generate10DigitTrackingCode,
   getAppointmentByTrackingCode,
   getBillingInvoicesByClinic,
+  getInvoiceForAppointment,
   saveOrUpdateInvoicePayment,
   uploadReceiptFile,
   updateDoctorPresence,
@@ -136,6 +137,11 @@ import {
   updateSupportTicketStatus,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
+import {
+  parsePaymentRecords,
+  extractCleanClinicalRemarks,
+  WebPaymentRecord,
+} from '../utils/paymentLedger'
 import { supabase } from '../lib/supabase'
 import { signInWithFirebaseGoogle, signOutFirebase } from '../lib/firebase'
 
@@ -685,6 +691,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [billRemarks, setBillRemarks] = useState<string>('')
   const [billReceiptFile, setBillReceiptFile] = useState<File | null>(null)
   const [billReceiptCompressionInfo, setBillReceiptCompressionInfo] = useState<string | null>(null)
+  const [billPaymentRecords, setBillPaymentRecords] = useState<WebPaymentRecord[]>([])
+  const [billNewPaymentInput, setBillNewPaymentInput] = useState<string>('')
+  const [billNewPaymentNote, setBillNewPaymentNote] = useState<string>('')
+  const [billNewPaymentDate, setBillNewPaymentDate] = useState<string>('')
+  const [billNewPaymentTime, setBillNewPaymentTime] = useState<string>('')
   const [savingBill, setSavingBill] = useState(false)
   const [showPrintableInvoice, setShowPrintableInvoice] = useState(false)
 
@@ -2036,55 +2047,122 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
   // Billing Item Catalog Handlers
   const handleAddCatalogItemToBill = (item: { serviceName: string; price: number }) => {
-    setBillItems((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        name: item.serviceName,
-        price: item.price,
-        quantity: 1,
-      },
-    ])
+    const newItem = {
+      id: crypto.randomUUID(),
+      name: item.serviceName,
+      price: item.price,
+      quantity: 1,
+    }
+    setBillItems((prev) => {
+      const next = [...prev, newItem]
+      const nextTotal = next.reduce((sum, it) => sum + it.price * (it.quantity || 1), 0)
+      setBillTotalAmount(String(nextTotal))
+      return next
+    })
   }
 
   const handleRemoveBillItem = (id: string) => {
-    setBillItems((prev) => prev.filter((it) => it.id !== id))
+    setBillItems((prev) => {
+      const next = prev.filter((it) => it.id !== id)
+      const nextTotal = next.reduce((sum, it) => sum + it.price * (it.quantity || 1), 0)
+      setBillTotalAmount(String(nextTotal))
+      return next
+    })
   }
 
   const handleAddCustomBillItem = () => {
     if (!customBillItemName.trim() || !customBillItemPrice) return
-    setBillItems((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        name: customBillItemName.trim(),
-        price: Number(customBillItemPrice) || 0,
-        quantity: 1,
-      },
-    ])
+    const newItem = {
+      id: crypto.randomUUID(),
+      name: customBillItemName.trim(),
+      price: Number(customBillItemPrice) || 0,
+      quantity: 1,
+    }
+    setBillItems((prev) => {
+      const next = [...prev, newItem]
+      const nextTotal = next.reduce((sum, it) => sum + it.price * (it.quantity || 1), 0)
+      setBillTotalAmount(String(nextTotal))
+      return next
+    })
     setCustomBillItemName('')
     setCustomBillItemPrice('')
   }
 
+  const handleRemovePaymentRecord = (recordId: string) => {
+    setBillPaymentRecords((prev) => {
+      const next = prev.filter((r) => r.id !== recordId)
+      const nextPaid = next.reduce((sum, r) => sum + r.amount, 0)
+      setBillPaidAmount(String(nextPaid))
+      return next
+    })
+  }
+
   // Bill / Payment Modal
-  const handleOpenBillModal = (appt: Appointment) => {
+  const handleOpenBillModal = async (appt: Appointment) => {
     setBillTargetAppt(appt)
-    const initialFee = Number(appt.feeAmount) || 500
-    setBillItems([
-      {
-        id: 'initial_consult',
-        name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
-        price: initialFee,
-        quantity: 1,
-      },
-    ])
-    setBillTotalAmount(String(initialFee))
-    setBillPaidAmount(appt.paymentStatus === 'paid' ? String(initialFee) : '0')
-    setBillRemarks(appt.notes || '')
     setBillReceiptFile(null)
     setBillReceiptCompressionInfo(null)
     setShowPrintableInvoice(false)
+    setBillNewPaymentInput('')
+    setBillNewPaymentNote('')
+    setBillNewPaymentDate(new Date().toISOString().split('T')[0])
+    setBillNewPaymentTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
     setBillModalOpen(true)
+
+    try {
+      const existing = await getInvoiceForAppointment(appt.id)
+      if (existing && ((existing.items && existing.items.length > 0) || existing.totalAmount > 0)) {
+        if (existing.items && existing.items.length > 0) {
+          setBillItems(
+            existing.items.map((it, idx) => ({
+              id: it.id || `item_${idx}`,
+              name: it.name || it.itemName || 'Clinical Service',
+              price: Number(it.price || 0),
+              quantity: Number(it.quantity || 1),
+            }))
+          )
+        } else {
+          const initialFee = Number(existing.totalAmount || appt.feeAmount || 500)
+          setBillItems([
+            {
+              id: 'initial_consult',
+              name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+              price: initialFee,
+              quantity: 1,
+            },
+          ])
+        }
+
+        const parsedLogs = parsePaymentRecords(existing.remarks, existing.paidAmount, existing.paidAt)
+        setBillPaymentRecords(parsedLogs)
+        setBillTotalAmount(String(existing.totalAmount))
+        setBillPaidAmount(String(existing.paidAmount))
+        setBillRemarks(extractCleanClinicalRemarks(existing.remarks))
+      } else {
+        const initialFee = Number(appt.feeAmount) || 500
+        setBillItems([
+          {
+            id: 'initial_consult',
+            name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+            price: initialFee,
+            quantity: 1,
+          },
+        ])
+        const initialPaid = appt.paymentStatus === 'paid' ? initialFee : 0
+        const initialLogs: WebPaymentRecord[] = initialPaid > 0 ? [{
+          id: crypto.randomUUID(),
+          amount: initialPaid,
+          dateTime: `${appt.appointmentDate} ${appt.appointmentTime || '10:00 AM'}`,
+          note: 'Initial Consultation Fee'
+        }] : []
+        setBillPaymentRecords(initialLogs)
+        setBillTotalAmount(String(initialFee))
+        setBillPaidAmount(String(initialPaid))
+        setBillRemarks(appt.notes || '')
+      }
+    } catch (e) {
+      console.error('Error fetching invoice for bill modal:', e)
+    }
   }
 
   const handleBillReceiptFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2117,18 +2195,44 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         if (uploaded) receiptUrl = uploaded
       }
 
+      const itemsTotal = billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0)
+      const finalTotalAmount = Number(billTotalAmount) || itemsTotal || 0
+
+      const newPaymentAmt = Number(billNewPaymentInput) || 0
+      let updatedPayments = [...billPaymentRecords]
+      if (newPaymentAmt > 0) {
+        const payDate = billNewPaymentDate || new Date().toISOString().split('T')[0]
+        const payTime = billNewPaymentTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        updatedPayments.push({
+          id: crypto.randomUUID(),
+          amount: newPaymentAmt,
+          dateTime: `${payDate} ${payTime}`,
+          note: billNewPaymentNote.trim() || 'Payment Received',
+        })
+      }
+      const finalPaidAmount = updatedPayments.length > 0
+        ? updatedPayments.reduce((acc, p) => acc + p.amount, 0)
+        : (Number(billPaidAmount) || 0)
+
       await saveOrUpdateInvoicePayment({
         appointmentId: billTargetAppt.id,
         clinicId: selectedClinic.id,
-        totalAmount: Number(billTotalAmount) || 0,
-        paidAmount: Number(billPaidAmount) || 0,
+        totalAmount: finalTotalAmount,
+        paidAmount: finalPaidAmount,
         remarks: billRemarks.trim() || undefined,
         receiptUrl,
+        items: billItems.map((it) => ({
+          itemName: it.name,
+          quantity: it.quantity,
+          price: it.price,
+          total: it.price * it.quantity,
+        })),
+        paymentRecords: updatedPayments,
       })
 
       setBillModalOpen(false)
       setRefreshKey((k) => k + 1)
-      alert(`Payment of Rs. ${billPaidAmount} updated and invoice recorded!`)
+      alert(`Combined bill saved (Total: Rs. ${finalTotalAmount}, Paid: Rs. ${finalPaidAmount}, Due: Rs. ${Math.max(0, finalTotalAmount - finalPaidAmount)})`)
     } catch (err) {
       console.error('Error saving invoice bill:', err)
     } finally {
@@ -7906,51 +8010,130 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Total Amount (Rs.)
+                    Combined Total Bill (Rs.)
                   </label>
                   <input
                     type="number"
                     value={billTotalAmount}
                     onChange={(e) => setBillTotalAmount(e.target.value)}
-                    placeholder="e.g. 1000"
+                    placeholder="e.g. 1500"
                     className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Paid Amount (Rs.)
+                    Total Paid to Date (Rs.)
                   </label>
-                  <input
-                    type="number"
-                    value={billPaidAmount}
-                    onChange={(e) => setBillPaidAmount(e.target.value)}
-                    placeholder="e.g. 1000"
-                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  />
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setBillPaidAmount(String(billTotalAmount || 0))}
-                      className="px-2 py-0.5 bg-brand-50/85 hover:bg-brand-100 text-brand-700 rounded-md text-[10px] font-bold border border-brand-200 cursor-pointer"
-                    >
-                      Full Amount
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBillPaidAmount(String(Math.round((Number(billTotalAmount) || 0) * 0.5)))}
-                      className="px-2 py-0.5 bg-amber-50/85 hover:bg-amber-100 text-amber-800 rounded-md text-[10px] font-bold border border-amber-200 cursor-pointer"
-                    >
-                      50% Advance
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBillPaidAmount('0')}
-                      className="px-2 py-0.5 bg-rose-50/85 hover:bg-rose-100 text-rose-700 rounded-md text-[10px] font-bold border border-rose-200 cursor-pointer"
-                    >
-                      Unpaid (Rs. 0)
-                    </button>
+                  <div className="px-3.5 py-2.5 rounded-xl bg-slate-100/80 border border-slate-200 text-xs font-mono font-bold text-slate-800">
+                    Rs. {(billPaymentRecords.reduce((acc, p) => acc + p.amount, 0) + (Number(billNewPaymentInput) || 0))}
                   </div>
+                </div>
+              </div>
+
+              {/* Historical Payment Receipts & Time Log */}
+              {billPaymentRecords.length > 0 && (
+                <div className="border border-emerald-200/80 rounded-xl overflow-hidden text-xs bg-emerald-50/30">
+                  <div className="bg-emerald-100/70 p-2 font-bold text-emerald-900 flex justify-between border-b border-emerald-200/60">
+                    <span>Payment Receipts & Time Log ({billPaymentRecords.length})</span>
+                    <span>Paid</span>
+                  </div>
+                  <div className="divide-y divide-emerald-100 max-h-36 overflow-y-auto">
+                    {billPaymentRecords.map((p) => (
+                      <div key={p.id} className="p-2 flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePaymentRecord(p.id)}
+                            className="text-slate-300 hover:text-rose-600 cursor-pointer"
+                            title="Remove log entry"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                          <div>
+                            <span className="font-bold text-slate-800 block text-[11px]">{p.dateTime}</span>
+                            <span className="text-[10px] text-slate-500">{p.note || 'Payment Received'}</span>
+                          </div>
+                        </div>
+                        <span className="font-mono font-black text-emerald-700 text-xs">
+                          Rs. {p.amount}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Record New Follow-up Payment with Date & Time */}
+              <div className="p-3 bg-sky-50/50 border border-sky-200/70 rounded-2xl space-y-2.5">
+                <span className="text-xs font-bold text-sky-900 flex items-center space-x-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-sky-600" />
+                  <span>Record Payment (Time-Stamped Follow-Up):</span>
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Payment Date</label>
+                    <input
+                      type="date"
+                      value={billNewPaymentDate}
+                      onChange={(e) => setBillNewPaymentDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg liquid-glass-input text-xs font-medium focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Payment Time</label>
+                    <input
+                      type="text"
+                      value={billNewPaymentTime}
+                      onChange={(e) => setBillNewPaymentTime(e.target.value)}
+                      placeholder="e.g. 11:30 AM"
+                      className="w-full px-2.5 py-1.5 rounded-lg liquid-glass-input text-xs font-medium focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Amount Paid Now (Rs.)</label>
+                    <input
+                      type="number"
+                      value={billNewPaymentInput}
+                      onChange={(e) => setBillNewPaymentInput(e.target.value)}
+                      placeholder="e.g. 500"
+                      className="w-full px-2.5 py-1.5 rounded-lg liquid-glass-input text-xs font-bold focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Note / Payment Mode</label>
+                    <input
+                      type="text"
+                      value={billNewPaymentNote}
+                      onChange={(e) => setBillNewPaymentNote(e.target.value)}
+                      placeholder="e.g. Cash, CT Scan advance"
+                      className="w-full px-2.5 py-1.5 rounded-lg liquid-glass-input text-xs font-medium focus:outline-none"
+                    />
+                  </div>
+                </div>
+                {/* Quick Chips for Payment */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {Math.max(0, (Number(billTotalAmount) || 0) - (billPaymentRecords.reduce((acc, p) => acc + p.amount, 0))) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setBillNewPaymentInput(String(Math.max(0, (Number(billTotalAmount) || 0) - (billPaymentRecords.reduce((acc, p) => acc + p.amount, 0)))))}
+                      className="px-2 py-0.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-md text-[10px] font-bold border border-sky-300 cursor-pointer"
+                    >
+                      Clear Balance (Rs. {Math.max(0, (Number(billTotalAmount) || 0) - (billPaymentRecords.reduce((acc, p) => acc + p.amount, 0)))})
+                    </button>
+                  )}
+                  {['500', '1000', '1500', '2000'].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setBillNewPaymentInput(preset)}
+                      className="px-2 py-0.5 bg-white/90 hover:bg-slate-100 text-slate-700 rounded-md text-[10px] font-bold border border-slate-200 cursor-pointer"
+                    >
+                      Rs. {preset}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -7958,21 +8141,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               {billTotalAmount && (
                 <div className="p-3 liquid-glass-subtle rounded-xl border border-white/75 flex items-center justify-between text-xs">
                   <span className="font-medium text-slate-600">Calculated Balance Due:</span>
-                  <span className="font-black text-slate-900 font-mono">
-                    Rs. {Math.max(0, (Number(billTotalAmount) || 0) - (Number(billPaidAmount) || 0))}
+                  <span className="font-black text-rose-700 font-mono text-sm">
+                    Rs. {Math.max(0, (Number(billTotalAmount) || 0) - (billPaymentRecords.reduce((acc, p) => acc + p.amount, 0) + (Number(billNewPaymentInput) || 0)))}
                   </span>
                 </div>
               )}
 
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Remarks / Reception Notes (Optional)
+                  Doctor Clinical Remarks & Prescriptions
                 </label>
-                <input
-                  type="text"
+                <textarea
                   value={billRemarks}
                   onChange={(e) => setBillRemarks(e.target.value)}
-                  placeholder="Optional notes (e.g. Paid in Cash / eSewa, Follow-up next week)"
+                  placeholder="Doctor's findings, prescriptions, and follow-up advice..."
+                  rows={2}
                   className="w-full px-3.5 py-2 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
@@ -8009,7 +8192,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
               {/* Printable Invoice View */}
               {showPrintableInvoice && (
-                <div id="dactor-printable-invoice" className="p-4 bg-white/85 rounded-2xl border-2 border-dashed border-slate-300 text-xs space-y-3 font-mono">
+                <div id="dactor-printable-invoice" className="p-4 bg-white rounded-2xl border-2 border-dashed border-slate-300 text-xs space-y-3 font-mono text-slate-900">
                   <div className="flex justify-between font-black text-slate-800 pb-2 border-b border-slate-300">
                     <div>
                       <span className="text-sm uppercase block font-black">{selectedClinic?.name}</span>
@@ -8019,23 +8202,28 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       )}
                     </div>
                     <div className="text-right">
-                      <span className="text-[10px] text-slate-500 block">INVOICE</span>
+                      <span className="text-[10px] text-slate-500 block">OFFICIAL BILL</span>
                       <span className="font-bold text-slate-700">{new Date().toISOString().split('T')[0]}</span>
                     </div>
                   </div>
 
                   <div className="flex justify-between text-slate-700 text-[11px]">
-                    <span>Patient: <strong>{billTargetAppt.patientName}</strong></span>
+                    <span>Patient: <strong>{billTargetAppt.patientName}</strong> ({billTargetAppt.patientAge || '–'} Yrs, {billTargetAppt.patientGender || '–'})</span>
                     <span>Token: <strong>#{billTargetAppt.trackingCode10Digit}</strong></span>
                   </div>
 
-                  {/* Itemized Table */}
+                  {/* 1. Services & Procedures Table */}
                   <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                    <div className="bg-slate-100 p-1.5 font-bold text-[10px] uppercase text-slate-700 border-b border-slate-200">
+                      Services & Procedures
+                    </div>
                     <table className="w-full text-left text-[11px]">
-                      <thead className="bg-slate-100 border-b border-slate-200 text-slate-600">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
                         <tr>
                           <th className="p-1.5">Description</th>
-                          <th className="p-1.5 text-right">Amount (Rs.)</th>
+                          <th className="p-1.5 text-center">Qty</th>
+                          <th className="p-1.5 text-right">Rate</th>
+                          <th className="p-1.5 text-right">Amount (NPR)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -8043,12 +8231,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           billItems.map((it) => (
                             <tr key={it.id}>
                               <td className="p-1.5 font-medium">{it.name}</td>
+                              <td className="p-1.5 text-center font-mono">{it.quantity || 1}</td>
+                              <td className="p-1.5 text-right font-mono">Rs. {it.price}</td>
                               <td className="p-1.5 text-right font-mono font-bold">Rs. {it.price * (it.quantity || 1)}</td>
                             </tr>
                           ))
                         ) : (
                           <tr>
                             <td className="p-1.5">Consultation & Services</td>
+                            <td className="p-1.5 text-center font-mono">1</td>
+                            <td className="p-1.5 text-right font-mono">Rs. {billTotalAmount || 500}</td>
                             <td className="p-1.5 text-right font-mono font-bold">Rs. {billTotalAmount || 500}</td>
                           </tr>
                         )}
@@ -8056,27 +8248,80 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     </table>
                   </div>
 
-                  <div className="space-y-1 pt-1 border-t border-slate-300 text-[11px]">
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Total Bill:</span>
-                      <span className="font-bold">Rs. {billTotalAmount || 500}</span>
-                    </div>
-                    <div className="flex justify-between font-bold text-brand-700">
-                      <span>Amount Paid:</span>
-                      <span>Rs. {billPaidAmount || 0}</span>
-                    </div>
-                    <div className="flex justify-between font-bold text-rose-700">
-                      <span>Balance Due:</span>
-                      <span>
-                        Rs. {Math.max(0, (Number(billTotalAmount) || 0) - (Number(billPaidAmount) || 0))}
-                      </span>
-                    </div>
-                    {billRemarks && (
-                      <div className="text-[10px] text-slate-500 pt-1">
-                        Remarks: {billRemarks}
+                  {/* 2. Payment Receipts & Time Log Table */}
+                  {(() => {
+                    const allPayments = [...billPaymentRecords]
+                    if (Number(billNewPaymentInput) > 0) {
+                      allPayments.push({
+                        id: 'new_entry',
+                        amount: Number(billNewPaymentInput),
+                        dateTime: `${billNewPaymentDate || new Date().toISOString().split('T')[0]} ${billNewPaymentTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+                        note: billNewPaymentNote || 'Payment Received',
+                      })
+                    }
+                    if (allPayments.length === 0) return null
+                    return (
+                      <div className="border border-emerald-200 rounded-lg overflow-hidden bg-white">
+                        <div className="bg-emerald-50 p-1.5 font-bold text-[10px] uppercase text-emerald-900 border-b border-emerald-200">
+                          Payment Receipts & Time Log
+                        </div>
+                        <table className="w-full text-left text-[11px]">
+                          <thead className="bg-emerald-50/50 border-b border-emerald-100 text-emerald-800">
+                            <tr>
+                              <th className="p-1.5">Date & Time Log</th>
+                              <th className="p-1.5">Note / Mode</th>
+                              <th className="p-1.5 text-right">Paid (NPR)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-emerald-50">
+                            {allPayments.map((p, idx) => (
+                              <tr key={idx}>
+                                <td className="p-1.5 font-mono">{p.dateTime}</td>
+                                <td className="p-1.5 text-slate-600">{p.note || 'Payment Received'}</td>
+                                <td className="p-1.5 text-right font-mono font-bold text-emerald-700">Rs. {p.amount}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    )}
-                  </div>
+                    )
+                  })()}
+
+                  {/* 3. Financial Summary */}
+                  {(() => {
+                    const allPayments = [...billPaymentRecords]
+                    if (Number(billNewPaymentInput) > 0) {
+                      allPayments.push({
+                        id: 'new_entry',
+                        amount: Number(billNewPaymentInput),
+                        dateTime: '',
+                      })
+                    }
+                    const totalP = allPayments.reduce((acc, p) => acc + p.amount, 0)
+                    const totalB = Number(billTotalAmount) || billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0) || 500
+                    const bal = Math.max(0, totalB - totalP)
+                    return (
+                      <div className="space-y-1 pt-1 border-t border-slate-300 text-[11px]">
+                        <div className="flex justify-between">
+                          <span className="text-slate-600">Total Bill Amount:</span>
+                          <span className="font-bold">Rs. {totalB}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-emerald-700">
+                          <span>Total Paid to Date:</span>
+                          <span>Rs. {totalP}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-rose-700">
+                          <span>Balance Due:</span>
+                          <span>Rs. {bal}</span>
+                        </div>
+                        {billRemarks && (
+                          <div className="text-[10px] text-slate-500 pt-1 border-t border-dashed border-slate-200">
+                            <strong>Clinical Remarks / Rx:</strong> {billRemarks}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   <button
                     type="button"
@@ -8084,7 +8329,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 cursor-pointer"
                   >
                     <Printer className="w-3.5 h-3.5" />
-                    <span>Print Invoice / Thermal Receipt</span>
+                    <span>Print Official Invoice Slip</span>
                   </button>
                 </div>
               )}

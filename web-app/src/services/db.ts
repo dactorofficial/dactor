@@ -14,9 +14,16 @@ import {
   QueueEntry,
   PatientProfile,
   PatientTransactionRecord,
-  PaymentGatewaysConfig,
   SupportTicket,
+  PaymentGatewaysConfig,
 } from '../types'
+import {
+  parsePaymentRecords,
+  extractCleanClinicalRemarks,
+  buildCombinedRemarks,
+  WebPaymentRecord,
+} from '../utils/paymentLedger'
+
 
 // ==========================================
 // CLINICS API
@@ -1372,11 +1379,14 @@ export async function saveOrUpdateInvoicePayment(params: {
   paidAmount: number
   remarks?: string
   receiptUrl?: string
+  items?: { id?: string; itemName?: string; name?: string; quantity: number; price: number; total?: number }[]
+  paymentRecords?: WebPaymentRecord[]
+  newPaymentAmount?: number
+  newPaymentNote?: string
+  newPaymentDateTime?: string
 }): Promise<BillingInvoice | null> {
   try {
     const { appointmentId, clinicId, totalAmount, paidAmount, remarks, receiptUrl } = params
-    const balanceDue = Math.max(0, totalAmount - paidAmount)
-    const dbPaymentStatus = paidAmount >= totalAmount && totalAmount > 0 ? 'paid' : 'pending'
     const nowIso = new Date().toISOString()
 
     // Check if invoice already exists
@@ -1386,23 +1396,69 @@ export async function saveOrUpdateInvoicePayment(params: {
       .eq('appointment_id', appointmentId)
       .maybeSingle()
 
-    const combinedRemarks = [
-      remarks?.trim(),
+    // Parse existing payments ledger
+    const existingPayments = parsePaymentRecords(
+      existing?.remarks,
+      Number(existing?.paid_amount || 0),
+      existing?.paid_at
+    )
+
+    let updatedPayments: WebPaymentRecord[] = params.paymentRecords ? [...params.paymentRecords] : [...existingPayments]
+    if (params.newPaymentAmount && params.newPaymentAmount > 0) {
+      updatedPayments.push({
+        id: crypto.randomUUID(),
+        amount: Number(params.newPaymentAmount),
+        dateTime: params.newPaymentDateTime || `${new Date().toISOString().slice(0, 10)} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        note: params.newPaymentNote?.trim() || 'Payment Received',
+      })
+    }
+
+    const calculatedTotalPaid = updatedPayments.length > 0
+      ? updatedPayments.reduce((acc, p) => acc + p.amount, 0)
+      : paidAmount
+
+    const rawClinicalRem = extractCleanClinicalRemarks(remarks !== undefined ? remarks : existing?.remarks)
+    const combinedRemarksWithReceipt = [
+      rawClinicalRem,
       receiptUrl ? `Receipt: ${receiptUrl}` : undefined,
     ]
       .filter(Boolean)
       .join(' | ')
 
+    const finalRemarks = buildCombinedRemarks(combinedRemarksWithReceipt, updatedPayments)
+
+    const itemsToSave = params.items && params.items.length > 0
+      ? params.items.map((it) => ({
+          itemName: it.itemName || it.name || 'Clinical Service',
+          quantity: Number(it.quantity || 1),
+          price: Number(it.price || 0),
+          total: Number(it.total || (Number(it.price || 0) * Number(it.quantity || 1))),
+        }))
+      : (Array.isArray(existing?.items) && existing.items.length > 0
+          ? existing.items
+          : [
+              {
+                itemName: 'Consultation & Clinical Services',
+                quantity: 1,
+                price: totalAmount,
+                total: totalAmount,
+              },
+            ])
+
+    const balanceDue = Math.max(0, totalAmount - calculatedTotalPaid)
+    const dbPaymentStatus = (calculatedTotalPaid >= totalAmount && totalAmount > 0) ? 'paid' : (calculatedTotalPaid > 0 ? 'partial' : 'pending')
+
     const invoicePayload: any = {
       id: existing?.id || crypto.randomUUID(),
       appointment_id: appointmentId,
       clinic_id: clinicId,
+      items: itemsToSave,
       total_amount: totalAmount,
-      paid_amount: paidAmount,
+      paid_amount: calculatedTotalPaid,
       balance_due: balanceDue,
       payment_status: dbPaymentStatus,
-      paid_at: paidAmount > 0 ? (existing?.paid_at || nowIso) : null,
-      remarks: combinedRemarks || existing?.remarks || null,
+      paid_at: calculatedTotalPaid > 0 ? (existing?.paid_at || nowIso) : null,
+      remarks: finalRemarks,
       created_at: existing?.created_at || nowIso,
       updated_at: nowIso,
     }
@@ -2006,6 +2062,16 @@ function mapBillingInvoice(b: any): BillingInvoice {
     id: b.id,
     appointmentId: b.appointment_id,
     clinicId: b.clinic_id,
+    items: Array.isArray(b.items)
+      ? b.items.map((it: any) => ({
+          id: it.id || crypto.randomUUID(),
+          itemName: it.itemName || it.item_name || it.name || 'Clinical Service',
+          name: it.name || it.itemName || it.item_name || 'Clinical Service',
+          quantity: Number(it.quantity || 1),
+          price: Number(it.price || it.unitPrice || 0),
+          total: Number(it.total || (Number(it.price || 0) * Number(it.quantity || 1))),
+        }))
+      : [],
     totalAmount: Number(b.total_amount || 0),
     paidAmount: Number(b.paid_amount || 0),
     balanceDue: Number(b.balance_due || 0),
@@ -2046,42 +2112,19 @@ export function parseTimeToMinutes(timeStr?: string): number {
   if (!timeStr) return 23 * 60 + 59
   try {
     const clean = timeStr.trim().toUpperCase()
-    const parts = clean.split(/[-–]|TO/)
-    const firstPart = parts[0]?.trim() || clean
-    const secondPart = parts[1]?.trim() || ''
-
-    const m = firstPart.match(/^(\d{1,2})(?::(\d{2}))?/)
+    const isPm = clean.includes('PM')
+    const isAm = clean.includes('AM')
+    const stripped = clean.replace(/AM|PM/g, '').trim()
+    const m = stripped.match(/^(\d{1,2})(?:[:.](\d{1,2}))?/)
     if (!m) return 12 * 60
     let hours = parseInt(m[1], 10)
     const minutes = parseInt(m[2] || '0', 10)
 
-    const firstHasAm = firstPart.includes('AM')
-    const firstHasPm = firstPart.includes('PM')
-    const secondHasAm = secondPart.includes('AM')
-    const secondHasPm = secondPart.includes('PM')
-
-    const isAm = firstHasAm
-      ? true
-      : firstHasPm
-      ? false
-      : secondHasAm
-      ? true
-      : secondHasPm && hours >= 7 && hours <= 11
-      ? true
-      : false
-
-    const isPm = firstHasPm
-      ? true
-      : firstHasAm
-      ? false
-      : secondHasPm && hours >= 1 && hours <= 6
-      ? true
-      : secondHasPm && hours === 12
-      ? true
-      : false
-
     if (isPm && hours < 12) hours += 12
     if (isAm && hours === 12) hours = 0
+
+    // In medical clinic contexts, if AM/PM is omitted and hour is 1..6,
+    // it represents afternoon hours (1:00 PM to 6:00 PM / 13:00 to 18:00)
     if (!isPm && !isAm && hours >= 1 && hours <= 6) hours += 12
 
     return hours * 60 + minutes
@@ -2090,20 +2133,67 @@ export function parseTimeToMinutes(timeStr?: string): number {
   }
 }
 
-export function isSlotTimeExpired(slotDate: string, endTimeStr: string): boolean {
-  if (!slotDate || !endTimeStr) return false
+export function isSlotTimeExpired(slotDate: string, endTimeStr?: string, startTimeStr?: string): boolean {
+  if (!slotDate) return false
   const now = new Date()
-  const todayStr = now.toISOString().split('T')[0]
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  const todayStr = `${year}-${month}-${day}`
 
   // Compare dates: YYYY-MM-DD
   if (slotDate < todayStr) return true
   if (slotDate > todayStr) return false
 
+  let cleanEnd = (endTimeStr || '').trim()
+  let cleanStart = (startTimeStr || '').trim()
+
+  const rangePattern = /\s*(?:[-–—]|\bto\b)\s*/i
+  if (!cleanEnd && rangePattern.test(cleanStart)) {
+    const parts = cleanStart.split(rangePattern)
+    if (parts.length >= 2) {
+      cleanStart = parts[0].trim()
+      cleanEnd = parts[1].trim()
+    }
+  } else if (rangePattern.test(cleanEnd)) {
+    const parts = cleanEnd.split(rangePattern)
+    if (parts.length >= 2) {
+      if (!cleanStart) cleanStart = parts[0].trim()
+      cleanEnd = parts[parts.length - 1].trim()
+    }
+  }
+
+  const startMins = cleanStart ? parseTimeToMinutes(cleanStart) : null
+  let endMins = cleanEnd ? parseTimeToMinutes(cleanEnd) : null
+
+  if (endMins === null) {
+    if (startMins !== null) {
+      endMins = startMins + 30
+    } else {
+      return false
+    }
+  }
+
+  if (startMins !== null && endMins === startMins) {
+    endMins = startMins + 30
+  }
+
+  // Handle 12-hour rollover without AM/PM:
+  // e.g. start at 12:00 (720m) and end at 1:00 (which if not converted would be 60m)
+  // If endMins < startMins, check if adding 12 hours (720 mins) makes it a valid afternoon/evening slot
+  if (endMins === 0 && (startMins === null || startMins > 0)) {
+    endMins = 24 * 60
+  } else if (startMins !== null && endMins < startMins) {
+    if (endMins + 720 > startMins && (endMins + 720 - startMins) <= 720) {
+      endMins += 720
+    } else {
+      endMins += 24 * 60
+    }
+  }
+
   // If slot is today, check if slot end time has passed
   const currentMinutes = now.getHours() * 60 + now.getMinutes()
-  const endMinutes = parseTimeToMinutes(endTimeStr)
-
-  return currentMinutes >= endMinutes
+  return currentMinutes >= endMins
 }
 
 export async function getPatientProfileByEmail(email: string): Promise<PatientProfile | null> {
