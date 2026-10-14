@@ -106,6 +106,7 @@ export interface Slot {
   bookedCount: number
   isAvailable?: boolean
   isBreak?: boolean
+  isPublished?: boolean
 }
 
 export interface ClinicService {

@@ -102,11 +102,7 @@ function Bump-App {
             $env:JAVA_HOME = "D:\jdk17"
             $env:PATH = "D:\jdk17\bin;$env:PATH"
         }
-        $cacheDir = "D:\gradle_cache\$OutputPrefix"
-        if (-not (Test-Path $cacheDir)) {
-            New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
-        }
-        & .\gradlew.bat "assemble$BuildType" --console=plain --project-cache-dir "$cacheDir"
+        & .\gradlew.bat "assemble$BuildType" --console=plain
         if ($LASTEXITCODE -ne 0) {
             throw "Gradle build failed with exit code $LASTEXITCODE"
         }
@@ -116,10 +112,12 @@ function Bump-App {
 
     $btLower = $BuildType.ToLower()
     $searchLocations = @(
+        (Join-Path $AppDir "app\build5\outputs\apk\$btLower"),
         (Join-Path $AppDir "app\build4\outputs\apk\$btLower"),
         (Join-Path $AppDir "app\build2\outputs\apk\$btLower"),
         (Join-Path $AppDir "app\build\outputs\apk\$btLower"),
         (Join-Path $AppDir "app\build3\outputs\apk\$btLower"),
+        (Join-Path $AppDir "app\build5\outputs\apk\debug"),
         (Join-Path $AppDir "app\build4\outputs\apk\debug"),
         (Join-Path $AppDir "app\build2\outputs\apk\debug"),
         (Join-Path $AppDir "app\build\outputs\apk\debug")

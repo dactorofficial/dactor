@@ -3510,7 +3510,7 @@ fun RecordsTab(
                                                         if (isPrepared) {
                                                             Button(
                                                                 onClick = {
-                                                                    com.dactor.patient.util.LabReportPdfDownloader.downloadLabReportPdf(
+                                                                    com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
                                                                         context = context,
                                                                         report = report,
                                                                         patientName = appt.patientName,

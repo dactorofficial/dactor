@@ -1059,7 +1059,6 @@ fun LabWorkflowScreen(
                                 val finalUrl = when {
                                     publicUrl != null -> publicUrl
                                     fName != null && order.reportFileUrl != null -> order.reportFileUrl
-                                    fName != null -> "https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public/lab-reports/$fName"
                                     else -> null
                                 }
 
@@ -1162,18 +1161,24 @@ fun LabWorkflowScreen(
                                 )
 
                             if (nameMatches || phoneMatches) {
-                                val targetUrl = order.reportFileUrl
                                 verifyingOrderForViewing = null
-                                if (!targetUrl.isNullOrBlank()) {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Verified! Report: ${order.testName}", Toast.LENGTH_LONG).show()
-                                    }
-                                } else {
-                                    Toast.makeText(context, "Verified! Report '${order.testName}' is Prepared.", Toast.LENGTH_LONG).show()
-                                }
+                                val labRep = com.dactor.clinic.data.model.LabReport(
+                                    id = order.id,
+                                    appointmentId = order.appointmentId,
+                                    clinicId = effectiveClinicId,
+                                    testName = order.testName,
+                                    stage = "prepared",
+                                    fileUrl = order.reportFileUrl,
+                                    fileName = order.reportFileName,
+                                    fileType = order.fileType,
+                                    patientNameVerification = order.patientName
+                                )
+                                com.dactor.clinic.domain.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+                                    context = context,
+                                    report = labRep,
+                                    patientName = order.patientName,
+                                    clinicName = "Dactor Diagnostic & Pathology Lab"
+                                )
                             } else {
                                 verificationError = "Name or Mobile Number does not match the patient record."
                             }

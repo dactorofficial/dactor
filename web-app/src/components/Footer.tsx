@@ -153,18 +153,6 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   <span>Reception Walk-In Tokens</span>
                 </button>
               </li>
-              <li>
-                <button
-                  onClick={() => {
-                    window.location.hash = '#portal?tab=tickets'
-                    onNavigate('portal')
-                  }}
-                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left text-purple-300 font-medium"
-                >
-                  <ChevronRight className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Admin Tickets Desk (Helpdesk)</span>
-                </button>
-              </li>
             </ul>
           </div>
 

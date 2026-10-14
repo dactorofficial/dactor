@@ -637,20 +637,36 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
   try {
     const nowIso = new Date().toISOString()
 
-    // Map UI status to valid queue_status_enum
+    // Map UI status to valid queue_status_enum and appointment checkin_status
     let qStatus = 'waiting'
-    if (status === 'in_consultation' || status === 'inside') qStatus = 'inside'
-    else if (status === 'completed' || status === 'done') qStatus = 'done'
-    else if (status === 'cancelled' || status === 'no_show') qStatus = 'no_show'
-    else if (status === 'sample_collected') qStatus = 'sample_collected'
-    else if (status === 'processing') qStatus = 'processing'
-    else if (status === 'report_prepared') qStatus = 'report_prepared'
-    else qStatus = 'waiting'
+    let apptCheckinStatus = 'checked_in'
+    if (status === 'in_consultation' || status === 'inside') {
+      qStatus = 'inside'
+      apptCheckinStatus = 'in_consultation'
+    } else if (status === 'completed' || status === 'done') {
+      qStatus = 'done'
+      apptCheckinStatus = 'completed'
+    } else if (status === 'cancelled' || status === 'no_show') {
+      qStatus = 'no_show'
+      apptCheckinStatus = 'cancelled'
+    } else if (status === 'sample_collected') {
+      qStatus = 'sample_collected'
+      apptCheckinStatus = 'sample_collected'
+    } else if (status === 'processing') {
+      qStatus = 'processing'
+      apptCheckinStatus = 'processing'
+    } else if (status === 'report_prepared') {
+      qStatus = 'report_prepared'
+      apptCheckinStatus = 'report_prepared'
+    } else {
+      qStatus = 'waiting'
+      apptCheckinStatus = 'checked_in'
+    }
 
-    // Ensure appointment checkin_status is checked_in
+    // Keep appointment checkin_status synchronized with live workflow
     await supabase
       .from('appointments')
-      .update({ checkin_status: 'checked_in', updated_at: nowIso })
+      .update({ checkin_status: apptCheckinStatus, updated_at: nowIso })
       .eq('id', id)
 
     // Update or create queue_entries row
@@ -668,11 +684,10 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
     }
 
     if (existingQ?.id) {
-      const { error: qErr } = await supabase
+      await supabase
         .from('queue_entries')
         .update(qUpdate)
         .eq('id', existingQ.id)
-      return !qErr
     } else {
       // Fetch appointment to get clinic_id & doctor_id
       const { data: appt } = await supabase
@@ -682,7 +697,7 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
         .maybeSingle()
 
       if (appt?.clinic_id) {
-        const { error: insErr } = await supabase.from('queue_entries').insert({
+        await supabase.from('queue_entries').insert({
           id: crypto.randomUUID(),
           appointment_id: id,
           clinic_id: appt.clinic_id,
@@ -690,8 +705,80 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
           queue_position: 1,
           ...qUpdate,
         })
-        return !insErr
       }
+    }
+
+    // Keep slot capacity accurately recounted on cancellation
+    if (status === 'cancelled' || status === 'no_show') {
+      try {
+        const { data: targetAppt } = await supabase
+          .from('appointments')
+          .select('slot_id')
+          .eq('id', id)
+          .maybeSingle()
+        if (targetAppt?.slot_id) {
+          const { data: slotAppts } = await supabase
+            .from('appointments')
+            .select('id, checkin_status')
+            .eq('slot_id', targetAppt.slot_id)
+          const realCount = (slotAppts || []).filter((a: any) => a.id !== id && a.checkin_status !== 'cancelled').length
+          await supabase.from('slots').update({ booked_count: realCount }).eq('id', targetAppt.slot_id)
+        }
+      } catch {}
+    }
+
+    // Automatic Live Notification Dispatch
+    try {
+      const { data: targetAppt } = await supabase
+        .from('appointments')
+        .select('id, user_id, clinic_id, tracking_code_10_digit, patient_name, clinics(name)')
+        .eq('id', id)
+        .maybeSingle()
+
+      if (targetAppt) {
+        const clinicName = (targetAppt as any)?.clinics?.name || 'Clinic'
+        const code10 = targetAppt.tracking_code_10_digit || ''
+        const patientName = targetAppt.patient_name || 'Patient'
+
+        let notifTitle = ''
+        let notifMessage = ''
+
+        if (qStatus === 'inside') {
+          notifTitle = "It's Your Turn! • Please Enter Cabin"
+          notifMessage = `Dear ${patientName}, the doctor is ready for your consultation at ${clinicName}. Please proceed into the doctor's cabin now.${code10 ? ` (Tracking Code: ${code10})` : ''}`
+        } else if (qStatus === 'sample_collected') {
+          notifTitle = 'Sample Collected • Processing in Lab'
+          notifMessage = `Dear ${patientName}, your test sample has been safely collected at ${clinicName} and is now being processed.${code10 ? ` (Tracking Code: ${code10})` : ''}`
+        } else if (qStatus === 'report_prepared') {
+          notifTitle = 'Lab Report Ready • Download Available'
+          notifMessage = `Dear ${patientName}, your diagnostic lab test report from ${clinicName} is now ready to view and download.${code10 ? ` (Tracking Code: ${code10})` : ''}`
+        } else if (qStatus === 'done') {
+          notifTitle = 'Consultation Completed'
+          notifMessage = `Dear ${patientName}, your visit at ${clinicName} has been marked completed. Thank you for choosing Dactor.${code10 ? ` (Tracking Code: ${code10})` : ''}`
+        }
+
+        if (notifTitle) {
+          await supabase.from('notifications').insert({
+            id: crypto.randomUUID(),
+            appointment_id: targetAppt.id,
+            user_id: targetAppt.user_id && targetAppt.user_id.length === 36 ? targetAppt.user_id : null,
+            title: notifTitle,
+            message: notifMessage,
+            type: 'queue_alert',
+            target_audience: 'specific',
+            is_read: false,
+            meta_json: JSON.stringify({ tracking_code: code10, status: qStatus }),
+            created_at: nowIso,
+          })
+        }
+
+        // When a patient enters cabin or completes, notify approaching patients in queue
+        if (targetAppt.clinic_id && (qStatus === 'inside' || qStatus === 'done')) {
+          checkAndNotifyApproachingPatients(targetAppt.clinic_id).catch(() => {})
+        }
+      }
+    } catch (notifErr) {
+      console.warn('Automatic notification dispatch warning:', notifErr)
     }
 
     return true
@@ -706,15 +793,31 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
 // ==========================================
 export async function getSlots(clinicId: string, date: string): Promise<Slot[]> {
   try {
-    const { data, error } = await supabase
-      .from('slots')
-      .select('*')
-      .eq('clinic_id', clinicId)
-      .eq('slot_date', date)
-      .order('start_time', { ascending: true })
+    const [slotsRes, apptsRes] = await Promise.all([
+      supabase
+        .from('slots')
+        .select('*')
+        .eq('clinic_id', clinicId)
+        .eq('slot_date', date)
+        .order('start_time', { ascending: true }),
+      supabase
+        .from('appointments')
+        .select('id, slot_id, checkin_status')
+        .eq('clinic_id', clinicId)
+        .eq('appointment_date', date)
+    ])
 
-    if (error) throw error
-    return (data || []).map(mapSlot)
+    if (slotsRes.error) throw slotsRes.error
+    const activeAppts = (apptsRes.data || []).filter((a: any) => a.checkin_status !== 'cancelled')
+
+    return (slotsRes.data || []).map((raw) => {
+      const slot = mapSlot(raw)
+      const actualCount = activeAppts.filter((a: any) => a.slot_id === slot.id).length
+      return {
+        ...slot,
+        bookedCount: Math.max(slot.bookedCount, actualCount),
+      }
+    })
   } catch (err) {
     console.error('Error fetching slots:', err)
     return []
@@ -761,6 +864,8 @@ export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
       end_time: formatTimeForPostgres(slot.endTime),
       max_capacity: slot.maxCapacity || 10,
       booked_count: slot.bookedCount || 0,
+      is_published: slot.isPublished ?? true,
+      is_available: slot.isAvailable ?? true,
     }
 
     const { data, error } = await supabase
@@ -1000,7 +1105,7 @@ export async function checkAndNotifyApproachingPatients(
   try {
     const { data: waitingEntries } = await supabase
       .from('queue_entries')
-      .select('id, appointment_id, queue_position, appointments(patient_name, user_id, clinic_id, clinics(name))')
+      .select('id, appointment_id, queue_position, appointments(patient_name, user_id, clinic_id, tracking_code_10_digit, clinics(name))')
       .eq('clinic_id', clinicId)
       .eq('status', 'waiting')
       .order('queue_position', { ascending: true })
@@ -1012,22 +1117,34 @@ export async function checkAndNotifyApproachingPatients(
       if (pos > 0 && pos <= threshold) {
         const appt: any = entry.appointments
         const clinicName = appt?.clinics?.name || 'Clinic'
+        const code10 = appt?.tracking_code_10_digit || ''
         const patientsAhead = Math.max(0, pos - 1)
         const msg = patientsAhead === 0
-          ? `You are next in line at ${clinicName}! Please prepare to enter the doctor's cabin.`
-          : `Your turn is approaching! Only ${patientsAhead} ${patientsAhead === 1 ? 'patient' : 'patients'} ahead of you at ${clinicName}. Please proceed to the clinic waiting area.`
+          ? `You are next in line at ${clinicName}! Please prepare to enter the doctor's cabin.${code10 ? ` (Tracking Code: ${code10})` : ''}`
+          : `Your turn is approaching! Only ${patientsAhead} ${patientsAhead === 1 ? 'patient' : 'patients'} ahead of you at ${clinicName}. Please proceed to the clinic waiting area.${code10 ? ` (Tracking Code: ${code10})` : ''}`
 
-        await supabase.from('notifications').insert({
-          id: crypto.randomUUID(),
-          appointment_id: entry.appointment_id,
-          user_id: appt?.user_id && appt.user_id.length === 36 ? appt.user_id : null,
-          title: `Your Turn is Approaching! Token #${pos}`,
-          message: msg,
-          type: 'queue_alert',
-          target_audience: 'specific',
-          is_read: false,
-          created_at: new Date().toISOString(),
-        })
+        // Deduplicate: avoid resending same token alert repeatedly
+        const { data: recentAlert } = await supabase
+          .from('notifications')
+          .select('id')
+          .eq('appointment_id', entry.appointment_id)
+          .ilike('title', `%Token #${pos}%`)
+          .maybeSingle()
+
+        if (!recentAlert) {
+          await supabase.from('notifications').insert({
+            id: crypto.randomUUID(),
+            appointment_id: entry.appointment_id,
+            user_id: appt?.user_id && appt.user_id.length === 36 ? appt.user_id : null,
+            title: `Your Turn is Approaching! Token #${pos}`,
+            message: msg,
+            type: 'queue_alert',
+            target_audience: 'specific',
+            is_read: false,
+            meta_json: JSON.stringify({ tracking_code: code10, token: pos }),
+            created_at: new Date().toISOString(),
+          })
+        }
       }
     }
   } catch (err) {
@@ -1984,6 +2101,7 @@ function mapSlot(s: any): Slot {
     maxCapacity: s.max_capacity,
     bookedCount: s.booked_count,
     isAvailable: s.is_available ?? true,
+    isPublished: s.is_published ?? true,
   }
 }
 

@@ -523,8 +523,21 @@ export function matchClinic(
     }
 
     if (docMatched) {
+      // Doctor In-Clinic Presence boost (matches mobile app priority for available doctors)
+      const isDocInThisClinic = doc.isInClinic !== false && (!doc.activeClinicId || doc.activeClinicId === clinic.id)
+      if (isDocInThisClinic) {
+        score += 20
+      }
       matchedDocs.push(doc)
     }
+  }
+
+  // General In-Clinic Doctors boost for centers with active doctor presence
+  const hasActiveDocInClinic = doctors.some(
+    (d) => d.isInClinic !== false && (!d.activeClinicId || d.activeClinicId === clinic.id)
+  )
+  if (hasActiveDocInClinic && score > 0) {
+    score += 15
   }
 
   // 3. Service / Diagnostic Lab Test matching

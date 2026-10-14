@@ -141,20 +141,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Track 10-Digit Code</span>
             </button>
 
-            {/* Quick Check Help Request Button */}
-            <button
-              onClick={() => {
-                setActiveTab('support')
-                window.location.hash = '#support?view=track'
-                window.scrollTo({ top: 0, behavior: 'smooth' })
-              }}
-              className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:text-brand-700 bg-white/70 hover:bg-white/95 border border-white/70 rounded-xl transition-all duration-150 shadow-glass-sm hover:scale-[1.02] active:scale-[0.98] cursor-pointer backdrop-blur-md"
-              title="Check help request ticket status"
-            >
-              <Ticket className="w-3.5 h-3.5 text-brand-600" />
-              <span>Check Help Request</span>
-            </button>
-
             {/* Notification Bell */}
             <button
               onClick={onOpenNotificationModal}
@@ -173,7 +159,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* ROLE-SPECIFIC PORTAL SEGREGATION                          */}
             {/* ========================================================= */}
             {activePortalRole === 'clinic_manager' ? (
-              /* CLINIC MANAGER DESK VIEW: Clinic Center, Admin Tickets, and Logout */
+              /* CLINIC MANAGER DESK VIEW: Clinic Center and Logout */
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setActiveTab('portal')}
@@ -182,19 +168,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Building2 className="w-3.5 h-3.5" />
                   <span>Clinic Center</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setActiveTab('portal')
-                    window.location.hash = '#portal?tab=tickets'
-                    window.dispatchEvent(new HashChangeEvent('hashchange'))
-                  }}
-                  className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white shadow-sm border border-purple-500/40 cursor-pointer"
-                  title="Admin Support Tickets Directory"
-                >
-                  <Headphones className="w-3.5 h-3.5 text-purple-300" />
-                  <span>Admin Tickets</span>
                 </button>
 
                 {currentUserEmail && (
@@ -394,19 +367,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Verify & View Lab Report</span>
               </button>
 
-              <button
-                onClick={() => {
-                  setActiveTab('support')
-                  window.location.hash = '#support?view=track'
-                  setMobileMenuOpen(false)
-                  window.scrollTo({ top: 0, behavior: 'smooth' })
-                }}
-                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-800 bg-white border border-slate-200 shadow-xs"
-              >
-                <Ticket className="w-4 h-4 text-brand-600" />
-                <span>Check Help Request Status</span>
-              </button>
-
               {/* STRICT ROLE-SPECIFIC MOBILE PORTAL BUTTONS */}
               {activePortalRole === 'clinic_manager' ? (
                 <>
@@ -419,18 +379,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <Building2 className="w-4 h-4" />
                     <span>Clinic & Lab Center</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setActiveTab('portal')
-                      window.location.hash = '#portal?tab=tickets'
-                      setMobileMenuOpen(false)
-                    }}
-                    className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-purple-700 to-indigo-700 shadow-sm"
-                  >
-                    <Headphones className="w-4 h-4" />
-                    <span>Admin Support Tickets Desk</span>
                   </button>
                   {onLogout && (
                     <button

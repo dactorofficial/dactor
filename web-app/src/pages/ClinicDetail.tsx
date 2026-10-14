@@ -108,6 +108,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   // Diagnostic Lab Selection
   const [selectedTests, setSelectedTests] = useState<{ [serviceId: string]: boolean }>({})
 
+  // Doctor in-clinic presence validator for this specific clinic
+  const isDoctorInThisClinic = (doc?: Doctor | null): boolean => {
+    if (!doc) return false
+    if (doc.isInClinic === false) return false
+    if (doc.activeClinicId && clinic?.id && doc.activeClinicId !== clinic.id) return false
+    return true
+  }
+
   // Booking Modal & Step ('details' | 'payment')
   const [showBookingModal, setShowBookingModal] = useState(false)
   const [bookingStep, setBookingStep] = useState<'details' | 'payment'>('details')
@@ -1381,7 +1389,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         <div>
                           <div className="flex items-center space-x-2">
                             <h3 className="text-lg font-black text-slate-900 dark:text-white">{selectedDoctor.fullName}</h3>
-                            {selectedDoctor.isInClinic ? (
+                            {isDoctorInThisClinic(selectedDoctor) ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-ping" />
                                 In Clinic Now
@@ -1614,7 +1622,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                             <div>
                               <div className="flex items-center space-x-2">
                                 <h3 className="text-base font-black text-slate-900 dark:text-white">{doc.fullName}</h3>
-                                {doc.isInClinic ? (
+                                {isDoctorInThisClinic(doc) ? (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-ping" />
                                     In Clinic Now

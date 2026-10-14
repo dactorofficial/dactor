@@ -114,9 +114,35 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
         if (filterType === 'polyclinic' && !isPoly) return null
 
         const clinicDocs = clinicDoctorsMap[clinic.id] || []
+        const hasDoctorInClinic = clinicDocs.some(
+          (d) => d.isInClinic !== false && (!d.activeClinicId || d.activeClinicId === clinic.id)
+        )
+        const inClinicDocsCount = clinicDocs.filter(
+          (d) => d.isInClinic !== false && (!d.activeClinicId || d.activeClinicId === clinic.id)
+        ).length
+
+        // Category / In-Clinic Availability filter check
+        if (filterType === 'doctor_in_clinic' && !hasDoctorInClinic) return null
+        if (filterType === 'diagnostic_lab' && !isLab) return null
+        if (filterType === 'single_doctor' && !isSingle) return null
+        if (filterType === 'polyclinic' && !isPoly) return null
 
         if (!searchTerm.trim()) {
-          return { clinic, score: 10, isLab, isSingle, isPoly, matchReason: undefined, matchedDoctor: undefined }
+          const baseScore = hasDoctorInClinic ? 30 + inClinicDocsCount * 5 : 10
+          return {
+            clinic,
+            score: baseScore,
+            isLab,
+            isSingle,
+            isPoly,
+            matchReason: undefined,
+            matchedDoctor:
+              clinicDocs.find(
+                (d) => d.isInClinic !== false && (!d.activeClinicId || d.activeClinicId === clinic.id)
+              ) || clinicDocs[0],
+            hasDoctorInClinic,
+            inClinicDocsCount,
+          }
         }
 
         const match = matchClinic(clinic, clinicDocs, [], searchTerm)
@@ -129,7 +155,9 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
           isSingle,
           isPoly,
           matchReason: match.matchHighlightReason,
-          matchedDoctor: match.matchedDoctors?.[0],
+          matchedDoctor: match.matchedDoctors?.[0] || clinicDocs[0],
+          hasDoctorInClinic,
+          inClinicDocsCount,
         }
       })
       .filter(Boolean)
@@ -209,10 +237,11 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
           ))}
         </div>
 
-        {/* 4 Clinic Category Filter Tabs */}
+        {/* 5 Clinic Category & Availability Filter Tabs */}
         <div className="pt-2 border-t border-slate-200/40 dark:border-white/10 flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1 sm:mx-0 sm:px-0">
           {[
             { id: 'all', label: `All Centers (${clinics.length})`, icon: Building2 },
+            { id: 'doctor_in_clinic', label: 'Doctor In Clinic Now', icon: Stethoscope },
             { id: 'single_doctor', label: 'Single-Visit OPD Clinics', icon: Stethoscope },
             { id: 'polyclinic', label: 'Multi-Specialty Polyclinics', icon: Users },
             { id: 'diagnostic_lab', label: 'Diagnostic Pathology Labs', icon: FlaskConical },
@@ -336,6 +365,12 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                       </span>
 
                       <div className="flex items-center space-x-1.5">
+                        {item.hasDoctorInClinic && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-600/90 text-white shadow-glass-sm border border-white/20 backdrop-blur-md">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 mr-1 animate-ping" />
+                            Doctor In Clinic
+                          </span>
+                        )}
                         {clinic.isOnBreak && (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/90 text-white shadow-glass-sm border border-white/20 backdrop-blur-md">
                             On Break
@@ -367,9 +402,21 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                     )}
 
                     {matchedDoctor && (
-                      <div className="p-2 bg-teal-500/10 border border-teal-500/20 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-teal-800 dark:text-teal-300 backdrop-blur-sm">
-                        <Stethoscope className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                        <span className="truncate">Attending Doctor: Dr. {matchedDoctor.fullName} ({matchedDoctor.specialty || 'Specialist'})</span>
+                      <div className="p-2 bg-teal-500/10 border border-teal-500/20 rounded-xl flex items-center justify-between text-[11px] font-bold text-teal-800 dark:text-teal-300 backdrop-blur-sm">
+                        <div className="flex items-center space-x-1.5 truncate">
+                          <Stethoscope className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                          <span className="truncate">Attending Doctor: Dr. {matchedDoctor.fullName} ({matchedDoctor.specialty || 'Specialist'})</span>
+                        </div>
+                        {matchedDoctor.isInClinic !== false && (!matchedDoctor.activeClinicId || matchedDoctor.activeClinicId === clinic.id) ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 shrink-0 ml-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-ping" />
+                            In Clinic
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold liquid-glass-subtle text-slate-500 shrink-0 ml-1.5">
+                            Away
+                          </span>
+                        )}
                       </div>
                     )}
 

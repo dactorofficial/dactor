@@ -358,8 +358,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     }
   }
 
-  // Doctor presence flag
-  const isDoctorInClinic = doctor?.isInClinic !== false
+  // Doctor presence flag (validated for this appointment's clinic)
+  const isDoctorInClinic = Boolean(
+    doctor &&
+    doctor.isInClinic !== false &&
+    (!doctor.activeClinicId || !appointment?.clinicId || doctor.activeClinicId === appointment.clinicId)
+  )
 
   // Helper to parse slot start time
   const slotStartDate = useMemo(() => {

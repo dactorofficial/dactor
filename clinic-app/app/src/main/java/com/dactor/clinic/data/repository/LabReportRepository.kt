@@ -263,16 +263,22 @@ class LabReportRepository @Inject constructor(
     }
 
     suspend fun uploadReportDocument(reportId: String, fileName: String, bytes: ByteArray): String? = withContext(Dispatchers.IO) {
-        try {
-            val compressed = com.dactor.clinic.domain.util.FileCompressor.compressBytes(bytes, fileName)
-            val cleanName = compressed.fileName.replace("\\s+".toRegex(), "_")
-            val bucket = supabaseClient.storage["lab-reports"]
-            val path = "reports/${reportId}_$cleanName"
-            bucket.upload(path, compressed.bytes, upsert = true)
-            bucket.publicUrl(path)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
+        val candidateBuckets = listOf("clinic_photos", "doctor_photos")
+        val compressed = com.dactor.clinic.domain.util.FileCompressor.compressBytes(bytes, fileName)
+        val cleanName = compressed.fileName.replace("\\s+".toRegex(), "_")
+        val path = "lab_reports/${reportId}_$cleanName"
+        for (bName in candidateBuckets) {
+            try {
+                val bucket = supabaseClient.storage[bName]
+                bucket.upload(path, compressed.bytes, upsert = true)
+                val url = bucket.publicUrl(path)
+                if (!url.isNullOrBlank()) {
+                    return@withContext url
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
+        null
     }
 }

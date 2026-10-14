@@ -18,8 +18,13 @@ import com.dactor.patient.data.model.LabReport
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.Executors
+import android.os.Handler
+import android.os.Looper
 
 object LabReportPdfDownloader {
 
@@ -324,22 +329,29 @@ object LabReportPdfDownloader {
         }
     }
 
-    fun openPdf(context: Context, uri: Uri) {
+    fun openSavedFile(context: Context, uri: Uri, mimeType: String = "application/pdf") {
         try {
             val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/pdf")
+                setDataAndType(uri, mimeType)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(Intent.createChooser(viewIntent, "Open Lab Report PDF"))
+            context.startActivity(Intent.createChooser(viewIntent, "Open Lab Report"))
         } catch (ignored: Exception) {
             // File is already saved in Downloads
         }
     }
 
+    fun openPdf(context: Context, uri: Uri) {
+        openSavedFile(context, uri, "application/pdf")
+    }
+
+    private val downloadExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     /**
-     * Downloads and saves the actual lab report file (PDF or picture/image) to the device's Downloads directory.
-     * If the report has a remote fileUrl, it uses DownloadManager or direct file saving into MediaStore.Downloads.
-     * If no remote URL is attached, it generates the full official verified Diagnostic Lab Report PDF.
+     * Downloads and saves the actual lab report file (PDF or picture/image) directly to the device's Downloads directory.
+     * If the report has a remote fileUrl, it streams the bytes and writes them directly into MediaStore.Downloads.
+     * If no remote URL is attached or network download fails, it generates the full official verified Diagnostic Lab Report PDF.
      */
     fun downloadAndSaveReportFile(
         context: Context,
@@ -351,58 +363,101 @@ object LabReportPdfDownloader {
     ): Uri? {
         val fileUrl = report.fileUrl
         if (!fileUrl.isNullOrBlank() && (fileUrl.startsWith("http://") || fileUrl.startsWith("https://"))) {
-            try {
-                val cleanTest = report.testName.replace("[^A-Za-z0-9]".toRegex(), "_").take(20)
-                val isImage = report.fileType?.startsWith("image") == true ||
-                        fileUrl.endsWith(".jpg", true) || fileUrl.endsWith(".jpeg", true) ||
-                        fileUrl.endsWith(".png", true) || report.fileName?.endsWith(".jpg", true) == true ||
-                        report.fileName?.endsWith(".png", true) == true
-                val extension = if (isImage) {
-                    if (fileUrl.endsWith(".png", true) || report.fileName?.endsWith(".png", true) == true) "png" else "jpg"
-                } else "pdf"
+            val cleanTest = report.testName.replace("[^A-Za-z0-9]".toRegex(), "_").take(24)
+            val isImage = report.fileType?.startsWith("image", ignoreCase = true) == true ||
+                    fileUrl.endsWith(".jpg", true) || fileUrl.endsWith(".jpeg", true) ||
+                    fileUrl.endsWith(".png", true) || fileUrl.endsWith(".webp", true) ||
+                    report.fileName?.endsWith(".jpg", true) == true ||
+                    report.fileName?.endsWith(".png", true) == true ||
+                    report.fileName?.endsWith(".webp", true) == true
+            val extension = if (isImage) {
+                if (fileUrl.endsWith(".png", true) || report.fileName?.endsWith(".png", true) == true) "png" else "jpg"
+            } else "pdf"
 
-                val fileName = report.fileName?.takeIf { it.isNotBlank() }
-                    ?: "Dactor_Lab_Report_${cleanTest}_${report.appointmentId.take(8)}_${System.currentTimeMillis() / 1000}.$extension"
+            val baseName = report.fileName?.takeIf { it.isNotBlank() }
+                ?: "Dactor_Lab_Report_${cleanTest}_${report.appointmentId.take(8)}_${System.currentTimeMillis() / 1000}.$extension"
+            val sanitizedFileName = baseName.replace("[^A-Za-z0-9._-]".toRegex(), "_")
+            val mimeType = if (isImage) "image/$extension" else "application/pdf"
 
-                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
-                if (downloadManager != null) {
-                    val request = android.app.DownloadManager.Request(Uri.parse(fileUrl)).apply {
-                        setTitle(fileName)
-                        setDescription("Diagnostic Lab Report for $patientName")
-                        setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                        setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                        setAllowedOverMetered(true)
-                        setAllowedOverRoaming(true)
-                        val mimeType = if (isImage) "image/$extension" else "application/pdf"
-                        setMimeType(mimeType)
-                    }
-                    downloadManager.enqueue(request)
-                    Toast.makeText(
-                        context,
-                        "Downloading report to Downloads/$fileName",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+            Toast.makeText(context, "Downloading lab report to Downloads...", Toast.LENGTH_SHORT).show()
 
-                // Also trigger viewing / fallback
-                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                    val mime = if (isImage) "image/*" else "application/pdf"
-                    setDataAndType(Uri.parse(fileUrl), mime)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
+            downloadExecutor.execute {
+                var streamSavedUri: Uri? = null
+                var connection: HttpURLConnection? = null
                 try {
-                    context.startActivity(Intent.createChooser(viewIntent, "Open Lab Report"))
-                } catch (ignored: Exception) {}
+                    val url = URL(fileUrl)
+                    connection = (url.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 15000
+                        readTimeout = 20000
+                        instanceFollowRedirects = true
+                        requestMethod = "GET"
+                    }
+                    connection.connect()
 
-                return Uri.parse(fileUrl)
-            } catch (e: Exception) {
-                e.printStackTrace()
-                // Fall back to generating the official PDF directly into storage
-                return downloadLabReportPdf(context, report, patientName, patientAgeGender, clinicName, doctorName)
+                    if (connection.responseCode in 200..299) {
+                        val resolver = context.contentResolver
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val contentValues = ContentValues().apply {
+                                put(MediaStore.MediaColumns.DISPLAY_NAME, sanitizedFileName)
+                                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                                put(MediaStore.MediaColumns.IS_PENDING, 1)
+                            }
+                            val targetUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                            if (targetUri != null) {
+                                resolver.openOutputStream(targetUri)?.use { out ->
+                                    connection.inputStream.use { inStream ->
+                                        inStream.copyTo(out)
+                                    }
+                                }
+                                contentValues.clear()
+                                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                                resolver.update(targetUri, contentValues, null, null)
+                                streamSavedUri = targetUri
+                            }
+                        } else {
+                            @Suppress("DEPRECATION")
+                            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                            if (!downloadsDir.exists()) downloadsDir.mkdirs()
+                            val destFile = File(downloadsDir, sanitizedFileName)
+                            FileOutputStream(destFile).use { out ->
+                                connection.inputStream.use { inStream ->
+                                    inStream.copyTo(out)
+                                }
+                            }
+                            streamSavedUri = Uri.fromFile(destFile)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    connection?.disconnect()
+                }
+
+                mainHandler.post {
+                    if (streamSavedUri != null) {
+                        Toast.makeText(context, "✓ Saved to Downloads: $sanitizedFileName", Toast.LENGTH_LONG).show()
+                        openSavedFile(context, streamSavedUri!!, mimeType)
+                    } else {
+                        // Network stream fallback: generate verified official report PDF
+                        val fallback = downloadLabReportPdf(context, report, patientName, patientAgeGender, clinicName, doctorName)
+                        if (fallback != null) {
+                            Toast.makeText(context, "✓ Official Lab Report PDF saved to Downloads", Toast.LENGTH_LONG).show()
+                            openPdf(context, fallback)
+                        }
+                    }
+                }
             }
+
+            return Uri.parse(fileUrl)
         } else {
-            // Generates and saves official Diagnostic Lab Report PDF to MediaStore.Downloads
-            return downloadLabReportPdf(context, report, patientName, patientAgeGender, clinicName, doctorName)
+            // Generates and saves official Diagnostic Lab Report PDF directly to MediaStore.Downloads
+            val pdfUri = downloadLabReportPdf(context, report, patientName, patientAgeGender, clinicName, doctorName)
+            if (pdfUri != null) {
+                Toast.makeText(context, "✓ Official Lab Report PDF saved to Downloads", Toast.LENGTH_LONG).show()
+                openPdf(context, pdfUri)
+            }
+            return pdfUri
         }
     }
 }
