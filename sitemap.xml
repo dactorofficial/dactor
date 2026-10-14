@@ -226,13 +226,13 @@
   <!-- Clinic Booking: patan -->
   <url>
     <loc>https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&amp;action=book</loc>
-    <lastmod>2026-10-13</lastmod>
+    <lastmod>2026-10-14</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
     <loc>https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27</loc>
-    <lastmod>2026-10-13</lastmod>
+    <lastmod>2026-10-14</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.85</priority>
   </url>
