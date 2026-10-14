@@ -202,7 +202,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     updatePageSEO({
       title: pageTitle,
       description: pageDesc,
-      canonicalUrl: `https://dactorofficial.github.io/?clinic=${clinic.id}${selectedDoctor ? `&doctor=${selectedDoctor.id}` : ''}`,
+      canonicalUrl: `https://dactorofficial.github.io/dactor/?clinic=${clinic.id}${selectedDoctor ? `&doctor=${selectedDoctor.id}` : ''}`,
       clinic,
       doctor: selectedDoctor,
       allDoctors: doctors,
@@ -212,7 +212,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       updatePageSEO({
         title: "Dactor - Nepal's Realtime Healthcare OPD Queue, Clinic Portal & Lab Ecosystem",
         description: "Dactor connects patients, clinics, polyclinics, and diagnostic pathology labs across Nepal. Track live OPD token queue numbers, calculate estimated wait times, book doctor appointments, order diagnostic tests, and download certified medical reports.",
-        canonicalUrl: 'https://dactorofficial.github.io/',
+        canonicalUrl: 'https://dactorofficial.github.io/dactor/',
       })
     }
   }, [clinic, selectedDoctor, doctors])

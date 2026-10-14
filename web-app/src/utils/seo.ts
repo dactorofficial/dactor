@@ -10,7 +10,7 @@ import { Clinic, Doctor } from '../types'
  * - OpenGraph (Facebook, WhatsApp, LinkedIn) and Twitter Card metadata
  */
 
-const BASE_URL = 'https://dactorofficial.github.io'
+const BASE_URL = 'https://dactorofficial.github.io/dactor'
 const SCRIPT_ID = 'dactor-dynamic-schema-ldjson'
 
 export function updatePageSEO(options: {
