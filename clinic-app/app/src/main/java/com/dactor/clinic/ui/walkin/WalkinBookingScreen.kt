@@ -743,6 +743,62 @@ fun WalkinBookingScreen(
                             val result = appointmentRepository?.createWalkinAppointment(walkin, allowOverbooking = true)
                             if (result != null) {
                                 confirmedCode = result.trackingCode10Digit.ifBlank { generatedCode }
+                                // Immediately persist into clinic_patient_directory local records so it appears in Patient Directory
+                                try {
+                                    val resolvedPatientId = result.userId?.takeIf { it.isNotBlank() }
+                                        ?: (if (email.isNotBlank()) com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForEmail(email)
+                                            else com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForPhone(cleanPhone))
+                                    val directoryPrefs = context.getSharedPreferences("clinic_patient_directory", android.content.Context.MODE_PRIVATE)
+                                    val key = "records_${cleanClinicId.ifBlank { "default" }}"
+                                    val savedRaw = directoryPrefs.getString(key, "") ?: ""
+                                    val existing = savedRaw.split("\n").mapNotNull { line ->
+                                        val parts = line.split("|")
+                                        if (parts.size >= 5 && parts[0].isNotBlank()) {
+                                            com.dactor.clinic.data.model.Profile(
+                                                id = parts[0],
+                                                authUid = null,
+                                                email = parts.getOrNull(4) ?: "",
+                                                fullName = parts[1],
+                                                role = "patient",
+                                                phone = parts[2],
+                                                gender = parts[3].ifBlank { "Male" },
+                                                age = parts.getOrNull(5)?.toIntOrNull()
+                                            )
+                                        } else null
+                                    }.toMutableList()
+
+                                    val newProf = com.dactor.clinic.data.model.Profile(
+                                        id = resolvedPatientId,
+                                        authUid = null,
+                                        email = email.trim(),
+                                        fullName = patientName.trim(),
+                                        role = "patient",
+                                        phone = cleanPhone,
+                                        gender = selectedGender.ifBlank { "Male" },
+                                        age = age.trim().toIntOrNull() ?: 30
+                                    )
+
+                                    existing.removeAll {
+                                        it.id == resolvedPatientId ||
+                                        (email.isNotBlank() && it.email.equals(email.trim(), ignoreCase = true)) ||
+                                        (cleanPhone.isNotBlank() && it.phone == cleanPhone)
+                                    }
+                                    existing.add(0, newProf)
+
+                                    val serialized = existing.joinToString("\n") { p ->
+                                        listOf(
+                                            p.id,
+                                            (p.fullName ?: "").replace("|", " ").replace("\n", " "),
+                                            (p.phone ?: "").replace("|", " ").replace("\n", " "),
+                                            (p.gender ?: "Male").replace("|", " ").replace("\n", " "),
+                                            p.email.replace("|", " ").replace("\n", " "),
+                                            p.age?.toString() ?: ""
+                                        ).joinToString("|")
+                                    }
+                                    directoryPrefs.edit().putString(key, serialized).apply()
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
                             } else {
                                 errorMessage = "Failed to save walk-in appointment. Please check your internet connection and try again."
                                 scrollState.animateScrollTo(0)

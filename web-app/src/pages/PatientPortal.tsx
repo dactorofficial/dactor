@@ -1622,32 +1622,105 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     win.document.close()
   }
 
-  const handlePrintAppointmentBill = (appt: Appointment) => {
+  const handlePrintAppointmentBill = (appt: Appointment, invoice?: BillingInvoice | null) => {
     const win = window.open('', '_blank', 'width=800,height=750')
     if (!win) return
     const clinicTitle = appt.clinic?.name || 'Dactor Certified Healthcare Center'
     const clinicAddr = appt.clinic?.addressText || 'Kathmandu, Nepal'
     const docTitle = appt.doctor?.fullName || 'General OPD Specialist'
     const docSpec = appt.doctor?.specialty || 'General Medicine'
-    const isPaid = appt.paymentStatus === 'paid'
+
+    const inv = invoice || viewingInvoice
+    const effectiveTotal = inv?.totalAmount && inv.totalAmount > 0 ? inv.totalAmount : (appt.feeAmount || 0)
+    const effectivePaid = inv ? inv.paidAmount : (appt.paymentStatus === 'paid' ? effectiveTotal : 0)
+    const effectiveBalance = Math.max(0, effectiveTotal - effectivePaid)
+    const isPaid = effectiveBalance <= 0 && effectiveTotal > 0
+
+    const paymentLogs = parsePaymentRecords(inv?.remarks, effectivePaid, inv?.paidAt)
+    const cleanRemarks = extractCleanClinicalRemarks(inv?.remarks)
+
+    const rawItems = inv?.items && inv.items.length > 0 ? inv.items : []
+    const items = rawItems.length > 0
+      ? rawItems.map((it) => ({
+          name: it.itemName || it.name || 'Clinical Service',
+          quantity: it.quantity || 1,
+          price: it.price || 0,
+          total: it.total || (it.price * (it.quantity || 1)),
+        }))
+      : [
+          {
+            name: `Doctor Consultation & OPD Entry (${appt.appointmentDate})`,
+            quantity: 1,
+            price: effectiveTotal,
+            total: effectiveTotal,
+          },
+        ]
+
+    const itemsRowsHtml = items
+      .map(
+        (it, idx) => `
+        <tr>
+          <td>${idx + 1}</td>
+          <td><strong>${it.name}</strong></td>
+          <td style="text-align:center;">${it.quantity}</td>
+          <td style="text-align:right;">Rs. ${it.price}</td>
+          <td style="text-align:right;font-weight:700;">Rs. ${it.total}</td>
+        </tr>`
+      )
+      .join('')
+
+    const paymentLogsHtml = paymentLogs.length > 0
+      ? `
+        <div style="margin-top:20px;">
+          <h4 style="margin:0 0 8px;font-size:12px;color:#166534;text-transform:uppercase;letter-spacing:0.5px;">Payment Receipts & Time Log</h4>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #bbf7d0;">
+            <thead>
+              <tr style="background:#dcfce7;color:#14532d;font-size:10px;text-transform:uppercase;">
+                <th style="padding:6px;">Date & Time Log</th>
+                <th style="padding:6px;">Note / Mode</th>
+                <th style="padding:6px;text-align:right;">Paid (NPR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${paymentLogs
+                .map(
+                  (p) => `
+                <tr style="font-size:12px;border-bottom:1px solid #e2e8f0;">
+                  <td style="padding:6px;font-family:monospace;">${p.dateTime}</td>
+                  <td style="padding:6px;color:#475569;">${p.note || 'Payment Received'}</td>
+                  <td style="padding:6px;text-align:right;font-weight:700;color:#15803d;">Rs. ${p.amount}</td>
+                </tr>`
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </div>`
+      : ''
+
+    const cleanRemarksHtml = cleanRemarks
+      ? `
+        <div style="margin-top:14px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;">
+          <strong style="color:#0f172a;">Doctor Clinical Remarks & Prescriptions:</strong>
+          <p style="margin:4px 0 0;color:#334155;white-space:pre-wrap;">${cleanRemarks}</p>
+        </div>`
+      : ''
 
     win.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Dactor Bill Slip - #${appt.trackingCode10Digit}</title>
+          <title>Dactor Official Bill - #${appt.trackingCode10Digit}</title>
           <style>
-            body { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; padding: 32px; color: #0f172a; background: #fff; }
-            .box { max-width: 650px; margin: 0 auto; border: 2px solid #0d9488; border-radius: 16px; padding: 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
-            .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #f0fdfa; padding-bottom: 16px; margin-bottom: 18px; }
-            .badge { background: ${isPaid ? '#ecfdf5' : '#fffbeb'}; color: ${isPaid ? '#047857' : '#b45309'}; border: 1px solid ${isPaid ? '#a7f3d0' : '#fde68a'}; padding: 6px 12px; border-radius: 999px; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
-            .code-box { background: #f0fdf4; border: 1px dashed #14b8a6; border-radius: 12px; padding: 12px 16px; margin: 16px 0; text-align: center; }
-            .code { font-family: monospace; font-size: 28px; font-weight: 900; letter-spacing: 4px; color: #0f766e; }
-            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-            th, td { padding: 9px 8px; text-align: left; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+            body { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; padding: 28px; color: #0f172a; background: #fff; }
+            .box { max-width: 680px; margin: 0 auto; border: 2px solid #0d9488; border-radius: 16px; padding: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #f0fdfa; padding-bottom: 14px; margin-bottom: 14px; }
+            .badge { background: ${isPaid ? '#ecfdf5' : '#fffbeb'}; color: ${isPaid ? '#047857' : '#b45309'}; border: 1px solid ${isPaid ? '#a7f3d0' : '#fde68a'}; padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+            .code-box { background: #f0fdf4; border: 1px dashed #14b8a6; border-radius: 12px; padding: 10px 14px; margin: 12px 0; text-align: center; }
+            .code { font-family: monospace; font-size: 26px; font-weight: 900; letter-spacing: 4px; color: #0f766e; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
             th { color: #64748b; text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
-            .total-row { border-top: 2px solid #0f172a; font-size: 16px; font-weight: 900; color: #0f172a; }
-            .footer { margin-top: 24px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 14px; }
+            .footer { margin-top: 20px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 12px; }
           </style>
         </head>
         <body>
@@ -1656,32 +1729,67 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               <div>
                 <h2 style="margin:0;font-size:20px;color:#0f172a;">${clinicTitle}</h2>
                 <p style="margin:3px 0 0;font-size:12px;color:#64748b;">${clinicAddr}</p>
-                <p style="margin:2px 0 0;font-size:11px;font-weight:700;color:#0d9488;">Official Medical Consultation Invoice & Token Slip</p>
+                <p style="margin:2px 0 0;font-size:11px;font-weight:700;color:#0d9488;">Official Medical Invoice & OPD Receipt</p>
               </div>
-              <span class="badge">${isPaid ? 'PAID ONLINE' : 'PAYABLE AT CLINIC'}</span>
+              <span class="badge">${isPaid ? 'PAID FULL' : (effectivePaid > 0 ? 'PARTIAL PAID' : 'PAYABLE AT CLINIC')}</span>
             </div>
 
             <div class="code-box">
               <div style="font-size:10px;text-transform:uppercase;color:#0f766e;font-weight:800;letter-spacing:1px;">10-Digit Live OPD Queue Token</div>
               <div class="code">#${appt.trackingCode10Digit}</div>
-              <div style="font-size:11px;color:#475569;margin-top:2px;">Present this token at the reception desk for instant queue check-in</div>
+              <div style="font-size:11px;color:#475569;margin-top:2px;">Present this token at the reception desk for instant check-in</div>
             </div>
 
-            <table>
-              <tr><th>Invoice No.</th><td><strong style="font-family:monospace;">INV-${appt.trackingCode10Digit}</strong></td></tr>
-              <tr><th>Patient Name</th><td><strong>${appt.patientName}</strong> (${appt.patientAge || '–'} Yrs, ${appt.patientGender || '–'})</td></tr>
+            <!-- Patient & Visit Details -->
+            <table style="margin-bottom:16px;">
+              <tr><th style="width:30%;">Patient Name</th><td><strong>${appt.patientName}</strong> (${appt.patientAge || '–'} Yrs, ${appt.patientGender || '–'})</td></tr>
               <tr><th>Attending Doctor</th><td>Dr. ${docTitle} (${docSpec})</td></tr>
-              <tr><th>Scheduled Date & Slot</th><td><strong>${appt.appointmentDate}</strong> • ${appt.appointmentTime}</td></tr>
-              <tr><th>Registered Phone</th><td><span style="font-family:monospace;">${appt.patientMobile || '–'}</span></td></tr>
-              <tr><th>Doctor Consultation Charge</th><td>NPR ${appt.feeAmount || 0}</td></tr>
-              <tr><th>Clinic Token & Registration</th><td><span style="color:#059669;font-weight:700;">FREE / INCLUDED</span></td></tr>
-              <tr class="total-row"><th>Total Payable Amount</th><td style="color:#0d9488;font-size:17px;font-weight:900;">NPR ${appt.feeAmount || 0}</td></tr>
-              <tr><th>Payment Mode</th><td>${appt.paymentMethod ? appt.paymentMethod.toUpperCase() : (isPaid ? 'DIGITAL GATEWAY' : 'CASH / FONEPAY AT RECEPTION')}</td></tr>
+              <tr><th>Date & Time</th><td><strong>${appt.appointmentDate}</strong> • ${appt.appointmentTime}</td></tr>
+              <tr><th>Contact Phone</th><td><span style="font-family:monospace;">${appt.patientMobile || '–'}</span></td></tr>
             </table>
 
+            <!-- Services & Procedures Table -->
+            <div style="margin-top:10px;">
+              <h4 style="margin:0 0 6px;font-size:11px;color:#334155;text-transform:uppercase;letter-spacing:0.5px;">Services & Procedures</h4>
+              <table style="border:1px solid #e2e8f0;">
+                <thead style="background:#f8fafc;">
+                  <tr>
+                    <th style="width:30px;">#</th>
+                    <th>Description</th>
+                    <th style="text-align:center;">Qty</th>
+                    <th style="text-align:right;">Rate</th>
+                    <th style="text-align:right;">Total (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${itemsRowsHtml}
+                </tbody>
+              </table>
+            </div>
+
+            ${paymentLogsHtml}
+
+            <!-- Financial Summary Box -->
+            <div style="margin-top:16px;background:#f0fdfa;border:1px solid #ccfbf1;border-radius:10px;padding:12px;font-size:12px;">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                <span style="color:#475569;">Total Combined Bill:</span>
+                <strong style="font-size:14px;color:#0f172a;">Rs. ${effectiveTotal}</strong>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;color:#15803d;font-weight:700;">
+                <span>Total Paid to Date:</span>
+                <span>Rs. ${effectivePaid}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px dashed #99f6e4;color:#b91c1c;font-weight:800;font-size:13px;">
+                <span>Balance Due:</span>
+                <span>Rs. ${effectiveBalance}</span>
+              </div>
+            </div>
+
+            ${cleanRemarksHtml}
+
             <div class="footer">
-              <p style="margin:0;font-weight:700;color:#334155;">Verified by Dactor Unified Health Cloud Ecosystem</p>
-              <p style="margin:3px 0 0;font-size:10px;">Generated automatically on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</p>
+              <p style="margin:0;font-weight:700;color:#334155;">Verified by Dactor Unified Health Cloud Network • Computer Generated Official Receipt</p>
+              <p style="margin:3px 0 0;font-size:10px;">Printed on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</p>
             </div>
           </div>
           <script>window.onload = function() { window.print(); }</script>
@@ -4936,34 +5044,122 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               </div>
             </div>
 
-            {/* Itemized Charges */}
+            {/* Itemized Services & Procedures */}
             <div className="space-y-2 text-xs">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                Itemized Fee Breakdown
+                Itemized Services & Procedures
               </span>
-              <div className="divide-y divide-white/40 dark:divide-white/10 border-y border-white/40 dark:border-white/10 py-1">
-                <div className="flex justify-between py-1.5 font-medium text-slate-700 dark:text-slate-300">
-                  <span>Doctor Consultation / OPD Entry Fee</span>
-                  <span className="font-bold">NPR {viewingBillAppt.feeAmount || 0}</span>
-                </div>
-                {viewingBillAppt.selectedTests && viewingBillAppt.selectedTests.length > 0 && (
-                  viewingBillAppt.selectedTests.map((t, idx) => (
-                    <div key={idx} className="flex justify-between py-1.5 text-slate-600 dark:text-slate-400">
-                      <span>Diagnostic Test: {t}</span>
-                      <span className="font-semibold">Included</span>
-                    </div>
-                  ))
-                )}
-                <div className="flex justify-between py-1.5 text-slate-500">
-                  <span>Dactor Cloud Verification & Live Queue Tracking</span>
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">FREE / WAIVED</span>
-                </div>
-                <div className="flex justify-between py-2 text-sm font-black text-slate-900 dark:text-white">
-                  <span>Total Amount Payable</span>
-                  <span className="text-teal-600 dark:text-teal-400">NPR {viewingBillAppt.feeAmount || 0}</span>
-                </div>
+              <div className="border border-white/50 dark:border-white/10 rounded-xl overflow-hidden bg-white/40 dark:bg-slate-800/40">
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-slate-100/70 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 border-b border-white/40 dark:border-white/10">
+                    <tr>
+                      <th className="p-2">Description</th>
+                      <th className="p-2 text-center">Qty</th>
+                      <th className="p-2 text-right">Rate</th>
+                      <th className="p-2 text-right">Total (NPR)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/40 dark:divide-white/10 font-medium">
+                    {viewingInvoice?.items && viewingInvoice.items.length > 0 ? (
+                      viewingInvoice.items.map((it, idx) => (
+                        <tr key={idx}>
+                          <td className="p-2 text-slate-800 dark:text-slate-100">{it.itemName || it.name}</td>
+                          <td className="p-2 text-center font-mono text-slate-500">{it.quantity || 1}</td>
+                          <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">Rs. {it.price}</td>
+                          <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white">
+                            Rs. {it.total || (it.price * (it.quantity || 1))}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-2 text-slate-800 dark:text-slate-100">Doctor Consultation & OPD Entry</td>
+                        <td className="p-2 text-center font-mono text-slate-500">1</td>
+                        <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">Rs. {viewingBillAppt.feeAmount || 0}</td>
+                        <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white">Rs. {viewingBillAppt.feeAmount || 0}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
+
+            {/* Payment Receipts & Time Log Table */}
+            {(() => {
+              const logs = parsePaymentRecords(
+                viewingInvoice?.remarks,
+                viewingInvoice ? viewingInvoice.paidAmount : (viewingBillAppt.paymentStatus === 'paid' ? Number(viewingBillAppt.feeAmount || 0) : 0),
+                viewingInvoice?.paidAt
+              )
+              if (logs.length === 0) return null
+              return (
+                <div className="space-y-1.5 text-xs">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
+                    Payment Receipts & Time Log
+                  </span>
+                  <div className="border border-emerald-500/20 rounded-xl overflow-hidden bg-emerald-50/20 dark:bg-emerald-950/20">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-emerald-100/60 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200 border-b border-emerald-500/20">
+                        <tr>
+                          <th className="p-2">Date & Time Log</th>
+                          <th className="p-2">Note / Mode</th>
+                          <th className="p-2 text-right">Paid (NPR)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-emerald-500/10 font-medium">
+                        {logs.map((p, idx) => (
+                          <tr key={idx}>
+                            <td className="p-2 font-mono text-slate-700 dark:text-slate-200">{p.dateTime}</td>
+                            <td className="p-2 text-slate-500 dark:text-slate-400">{p.note || 'Payment Received'}</td>
+                            <td className="p-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                              Rs. {p.amount}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Financial Summary Box */}
+            {(() => {
+              const totalB = viewingInvoice?.totalAmount && viewingInvoice.totalAmount > 0
+                ? viewingInvoice.totalAmount
+                : Number(viewingBillAppt.feeAmount || 0)
+              const totalP = viewingInvoice
+                ? viewingInvoice.paidAmount
+                : (viewingBillAppt.paymentStatus === 'paid' ? totalB : 0)
+              const bal = Math.max(0, totalB - totalP)
+              const cleanRem = extractCleanClinicalRemarks(viewingInvoice?.remarks)
+
+              return (
+                <div className="space-y-2">
+                  <div className="p-3 bg-teal-50/60 dark:bg-teal-950/30 border border-teal-500/30 rounded-xl text-xs space-y-1.5 font-mono">
+                    <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                      <span>Total Combined Bill:</span>
+                      <strong className="text-slate-900 dark:text-white font-black text-sm">Rs. {totalB}</strong>
+                    </div>
+                    <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
+                      <span>Total Paid to Date:</span>
+                      <span>Rs. {totalP}</span>
+                    </div>
+                    <div className="flex justify-between pt-1 border-t border-teal-500/20 text-rose-600 dark:text-rose-400 font-black text-xs">
+                      <span>Balance Due:</span>
+                      <span>Rs. {bal}</span>
+                    </div>
+                  </div>
+
+                  {cleanRem && (
+                    <div className="p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-white/40 dark:border-white/10 text-xs">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Clinical Remarks / Advice</span>
+                      <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{cleanRem}</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Official Stamp & Security Seal */}
             <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-slate-500 text-[11px] flex items-center justify-between border border-white/40 dark:border-white/10">
@@ -4987,7 +5183,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => handlePrintAppointmentBill(viewingBillAppt)}
+                onClick={() => handlePrintAppointmentBill(viewingBillAppt, viewingInvoice)}
                 className="flex-1 py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold transition shadow-glass-brand border border-white/25 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
               >
                 <Download className="w-4 h-4" />

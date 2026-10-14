@@ -38,7 +38,14 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [allDoctors, setAllDoctors] = useState<Doctor[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
+  const [searchTerm, setSearchTerm] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search)
+      return p.get('q') || p.get('search') || p.get('doctor') || p.get('specialty') || p.get('test') || ''
+    } catch {
+      return ''
+    }
+  })
   const [filterType, setFilterType] = useState(initialFilter)
   const [recentSearches, setRecentSearches] = useState<string[]>(() => getRecentSearches())
 

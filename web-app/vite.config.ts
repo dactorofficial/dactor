@@ -7,6 +7,9 @@ import os from 'os'
 export default defineConfig({
   plugins: [react()],
   base: './',
+  build: {
+    emptyOutDir: false,
+  },
   cacheDir: path.join(os.tmpdir(), 'dactor-vite-cache'),
   server: {
     port: 3000,

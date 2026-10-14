@@ -154,11 +154,29 @@ object ClinicScheduleHelper {
     fun parseTimeToLocalTime(timeStr: String?): java.time.LocalTime {
         if (timeStr.isNullOrBlank()) return java.time.LocalTime.of(8, 0)
         val clean = timeStr.trim().uppercase()
+        val regex = Regex("""^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([AP]M))?""")
+        val match = regex.find(clean)
+        if (match != null) {
+            var hours = match.groupValues[1].toInt()
+            val minutes = match.groupValues[2].toInt()
+            val ampm = match.groupValues[3]
+            if (ampm == "PM" && hours < 12) hours += 12
+            else if (ampm == "AM" && hours == 12) hours = 0
+            try {
+                return java.time.LocalTime.of(hours, minutes)
+            } catch (_: Exception) {}
+        }
         val formatters = listOf(
+            java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss", java.util.Locale.US),
+            java.time.format.DateTimeFormatter.ofPattern("H:mm:ss", java.util.Locale.US),
+            java.time.format.DateTimeFormatter.ofPattern("hh:mm:ss a", java.util.Locale.US),
+            java.time.format.DateTimeFormatter.ofPattern("h:mm:ss a", java.util.Locale.US),
             java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US),
             java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.US),
             java.time.format.DateTimeFormatter.ofPattern("HH:mm", java.util.Locale.US),
-            java.time.format.DateTimeFormatter.ofPattern("H:mm", java.util.Locale.US)
+            java.time.format.DateTimeFormatter.ofPattern("H:mm", java.util.Locale.US),
+            java.time.format.DateTimeFormatter.ofPattern("h:mma", java.util.Locale.US),
+            java.time.format.DateTimeFormatter.ofPattern("hh:mma", java.util.Locale.US)
         )
         for (fmt in formatters) {
             try {

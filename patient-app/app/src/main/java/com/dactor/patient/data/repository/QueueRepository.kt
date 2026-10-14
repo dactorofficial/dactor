@@ -14,6 +14,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -56,6 +58,49 @@ class QueueRepository @Inject constructor(
             supabaseClient.postgrest["queue_entries"]
                 .select { filter { eq("appointment_id", appointmentId) } }
                 .decodeSingleOrNull<QueueEntry>()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    suspend fun ensureQueueEntryForAppointment(
+        appointmentId: String,
+        clinicId: String,
+        doctorId: String? = null
+    ): QueueEntry? = withContext(Dispatchers.IO) {
+        if (appointmentId.isBlank() || clinicId.isBlank()) return@withContext null
+        try {
+            val existing = getQueueStatus(appointmentId)
+            if (existing != null) return@withContext existing
+
+            val currentEntries = getQueueEntriesForClinic(clinicId)
+            val nextPos = (currentEntries.map { it.queuePosition }.maxOrNull() ?: 0) + 1
+
+            val cleanDocId = doctorId?.takeIf { com.dactor.patient.domain.util.PatientIdentitySync.isValidUuid(it) }
+            val newEntry = QueueEntry(
+                id = UUID.randomUUID().toString(),
+                appointmentId = appointmentId,
+                clinicId = clinicId,
+                doctorId = cleanDocId,
+                queuePosition = nextPos,
+                status = "waiting"
+            )
+
+            try {
+                supabaseClient.postgrest["queue_entries"].insert(newEntry)
+                newEntry
+            } catch (e: Exception) {
+                if (cleanDocId != null) {
+                    try {
+                        val fallbackEntry = newEntry.copy(doctorId = null)
+                        supabaseClient.postgrest["queue_entries"].insert(fallbackEntry)
+                        fallbackEntry
+                    } catch (e2: Exception) {
+                        null
+                    }
+                } else null
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -124,12 +169,21 @@ class QueueRepository @Inject constructor(
             val taggedMessage = if (message.contains("[[META:")) {
                 message
             } else {
+                val isFirstPos = message.contains("position 1", ignoreCase = true) ||
+                    message.contains("next in line", ignoreCase = true) ||
+                    expectedTime?.contains("arrive fast", ignoreCase = true) == true ||
+                    estimatedTimeLeft?.contains("arrive fast", ignoreCase = true) == true
+
+                val leftVal = if (isFirstPos) "Arrive Fast" else (estimatedTimeLeft ?: "Soon, be ready")
+                val rightVal = if (isFirstPos) "Your turn, arrive fast" else (expectedTime ?: "Soon, be ready")
+                val rightLabel = if (isFirstPos) "Turn Status" else "Your Appointment Time"
+
                 NotificationTemplateData.buildMessageWithMeta(
                     cleanMessage = message,
-                    leftLabel = "Estimated Time Left",
-                    leftValue = estimatedTimeLeft ?: "Soon, be ready",
-                    rightLabel = "Your Appointment Time",
-                    rightValue = expectedTime ?: "Soon, be ready",
+                    leftLabel = "Estimated Time",
+                    leftValue = leftVal,
+                    rightLabel = rightLabel,
+                    rightValue = rightVal,
                     trackingCode = trackingCode
                 )
             }
@@ -197,11 +251,26 @@ class QueueRepository @Inject constructor(
     }
 
     companion object {
-        fun parseSlotStartTime(slotStr: String?): LocalTime? {
-            if (slotStr.isNullOrBlank()) return null
-            val token = slotStr.split("-", "–", "to").firstOrNull()?.trim() ?: return null
-            val clean = token.uppercase()
+        fun parseTimeString(timeStr: String?): LocalTime? {
+            if (timeStr.isNullOrBlank()) return null
+            val clean = timeStr.trim().uppercase()
+            val regex = Regex("""^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([AP]M))?""")
+            val match = regex.find(clean)
+            if (match != null) {
+                var hours = match.groupValues[1].toInt()
+                val minutes = match.groupValues[2].toInt()
+                val ampm = match.groupValues[3]
+                if (ampm == "PM" && hours < 12) hours += 12
+                else if (ampm == "AM" && hours == 12) hours = 0
+                try {
+                    return LocalTime.of(hours, minutes)
+                } catch (_: Exception) {}
+            }
             val formatters = listOf(
+                DateTimeFormatter.ofPattern("HH:mm:ss", Locale.US),
+                DateTimeFormatter.ofPattern("H:mm:ss", Locale.US),
+                DateTimeFormatter.ofPattern("hh:mm:ss a", Locale.US),
+                DateTimeFormatter.ofPattern("h:mm:ss a", Locale.US),
                 DateTimeFormatter.ofPattern("hh:mm a", Locale.US),
                 DateTimeFormatter.ofPattern("h:mm a", Locale.US),
                 DateTimeFormatter.ofPattern("HH:mm", Locale.US),
@@ -215,6 +284,27 @@ class QueueRepository @Inject constructor(
                 } catch (_: Exception) {}
             }
             return null
+        }
+
+        fun parseSlotStartTime(slotStr: String?): LocalTime? {
+            if (slotStr.isNullOrBlank()) return null
+            val parts = slotStr.split("-", "–", "—", "to")
+            val token = parts.firstOrNull()?.trim() ?: return null
+            var clean = token.uppercase()
+            if (!clean.contains("AM") && !clean.contains("PM") && parts.size > 1) {
+                val endPart = parts[1].uppercase()
+                if (endPart.contains("PM")) clean = "$clean PM"
+                else if (endPart.contains("AM")) clean = "$clean AM"
+            }
+            return parseTimeString(clean)
+        }
+
+        fun parseSlotEndTime(slotStr: String?): LocalTime? {
+            if (slotStr.isNullOrBlank()) return null
+            val parts = slotStr.split("-", "–", "—", "to")
+            if (parts.size < 2) return null
+            val clean = parts[1].trim().uppercase()
+            return parseTimeString(clean)
         }
 
         fun formatTimeWindow(time: LocalTime, spreadMinutes: Int = 15): String {
@@ -261,7 +351,9 @@ class QueueRepository @Inject constructor(
 
             // Parse slot details
             val slotStartTime = parseSlotStartTime(appointmentTime)
+            val slotEndTime = parseSlotEndTime(appointmentTime)
             val slotStartStr = slotStartTime?.format(timeFormatter) ?: ""
+            val slotEndStr = slotEndTime?.format(timeFormatter) ?: ""
             val suggestedArrivalStr = slotStartTime?.minusMinutes(15)?.format(timeFormatter) ?: ""
             val arrivalAdvice = if (suggestedArrivalStr.isNotBlank()) "Please arrive by $suggestedArrivalStr." else ""
 
@@ -390,54 +482,65 @@ class QueueRepository @Inject constructor(
                 }
             }
 
-            // Apply Rule 2: Never show a time earlier than the slot start, unless the patient opted into early calls
+            // Apply Rule 2: Dynamic slot-aware queue time calculation
+            val isFirstPosition = (totalPeopleAhead == 0)
+
             val effectiveExpectedTime: LocalTime
             val effectiveTimeLeftText: String
+            val effectiveExactTimeText: String
 
-            if (slotStartTime != null && isSlotInFuture) {
-                if (canOfferEarly) {
-                    // Opted in and doctor is free now:
-                    effectiveExpectedTime = nowTime
-                    effectiveTimeLeftText = "Doctor is Free Now"
-                } else {
-                    // Standard slot enforcement: floor at slotStartTime
-                    // If queue runs late and dynamicExpectedTime > slotStartTime, show dynamicExpectedTime!
-                    if (dynamicExpectedTime.isAfter(slotStartTime)) {
-                        effectiveExpectedTime = dynamicExpectedTime
-                        val diff = java.time.Duration.between(nowTime, dynamicExpectedTime).toMinutes().toInt()
-                        effectiveTimeLeftText = if (diff > 0) "~ $diff min" else "Soon, be ready"
+            if (isFirstPosition) {
+                if (isSlotInFuture && !canOfferEarly) {
+                    effectiveExpectedTime = slotStartTime ?: nowTime
+                    val diff = java.time.Duration.between(nowTime, effectiveExpectedTime).toMinutes().toInt()
+                    effectiveTimeLeftText = if (diff > 60) {
+                        val hours = diff / 60
+                        val rem = diff % 60
+                        if (rem == 0) "~ $hours hr" else "~ ${hours}h ${rem}m"
+                    } else if (diff > 0) {
+                        "~ $diff min"
                     } else {
-                        effectiveExpectedTime = slotStartTime
-                        val diff = java.time.Duration.between(nowTime, slotStartTime).toMinutes().toInt()
-                        effectiveTimeLeftText = if (diff > 60) {
-                            val hours = diff / 60
-                            val rem = diff % 60
-                            if (rem == 0) "~ $hours hr" else "~ ${hours}h ${rem}m"
-                        } else if (diff > 0) {
-                            "~ $diff min"
-                        } else {
-                            "Starts at $slotStartStr"
-                        }
+                        "Starts at $slotStartStr"
                     }
+                    effectiveExactTimeText = slotStartStr.ifBlank { effectiveExpectedTime.format(timeFormatter) }
+                } else {
+                    // Position 1 and current time is within slot, doctor free early, or slot is over:
+                    // Directly shows "Your turn, arrive fast"
+                    effectiveExpectedTime = nowTime
+                    effectiveTimeLeftText = "Arrive Fast"
+                    effectiveExactTimeText = "Your turn, arrive fast"
                 }
-            } else if (slotStartTime != null && !isSlotInFuture) {
-                // Current time is at or after slotStartTime (e.g. running late at 3:20 PM)
-                // Calculation becomes: people ahead * avgMins
-                if (dynamicExpectedTime.isBefore(nowTime)) {
-                    dynamicExpectedTime = nowTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
-                    minsWaitCalc = (totalPeopleAhead * avgMins)
-                }
-                effectiveExpectedTime = dynamicExpectedTime
-                effectiveTimeLeftText = if (totalPeopleAhead == 0) "Soon, be ready" else "~ $minsWaitCalc min"
             } else {
-                // No slot specified (e.g. walk-in)
-                effectiveExpectedTime = dynamicExpectedTime
-                effectiveTimeLeftText = if (totalPeopleAhead == 0) "Soon, be ready" else "~ $minsWaitCalc min"
+                // Patient is at position 2, 3, etc. (totalPeopleAhead > 0)
+                if (isSlotInFuture) {
+                    // Stagger patient by (totalPeopleAhead * avgMins) so time is in between the time slot!
+                    val slotStaggered = (slotStartTime ?: nowTime).plusMinutes((totalPeopleAhead * avgMins).toLong())
+                    effectiveExpectedTime = if (dynamicExpectedTime.isAfter(slotStaggered)) dynamicExpectedTime else slotStaggered
+                    val diff = java.time.Duration.between(nowTime, effectiveExpectedTime).toMinutes().toInt()
+                    effectiveTimeLeftText = if (diff > 60) {
+                        val hours = diff / 60
+                        val rem = diff % 60
+                        if (rem == 0) "~ $hours hr" else "~ ${hours}h ${rem}m"
+                    } else if (diff > 0) {
+                        "~ $diff min"
+                    } else {
+                        "~ ${(totalPeopleAhead * avgMins)} min"
+                    }
+                    effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
+                } else {
+                    // Current time is within slot or slot is over: calculate dynamically based on active queue
+                    if (dynamicExpectedTime.isBefore(nowTime)) {
+                        dynamicExpectedTime = nowTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
+                        minsWaitCalc = (totalPeopleAhead * avgMins)
+                    }
+                    effectiveExpectedTime = dynamicExpectedTime
+                    effectiveTimeLeftText = "~ $minsWaitCalc min"
+                    effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
+                }
             }
 
             val windowText = formatTimeWindow(effectiveExpectedTime)
             val approxText = formatApproxTime(effectiveExpectedTime)
-            val exactTimeStr = effectiveExpectedTime.format(timeFormatter)
 
             val docBanner = when {
                 !isDoctorInClinic -> "Doctor is not inside the clinic (He/She is not in yet)"
@@ -447,12 +550,12 @@ class QueueRepository @Inject constructor(
 
             return LiveQueueTimingEstimate(
                 estimatedTimeLeftText = effectiveTimeLeftText,
-                expectedExactTimeText = exactTimeStr,
+                expectedExactTimeText = effectiveExactTimeText,
                 doctorStatusBanner = docBanner,
                 isDoctorNotInside = !isDoctorInClinic,
                 isDoctorIdleFiveMins = false,
                 isClinicOnBreak = false,
-                isSoonBeReady = totalPeopleAhead == 0 || effectiveTimeLeftText.contains("Soon"),
+                isSoonBeReady = totalPeopleAhead == 0 || effectiveTimeLeftText.contains("Soon") || effectiveTimeLeftText.contains("Arrive Fast"),
                 timeWindowText = windowText,
                 approxTimeText = approxText,
                 slotStartTimeText = slotStartStr,

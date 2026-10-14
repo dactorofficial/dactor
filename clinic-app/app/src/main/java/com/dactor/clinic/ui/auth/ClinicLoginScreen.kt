@@ -2424,7 +2424,7 @@ fun ClinicLoginScreen(
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     singleLine = true,
                                     modifier = Modifier
-                                        .weight(1f)
+                                        .weight(0.38f)
                                         .focusRequester(doctorAgeFocus)
                                         .onGloballyPositioned { doctorAgeFieldY = it.positionInRoot().y.toInt() },
                                     shape = RoundedCornerShape(12.dp)
@@ -2435,16 +2435,15 @@ fun ClinicLoginScreen(
                                     expanded = doctorStartingYearDropdownExpanded,
                                     onExpandedChange = { doctorStartingYearDropdownExpanded = !doctorStartingYearDropdownExpanded },
                                     modifier = Modifier
-                                        .weight(1f)
+                                        .weight(0.62f)
                                         .onGloballyPositioned { doctorStartingYearFieldY = it.positionInRoot().y.toInt() }
                                 ) {
                                     OutlinedTextField(
                                         value = doctorStartingYear,
                                         onValueChange = {},
                                         readOnly = true,
-                                        label = { Text("Practicing Since *") },
+                                        label = { Text("Practicing Since *", maxLines = 1, softWrap = false) },
                                         placeholder = { Text("Select year") },
-                                        leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
                                         trailingIcon = {
                                             ExposedDropdownMenuDefaults.TrailingIcon(expanded = doctorStartingYearDropdownExpanded)
                                         },

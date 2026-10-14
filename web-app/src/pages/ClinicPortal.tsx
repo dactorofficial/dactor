@@ -852,6 +852,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [showTermsModal, setShowTermsModal] = useState(false)
   const [showDeleteArchiveModal, setShowDeleteArchiveModal] = useState(false)
   const [isDeletingPermanently, setIsDeletingPermanently] = useState(false)
+  const [copiedLink, setCopiedLink] = useState<string | null>(null)
+
+  const handleCopyBookingLink = (url: string) => {
+    try {
+      navigator.clipboard.writeText(url)
+      setCopiedLink(url)
+      setTimeout(() => setCopiedLink(null), 2500)
+    } catch {
+      alert('Copied link: ' + url)
+    }
+  }
 
   // Generate Year dropdown options (2026 down to 1960)
   const practicingYears: number[] = []
@@ -7173,6 +7184,116 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 ⚡ Instant 30-Day Testing Activation Bypass
               </GlassButton>
             </div>
+          </GlassCard>
+
+          {/* GOOGLE SEARCH, MAPS & AI OVERVIEW INTEGRATION CARD */}
+          <GlassCard variant="base" padding="lg" radius="xl" className="space-y-4 border border-teal-500/30 bg-gradient-to-br from-white via-teal-50/20 to-cyan-50/20 dark:from-slate-900 dark:via-teal-950/20 dark:to-slate-900 shadow-glass-base">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-teal-500 to-cyan-500 flex items-center justify-center text-white shadow-glass-sm shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-teal-600 dark:text-teal-400 block">
+                    Google Search, Maps & AI Overview Integration
+                  </span>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Direct Google "Book Online" & AI Search Links
+                  </h3>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                  <ShieldCheck className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                  Schema.org Active
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              When patients search your clinic or doctors on Google Search, Google Maps, or AI search engines (ChatGPT, Perplexity, Gemini), Dactor provides structured Schema.org <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px]">MedicalClinic</code> and <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px]">ReserveAction</code> metadata. Copy the booking link below and add it to your <strong>Google Business Profile</strong> on Google Maps to display an official <strong>"Book Online"</strong> button!
+            </p>
+
+            {/* Clinic Direct Booking Link */}
+            {selectedClinic && (
+              <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-800/70 border border-teal-500/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-teal-600" />
+                    Clinic Direct Booking Link (Google Maps / Business Profile)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyBookingLink(`https://dactorofficial.github.io/dactor/?clinic=${selectedClinic.id}&action=book`)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white transition flex items-center gap-1 active:scale-95 cursor-pointer shadow-glass-sm"
+                  >
+                    {copiedLink?.includes(selectedClinic.id) && !copiedLink?.includes('doctor') ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy Link</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/60 dark:border-white/10 text-[11px] font-mono text-slate-600 dark:text-slate-300 truncate">
+                  https://dactorofficial.github.io/dactor/?clinic={selectedClinic.id}&amp;action=book
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  👉 Go to your <strong>Google Business Profile</strong> (Google Maps manager) &gt; Edit Profile &gt; Bookings / Links &gt; paste this link as your appointment booking link.
+                </p>
+              </div>
+            )}
+
+            {/* Doctor Specific Direct Booking Links */}
+            {clinicDoctors.length > 0 && (
+              <div className="space-y-2 pt-1">
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 block">
+                  Attending Doctors Direct Booking Links (Share on Google, WhatsApp, Social Media):
+                </span>
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {clinicDoctors.map((doc) => {
+                    const docUrl = `https://dactorofficial.github.io/dactor/?clinic=${selectedClinic?.id}&doctor=${doc.id}&action=book`
+                    const isDocCopied = copiedLink === docUrl
+                    return (
+                      <div
+                        key={doc.id}
+                        className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/80 border border-slate-200/60 dark:border-white/10 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                            Dr. {doc.fullName} ({doc.specialty || 'Doctor'})
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
+                            {docUrl}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyBookingLink(docUrl)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 hover:bg-slate-100 transition shrink-0 cursor-pointer active:scale-95"
+                        >
+                          {isDocCopied ? (
+                            <span className="text-emerald-600 font-bold flex items-center gap-1">
+                              <Check className="w-3 h-3" /> Copied
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1">
+                              <Copy className="w-3 h-3" /> Copy
+                            </span>
+                          )}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </GlassCard>
 
           {/* 2. CLINIC PROFILE, OPERATIONAL TYPE, GPS & PAYMENT GATEWAY FORM */}

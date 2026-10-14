@@ -1558,31 +1558,36 @@ fun QueueBoardScreen(
                                                                 appointmentTime = item.appointmentTime,
                                                                 optInEarlyCall = item.optInEarlyCall
                                                             )
+                                                            val isFirstPos = (pos == 1) || (peopleAheadCount == 0)
                                                             val alertTitle = "Your Turn is Coming Soon!"
                                                             val alertBody = when {
                                                                 item.status == "inside" -> "You are currently called inside (Position 1). Please proceed to the consultation room."
-                                                                peopleAheadCount == 0 -> "You are at position 1. You are next in line — please be ready at the consultation room!"
+                                                                isFirstPos -> "You are at position 1. You are next in line — please be ready at the consultation room!"
                                                                 peopleAheadCount == 1 -> "You are at position $pos. Only 1 person is ahead of you in the queue."
                                                                 else -> "You are at position $pos. Only $peopleAheadCount people are ahead of you in the queue."
                                                             }
-                                                            val rightTimeText = if (
+                                                            val rightTimeText = when {
+                                                                isFirstPos -> "Your turn, arrive fast"
                                                                 timing.expectedExactTimeText.isNotBlank() &&
-                                                                timing.expectedExactTimeText != "Wait a few moments"
-                                                            ) {
-                                                                timing.expectedExactTimeText
-                                                            } else {
-                                                                item.appointmentTime.ifBlank { "Soon, be ready" }
+                                                                timing.expectedExactTimeText != "Wait a few moments" -> timing.expectedExactTimeText
+                                                                else -> item.appointmentTime.ifBlank { "Soon, be ready" }
+                                                            }
+                                                            val leftTimeText = when {
+                                                                isFirstPos -> "Arrive Fast"
+                                                                else -> timing.estimatedTimeLeftText.ifBlank { "Soon, be ready" }
                                                             }
                                                             val sentOk = queueRepository?.sendManualNotification(
                                                                 appointmentId = item.appointmentId,
                                                                 title = alertTitle,
                                                                 message = alertBody,
                                                                 trackingCode = item.trackingCode,
-                                                                estimatedTimeLeft = timing.estimatedTimeLeftText,
-                                                                expectedTime = rightTimeText
+                                                                estimatedTimeLeft = leftTimeText,
+                                                                expectedTime = rightTimeText,
+                                                                leftLabel = "Estimated Time",
+                                                                rightLabel = if (isFirstPos) "Turn Status" else "Your Appointment"
                                                             ) ?: false
                                                             notificationSentMessage = if (sentOk) {
-                                                                "✓ Push alert sent to ${item.patientName} (Pos #$pos • ${timing.estimatedTimeLeftText} • $rightTimeText)."
+                                                                "✓ Push alert sent to ${item.patientName} (Pos #$pos • $leftTimeText • $rightTimeText)."
                                                             } else {
                                                                 "⚠ Could not deliver push alert for ${item.patientName}. Please retry."
                                                             }

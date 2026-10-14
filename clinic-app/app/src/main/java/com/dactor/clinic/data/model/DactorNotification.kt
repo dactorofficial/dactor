@@ -50,6 +50,12 @@ data class NotificationTemplateData(
             val match = META_REGEX.find(rawMessage)
             val cleanMsg = rawMessage.replace(META_REGEX, "").trim()
 
+            val isFirstPosition = cleanMsg.contains("position 1", ignoreCase = true) ||
+                cleanMsg.contains("next in line", ignoreCase = true) ||
+                cleanMsg.contains("called inside", ignoreCase = true) ||
+                cleanMsg.contains("arrive fast", ignoreCase = true) ||
+                title.contains("You're Next", ignoreCase = true)
+
             if (match != null) {
                 val content = match.groupValues[1]
                 val map = mutableMapOf<String, String>()
@@ -61,18 +67,33 @@ data class NotificationTemplateData(
                         map[k] = v
                     }
                 }
+                val rawRightVal = map["rightVal"]?.takeIf { it.isNotBlank() } ?: "Active Queue"
+                val rawLeftVal = map["leftVal"]?.takeIf { it.isNotBlank() } ?: "Soon, be ready"
+
+                val effectiveRightVal = if (isFirstPosition) {
+                    "Your turn, arrive fast"
+                } else {
+                    rawRightVal
+                }
+
+                val effectiveLeftVal = if (isFirstPosition) {
+                    "Arrive Fast"
+                } else {
+                    rawLeftVal
+                }
+
                 return NotificationTemplateData(
                     title = title.ifBlank { "Your Turn is Coming Soon!" },
                     cleanMessage = cleanMsg,
-                    leftLabel = map["leftLabel"]?.takeIf { it.isNotBlank() } ?: "Estimated Time Left",
-                    leftValue = map["leftVal"]?.takeIf { it.isNotBlank() } ?: "Soon, be ready",
-                    rightLabel = map["rightLabel"]?.takeIf { it.isNotBlank() } ?: "Your Appointment Time",
-                    rightValue = map["rightVal"]?.takeIf { it.isNotBlank() } ?: "Active Queue",
+                    leftLabel = map["leftLabel"]?.takeIf { it.isNotBlank() }?.let { if (it.length > 15) "Estimated Time" else it } ?: "Estimated Time",
+                    leftValue = effectiveLeftVal,
+                    rightLabel = if (effectiveRightVal.contains("arrive fast", ignoreCase = true)) "Turn Status" else (map["rightLabel"]?.takeIf { it.isNotBlank() }?.let { if (it.length > 15) "Your Appointment" else it } ?: "Your Appointment"),
+                    rightValue = effectiveRightVal,
                     trackingCode = map["code"]
                 )
             }
 
-            val waitMatch = Regex("""(~?\s*\d+\s*(?:min|mins|minute|minutes)|Soon,?\s*be\s*ready!?|Now\s*Inside)""", RegexOption.IGNORE_CASE).find(cleanMsg)
+            val waitMatch = Regex("""(~?\s*\d+\s*(?:min|mins|minute|minutes)|Soon,?\s*be\s*ready!?|Now\s*Inside|Arrive\s*Fast)""", RegexOption.IGNORE_CASE).find(cleanMsg)
             val timeMatch = Regex("""(\d{1,2}:\d{2}\s*(?:AM|PM))""", RegexOption.IGNORE_CASE).find(cleanMsg)
 
             val notifType = NotificationType.from(type)
@@ -89,9 +110,9 @@ data class NotificationTemplateData(
                 notifType == NotificationType.CLINIC_BREAK || title.contains("Break", ignoreCase = true) -> NotificationTemplateData(
                     title = title.ifBlank { "Clinic is on Break" },
                     cleanMessage = cleanMsg,
-                    leftLabel = "Estimated Time Left",
+                    leftLabel = "Estimated Time",
                     leftValue = "Clinic on Break",
-                    rightLabel = "Your Appointment Time",
+                    rightLabel = "Your Appointment",
                     rightValue = timeMatch?.groupValues?.get(1) ?: "Paused Briefly"
                 )
                 notifType in listOf(NotificationType.BROADCAST, NotificationType.ANNOUNCEMENT) -> NotificationTemplateData(
@@ -102,14 +123,18 @@ data class NotificationTemplateData(
                     rightLabel = "",
                     rightValue = ""
                 )
-                else -> NotificationTemplateData(
-                    title = title.ifBlank { "Your Turn is Coming Soon!" },
-                    cleanMessage = cleanMsg,
-                    leftLabel = "Estimated Time Left",
-                    leftValue = waitMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready",
-                    rightLabel = "Your Appointment Time",
-                    rightValue = timeMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready"
-                )
+                else -> {
+                    val fallbackRightVal = if (isFirstPosition) "Your turn, arrive fast" else (timeMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready")
+                    val fallbackLeftVal = if (isFirstPosition) "Arrive Fast" else (waitMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready")
+                    NotificationTemplateData(
+                        title = title.ifBlank { "Your Turn is Coming Soon!" },
+                        cleanMessage = cleanMsg,
+                        leftLabel = "Estimated Time",
+                        leftValue = fallbackLeftVal,
+                        rightLabel = if (fallbackRightVal.contains("arrive fast", ignoreCase = true)) "Turn Status" else "Your Appointment",
+                        rightValue = fallbackRightVal
+                    )
+                }
             }
         }
     }

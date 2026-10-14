@@ -343,7 +343,9 @@ class AuthRepository @Inject constructor(
         val effectiveEmail = cleanEmail
             ?: "patient_${cleanPhone.takeLast(10)}_${System.currentTimeMillis() % 10000}@dactor.internal"
 
-        // Check if a patient profile already exists for this email (e.g. signed in before or saved from an earlier appointment)
+        val cleanDigitsPhone = cleanPhone.filter { it.isDigit() }.takeLast(10)
+
+        // Check if a patient profile already exists for this email
         val existingByEmail = if (cleanEmail != null) {
             try {
                 supabaseClient.postgrest["profiles"]
@@ -362,31 +364,47 @@ class AuthRepository @Inject constructor(
             }
         } else null
 
-        val patientId = existingByEmail?.id ?: java.util.UUID.randomUUID().toString()
+        val existingByPhone = if (existingByEmail == null && cleanDigitsPhone.length == 10) {
+            try {
+                supabaseClient.postgrest["profiles"]
+                    .select { filter { eq("phone", cleanDigitsPhone) } }
+                    .decodeList<Profile>()
+                    .firstOrNull()
+            } catch (_: Exception) { null }
+        } else null
+
+        val existing = existingByEmail ?: existingByPhone
+
+        val deterministicId = when {
+            cleanEmail != null -> com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForEmail(cleanEmail)
+            cleanDigitsPhone.length == 10 -> com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForPhone(cleanDigitsPhone)
+            else -> java.util.UUID.randomUUID().toString()
+        }
+
+        val patientId = existing?.id ?: deterministicId
 
         val created = Profile(
             id = patientId,
-            authUid = existingByEmail?.authUid,
+            authUid = existing?.authUid,
             email = effectiveEmail,
-            fullName = fullName.trim().ifBlank { existingByEmail?.fullName ?: "" },
+            fullName = fullName.trim().ifBlank { existing?.fullName ?: "" },
             role = "patient",
-            phone = cleanPhone.ifBlank { existingByEmail?.phone ?: "" },
-            gender = gender.trim().ifBlank { existingByEmail?.gender ?: "Male" },
-            age = age ?: existingByEmail?.age
+            phone = cleanDigitsPhone.ifBlank { cleanPhone.ifBlank { existing?.phone ?: "" } },
+            gender = gender.trim().ifBlank { existing?.gender ?: "Male" },
+            age = age ?: existing?.age
         )
 
-        if (existingByEmail != null) {
+        if (existing != null) {
             try {
                 supabaseClient.postgrest["profiles"].update({
                     if (fullName.isNotBlank()) set("full_name", fullName.trim())
-                    if (cleanPhone.isNotBlank()) set("phone", cleanPhone)
+                    if (cleanPhone.isNotBlank()) set("phone", cleanDigitsPhone.ifBlank { cleanPhone })
                     if (gender.isNotBlank()) set("gender", gender.trim())
                     if (age != null) set("age", age)
                 }) {
-                    filter { eq("id", existingByEmail.id) }
+                    filter { eq("id", existing.id) }
                 }
             } catch (ignored: Exception) {}
-            Result.success(created)
         } else {
             try {
                 val payload = buildJsonObject {
@@ -394,14 +412,13 @@ class AuthRepository @Inject constructor(
                     put("email", effectiveEmail)
                     put("full_name", fullName.trim())
                     put("role", "patient")
-                    put("phone", cleanPhone)
+                    put("phone", cleanDigitsPhone.ifBlank { cleanPhone })
                     put("gender", gender.trim())
                     if (age != null) {
                         put("age", age)
                     }
                 }
                 supabaseClient.postgrest["profiles"].insert(payload)
-                Result.success(created)
             } catch (e: Exception) {
                 try {
                     val minimalPayload = buildJsonObject {
@@ -414,10 +431,28 @@ class AuthRepository @Inject constructor(
                 } catch (e2: Exception) {
                     e2.printStackTrace()
                 }
-                // Still return created profile so the directory appointment record can be saved
-                Result.success(created)
             }
         }
+
+        // Retroactively link past appointments matching this email or mobile to canonical patientId
+        try {
+            if (cleanEmail != null) {
+                supabaseClient.postgrest["appointments"].update({
+                    set("user_id", patientId)
+                }) {
+                    filter { ilike("patient_email", cleanEmail) }
+                }
+            }
+            if (cleanDigitsPhone.length == 10) {
+                supabaseClient.postgrest["appointments"].update({
+                    set("user_id", patientId)
+                }) {
+                    filter { eq("patient_mobile", cleanDigitsPhone) }
+                }
+            }
+        } catch (_: Exception) {}
+
+        Result.success(created)
     }
 
     suspend fun getProfileByEmail(email: String): Profile? = withContext(Dispatchers.IO) {

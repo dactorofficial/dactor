@@ -10,7 +10,15 @@ import { Clinic, Doctor } from '../types'
  * - OpenGraph (Facebook, WhatsApp, LinkedIn) and Twitter Card metadata
  */
 
-const BASE_URL = 'https://dactorofficial.github.io/dactor'
+export function getBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location) {
+    const origin = window.location.origin
+    const path = window.location.pathname.replace(/\/$/, '')
+    return `${origin}${path}`
+  }
+  return 'https://dactorofficial.github.io/dactor'
+}
+
 const SCRIPT_ID = 'dactor-dynamic-schema-ldjson'
 
 export function updatePageSEO(options: {
@@ -24,6 +32,7 @@ export function updatePageSEO(options: {
 }) {
   if (typeof document === 'undefined') return
 
+  const baseUrl = getBaseUrl()
   const { title, description, canonicalUrl, ogImage, clinic, doctor, allDoctors } = options
 
   // 1. Update Title Tag
@@ -41,8 +50,8 @@ export function updatePageSEO(options: {
     updateMetaProperty('twitter:description', description)
   }
 
-  // 3. Update Canonical & OpenGraph URL
-  const activeUrl = canonicalUrl || (clinic ? `${BASE_URL}/?clinic=${clinic.id}` : BASE_URL)
+  // 3. Update Canonical & OpenGraph URL dynamically matching current host
+  const activeUrl = canonicalUrl || (clinic ? `${baseUrl}/?clinic=${clinic.id}` : baseUrl)
   updateMetaProperty('og:url', activeUrl)
   updateMetaProperty('twitter:url', activeUrl)
 
@@ -55,7 +64,7 @@ export function updatePageSEO(options: {
   linkCanonical.href = activeUrl
 
   // 4. Update OpenGraph Image
-  const imageUrl = ogImage || clinic?.pictures?.[0] || clinic?.logoUrl || `${BASE_URL}/app_logo.png`
+  const imageUrl = ogImage || clinic?.pictures?.[0] || clinic?.logoUrl || `${baseUrl}/app_logo.png`
   updateMetaProperty('og:image', imageUrl)
   updateMetaProperty('twitter:image', imageUrl)
 
@@ -92,29 +101,86 @@ function updateMetaProperty(property: string, content: string) {
  * a "Book Online" / "Make an Appointment" rich action leading directly to Dactor.
  */
 function injectClinicJsonLd(clinic: Clinic, selectedDoctor?: Doctor | null, doctors: Doctor[] = []) {
+  const baseUrl = getBaseUrl()
   const isLab = clinic.type === 'diagnostic_lab' || clinic.name.toLowerCase().includes('lab')
-  const clinicUrl = `${BASE_URL}/?clinic=${clinic.id}`
-  const bookUrl = `${BASE_URL}/?clinic=${clinic.id}&action=book`
+  const clinicUrl = `${baseUrl}/?clinic=${clinic.id}`
+  const bookUrl = `${baseUrl}/?clinic=${clinic.id}&action=book`
 
-  // Base Schema for the Clinic
+  // Available services for the clinic/lab
+  const availableServices: any[] = []
+  if (isLab) {
+    const labTestNames = [
+      'Magnetic Resonance Imaging (MRI Scan)',
+      'Computed Tomography (CT Scan)',
+      'Digital X-Ray & Radiography',
+      'Ultrasonography (USG / Ultrasound)',
+      'Complete Blood Count (CBC) & Pathology Panel',
+      'Biochemistry, Lipid & Liver Function Tests (LFT)',
+      'Kidney Function Tests (KFT) & Urine Analysis',
+      'Thyroid Profile (T3, T4, TSH)'
+    ]
+    for (const testName of labTestNames) {
+      availableServices.push({
+        '@type': 'MedicalTest',
+        name: testName,
+        provider: {
+          '@type': 'DiagnosticLab',
+          name: clinic.name,
+        },
+      })
+    }
+  } else {
+    availableServices.push({
+      '@type': 'MedicalProcedure',
+      name: 'General & Specialist OPD Consultation',
+      provider: {
+        '@type': 'MedicalClinic',
+        name: clinic.name,
+      },
+    })
+    if (clinic.specialties && clinic.specialties.length > 0) {
+      for (const sp of clinic.specialties) {
+        availableServices.push({
+          '@type': 'MedicalProcedure',
+          name: `${sp} Consultation & Examination`,
+          provider: {
+            '@type': 'MedicalClinic',
+            name: clinic.name,
+          },
+        })
+      }
+    }
+  }
+
+  // Base Schema for the Clinic / Diagnostic Center
   const clinicSchema: any = {
     '@context': 'https://schema.org',
-    '@type': isLab ? 'DiagnosticLab' : 'MedicalClinic',
+    '@type': isLab
+      ? ['DiagnosticLab', 'MedicalClinic', 'MedicalBusiness', 'LocalBusiness']
+      : ['MedicalClinic', 'MedicalBusiness', 'LocalBusiness'],
     '@id': `${clinicUrl}#clinic`,
     name: clinic.name,
-    description: clinic.description || `${clinic.name} - Online doctor appointments, OPD queue tracking, and diagnostic reports in Nepal.`,
+    legalName: clinic.name,
+    description:
+      clinic.description ||
+      `${clinic.name} - Online OPD doctor appointment booking, real-time live token queue tracking, and certified diagnostic reports in Nepal.`,
     url: clinicUrl,
     telephone: clinic.contactPhone || undefined,
     email: clinic.contactEmail || undefined,
-    image: clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures : `${BASE_URL}/app_logo.png`,
+    image: clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures : `${baseUrl}/app_logo.png`,
     address: {
       '@type': 'PostalAddress',
       streetAddress: clinic.addressText || 'Nepal',
       addressLocality: clinic.city || 'Kathmandu',
       addressCountry: 'NP',
     },
-    priceRange: 'NPR',
-    // Google Reserve / Appointment Booking Action
+    currenciesAccepted: 'NPR',
+    paymentAccepted: 'Cash, eSewa, Khalti, Mobile Banking, Credit Card',
+    priceRange: 'NPR 100 - 1500',
+    isAcceptingNewPatients: true,
+    availableService: availableServices,
+    hasMap: `https://maps.google.com/?q=${encodeURIComponent(clinic.name + ' ' + (clinic.addressText || 'Nepal'))}`,
+    // Google Reserve / Direct Appointment Booking Action
     potentialAction: {
       '@type': 'ReserveAction',
       name: `Book Appointment at ${clinic.name}`,
@@ -152,22 +218,47 @@ function injectClinicJsonLd(clinic: Clinic, selectedDoctor?: Doctor | null, doct
   const docsToInclude = selectedDoctor ? [selectedDoctor] : doctors
 
   for (const doc of docsToInclude) {
-    const docBookUrl = `${BASE_URL}/?clinic=${clinic.id}&doctor=${doc.id}&action=book`
-    physicianSchemas.push({
+    const docBookUrl = `${baseUrl}/?clinic=${clinic.id}&doctor=${doc.id}&action=book`
+    const docDisplayName = doc.fullName.startsWith('Dr.') ? doc.fullName : `Dr. ${doc.fullName}`
+    const docSpecialty = doc.specialty || 'General Physician'
+    const feeNumber = doc.consultationFee || 500
+    const feeText = `NPR ${feeNumber}`
+
+    const docSchema: any = {
       '@context': 'https://schema.org',
-      '@type': 'Physician',
+      '@type': ['Physician', 'Person'],
       '@id': `${clinicUrl}#doctor-${doc.id}`,
-      name: doc.fullName,
-      jobTitle: doc.specialty || 'Medical Specialist',
-      medicalSpecialty: doc.specialties && doc.specialties.length > 0 ? doc.specialties : doc.specialty,
+      name: docDisplayName,
+      honorificPrefix: 'Dr.',
+      jobTitle: docSpecialty,
+      medicalSpecialty: doc.specialties && doc.specialties.length > 0 ? doc.specialties : [docSpecialty],
       worksFor: {
         '@type': 'MedicalClinic',
         name: clinic.name,
         url: clinicUrl,
+        telephone: clinic.contactPhone || undefined,
+        address: clinicSchema.address,
+      },
+      telephone: clinic.contactPhone || undefined,
+      email: doc.email || undefined,
+      currenciesAccepted: 'NPR',
+      priceRange: feeText,
+      isAcceptingNewPatients: true,
+      knowsLanguage: ['ne', 'en', 'hi'],
+      availableService: {
+        '@type': 'MedicalProcedure',
+        name: `${docSpecialty} OPD Consultation`,
+      },
+      offers: {
+        '@type': 'Offer',
+        price: feeNumber,
+        priceCurrency: 'NPR',
+        availability: 'https://schema.org/InStock',
+        validFrom: new Date().toISOString().split('T')[0],
       },
       potentialAction: {
         '@type': 'ReserveAction',
-        name: `Book Appointment with ${doc.fullName}`,
+        name: `Book Consultation with ${docDisplayName}`,
         target: {
           '@type': 'EntryPoint',
           urlTemplate: docBookUrl,
@@ -180,15 +271,78 @@ function injectClinicJsonLd(clinic: Clinic, selectedDoctor?: Doctor | null, doct
         },
         result: {
           '@type': 'MedicalReservation',
-          name: `Doctor Consultation with ${doc.fullName}`,
+          name: `Doctor Consultation with ${docDisplayName}`,
         },
       },
-    })
+    }
+
+    if (doc.nmcLicenseNumber) {
+      docSchema.hasCredential = {
+        '@type': 'EducationalOccupationalCredential',
+        credentialCategory: 'MedicalLicense',
+        name: `NMC Registration #${doc.nmcLicenseNumber}`,
+        recognizedBy: {
+          '@type': 'MedicalOrganization',
+          name: 'Nepal Medical Council',
+          url: 'https://nmc.org.np',
+        },
+      }
+    }
+
+    physicianSchemas.push(docSchema)
+  }
+
+  // BreadcrumbList for SERP navigation
+  const breadcrumbList = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Dactor Nepal',
+        item: baseUrl,
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: clinic.city || 'Kathmandu',
+        item: `${baseUrl}/?tab=clinics&city=${encodeURIComponent(clinic.city || 'Kathmandu')}`,
+      },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: clinic.name,
+        item: clinicUrl,
+      },
+      ...(selectedDoctor
+        ? [
+            {
+              '@type': 'ListItem',
+              position: 4,
+              name: selectedDoctor.fullName.startsWith('Dr.') ? selectedDoctor.fullName : `Dr. ${selectedDoctor.fullName}`,
+              item: `${clinicUrl}&doctor=${selectedDoctor.id}`,
+            },
+          ]
+        : []),
+    ],
+  }
+
+  // Speakable specification for Voice Search & AI Overviews
+  const speakableSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    '@id': `${clinicUrl}#webpage`,
+    name: selectedDoctor ? `Book Dr. ${selectedDoctor.fullName} at ${clinic.name}` : clinic.name,
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: ['h1', 'h2', '.clinic-overview-summary', '.doctor-bio-summary'],
+    },
   }
 
   const fullGraph = {
     '@context': 'https://schema.org',
-    '@graph': [clinicSchema, ...physicianSchemas],
+    '@graph': [clinicSchema, ...physicianSchemas, breadcrumbList, speakableSchema],
   }
 
   let scriptEl = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null

@@ -67,10 +67,12 @@ object NotificationHelper {
         val parsed = NotificationTemplateData.fromNotification(title, message, type)
         val displayTitle = parsed.title
         val displayBody = parsed.cleanMessage
+        val isArriveFast = parsed.rightValue.contains("arrive fast", ignoreCase = true) ||
+            parsed.leftValue.contains("arrive fast", ignoreCase = true)
         val leftLabel = parsed.leftLabel
-        val leftVal = estimatedTimeLeft?.takeIf { it.isNotBlank() } ?: parsed.leftValue
-        val rightLabel = parsed.rightLabel
-        val rightVal = expectedTime?.takeIf { it.isNotBlank() } ?: parsed.rightValue
+        val leftVal = if (isArriveFast) "Arrive Fast" else (estimatedTimeLeft?.takeIf { it.isNotBlank() } ?: parsed.leftValue)
+        val rightVal = if (isArriveFast) "Your turn, arrive fast" else (expectedTime?.takeIf { it.isNotBlank() } ?: parsed.rightValue)
+        val rightLabel = if (isArriveFast || rightVal.contains("arrive fast", ignoreCase = true)) "Turn Status" else parsed.rightLabel
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
@@ -88,20 +90,16 @@ object NotificationHelper {
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
         val collapsedView = RemoteViews(context.packageName, R.layout.notification_dactor_collapsed).apply {
-            setImageViewResource(R.id.notif_app_logo, R.drawable.app_logo)
-            setTextViewText(R.id.notif_header_text, "Dactor • Now")
             setTextViewText(R.id.notif_title, displayTitle)
             setTextViewText(R.id.notif_body, displayBody)
         }
 
         val expandedView = RemoteViews(context.packageName, R.layout.notification_dactor_expanded).apply {
-            setImageViewResource(R.id.notif_app_logo, R.drawable.app_logo)
-            setTextViewText(R.id.notif_header_text, "Dactor • Now")
             setTextViewText(R.id.notif_title, displayTitle)
             setTextViewText(R.id.notif_body, displayBody)
 
-            // Only show 2-column queue metrics container for queue status reminder notifications!
-            if (parsed.isQueueReminder) {
+            // Only show 2-column queue metrics container for queue status reminder notifications or when arriving fast!
+            if (parsed.isQueueReminder || isArriveFast) {
                 setViewVisibility(R.id.notif_metrics_container, android.view.View.VISIBLE)
                 setTextViewText(R.id.notif_left_label, leftLabel)
                 setTextViewText(R.id.notif_left_value, leftVal)
@@ -114,9 +112,10 @@ object NotificationHelper {
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.app_logo)
-            .setColor(android.graphics.Color.WHITE)
+            .setColor(androidx.core.content.ContextCompat.getColor(context, R.color.primary))
             .setContentTitle(displayTitle)
             .setContentText(displayBody)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setCustomContentView(collapsedView)
             .setCustomBigContentView(expandedView)
             .setCustomHeadsUpContentView(expandedView)

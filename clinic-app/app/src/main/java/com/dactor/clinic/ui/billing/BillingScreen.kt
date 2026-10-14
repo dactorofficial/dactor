@@ -31,14 +31,18 @@ import com.dactor.clinic.data.model.BillingInvoice
 import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.model.InvoiceItem
+import com.dactor.clinic.data.model.PaymentRecord
 import com.dactor.clinic.data.repository.AppointmentRepository
 import com.dactor.clinic.data.repository.BillingRepository
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.domain.util.BillPdfDownloader
 import com.dactor.clinic.domain.util.CurrencyFormatter
+import com.dactor.clinic.domain.util.PaymentLedgerHelper
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 data class InvoiceLineItem(
@@ -88,17 +92,29 @@ fun BillingScreen(
     var realPatientName by remember { mutableStateOf(patientName) }
     var realTrackingCode by remember { mutableStateOf(trackingCode) }
 
-    // Quick Payment Push State (e.g. Paid 1000 with no other detail)
-    var quickPaymentDate by remember { mutableStateOf(today) }
-    var quickPaidAmountInput by remember { mutableStateOf("1000") }
-    var quickPaymentNote by remember { mutableStateOf("") }
-    var isPushingQuickPayment by remember { mutableStateOf(false) }
+    // Payment Ledger History for the selected appointment
+    var paymentRecords by remember { mutableStateOf<List<PaymentRecord>>(emptyList()) }
 
-    // Detailed Line Items State (Starts CLEAN without dummy consultation or ECG items)
+    // Follow-up Service Items (Charges added across visits)
     var lineItems by remember { mutableStateOf<List<InvoiceLineItem>>(emptyList()) }
     var manualItemName by remember { mutableStateOf("") }
     var manualItemPrice by remember { mutableStateOf("") }
-    var paidAmountInput by remember { mutableStateOf("") }
+
+    // Follow-up Payment Input (New payment to record in this session)
+    var newPaymentDate by remember { mutableStateOf(today) }
+    var newPaymentTime by remember {
+        mutableStateOf(
+            try {
+                java.time.LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a"))
+            } catch (_: Exception) {
+                "12:00 PM"
+            }
+        )
+    }
+    var newPaymentAmountInput by remember { mutableStateOf("") }
+    var newPaymentNote by remember { mutableStateOf("") }
+
+    // Doctor Clinical Remarks
     var clinicalRemarks by remember { mutableStateOf("") }
 
     var isSaving by remember { mutableStateOf(false) }
@@ -113,23 +129,45 @@ fun BillingScreen(
         resolvedClinicId = appt.clinicId.ifBlank { effectiveClinicId }
         realPatientName = appt.patientName
         realTrackingCode = appt.trackingCode10Digit
-        quickPaymentDate = appt.appointmentDate.ifBlank { today }
+        newPaymentDate = today
+        newPaymentTime = try {
+            java.time.LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a"))
+        } catch (_: Exception) {
+            "12:00 PM"
+        }
 
         if (billingRepository != null) {
             val existingInv = billingRepository.getInvoiceByAppointment(appt.id)
             if (existingInv != null) {
-                lineItems = existingInv.items.map {
+                val cleanItems = existingInv.items.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) }
+                lineItems = cleanItems.map {
                     InvoiceLineItem(name = it.itemName, unitPrice = it.price, quantity = it.quantity)
                 }
-                paidAmountInput = if (existingInv.effectivePaidAmount > 0.0) existingInv.effectivePaidAmount.toInt().toString() else ""
-                clinicalRemarks = existingInv.remarks ?: ""
+                paymentRecords = PaymentLedgerHelper.parsePaymentRecords(
+                    rawRemarks = existingInv.remarks,
+                    fallbackPaidAmount = existingInv.effectivePaidAmount,
+                    fallbackDate = existingInv.paidAt
+                )
+                clinicalRemarks = PaymentLedgerHelper.extractCleanClinicalRemarks(existingInv.remarks)
+                newPaymentAmountInput = ""
+                newPaymentNote = ""
             } else {
                 lineItems = emptyList()
                 val existingApptFee = appt.feeAmount ?: 0.0
-                paidAmountInput = if (appt.paymentStatus.equals("paid", ignoreCase = true) && existingApptFee > 0.0) {
-                    existingApptFee.toInt().toString()
-                } else ""
+                if (appt.paymentStatus.equals("paid", ignoreCase = true) && existingApptFee > 0.0) {
+                    paymentRecords = listOf(
+                        PaymentRecord(
+                            amount = existingApptFee,
+                            dateTime = "${appt.appointmentDate} ${appt.appointmentTime ?: "10:00 AM"}",
+                            note = "Initial Consultation Fee"
+                        )
+                    )
+                } else {
+                    paymentRecords = emptyList()
+                }
                 clinicalRemarks = ""
+                newPaymentAmountInput = ""
+                newPaymentNote = ""
             }
         }
     }
@@ -193,22 +231,26 @@ fun BillingScreen(
         }
     }
 
-    // Calculations for full bill form
+    // Calculations for combined multi-visit bill
     val lineItemsSum = lineItems.sumOf { it.total }
-    val parsedPaidAmount = paidAmountInput.toDoubleOrNull() ?: 0.0
-    // If no line items were entered and user simply enters Paid = 1000, effective total becomes 1000
-    val totalAmount = if (lineItemsSum > 0.0) lineItemsSum else parsedPaidAmount
-    val balanceDue = (totalAmount - parsedPaidAmount).coerceAtLeast(0.0)
+    val loggedPaidSum = paymentRecords.sumOf { it.amount }
+    val parsedNewPayment = newPaymentAmountInput.toDoubleOrNull() ?: 0.0
+    val totalPaid = loggedPaidSum + parsedNewPayment
+    val totalAmount = if (lineItemsSum > 0.0) lineItemsSum else totalPaid
+    val balanceDue = (totalAmount - totalPaid).coerceAtLeast(0.0)
 
     val currentInvoice = selectedAppointment?.let { invoicesMap[it.id] }
 
     val quickCatalogItems = listOf(
+        Pair("12-Lead ECG Test", 1000.0),
+        Pair("CT Scan", 500.0),
         Pair("General OPD Consultation", 500.0),
-        Pair("12-Lead ECG Test", 750.0),
         Pair("Complete Blood Count (CBC)", 650.0),
+        Pair("Ultrasonography (USG)", 1500.0),
+        Pair("MRI Scan", 5000.0),
+        Pair("Digital X-Ray", 800.0),
         Pair("Wound Dressing & Care", 350.0),
-        Pair("Lipid Profile Test", 1200.0),
-        Pair("Ultrasonography (USG)", 1500.0)
+        Pair("Lipid Profile Test", 1200.0)
     )
 
     Scaffold(
@@ -514,14 +556,54 @@ fun BillingScreen(
                                     val assignedDoc = appt.doctorId?.let { doctorsMap[it]?.fullName } ?: "Attending Physician"
                                     val cName = loadedClinic?.name ?: "Dactor Medical Clinic"
                                     val cAddr = loadedClinic?.addressText ?: "Nepal"
+
+                                    val liveItems = if (lineItems.isNotEmpty()) {
+                                        lineItems.map { InvoiceItem(itemName = it.name, quantity = it.quantity, price = it.unitPrice, total = it.total) }
+                                    } else {
+                                        val clean = apptInvoice?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) }
+                                        if (!clean.isNullOrEmpty()) clean else emptyList()
+                                    }
+                                    val livePayments = if (paymentRecords.isNotEmpty()) {
+                                        paymentRecords
+                                    } else {
+                                        PaymentLedgerHelper.parsePaymentRecords(apptInvoice?.remarks, currentPaid, apptInvoice?.paidAt)
+                                    }
+                                    val livePaidSum = livePayments.sumOf { it.amount }
+                                    val liveTotalSum = if (liveItems.isNotEmpty()) liveItems.sumOf { it.total } else (apptInvoice?.totalAmount?.takeIf { it > 0.0 } ?: currentTotal)
+                                    val liveBalance = (liveTotalSum - livePaidSum).coerceAtLeast(0.0)
+                                    val liveStatus = if (liveBalance <= 0.0 && liveTotalSum > 0.0) "paid" else if (livePaidSum > 0.0) "partial" else "pending"
+                                    val combinedRem = PaymentLedgerHelper.buildCombinedRemarks(
+                                        cleanRemarks = clinicalRemarks.ifBlank { PaymentLedgerHelper.extractCleanClinicalRemarks(apptInvoice?.remarks) },
+                                        paymentRecords = livePayments
+                                    )
+                                    val invoiceToPrint = (apptInvoice ?: currentInvoice)?.copy(
+                                        items = liveItems,
+                                        totalAmount = liveTotalSum,
+                                        paidAmount = livePaidSum,
+                                        balanceDue = liveBalance,
+                                        paymentStatus = liveStatus,
+                                        remarks = combinedRem
+                                    ) ?: BillingInvoice(
+                                        id = UUID.randomUUID().toString(),
+                                        appointmentId = appt.id,
+                                        clinicId = appt.clinicId.ifBlank { effectiveClinicId },
+                                        items = liveItems,
+                                        totalAmount = liveTotalSum,
+                                        paidAmount = livePaidSum,
+                                        balanceDue = liveBalance,
+                                        paymentStatus = liveStatus,
+                                        paidAt = java.time.Instant.now().toString(),
+                                        remarks = combinedRem
+                                    )
+
                                     BillPdfDownloader.downloadBillPdf(
                                         context = context,
                                         appointment = appt,
-                                        invoice = apptInvoice,
+                                        invoice = invoiceToPrint,
                                         clinicName = cName,
                                         clinicAddress = cAddr,
                                         doctorName = assignedDoc,
-                                        clinicalRemarks = clinicalRemarks.ifBlank { apptInvoice?.remarks }
+                                        clinicalRemarks = combinedRem
                                     )
                                 },
                                 shape = RoundedCornerShape(10.dp),
@@ -535,7 +617,7 @@ fun BillingScreen(
                             }
                         }
 
-                        // Current Total, Paid, and Remaining Left breakdown
+                        // Current Combined Total, Paid, and Remaining Left breakdown
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = Color.White,
@@ -549,16 +631,16 @@ fun BillingScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column {
-                                    Text("Total Bill", fontSize = 10.sp, color = Color(0xFF64748B))
-                                    Text("Rs. ${currentTotal.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF0F172A))
+                                    Text("Combined Bill", fontSize = 10.sp, color = Color(0xFF64748B))
+                                    Text("Rs. ${totalAmount.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF0F172A))
                                 }
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text("Total Paid", fontSize = 10.sp, color = Color(0xFF64748B))
-                                    Text("Rs. ${currentPaid.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF15803D))
+                                    Text("Rs. ${totalPaid.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF15803D))
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text("Remaining Left", fontSize = 10.sp, color = Color(0xFF64748B))
-                                    Text("Rs. ${currentLeft.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = if (currentLeft > 0.0) Color(0xFFDC2626) else Color(0xFF15803D))
+                                    Text("Rs. ${balanceDue.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = if (balanceDue > 0.0) Color(0xFFDC2626) else Color(0xFF15803D))
                                 }
                             }
                         }
@@ -566,7 +648,234 @@ fun BillingScreen(
                 }
 
                 // =====================================================================
-                // SECTION 3: QUICK PUSH PAID AMOUNT (e.g. Paid 1000 — No Other Detail)
+                // SECTION 3: SERVICES & CHARGES (Add as many times as clinic wants!)
+                // =====================================================================
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFE0F2F1),
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            Column {
+                                Text("Services, Tests & Procedures", fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = Color(0xFF0F172A))
+                                Text("Add items anytime (e.g. ECG, CT Scan) — will accumulate into combined bill", fontSize = 11.sp, color = Color(0xFF64748B))
+                            }
+                        }
+
+                        // 1-Click Catalog Quick Add Chips
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            quickCatalogItems.forEach { (name, price) ->
+                                AssistChip(
+                                    onClick = {
+                                        lineItems = lineItems + InvoiceLineItem(name = name, unitPrice = price, quantity = 1)
+                                    },
+                                    label = { Text("+ $name (Rs. ${price.toInt()})", fontSize = 11.sp) }
+                                )
+                            }
+                        }
+
+                        // Custom Service or Test Input
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = manualItemName,
+                                    onValueChange = { manualItemName = it },
+                                    placeholder = { Text("Service / Test Name (e.g. CT Scan, ECG)", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(2f),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                OutlinedTextField(
+                                    value = manualItemPrice,
+                                    onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) manualItemPrice = it },
+                                    placeholder = { Text("Price (Rs.)", fontSize = 12.sp) },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1.2f),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val price = manualItemPrice.toDoubleOrNull() ?: 0.0
+                                        if (manualItemName.isNotBlank() && price > 0) {
+                                            lineItems = lineItems + InvoiceLineItem(name = manualItemName.trim(), unitPrice = price, quantity = 1)
+                                            manualItemName = ""
+                                            manualItemPrice = ""
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(Icons.Default.AddCircle, contentDescription = "Add Item", tint = Color(0xFF00796B), modifier = Modifier.size(32.dp))
+                                }
+                            }
+                        }
+
+                        // Current Combined Items List
+                        if (lineItems.isNotEmpty()) {
+                            Text("Current Billed Items (${lineItems.size})", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color(0xFF334155))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                lineItems.forEachIndexed { index, item ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFF1F5F9),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(item.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF0F172A))
+                                                Text("Rs. ${item.unitPrice.toInt()} × ${item.quantity}", fontSize = 11.sp, color = Color(0xFF64748B))
+                                            }
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text(
+                                                    CurrencyFormatter.formatNPR(item.total),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = Color(0xFF0F766E)
+                                                )
+                                                IconButton(
+                                                    onClick = {
+                                                        lineItems = lineItems.filterIndexed { i, _ -> i != index }
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // =====================================================================
+                // SECTION 4: PAYMENT RECEIPTS & TIME LOG (CHRONOLOGICAL LEDGER)
+                // =====================================================================
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFDCFCE7),
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            Column {
+                                Text("Payment Receipts & Time Log", fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = Color(0xFF0F172A))
+                                Text("Complete historical payment timeline for this patient", fontSize = 11.sp, color = Color(0xFF64748B))
+                            }
+                        }
+
+                        if (paymentRecords.isEmpty()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFF8FAFC),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    "No prior payments logged yet. Use the section below to record payments.",
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFF64748B),
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                paymentRecords.forEach { record ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFF0FDF4),
+                                        border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(16.dp))
+                                                Column {
+                                                    Text(record.dateTime, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0F172A))
+                                                    Text(record.note ?: "Payment Received", fontSize = 11.sp, color = Color(0xFF15803D))
+                                                }
+                                            }
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(
+                                                    "Rs. ${record.amount.toInt()}",
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 13.5.sp,
+                                                    color = Color(0xFF15803D)
+                                                )
+                                                IconButton(
+                                                    onClick = {
+                                                        paymentRecords = paymentRecords.filter { it.id != record.id }
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Close, contentDescription = "Remove payment", tint = Color(0xFF94A3B8), modifier = Modifier.size(14.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // =====================================================================
+                // SECTION 5: RECORD NEW FOLLOW-UP PAYMENT (TIME-STAMPED)
                 // =====================================================================
                 Card(
                     shape = RoundedCornerShape(16.dp),
@@ -586,12 +895,12 @@ fun BillingScreen(
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.AddCard, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
                                 }
                             }
                             Column {
-                                Text("Quick Push Paid Amount by Date", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0369A1))
-                                Text("e.g. Push Paid 1000 with no other detail required", fontSize = 11.sp, color = Color(0xFF64748B))
+                                Text("Record Payment (Time-Stamped)", fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = Color(0xFF0369A1))
+                                Text("Log payment made now with date & time stamp", fontSize = 11.sp, color = Color(0xFF64748B))
                             }
                         }
 
@@ -600,350 +909,176 @@ fun BillingScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             OutlinedTextField(
-                                value = quickPaymentDate,
-                                onValueChange = { quickPaymentDate = it },
+                                value = newPaymentDate,
+                                onValueChange = { newPaymentDate = it },
                                 label = { Text("Payment Date") },
-                                placeholder = { Text("YYYY-MM-DD") },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(10.dp)
                             )
 
                             OutlinedTextField(
-                                value = quickPaidAmountInput,
-                                onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) quickPaidAmountInput = it },
-                                label = { Text("Paid Amount (NPR) *") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                value = newPaymentTime,
+                                onValueChange = { newPaymentTime = it },
+                                label = { Text("Payment Time") },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(10.dp)
                             )
                         }
 
-                        // Preset Paid Amount Chips
                         Row(
                             modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = newPaymentAmountInput,
+                                onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) newPaymentAmountInput = it },
+                                label = { Text("Amount Paid Now (Rs.)") },
+                                placeholder = { Text(if (balanceDue > 0) "e.g. ${balanceDue.toInt()}" else "e.g. 500") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.weight(1.2f),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+
+                            OutlinedTextField(
+                                value = newPaymentNote,
+                                onValueChange = { newPaymentNote = it },
+                                label = { Text("Payment Note / Mode") },
+                                placeholder = { Text("e.g. Cash, CT scan advance") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1.8f),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        // Quick Amount Chips
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            listOf("500", "1000", "1500", "2000", "2500").forEach { preset ->
+                            if (balanceDue > 0.0) {
                                 AssistChip(
-                                    onClick = { quickPaidAmountInput = preset },
+                                    onClick = { newPaymentAmountInput = balanceDue.toInt().toString() },
+                                    label = { Text("Clear Balance (Rs. ${balanceDue.toInt()})", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                            listOf("500", "1000", "1500", "2000").forEach { preset ->
+                                AssistChip(
+                                    onClick = { newPaymentAmountInput = preset },
                                     label = { Text("Rs. $preset", fontSize = 11.sp) }
                                 )
                             }
                         }
-
-                        OutlinedTextField(
-                            value = quickPaymentNote,
-                            onValueChange = { quickPaymentNote = it },
-                            label = { Text("Optional Payment Note (No other detail required)") },
-                            placeholder = { Text("e.g. Cash OPD payment / Consultation / Lab") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-
-                        Button(
-                            onClick = {
-                                val amountVal = quickPaidAmountInput.toDoubleOrNull() ?: 0.0
-                                if (amountVal <= 0.0) {
-                                    Toast.makeText(context, "Please enter a valid paid amount", Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-                                if (billingRepository == null) return@Button
-                                isPushingQuickPayment = true
-                                coroutineScope.launch {
-                                    val saved = billingRepository.pushQuickPayment(
-                                        appointment = appt,
-                                        paymentDate = quickPaymentDate,
-                                        paidAmount = amountVal,
-                                        note = quickPaymentNote.takeIf { it.isNotBlank() }
-                                    )
-                                    isPushingQuickPayment = false
-                                    if (saved != null) {
-                                        Toast.makeText(
-                                            context,
-                                            "✓ Added Paid Rs. ${amountVal.toInt()} to total bill for ${appt.patientName} on $quickPaymentDate!",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                        quickPaymentNote = ""
-                                        loadAppointmentsAndInvoices()
-                                        selectAppointment(appt)
-                                    } else {
-                                        Toast.makeText(context, "Failed to push payment entry.", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp),
-                            enabled = !isPushingQuickPayment
-                        ) {
-                            if (isPushingQuickPayment) {
-                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Pushing Payment Entry...", fontWeight = FontWeight.Bold)
-                            } else {
-                                Icon(Icons.Default.AddCard, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    "Push Paid Rs. ${(quickPaidAmountInput.toDoubleOrNull() ?: 1000.0).toInt()} to Patient Bill",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.5.sp
-                                )
-                            }
-                        }
                     }
                 }
-            }
 
-            // =========================================================================
-            // SECTION 4: DETAILED LINE ITEMS & BILL CUSTOMIZATION (OPTIONAL)
-            // =========================================================================
-            Text("Detailed Line Items & Catalog (Optional)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-
-            // 1-Click Catalog Quick Add
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                quickCatalogItems.forEach { (name, price) ->
-                    AssistChip(
-                        onClick = {
-                            val updated = lineItems + InvoiceLineItem(name = name, unitPrice = price, quantity = 1)
-                            lineItems = updated
-                            paidAmountInput = updated.sumOf { it.total }.toInt().toString()
-                        },
-                        label = { Text("+ $name (Rs. ${price.toInt()})", fontSize = 11.sp) }
-                    )
-                }
-            }
-
-            // Custom Line Item Input
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Add Custom Service or Procedure", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = manualItemName,
-                            onValueChange = { manualItemName = it },
-                            placeholder = { Text("Service / Medicine Name") },
-                            modifier = Modifier.weight(2f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        OutlinedTextField(
-                            value = manualItemPrice,
-                            onValueChange = { manualItemPrice = it },
-                            placeholder = { Text("Rate (Rs.)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        IconButton(
-                            onClick = {
-                                val price = manualItemPrice.toDoubleOrNull() ?: 0.0
-                                if (manualItemName.isNotBlank() && price > 0) {
-                                    val updated = lineItems + InvoiceLineItem(name = manualItemName.trim(), unitPrice = price, quantity = 1)
-                                    lineItems = updated
-                                    manualItemName = ""
-                                    manualItemPrice = ""
-                                }
-                            },
-                            modifier = Modifier.align(Alignment.CenterVertically)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Item", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-            }
-
-            // Current Line Items List
-            if (lineItems.isNotEmpty()) {
-                Text("Current Bill Line Items (${lineItems.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    lineItems.forEachIndexed { index, item ->
-                        Card(
-                            shape = RoundedCornerShape(10.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .padding(12.dp)
-                                    .fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("Rs. ${item.unitPrice.toInt()} × ${item.quantity}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        CurrencyFormatter.formatNPR(item.total),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.5.sp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    IconButton(
-                                        onClick = {
-                                            lineItems = lineItems.filterIndexed { i, _ -> i != index }
-                                        },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Financial Breakdown Card (Total Amount, Paid, Left)
-            Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Total Bill Amount:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(CurrencyFormatter.formatNPR(totalAmount), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("How Much Paid (Rs.):", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        OutlinedTextField(
-                            value = paidAmountInput,
-                            onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) paidAmountInput = it },
-                            placeholder = { Text("e.g. 1000") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            modifier = Modifier.width(140.dp),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                    }
-
-                    // Quick Paid Presets
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        AssistChip(
-                            onClick = { paidAmountInput = totalAmount.toInt().toString() },
-                            label = { Text("Full Paid", fontSize = 11.sp) }
-                        )
-                        AssistChip(
-                            onClick = { paidAmountInput = (totalAmount / 2).toInt().toString() },
-                            label = { Text("50% Paid", fontSize = 11.sp) }
-                        )
-                        AssistChip(
-                            onClick = { paidAmountInput = "0" },
-                            label = { Text("Unpaid (0)", fontSize = 11.sp) }
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Remaining Balance Left:", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            CurrencyFormatter.formatNPR(balanceDue),
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 15.sp,
-                            color = if (balanceDue > 0) MaterialTheme.colorScheme.error else Color(0xFF059669)
-                        )
-                    }
-                }
-            }
-
-            // Doctor Clinical Remarks / Prescription Notes
-            Text("Doctor Clinical Remarks & Prescriptions", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            OutlinedTextField(
-                value = clinicalRemarks,
-                onValueChange = { clinicalRemarks = it },
-                label = { Text("Clinical Notes / Prescriptions") },
-                placeholder = { Text("Optional doctor's findings, prescriptions, and follow-up advice...") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2,
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            // Primary Save & Push Button
-            Button(
-                onClick = {
-                    isSaving = true
-                    coroutineScope.launch {
-                        val finalApptId = resolvedAppointmentId.ifBlank {
-                            if (appointmentId.isNotBlank()) appointmentId else UUID.randomUUID().toString()
-                        }
-                        val itemsToSave = if (lineItems.isNotEmpty()) {
-                            lineItems.map { InvoiceItem(itemName = it.name, quantity = it.quantity, price = it.unitPrice, total = it.total) }
-                        } else {
-                            listOf(
-                                InvoiceItem(
-                                    itemName = "Payment Received ($today)",
-                                    quantity = 1,
-                                    price = totalAmount,
-                                    total = totalAmount
-                                )
-                            )
-                        }
-
-                        val invoice = BillingInvoice(
-                            id = currentInvoice?.id ?: UUID.randomUUID().toString(),
-                            appointmentId = finalApptId,
-                            clinicId = resolvedClinicId.ifBlank { effectiveClinicId },
-                            items = itemsToSave,
-                            totalAmount = totalAmount,
-                            paidAmount = parsedPaidAmount,
-                            balanceDue = balanceDue,
-                            paymentStatus = when {
-                                balanceDue <= 0.0 && totalAmount > 0.0 -> "paid"
-                                parsedPaidAmount > 0.0 -> "partial"
-                                else -> "pending"
-                            },
-                            paidAt = java.time.Instant.now().toString(),
-                            remarks = clinicalRemarks.trim().ifBlank { null }
-                        )
-
-                        val saved = billingRepository?.saveInvoice(invoice)
-                        isSaving = false
-                        successDialogInvoice = saved ?: invoice
-                        showSuccessDialog = true
-                        loadAppointmentsAndInvoices()
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                enabled = !isSaving
-            ) {
-                Text(
-                    if (isSaving) "Saving Bill to Patient..."
-                    else "Push Bill to Patient Profile (Total: Rs. ${totalAmount.toInt()} • Paid: Rs. ${parsedPaidAmount.toInt()})",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.5.sp
+                // =====================================================================
+                // SECTION 6: DOCTOR CLINICAL REMARKS & PRESCRIPTIONS
+                // =====================================================================
+                Text("Doctor Clinical Remarks & Prescriptions", fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = Color(0xFF0F172A))
+                OutlinedTextField(
+                    value = clinicalRemarks,
+                    onValueChange = { clinicalRemarks = it },
+                    label = { Text("Clinical Notes / Prescriptions") },
+                    placeholder = { Text("Doctor's findings, prescriptions, and follow-up advice...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    shape = RoundedCornerShape(12.dp)
                 )
+
+                // =====================================================================
+                // SECTION 7: PRIMARY SAVE & PUSH COMBINED BILL BUTTON
+                // =====================================================================
+                Button(
+                    onClick = {
+                        isSaving = true
+                        coroutineScope.launch {
+                            val finalAppt = selectedAppointment ?: return@launch
+                            val itemsToSave = if (lineItems.isNotEmpty()) {
+                                lineItems.map { InvoiceItem(itemName = it.name, quantity = it.quantity, price = it.unitPrice, total = it.total) }
+                            } else {
+                                val totalToUse = if (totalAmount > 0.0) totalAmount else (totalPaid)
+                                if (totalToUse > 0.0) {
+                                    listOf(InvoiceItem(itemName = "Consultation / Service ($newPaymentDate)", quantity = 1, price = totalToUse, total = totalToUse))
+                                } else emptyList()
+                            }
+
+                            val newAmt = newPaymentAmountInput.toDoubleOrNull() ?: 0.0
+                            val paymentTimeStr = "$newPaymentDate $newPaymentTime"
+                            val paymentNoteStr = newPaymentNote.ifBlank { "Payment Received" }
+
+                            // If user deleted or modified historical payment records, update existing records first
+                            val existingPayments = paymentRecords
+                            val updatedPayments = if (newAmt > 0.0) {
+                                existingPayments + PaymentRecord(
+                                    amount = newAmt,
+                                    dateTime = paymentTimeStr,
+                                    note = paymentNoteStr
+                                )
+                            } else {
+                                existingPayments
+                            }
+
+                            val totalPaidCalc = updatedPayments.sumOf { it.amount }
+                            val totalItemsCalc = itemsToSave.sumOf { it.total }
+                            val totalBillCalc = if (totalItemsCalc > 0.0) totalItemsCalc else totalPaidCalc
+                            val balanceCalc = (totalBillCalc - totalPaidCalc).coerceAtLeast(0.0)
+                            val statusCalc = when {
+                                balanceCalc <= 0.0 && totalBillCalc > 0.0 -> "paid"
+                                totalPaidCalc > 0.0 -> "partial"
+                                else -> "pending"
+                            }
+                            val combinedRemarks = PaymentLedgerHelper.buildCombinedRemarks(clinicalRemarks, updatedPayments)
+
+                            val invoice = BillingInvoice(
+                                id = currentInvoice?.id ?: UUID.randomUUID().toString(),
+                                appointmentId = finalAppt.id,
+                                clinicId = finalAppt.clinicId.ifBlank { effectiveClinicId },
+                                items = itemsToSave,
+                                totalAmount = totalBillCalc,
+                                paidAmount = totalPaidCalc,
+                                balanceDue = balanceCalc,
+                                paymentStatus = statusCalc,
+                                paidAt = java.time.Instant.now().toString(),
+                                remarks = combinedRemarks
+                            )
+
+                            val saved = billingRepository?.saveInvoice(invoice)
+                            isSaving = false
+                            successDialogInvoice = saved ?: invoice
+                            showSuccessDialog = true
+                            newPaymentAmountInput = ""
+                            newPaymentNote = ""
+                            loadAppointmentsAndInvoices()
+                            selectAppointment(finalAppt)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                    enabled = !isSaving
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Saving Combined Bill...", fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Save & Push Combined Bill (Total: Rs. ${totalAmount.toInt()} • Paid: Rs. ${totalPaid.toInt()} • Due: Rs. ${balanceDue.toInt()})",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
             }
-        }
 
         // =========================================================================
         // SECTION 5: SUCCESS CONFIRMATION DIALOG (WITH ON-DEMAND "GENERATE BILL PDF")
@@ -959,7 +1094,7 @@ fun BillingScreen(
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "Bill and payment details for $realPatientName (Total: ${CurrencyFormatter.formatNPR(totalAmount)}, Paid: ${CurrencyFormatter.formatNPR(parsedPaidAmount)}, Left: ${CurrencyFormatter.formatNPR(balanceDue)}) have been saved and pushed to the patient's records.",
+                            "Bill and payment details for $realPatientName (Total: ${CurrencyFormatter.formatNPR(totalAmount)}, Paid: ${CurrencyFormatter.formatNPR(totalPaid)}, Left: ${CurrencyFormatter.formatNPR(balanceDue)}) have been saved and pushed to the patient's records.",
                             fontSize = 13.sp
                         )
                         Text(
@@ -983,7 +1118,7 @@ fun BillingScreen(
                                     clinicName = cName,
                                     clinicAddress = cAddr,
                                     doctorName = assignedDoc,
-                                    clinicalRemarks = clinicalRemarks.ifBlank { successDialogInvoice?.remarks }
+                                    clinicalRemarks = successDialogInvoice?.remarks ?: clinicalRemarks
                                 )
                             }
                             showSuccessDialog = false
@@ -1007,4 +1142,5 @@ fun BillingScreen(
             )
         }
     }
+}
 }

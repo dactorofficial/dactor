@@ -125,21 +125,6 @@ object BillPdfDownloader {
             canvas.drawText(doctorName, 430f, y, valuePaint)
             y += 28f
 
-            // 3. Date-Wise Bill & Payment Entries Table
-            canvas.drawText("DATE-WISE BILL & PAYMENT ENTRIES", 36f, y, sectionPaint)
-            y += 14f
-
-            val tableHeaderBg = Paint().apply {
-                color = Color.rgb(241, 245, 249)
-                style = Paint.Style.FILL
-            }
-            canvas.drawRect(36f, y, 559f, y + 24f, tableHeaderBg)
-            canvas.drawText("Description / Date Entry", 46f, y + 16f, valuePaint)
-            canvas.drawText("Qty", 360f, y + 16f, valuePaint)
-            canvas.drawText("Rate (NPR)", 415f, y + 16f, valuePaint)
-            canvas.drawText("Amount (NPR)", 490f, y + 16f, valuePaint)
-            y += 38f
-
             val effectivePaid = when {
                 invoice != null && (invoice.paidAmount != null || invoice.totalAmount > 0.0) -> invoice.effectivePaidAmount
                 appointment.paymentStatus.equals("paid", ignoreCase = true) -> (appointment.feeAmount ?: 0.0)
@@ -153,12 +138,41 @@ object BillPdfDownloader {
             }
             val balanceLeft = (effectiveTotal - effectivePaid).coerceAtLeast(0.0)
 
-            val items: List<InvoiceItem> = if (invoice != null && invoice.items.isNotEmpty()) {
+            val logSource = when {
+                invoice?.remarks?.contains("<!--PAYMENT_LOG_START-->") == true -> invoice.remarks
+                clinicalRemarks?.contains("<!--PAYMENT_LOG_START-->") == true -> clinicalRemarks
+                !invoice?.remarks.isNullOrBlank() -> invoice.remarks
+                else -> clinicalRemarks
+            }
+            val paymentLogs = PaymentLedgerHelper.parsePaymentRecords(logSource, effectivePaid, invoice?.paidAt)
+            val cleanRemarks = PaymentLedgerHelper.extractCleanClinicalRemarks(
+                if (!clinicalRemarks.isNullOrBlank() && !clinicalRemarks.contains("<!--PAYMENT_LOG_START-->")) clinicalRemarks else logSource
+            )
+
+            // 3. Itemized Services & Procedures Table
+            canvas.drawText("SERVICES & PROCEDURES", 36f, y, sectionPaint)
+            y += 14f
+
+            val tableHeaderBg = Paint().apply {
+                color = Color.rgb(241, 245, 249)
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(36f, y, 559f, y + 22f, tableHeaderBg)
+            canvas.drawText("Description / Service", 46f, y + 15f, valuePaint)
+            canvas.drawText("Qty", 360f, y + 15f, valuePaint)
+            canvas.drawText("Rate (NPR)", 415f, y + 15f, valuePaint)
+            canvas.drawText("Amount (NPR)", 490f, y + 15f, valuePaint)
+            y += 34f
+
+            val cleanItems = invoice?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) } ?: emptyList()
+            val items: List<InvoiceItem> = if (cleanItems.isNotEmpty()) {
+                cleanItems
+            } else if (invoice != null && invoice.items.isNotEmpty()) {
                 invoice.items
             } else {
                 listOf(
                     InvoiceItem(
-                        itemName = "Payment Received (${appointment.appointmentDate})",
+                        itemName = "Consultation / Service (${appointment.appointmentDate})",
                         quantity = 1,
                         price = effectiveTotal,
                         total = effectiveTotal
@@ -171,13 +185,38 @@ object BillPdfDownloader {
                 canvas.drawText(item.quantity.toString(), 365f, y, regularPaint)
                 canvas.drawText("Rs. ${item.price.toInt()}", 415f, y, regularPaint)
                 canvas.drawText("Rs. ${item.total.toInt()}", 490f, y, valuePaint)
-                y += 18f
-                canvas.drawLine(36f, y - 10f, 559f, y - 10f, linePaint)
+                y += 16f
+                canvas.drawLine(36f, y - 8f, 559f, y - 8f, linePaint)
             }
 
-            y += 10f
+            y += 12f
 
-            // 4. Financial Summary Box (Total Bill, Paid, Remaining Balance)
+            // 4. Payment Receipts & Time Log Table
+            if (paymentLogs.isNotEmpty()) {
+                canvas.drawText("PAYMENT RECEIPTS & TIME LOG", 36f, y, sectionPaint)
+                y += 14f
+                val logHeaderBg = Paint().apply {
+                    color = Color.rgb(220, 252, 231)
+                    style = Paint.Style.FILL
+                }
+                canvas.drawRect(36f, y, 559f, y + 22f, logHeaderBg)
+                canvas.drawText("Date & Time Log", 46f, y + 15f, valuePaint)
+                canvas.drawText("Note / Payment Mode", 260f, y + 15f, valuePaint)
+                canvas.drawText("Paid (NPR)", 490f, y + 15f, valuePaint)
+                y += 34f
+
+                for (p in paymentLogs) {
+                    canvas.drawText(p.dateTime, 46f, y, regularPaint)
+                    canvas.drawText((p.note ?: "Payment Received").take(32), 260f, y, regularPaint)
+                    val paidTextPaint = Paint(valuePaint).apply { color = Color.rgb(21, 128, 61) }
+                    canvas.drawText("Rs. ${p.amount.toInt()}", 490f, y, paidTextPaint)
+                    y += 16f
+                    canvas.drawLine(36f, y - 8f, 559f, y - 8f, linePaint)
+                }
+                y += 12f
+            }
+
+            // 5. Financial Summary Box (Total Bill, Paid, Remaining Balance)
             val summaryBoxPaint = Paint().apply {
                 color = Color.rgb(240, 253, 250)
                 style = Paint.Style.FILL
@@ -197,16 +236,13 @@ object BillPdfDownloader {
             canvas.drawText("Remaining Balance:", 324f, y + 64f, labelPaint)
             canvas.drawText("Rs. ${balanceLeft.toInt()}", 475f, y + 64f, leftPaint)
 
-            y += 96f
+            y += 92f
 
-            // 5. Clinical Remarks (if any)
-            val remarksToPrint = clinicalRemarks?.takeIf { it.isNotBlank() }
-                ?: invoice?.remarks?.takeIf { it.isNotBlank() }
-
-            if (!remarksToPrint.isNullOrBlank()) {
+            // 6. Clinical Remarks (clean)
+            if (cleanRemarks.isNotBlank()) {
                 canvas.drawText("CLINICAL REMARKS & NOTES", 36f, y, sectionPaint)
                 y += 16f
-                val words = remarksToPrint.split(" ")
+                val words = cleanRemarks.split(" ")
                 var currentLine = ""
                 for (w in words) {
                     val testLine = if (currentLine.isEmpty()) w else "$currentLine $w"

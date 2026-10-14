@@ -122,6 +122,14 @@ fun BookingScreen(
         (pendingRedirect?.selectedDate ?: initialDate?.takeIf { it.isNotBlank() } ?: today)
     }
 
+    var currentTimeTicker by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(15_000L)
+            currentTimeTicker = System.currentTimeMillis()
+        }
+    }
+
     var viewedYearMonth by remember {
         val initDate = try { LocalDate.parse(resolvedInitialDateStr) } catch (e: Exception) { null } ?: todayDate
         mutableStateOf(YearMonth.from(initDate))
@@ -232,7 +240,7 @@ fun BookingScreen(
         }
     }
 
-    LaunchedEffect(selectedDate, monthSlotsMap, selectedDoctor) {
+    LaunchedEffect(selectedDate, monthSlotsMap, selectedDoctor, currentTimeTicker) {
         if (clinicRepository != null && clinicId.isNotBlank()) {
             clinic = clinicRepository.getClinicById(clinicId, forceRefresh = true) ?: clinic
         }
@@ -346,6 +354,10 @@ fun BookingScreen(
                         onClick = {
                             if (isNavigatingToForm) return@Button
                             val chosenSlotId = selectedSlot?.id ?: if (isLabClinic) "synth__lab_$selectedDate" else null
+                            if (selectedSlot != null && SlotRepository.isSlotEndTimeOver(selectedSlot.endTime, selectedDate, selectedSlot.startTime)) {
+                                Toast.makeText(context, "This time slot has already passed. Please select an upcoming slot.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
                             val isUserLoggedIn = sessionManager?.isLoggedIn() == true || (authRepository?.isLoggedIn() == true)
                             if (!isUserLoggedIn) {
                                 redirectToLoginSavingPosition(chosenSlotId)

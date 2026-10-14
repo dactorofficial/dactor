@@ -30,6 +30,7 @@ import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.repository.AppointmentRepository
 import com.dactor.patient.data.repository.AuthRepository
+import kotlinx.coroutines.launch
 import com.dactor.patient.ui.navigation.NavRoutes
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,6 +48,7 @@ fun TrackingLookupScreen(
 
     val focusManager = LocalFocusManager.current
     val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         if (appointmentRepository != null) {
@@ -81,14 +83,85 @@ fun TrackingLookupScreen(
     fun performLookup() {
         focusManager.clearFocus()
         val cleaned = trackingCode.trim()
-        if (cleaned.length != 10 || !cleaned.all { it.isDigit() }) {
-            errorMessage = "Please enter a valid 10-digit numeric tracking code"
+        if (cleaned.isBlank()) {
+            errorMessage = "Please enter your 10-digit code, Gmail address, or mobile number"
             return
         }
+
+        val isEmail = cleaned.contains("@") && cleaned.contains(".")
+        val isDigits = cleaned.all { it.isDigit() }
+
+        if (!isEmail && !isDigits) {
+            errorMessage = "Please enter a valid 10-digit code, Gmail address, or 10-digit mobile number"
+            return
+        }
+
         errorMessage = null
         isLoading = true
-        navController.navigate(NavRoutes.QueueStatus.createRoute(cleaned))
-        isLoading = false
+
+        coroutineScope.launch {
+            try {
+                // 1. If 10-digit code entered, check if an appointment matches this tracking code
+                if (isDigits && cleaned.length == 10) {
+                    val apptByCode = appointmentRepository?.getAppointmentByTrackingCode(cleaned)
+                    if (apptByCode != null) {
+                        sessionManager?.saveTrackingCode(cleaned, "${apptByCode.patientName} • ${apptByCode.appointmentDate}")
+                        isLoading = false
+                        navController.navigate(NavRoutes.QueueStatus.createRoute(cleaned))
+                        return@launch
+                    }
+                }
+
+                // 2. Query appointments matching email or phone or deterministic ID
+                val queryEmail = if (isEmail) cleaned else null
+                val queryPhone = if (isDigits) cleaned else null
+                val deterministicUid = if (isEmail) {
+                    com.dactor.patient.domain.util.PatientIdentitySync.getDeterministicPatientIdForEmail(cleaned)
+                } else if (isDigits) {
+                    com.dactor.patient.domain.util.PatientIdentitySync.getDeterministicPatientIdForPhone(cleaned)
+                } else null
+
+                val foundAppts = appointmentRepository?.getAllPatientAppointments(
+                    userId = deterministicUid,
+                    email = queryEmail,
+                    phone = queryPhone,
+                    trackingCodes = if (isDigits && cleaned.length == 10) listOf(cleaned) else emptyList()
+                ) ?: emptyList()
+
+                if (foundAppts.isNotEmpty()) {
+                    foundAppts.forEach { a ->
+                        if (a.trackingCode10Digit.isNotBlank()) {
+                            sessionManager?.saveTrackingCode(a.trackingCode10Digit, "${a.patientName} • ${a.appointmentDate}")
+                        }
+                    }
+                    val targetAppt = foundAppts.find { it.checkinStatus != "completed" && it.checkinStatus != "cancelled" }
+                        ?: foundAppts.sortedByDescending { it.appointmentDate }.first()
+
+                    if (targetAppt.trackingCode10Digit.isNotBlank()) {
+                        isLoading = false
+                        navController.navigate(NavRoutes.QueueStatus.createRoute(targetAppt.trackingCode10Digit))
+                        return@launch
+                    }
+                }
+
+                // 3. Fallback: if 10 digits entered and no record found online yet, try direct navigation
+                if (isDigits && cleaned.length == 10) {
+                    isLoading = false
+                    navController.navigate(NavRoutes.QueueStatus.createRoute(cleaned))
+                    return@launch
+                }
+
+                errorMessage = "No appointment found for '$cleaned'. Please check with reception or verify your Gmail/code."
+            } catch (e: Exception) {
+                if (isDigits && cleaned.length == 10) {
+                    navController.navigate(NavRoutes.QueueStatus.createRoute(cleaned))
+                } else {
+                    errorMessage = "Lookup failed: ${e.message ?: "Please try again."}"
+                }
+            } finally {
+                isLoading = false
+            }
+        }
     }
 
     Scaffold(
@@ -231,19 +304,18 @@ fun TrackingLookupScreen(
                     modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text("10-Digit Tracking Code", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Tracking Code, Gmail, or Mobile", fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
                     OutlinedTextField(
                         value = trackingCode,
                         onValueChange = { input ->
-                            val digitsOnly = input.filter { it.isDigit() }
-                            if (digitsOnly.length <= 10) {
-                                trackingCode = digitsOnly
+                            if (input.length <= 80) {
+                                trackingCode = input
                                 if (errorMessage != null) errorMessage = null
                             }
                         },
-                        label = { Text("10-Digit Tracking Code") },
-                        placeholder = { Text("Enter 10-digit code") },
+                        label = { Text("Code, Gmail, or Mobile") },
+                        placeholder = { Text("10-digit code, user@gmail.com, or phone") },
                         leadingIcon = {
                             Icon(Icons.Default.Pin, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         },
@@ -255,19 +327,26 @@ fun TrackingLookupScreen(
                             }
                         },
                         keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
+                            keyboardType = KeyboardType.Email,
                             imeAction = ImeAction.Search
                         ),
                         keyboardActions = KeyboardActions(
                             onSearch = { performLookup() }
                         ),
                         singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp,
-                            fontFamily = FontFamily.Monospace
-                        ),
+                        textStyle = if (trackingCode.all { it.isDigit() } && trackingCode.length <= 10) {
+                            LocalTextStyle.current.copy(
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        } else {
+                            LocalTextStyle.current.copy(
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     )
@@ -287,7 +366,7 @@ fun TrackingLookupScreen(
                             .fillMaxWidth()
                             .height(50.dp),
                         shape = RoundedCornerShape(12.dp),
-                        enabled = trackingCode.length == 10 && !isLoading
+                        enabled = trackingCode.trim().isNotBlank() && !isLoading
                     ) {
                         if (isLoading) {
                             CircularProgressIndicator(
@@ -321,13 +400,13 @@ fun TrackingLookupScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                        Text("Where to find your 10-Digit Code?", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Instant Tracking Options", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                     Text(
-                        "• SMS confirmation message sent immediately after booking.\n" +
-                        "• Printed physical token slip issued by clinic receptionists.\n" +
-                        "• Booking confirmation screen in this app.\n" +
-                        "• Saved appointments tab under your user profile.",
+                        "• 10-Digit Code: From physical token slip or SMS.\n" +
+                        "• Gmail Address: Used at walk-in reception or online booking.\n" +
+                        "• Mobile Number: 10-digit phone number registered for the visit.\n" +
+                        "• Unregistered walk-ins are automatically tracked and synced.",
                         fontSize = 12.sp,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

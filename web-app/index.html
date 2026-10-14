@@ -146,6 +146,83 @@
             "price": "0",
             "priceCurrency": "NPR"
           }
+        },
+        {
+          "@type": ["MedicalClinic", "MedicalBusiness", "LocalBusiness"],
+          "@id": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27#clinic",
+          "name": "Patan Clinic",
+          "description": "Multi-specialty OPD clinic and diagnostic laboratory in Nepal. Book doctor appointments online and track live queue token numbers in real time.",
+          "url": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27",
+          "telephone": "+9779885665578",
+          "currenciesAccepted": "NPR",
+          "paymentAccepted": "Cash, eSewa, Khalti, Mobile Banking, Credit Card",
+          "priceRange": "NPR 100 - 1500",
+          "isAcceptingNewPatients": true,
+          "address": {
+            "@type": "PostalAddress",
+            "streetAddress": "7X8P+422, Patan / Varanasi Division",
+            "addressLocality": "Kathmandu",
+            "addressCountry": "NP"
+          },
+          "potentialAction": {
+            "@type": "ReserveAction",
+            "name": "Book Appointment at Patan Clinic",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&action=book",
+              "inLanguage": "en",
+              "actionPlatform": [
+                "http://schema.org/DesktopWebPlatform",
+                "http://schema.org/MobileWebPlatform",
+                "http://schema.org/AndroidPlatform"
+              ]
+            },
+            "result": {
+              "@type": "MedicalReservation",
+              "name": "OPD Appointment at Patan Clinic"
+            }
+          }
+        },
+        {
+          "@type": ["Physician", "Person"],
+          "@id": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27#doctor-0cef6ace-aeb2-4c65-91dc-7d15dc3791ea",
+          "name": "Dr. kshitiz",
+          "honorificPrefix": "Dr.",
+          "jobTitle": "Ophthalmology (Eye Care Specialist)",
+          "medicalSpecialty": ["https://schema.org/Ophthalmologic"],
+          "worksFor": {
+            "@type": "MedicalClinic",
+            "name": "Patan Clinic",
+            "url": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27"
+          },
+          "currenciesAccepted": "NPR",
+          "priceRange": "NPR 500",
+          "isAcceptingNewPatients": true,
+          "knowsLanguage": ["ne", "en", "hi"],
+          "offers": {
+            "@type": "Offer",
+            "price": 500,
+            "priceCurrency": "NPR",
+            "availability": "https://schema.org/InStock"
+          },
+          "potentialAction": {
+            "@type": "ReserveAction",
+            "name": "Book Consultation with Dr. kshitiz",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&action=book",
+              "inLanguage": "en",
+              "actionPlatform": [
+                "http://schema.org/DesktopWebPlatform",
+                "http://schema.org/MobileWebPlatform",
+                "http://schema.org/AndroidPlatform"
+              ]
+            },
+            "result": {
+              "@type": "MedicalReservation",
+              "name": "Doctor Consultation with Dr. kshitiz"
+            }
+          }
         }
       ]
     }
@@ -166,6 +243,40 @@
     </script>
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-500 selection:text-white font-sans">
+    <noscript>
+      <div style="padding: 24px; font-family: sans-serif; max-width: 800px; margin: 0 auto; line-height: 1.6;">
+        <h1>Dactor - Nepal Healthcare OPD Queue Tracker & Clinic Booking Portal</h1>
+        <p>Dactor connects patients with verified clinics, specialist doctors, and diagnostic pathology laboratories across Nepal. Book online OPD consultations and track real-time queue numbers.</p>
+        
+        <h2>Verified Doctors & Clinics in Nepal</h2>
+        <ul>
+          <li>
+            <strong>Dr. kshitiz - Eye Specialist / Ophthalmologist</strong> (Consultation Fee: NPR 500)<br />
+            Clinic: Patan Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&action=book">Book Online Consultation with Dr. kshitiz</a>
+          </li>
+          <li>
+            <strong>Patan Clinic (Multi-Specialty OPD & Diagnostic Center)</strong><br />
+            Specialties: Ophthalmology, General OPD, Pathology Diagnostics<br />
+            Phone: +977-9885665578<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&action=book">Book Appointment at Patan Clinic</a>
+          </li>
+        </ul>
+
+        <h2>Diagnostic Pathology & Imaging Services</h2>
+        <p>Book medical tests and diagnostic scans across Nepal:</p>
+        <ul>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=mri">Magnetic Resonance Imaging (MRI Scan)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=ct+scan">Computed Tomography (CT Scan)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=ultrasound">Ultrasonography (USG / Ultrasound)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=xray">Digital X-Ray</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=blood+test">Pathology Blood Tests (CBC, LFT, KFT, Lipid Profile, Thyroid Panel)</a></li>
+        </ul>
+
+        <h2>Live OPD Queue Token Tracking</h2>
+        <p>Track your token position, doctor status, and estimated wait times in real time: <a href="https://dactorofficial.github.io/dactor/?tab=live-queue">Dactor Live Queue Tracker</a>.</p>
+      </div>
+    </noscript>
     <div id="root"></div>
 
     <!-- Firebase Web SDK (project: dactor-ea1e1) -->

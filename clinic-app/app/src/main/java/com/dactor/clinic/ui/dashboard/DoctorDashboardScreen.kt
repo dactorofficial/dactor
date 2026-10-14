@@ -313,6 +313,58 @@ fun DoctorDashboardScreen(
         ) {
             if (doctor == null && isLoading) {
                 com.dactor.clinic.ui.common.ShimmerListPlaceholder(count = 4)
+            } else if (doctor == null && !isLoading) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.MedicalServices, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text("No Doctor Profile Found", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                        Text(
+                            "You are currently signed in, but no physician profile was found associated with your account. Complete your doctor registration to start managing appointments and queue.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = { navController.navigate(NavRoutes.DoctorRegister) },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Register Doctor Profile Now")
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        sessionManager.clearSession()
+                        clinicRepository?.clearCache()
+                        doctorRepository?.clearCache()
+                        try {
+                            com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
+                                context,
+                                com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                            ).signOut()
+                            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                        } catch (ignored: Exception) {}
+                        navController.navigate(NavRoutes.ClinicLogin) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Icon(Icons.Default.ExitToApp, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sign Out", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                }
             } else {
             // KYC STATUS BANNER
             if (kycStatus.equals("pending", ignoreCase = true)) {

@@ -88,9 +88,10 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
   // OPD Selection
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null)
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  )
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  })
   const [selectedSlotTime, setSelectedSlotTime] = useState<string>('')
   const [selectedSlotId, setSelectedSlotId] = useState<string | undefined>(undefined)
 
@@ -395,7 +396,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   }, [clinicId, selectedDate])
 
   // Month Calendar View State matching mobile app Workflow
-  const todayIso = useMemo(() => new Date().toISOString().split('T')[0], [])
+  const todayIso = useMemo(() => {
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(now.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }, [])
   const currentYearMonth = useMemo(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
@@ -486,7 +493,10 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     for (let i = 0; i < 60; i++) {
       const d = new Date(now)
       d.setDate(d.getDate() + i)
-      const iso = d.toISOString().split('T')[0]
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      const iso = `${y}-${m}-${day}`
       if (computeCalendarDateState(iso) === 'available') {
         return iso
       }
@@ -706,6 +716,12 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
     setSubmitting(true)
     try {
+      if (activeTab === 'opd' && selectedSlotTime && isSlotTimeExpired(selectedDate, selectedSlotTime)) {
+        alert('This time slot has already passed. Please select an upcoming slot.')
+        setSubmitting(false)
+        return
+      }
+
       // 1. Reschedule handling: Shift existing appointment in place without duplicating
       if (isReschedule && retainedAppointment) {
         const ok = await shiftAppointmentDate(
@@ -2072,7 +2088,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   {[0, 1, 2].map((offset) => {
                     const d = new Date()
                     d.setDate(d.getDate() + offset)
-                    const iso = d.toISOString().split('T')[0]
+                    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
                     const label =
                       offset === 0
                         ? 'Today'

@@ -161,7 +161,11 @@ private fun clearAllRecentSearches(context: Context): List<String> {
     return emptyList()
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
+    ExperimentalLayoutApi::class
+)
 @Composable
 fun PatientSearchScreen(
     navController: NavController,
@@ -1119,19 +1123,20 @@ fun PatientSearchScreen(
                                     color = Color(0xFF0F172A)
                                 )
 
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    EMPTY_STATE_SPECIALTY_CHIPS.chunked(3).forEach { rowSpecs ->
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    EMPTY_STATE_SPECIALTY_CHIPS.chunked(2).forEach { pair ->
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            rowSpecs.forEach { spec ->
+                                            pair.forEach { spec ->
                                                 Surface(
                                                     shape = RoundedCornerShape(20.dp),
                                                     color = Color.White,
                                                     border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
                                                     shadowElevation = 1.dp,
                                                     modifier = Modifier
+                                                        .weight(1f)
                                                         .clickable {
                                                             searchInput = spec
                                                             debouncedQuery = spec
@@ -1140,7 +1145,7 @@ fun PatientSearchScreen(
                                                         }
                                                 ) {
                                                     Row(
-                                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                                                         verticalAlignment = Alignment.CenterVertically,
                                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
@@ -1152,12 +1157,18 @@ fun PatientSearchScreen(
                                                         )
                                                         Text(
                                                             text = spec,
-                                                            fontSize = 13.sp,
+                                                            fontSize = 12.5.sp,
                                                             fontWeight = FontWeight.SemiBold,
-                                                            color = Color(0xFF0F172A)
+                                                            color = Color(0xFF0F172A),
+                                                            maxLines = 1,
+                                                            softWrap = false,
+                                                            overflow = TextOverflow.Ellipsis
                                                         )
                                                     }
                                                 }
+                                            }
+                                            if (pair.size == 1) {
+                                                Spacer(modifier = Modifier.weight(1f))
                                             }
                                         }
                                     }
@@ -1541,7 +1552,9 @@ fun PatientSearchScreen(
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF00796B),
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }

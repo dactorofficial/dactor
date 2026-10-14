@@ -31,6 +31,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -38,6 +39,7 @@ import coil.compose.AsyncImage
 import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.BillingInvoice
+import com.dactor.patient.data.model.InvoiceItem
 import com.dactor.patient.data.model.LabReport
 import com.dactor.patient.data.repository.AppointmentRepository
 import com.dactor.patient.data.repository.ClinicRepository
@@ -288,7 +290,10 @@ fun QueueStatusScreen(
                 }
 
                 // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
-                val qEntry = queueRepository?.getQueueStatus(appt.id)
+                var qEntry = queueRepository?.getQueueStatus(appt.id)
+                if (qEntry == null && appt.checkinStatus != "completed" && appt.checkinStatus != "cancelled" && appt.clinicId.isNotBlank()) {
+                    qEntry = queueRepository?.ensureQueueEntryForAppointment(appt.id, appt.clinicId, appt.doctorId)
+                }
                 if (qEntry != null) {
                     tokenNumber = qEntry.queuePosition
                     insideAt = qEntry.insideAt
@@ -928,10 +933,14 @@ fun QueueStatusScreen(
                             }
 
                             // Dynamic Title & Subtext & Token Pill
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
                                         text = when {
@@ -945,7 +954,7 @@ fun QueueStatusScreen(
                                             patientsAhead == 0 -> "You're next in line"
                                             else -> "$patientsAhead patients ahead"
                                         },
-                                        fontSize = 18.sp,
+                                        fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = when {
                                             isLabClinic && isReportReady -> Color(0xFF059669)
@@ -953,20 +962,26 @@ fun QueueStatusScreen(
                                             queueStatus == "inside" -> Color(0xFF2563EB)
                                             queueStatus == "done" -> Color(0xFF059669)
                                             else -> Color(0xFF0F172A)
-                                        }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     if (tokenNumber > 0) {
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
                                             color = Color(0xFFF1F5F9),
-                                            border = BorderStroke(1.dp, Color(0xFFCBD5E1))
+                                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                            modifier = Modifier.wrapContentSize()
                                         ) {
                                             Text(
                                                 text = "Token #$tokenNumber",
                                                 fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = Color(0xFF475569),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF334155),
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                             )
                                         }
                                     }
@@ -1210,7 +1225,11 @@ fun QueueStatusScreen(
                                     val timing = liveTimingEstimate
                                     val displayWait = timing?.estimatedTimeLeftText?.takeIf { it.isNotBlank() }
                                         ?: (if (patientsAhead > 0) "~${patientsAhead * clinicAvgTimeMinutes} min" else "< 5 min")
+                                    val isArriveFast = displayWait.contains("Arrive Fast", ignoreCase = true) ||
+                                        timing?.expectedExactTimeText?.contains("arrive fast", ignoreCase = true) == true ||
+                                        (patientsAhead == 0 && timing?.estimatedTimeLeftText?.contains("Arrive Fast", ignoreCase = true) == true)
                                     val displayWindow = when {
+                                        isArriveFast -> "Your turn, arrive fast"
                                         !timing?.timeWindowText.isNullOrBlank() -> timing!!.timeWindowText
                                         !timing?.approxTimeText.isNullOrBlank() -> timing!!.approxTimeText
                                         !timing?.expectedExactTimeText.isNullOrBlank() && timing.expectedExactTimeText != "Soon, be ready" -> "Approx. ${timing.expectedExactTimeText}"
@@ -1388,41 +1407,456 @@ fun QueueStatusScreen(
                                 border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(
+                                Column(
                                     modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(42.dp)
-                                            .background(Color(0xFFD1FAE5), CircleShape),
-                                        contentAlignment = Alignment.Center
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = null,
-                                            tint = Color(0xFF059669),
-                                            modifier = Modifier.size(22.dp)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .background(Color(0xFFD1FAE5), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF059669),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = "Consultation Completed",
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF065F46)
+                                            )
+                                            Text(
+                                                text = "Your consultation is completed. Prescription summary and billing receipt are ready and connected below.",
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFF047857),
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+
+                                    // Direct Quick Action Buttons inside completion banner
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                val targetAppt = appointment
+                                                if (targetAppt != null) {
+                                                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }
+                                                        ?: targetAppt.feeAmount.takeIf { it > 0.0 } ?: 500.0
+                                                    val invPaid = billingInvoice?.effectivePaidAmount
+                                                        ?: (if (targetAppt.paymentStatus.equals("paid", ignoreCase = true)) invTotal else 0.0)
+                                                    val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
+                                                    val invItems = if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
+                                                        billingInvoice!!.items
+                                                    } else {
+                                                        listOf(
+                                                            InvoiceItem(
+                                                                itemName = "Consultation Fee (${targetAppt.appointmentDate})",
+                                                                quantity = 1,
+                                                                price = invTotal,
+                                                                total = invTotal
+                                                            )
+                                                        )
+                                                    }
+                                                    com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
+                                                        context = context,
+                                                        appointment = targetAppt,
+                                                        invoice = billingInvoice ?: BillingInvoice(
+                                                            id = targetAppt.id,
+                                                            appointmentId = targetAppt.id,
+                                                            clinicId = targetAppt.clinicId,
+                                                            items = invItems,
+                                                            totalAmount = invTotal,
+                                                            paidAmount = invPaid,
+                                                            balanceDue = invLeft,
+                                                            paymentStatus = if (invLeft <= 0.0) "paid" else "pending",
+                                                            remarks = clinicalRemarks ?: billingInvoice?.remarks
+                                                        ),
+                                                        clinicName = clinicName,
+                                                        clinicAddress = clinicAddress,
+                                                        doctorName = doctorName,
+                                                        doctorSpecialty = doctorSpecialty,
+                                                        clinicalRemarks = clinicalRemarks ?: billingInvoice?.remarks
+                                                    )
+                                                } else {
+                                                    Toast.makeText(context, "Loading appointment details...", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                            modifier = Modifier.weight(1f).height(38.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Download Bill PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = { showPrescriptionDialog = true },
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, Color(0xFF00796B)),
+                                            modifier = Modifier.weight(1f).height(38.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(15.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Prescription & Bill", fontSize = 11.sp, color = Color(0xFF00796B), fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // 2B. CONNECTED OFFICIAL CLINIC BILL & PAYMENT RECEIPT CARD
+                // (Prominently displayed right after the status card for completed visits or active bills)
+                // ---------------------------------------------------------------------
+                val hasBillOrCompleted = isConsultancyCompleted || queueStatus == "done" ||
+                    billingInvoice != null || (appointment?.feeAmount ?: 0.0) > 0.0
+                if (hasBillOrCompleted) {
+                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }
+                        ?: appointment?.feeAmount?.takeIf { it > 0.0 }
+                        ?: 500.0
+                    val invPaid = billingInvoice?.effectivePaidAmount
+                        ?: (if (appointment?.paymentStatus.equals("paid", ignoreCase = true)) invTotal else 0.0)
+                    val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
+                    val invoiceItems = if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
+                        billingInvoice!!.items
+                    } else {
+                        listOf(
+                            InvoiceItem(
+                                itemName = "Consultation Fee (${appointment?.appointmentDate ?: today})",
+                                quantity = 1,
+                                price = invTotal,
+                                total = invTotal
+                            )
+                        )
+                    }
+
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (invLeft <= 0.0 && invTotal > 0.0) Color(0xFFF0FDF4) else Color(0xFFFFFBEB)
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (invLeft <= 0.0 && invTotal > 0.0) Color(0xFF86EFAC) else Color(0xFFFDE68A)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Header: Icon + Title + Status Badge
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (invLeft <= 0.0 && invTotal > 0.0) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
+                                        modifier = Modifier.size(34.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.ReceiptLong,
+                                                contentDescription = null,
+                                                tint = if (invLeft <= 0.0 && invTotal > 0.0) Color(0xFF059669) else Color(0xFFD97706),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Column {
+                                        Text(
+                                            text = if (isConsultancyCompleted) "Official Consultation Bill & Receipt" else "Clinic Pushed Bill & Payment",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.5.sp,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                        Text(
+                                            text = "Linked to Booking Code #$displayTrackingCode",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF64748B)
                                         )
                                     }
+                                }
+
+                                val payBadgeText = when {
+                                    invTotal <= 0.0 -> "NO CHARGE"
+                                    invLeft <= 0.0 -> "PAID"
+                                    invPaid > 0.0 -> "PARTIAL"
+                                    else -> "UNPAID"
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = when (payBadgeText) {
+                                        "PAID" -> Color(0xFFDCFCE7)
+                                        "PARTIAL" -> Color(0xFFFEF3C7)
+                                        "NO CHARGE" -> Color(0xFFF1F5F9)
+                                        else -> Color(0xFFFEE2E2)
+                                    }
+                                ) {
+                                    Text(
+                                        text = when (payBadgeText) {
+                                            "PAID" -> "PAID"
+                                            "PARTIAL" -> "PARTIAL"
+                                            "NO CHARGE" -> "FREE"
+                                            else -> "DUE: Rs. ${invLeft.toInt()}"
+                                        },
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 10.5.sp,
+                                        color = when (payBadgeText) {
+                                            "PAID" -> Color(0xFF065F46)
+                                            "PARTIAL" -> Color(0xFFB45309)
+                                            "NO CHARGE" -> Color(0xFF475569)
+                                            else -> Color(0xFF991B1B)
+                                        },
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
+                                    )
+                                }
+                            }
+
+                            // 3-Column Financial Breakdown Card
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.White.copy(alpha = 0.9f),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp).fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("Total Bill", fontSize = 10.5.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                                        Text("Rs. ${invTotal.toInt()}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Amount Paid", fontSize = 10.5.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                                        Text("Rs. ${invPaid.toInt()}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("Remaining Left", fontSize = 10.5.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            "Rs. ${invLeft.toInt()}",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (invLeft > 0.0) Color(0xFFDC2626) else Color(0xFF059669)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Date-Wise Itemized Ledger
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Text(
+                                        text = "Itemized Charges & Services:",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF475569)
+                                    )
+                                    invoiceItems.forEach { item ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = if (item.quantity > 1) "${item.itemName} (x${item.quantity})" else item.itemName,
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFF334155),
+                                                modifier = Modifier.weight(1f, fill = false),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            val itemPrice = if (item.total > 0.0) item.total else item.price * item.quantity
+                                            Text(
+                                                text = "Rs. ${itemPrice.toInt()}",
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF0F172A)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Doctor Diagnosis & Clinical Remarks (if any)
+                            val rawRemarks = clinicalRemarks?.trim()?.takeIf { it.isNotBlank() }
+                                ?: billingInvoice?.remarks?.trim()?.takeIf { it.isNotBlank() }
+                            val cleanRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(rawRemarks)
+                            val paymentLogs = com.dactor.patient.util.PaymentLedgerHelper.parsePaymentRecords(rawRemarks, invPaid, billingInvoice?.paidAt)
+
+                            // Payment Receipts & Time Log
+                            if (paymentLogs.isNotEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFF0FDF4),
+                                    border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                     Column(
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Payment Receipts & Time Log:",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF166534)
+                                        )
+                                        paymentLogs.forEachIndexed { pIdx, p ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = p.dateTime,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFF0F172A)
+                                                    )
+                                                    if (!p.note.isNullOrBlank()) {
+                                                        Text(
+                                                            text = p.note,
+                                                            fontSize = 10.sp,
+                                                            color = Color(0xFF64748B)
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = "Rs. ${p.amount.toInt()}",
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF15803D)
+                                                )
+                                            }
+                                            if (pIdx < paymentLogs.size - 1) {
+                                                HorizontalDivider(color = Color(0xFFDCFCE7), thickness = 0.5.dp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (cleanRemarks.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFECFDF5),
+                                    border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(10.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
                                         Text(
-                                            text = "Consultation Completed",
-                                            fontSize = 13.5.sp,
+                                            text = "Doctor's Diagnosis & Prescription Remarks:",
+                                            fontSize = 10.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFF065F46)
                                         )
                                         Text(
-                                            text = "Your consultation is completed. Prescription summary and billing receipt are available below.",
+                                            text = cleanRemarks,
                                             fontSize = 11.5.sp,
                                             color = Color(0xFF047857),
                                             lineHeight = 16.sp
                                         )
                                     }
+                                }
+                            }
+
+                            // Action Buttons: Download Bill PDF & View Full Prescription
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val targetAppt = appointment
+                                        if (targetAppt != null) {
+                                            com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
+                                                context = context,
+                                                appointment = targetAppt,
+                                                invoice = billingInvoice ?: BillingInvoice(
+                                                    id = targetAppt.id,
+                                                    appointmentId = targetAppt.id,
+                                                    clinicId = targetAppt.clinicId,
+                                                    items = invoiceItems,
+                                                    totalAmount = invTotal,
+                                                    paidAmount = invPaid,
+                                                    balanceDue = invLeft,
+                                                    paymentStatus = if (invLeft <= 0.0) "paid" else "pending",
+                                                    remarks = cleanRemarks
+                                                ),
+                                                clinicName = clinicName,
+                                                clinicAddress = clinicAddress,
+                                                doctorName = doctorName,
+                                                doctorSpecialty = doctorSpecialty,
+                                                clinicalRemarks = cleanRemarks
+                                            )
+                                        } else {
+                                            Toast.makeText(context, "Loading appointment...", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                    modifier = Modifier.weight(1f).height(42.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Download Bill PDF", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { showPrescriptionDialog = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF00796B)),
+                                    modifier = Modifier.weight(1f).height(42.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Prescription & Bill", fontSize = 11.5.sp, color = Color(0xFF00796B), fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1742,108 +2176,7 @@ fun QueueStatusScreen(
                     }
                 }
 
-                // ---------------------------------------------------------------------
-                // 6. DONE / COMPLETED ACTIONS (PRESCRIPTION & BILLING)
-                // ---------------------------------------------------------------------
-                if (queueStatus == "done" || billingInvoice != null) {
-                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 } ?: appointment?.feeAmount ?: 500.0
-                    val invPaid = billingInvoice?.paidAmount ?: (if (appointment?.paymentStatus == "paid") invTotal else 0.0)
-                    val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
 
-                    Card(
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
-                        border = BorderStroke(1.dp, Color(0xFF86EFAC)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(20.dp))
-                                    Text(
-                                        if (queueStatus == "done") "Consultation Finished & Bill Ready" else "Clinic Bill & Prescription Ready",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        color = Color(0xFF065F46)
-                                    )
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (invLeft <= 0.0) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
-                                ) {
-                                    Text(
-                                        text = if (invLeft <= 0.0) "PAID" else "DUE: Rs. ${invLeft.toInt()}",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = if (invLeft <= 0.0) Color(0xFF065F46) else Color(0xFF991B1B),
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                "Total Bill: Rs. ${invTotal.toInt()} • Paid: Rs. ${invPaid.toInt()} • Remaining Left: Rs. ${invLeft.toInt()}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF047857)
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Button(
-                                    onClick = { showPrescriptionDialog = true },
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Prescription & Bill", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                val hasInvoiceRecord = billingInvoice != null && (billingInvoice!!.totalAmount > 0.0 || billingInvoice!!.items.isNotEmpty())
-                                if (hasInvoiceRecord) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            val targetAppt = appointment
-                                            if (targetAppt != null) {
-                                                com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
-                                                    context = context,
-                                                    appointment = targetAppt,
-                                                    invoice = billingInvoice,
-                                                    clinicName = clinicName,
-                                                    doctorName = doctorName,
-                                                    doctorSpecialty = doctorSpecialty,
-                                                    clinicalRemarks = clinicalRemarks
-                                                )
-                                            } else {
-                                                Toast.makeText(context, "Loading appointment details...", Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.dp, Color(0xFF059669)),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.FileDownload, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(14.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Download Bill PDF", fontSize = 11.sp, color = Color(0xFF059669), fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
 
                 // ---------------------------------------------------------------------
                 // 7. DIAGNOSTIC LAB CLINIC: PROCESSING & REPORT PREPARED SECTION
@@ -3201,15 +3534,59 @@ fun QueueStatusScreen(
     }
 
     // =========================================================================
-    // MODAL DIALOG 4: PRESCRIPTION & DOCTOR'S CLINICAL REMARKS VIEWER
+    // MODAL DIALOG 4: PRESCRIPTION & CONNECTED OFFICIAL BILL VIEWER
     // =========================================================================
     if (showPrescriptionDialog) {
+        val dialogAppt = appointment
+        val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }
+            ?: dialogAppt?.feeAmount?.takeIf { it > 0.0 } ?: 500.0
+        val invPaid = billingInvoice?.effectivePaidAmount
+            ?: (if (dialogAppt?.paymentStatus.equals("paid", ignoreCase = true)) invTotal else 0.0)
+        val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
+        val isPaidInFull = invLeft <= 0.0 || dialogAppt?.paymentStatus.equals("paid", ignoreCase = true)
+        val dialogItems = if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
+            billingInvoice!!.items
+        } else {
+            listOf(
+                InvoiceItem(
+                    itemName = "Consultation Fee (${dialogAppt?.appointmentDate ?: today})",
+                    quantity = 1,
+                    price = invTotal,
+                    total = invTotal
+                )
+            )
+        }
+        val cleanRemarksText = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(
+            clinicalRemarks ?: billingInvoice?.remarks
+        )
+
         AlertDialog(
             onDismissRequest = { showPrescriptionDialog = false },
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF2563EB))
-                    Text("Prescription & Remarks", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF00796B))
+                        Text("Prescription & Official Bill", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isPaidInFull) Color(0xFFDCFCE7) else Color(0xFFFEE2E2)
+                    ) {
+                        Text(
+                            text = if (isPaidInFull) "PAID" else "DUE: Rs. ${invLeft.toInt()}",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 10.sp,
+                            color = if (isPaidInFull) Color(0xFF065F46) else Color(0xFF991B1B),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             },
             text = {
@@ -3217,19 +3594,104 @@ fun QueueStatusScreen(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    // Doctor, Clinic & Booking Metadata Card
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFFF0FDF4),
+                        border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text("Attending Doctor: ${doctorName.ifBlank { "Doctor" }}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
-                            Text("Specialty: ${doctorSpecialty.ifBlank { "OPD" }}", fontSize = 11.sp, color = Color(0xFF047857))
-                            Text("Clinic: ${clinicName.ifBlank { "Clinic" }}", fontSize = 11.sp, color = Color(0xFF047857))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Dr. ${doctorName.ifBlank { "Attending Physician" }}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
+                                Text("Token #$tokenNumber", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0D5C4D))
+                            }
+                            Text("Specialty: ${doctorSpecialty.ifBlank { "General OPD" }}", fontSize = 11.sp, color = Color(0xFF047857))
+                            Text("Clinic: ${clinicName.ifBlank { "Healthcare Clinic" }}", fontSize = 11.sp, color = Color(0xFF047857))
+                            Text("Patient: ${rawPatientName.ifBlank { "Patient" }} • Tracking #$displayTrackingCode", fontSize = 10.5.sp, color = Color(0xFF065F46))
                         }
                     }
 
-                    Text("Doctor's Diagnosis & Notes:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    // 3-Column Financial Breakdown
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp).fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Total Bill", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                                Text("Rs. ${invTotal.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Amount Paid", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                                Text("Rs. ${invPaid.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Remaining Left", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Rs. ${invLeft.toInt()}",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (invLeft > 0.0) Color(0xFFDC2626) else Color(0xFF059669)
+                                )
+                            }
+                        }
+                    }
+
+                    // Itemized Charges Ledger
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFF8FAFC),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Itemized Charges:",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF475569)
+                            )
+                            dialogItems.forEach { item ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (item.quantity > 1) "${item.itemName} (x${item.quantity})" else item.itemName,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF334155),
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    val itemPrice = if (item.total > 0.0) item.total else item.price * item.quantity
+                                    Text(
+                                        text = "Rs. ${itemPrice.toInt()}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Doctor's Diagnosis & Clinical Notes
+                    Text("Doctor's Diagnosis & Notes:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color(0xFFF8FAFC),
@@ -3237,23 +3699,66 @@ fun QueueStatusScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = clinicalRemarks?.ifBlank { null }
+                            text = cleanRemarksText.ifBlank { null }
                                 ?: "No doctor's clinical remarks or prescription entered for this consultation yet.",
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
-                            color = if (clinicalRemarks.isNullOrBlank()) Color(0xFF64748B) else Color(0xFF1E293B),
+                            color = if (cleanRemarksText.isBlank()) Color(0xFF64748B) else Color(0xFF1E293B),
                             modifier = Modifier.padding(10.dp)
                         )
                     }
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = { showPrescriptionDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                    shape = RoundedCornerShape(10.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Close", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    OutlinedButton(
+                        onClick = { showPrescriptionDialog = false },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(38.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                    ) {
+                        Text("Close", fontSize = 12.sp)
+                    }
+                    Button(
+                        onClick = {
+                            val targetAppt = appointment
+                            if (targetAppt != null) {
+                                com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
+                                    context = context,
+                                    appointment = targetAppt,
+                                    invoice = billingInvoice ?: BillingInvoice(
+                                        id = targetAppt.id,
+                                        appointmentId = targetAppt.id,
+                                        clinicId = targetAppt.clinicId,
+                                        items = dialogItems,
+                                        totalAmount = invTotal,
+                                        paidAmount = invPaid,
+                                        balanceDue = invLeft,
+                                        paymentStatus = if (isPaidInFull) "paid" else "pending",
+                                        remarks = cleanRemarksText
+                                    ),
+                                    clinicName = clinicName,
+                                    clinicAddress = clinicAddress,
+                                    doctorName = doctorName,
+                                    doctorSpecialty = doctorSpecialty,
+                                    clinicalRemarks = cleanRemarksText
+                                )
+                            } else {
+                                Toast.makeText(context, "Loading appointment details...", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1.3f).height(38.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Download PDF", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         )

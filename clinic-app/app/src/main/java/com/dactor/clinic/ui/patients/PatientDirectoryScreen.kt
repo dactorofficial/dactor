@@ -162,6 +162,26 @@ fun PatientDirectoryScreen(
     }
 
     suspend fun loadData() {
+        try {
+            val savedRaw = directoryPrefs.getString("records_${effectiveClinicId.ifBlank { "default" }}", "") ?: ""
+            val loaded = savedRaw.split("\n").mapNotNull { line ->
+                val parts = line.split("|")
+                if (parts.size >= 5 && parts[0].isNotBlank()) {
+                    Profile(
+                        id = parts[0],
+                        authUid = null,
+                        email = parts.getOrNull(4) ?: "",
+                        fullName = parts[1],
+                        role = "patient",
+                        phone = parts[2],
+                        gender = parts[3].ifBlank { "Male" },
+                        age = parts.getOrNull(5)?.toIntOrNull()
+                    )
+                } else null
+            }
+            locallyAddedProfiles = loaded
+        } catch (_: Exception) {}
+
         if (clinicRepository != null) {
             try {
                 val clinics = clinicRepository.getClinics()
@@ -258,21 +278,43 @@ fun PatientDirectoryScreen(
 
         // 2. All patients from this clinic's appointments, enriched with registered profiles if available
         appointments.forEach { appt ->
+            val cleanEmail = appt.patientEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() && !it.endsWith("@dactor.internal") }
+            val cleanPhone = appt.patientMobile.trim().takeIf { it.isNotBlank() }
+
+            // Find matching profile in registered profiles OR existing in combinedMap
             val matchProfile = (appt.userId?.let { patientProfilesById[it] })
-                ?: (if (appt.patientMobile.isNotBlank()) patientProfilesByPhone[appt.patientMobile.trim()] else null)
-                ?: (appt.patientEmail?.trim()?.lowercase()?.let { patientProfilesByEmail[it] })
+                ?: (cleanEmail?.let { patientProfilesByEmail[it] })
+                ?: (cleanPhone?.let { patientProfilesByPhone[it] })
+                ?: (appt.userId?.let { combinedMap[it] })
+                ?: (cleanEmail?.let { email -> combinedMap.values.find { it.email.trim().equals(email, ignoreCase = true) } })
+                ?: (cleanPhone?.let { phone -> combinedMap.values.find { it.phone?.trim() == phone } })
 
             if (matchProfile != null) {
                 combinedMap[matchProfile.id] = matchProfile.copy(
                     phone = matchProfile.phone?.takeIf { it.isNotBlank() } ?: appt.patientMobile,
+                    email = matchProfile.email.takeIf { it.isNotBlank() && !it.endsWith("@dactor.internal") } ?: (appt.patientEmail ?: matchProfile.email),
                     age = matchProfile.age ?: appt.patientAge,
-                    gender = matchProfile.gender ?: appt.patientGender ?: "Male"
+                    gender = matchProfile.gender ?: appt.patientGender ?: "Male",
+                    fullName = matchProfile.fullName?.takeIf { it.isNotBlank() } ?: appt.patientName
                 )
             } else {
-                val syntheticId = appt.userId?.takeIf { it.isNotBlank() } ?: "appt_patient_${appt.trackingCode10Digit}"
-                if (!combinedMap.containsKey(syntheticId)) {
-                    combinedMap[syntheticId] = Profile(
-                        id = syntheticId,
+                val canonicalId = appt.userId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
+                    ?: (cleanEmail?.let { com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForEmail(it) })
+                    ?: (cleanPhone?.let { com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForPhone(it) })
+                    ?: "appt_patient_${appt.trackingCode10Digit}"
+
+                val existing = combinedMap[canonicalId]
+                if (existing != null) {
+                    combinedMap[canonicalId] = existing.copy(
+                        phone = existing.phone?.takeIf { it.isNotBlank() } ?: appt.patientMobile,
+                        email = existing.email.takeIf { it.isNotBlank() && !it.endsWith("@dactor.internal") } ?: (appt.patientEmail ?: existing.email),
+                        age = existing.age ?: appt.patientAge,
+                        gender = existing.gender ?: appt.patientGender ?: "Male",
+                        fullName = existing.fullName?.takeIf { it.isNotBlank() } ?: appt.patientName
+                    )
+                } else {
+                    combinedMap[canonicalId] = Profile(
+                        id = canonicalId,
                         authUid = null,
                         email = appt.patientEmail ?: "",
                         fullName = appt.patientName,
@@ -1853,8 +1895,13 @@ fun PatientDirectoryScreen(
                                     age = newPatientAge.trim().toIntOrNull(),
                                     email = newPatientEmail.trim().ifBlank { null }
                                 )
+                                val deterministicFallbackId = when {
+                                    newPatientEmail.isNotBlank() -> com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForEmail(newPatientEmail)
+                                    newPatientPhone.isNotBlank() -> com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicPatientIdForPhone(newPatientPhone)
+                                    else -> java.util.UUID.randomUUID().toString()
+                                }
                                 val createdProfile = res?.getOrNull() ?: Profile(
-                                    id = java.util.UUID.randomUUID().toString(),
+                                    id = deterministicFallbackId,
                                     authUid = null,
                                     email = newPatientEmail.trim().ifBlank { "patient_${newPatientPhone.trim().takeLast(10)}@dactor.internal" },
                                     fullName = newPatientName.trim(),

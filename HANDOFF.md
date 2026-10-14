@@ -32,7 +32,7 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
 | **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.9.apk` | v1.0.9 (Code 10) |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.6.apk` | v1.0.6 (Code 7) |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.32.apk` | v1.0.32 (Code 32) |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---
@@ -312,6 +312,7 @@ Run the install script, which automatically resolves the latest versioned APK:
 | 2026-10-12 | Patient | v1.0.5 | 6 | `APKs/Dactor-PatientApp-v1.0.5.apk` | Redesigned Live Queue UI matching reference mockup: medical pine teal #0D5C4D theme, Contigo pill, white booking code card, concentric token badge, aligned stepper, integrated clinic/doctor card with inside presence banner, solid Reschedule & outlined Google Maps buttons, secondary tracking card |
 | 2026-10-12 | Clinic & Doctor | v1.0.9 | 10 | `APKs/Dactor-ClinicApp-v1.0.9.apk` | Fix add slot in future appointments: dynamic doctor active clinic ID resolution, published OPD slots card with deletion, quick duration chips, daytime defaults for future dates, blue dot on calendar for published slots |
 | 2026-10-12 | Patient | v1.0.6 | 7 | `APKs/Dactor-PatientApp-v1.0.6.apk` | Fix live tracking queue position: displays exact live count of patients ahead in line in concentric circle badge & main screen with "Token #X" pill; handles NOW/UP NEXT states; cache force-refresh support |
+| 2026-10-14 | Patient | v1.0.32 | 32 | `APKs/Dactor-PatientApp-v1.0.32.apk` | Fix search page: replaced squished chunked(3) specialty chips with dynamic wrapping `FlowRow`, added maxLines=1 with ellipsis, fixed brace balance in PatientMainScreen & NotificationsScreen, and configured SSD build cache |
 
 ---
 

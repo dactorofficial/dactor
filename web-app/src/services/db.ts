@@ -268,6 +268,7 @@ function formatTimeForPostgres(timeStr?: string): string {
   if (isNaN(hours)) hours = 10
   if (isPM && hours < 12) hours += 12
   if (isAM && hours === 12) hours = 0
+  if (!isPM && !isAM && hours >= 1 && hours <= 6) hours += 12
   return `${String(hours).padStart(2, '0')}:${String(isNaN(mins) ? 0 : mins).padStart(2, '0')}:00`
 }
 

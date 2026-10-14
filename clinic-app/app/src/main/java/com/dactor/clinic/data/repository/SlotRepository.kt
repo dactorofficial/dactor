@@ -20,12 +20,19 @@ class SlotRepository @Inject constructor(
                 val isPm = clean.contains("PM")
                 val isAm = clean.contains("AM")
                 val timePart = clean.replace("AM", "").replace("PM", "").trim()
-                val parts = timePart.split(":")
-                if (parts.size < 2) return null
-                var hour = parts[0].trim().toInt()
-                val minute = parts[1].trim().take(2).filter { it.isDigit() }.toInt()
+                val match = Regex("""(\d{1,2})(?:[:.](\d{1,2}))?""").find(timePart) ?: return null
+                var hour = match.groupValues[1].toInt()
+                val minute = match.groupValues[2].takeIf { it.isNotBlank() }?.toInt() ?: 0
+
                 if (isPm && hour < 12) hour += 12
                 if (isAm && hour == 12) hour = 0
+
+                // In medical clinic contexts, if AM/PM is omitted and hour is 1..6,
+                // it represents afternoon hours (1:00 PM to 6:00 PM / 13:00 to 18:00)
+                if (!isPm && !isAm && hour in 1..6) {
+                    hour += 12
+                }
+
                 hour * 60 + minute
             } catch (e: Exception) {
                 null
@@ -35,19 +42,64 @@ class SlotRepository @Inject constructor(
         /**
          * Checks whether the ending time of a slot/window is already over for [dateStr].
          * If the ending time has not passed yet, returns false (slot is still active & valid).
+         * If the end time has passed (endMins <= nowMins) on today's date, or if dateStr is in the past,
+         * this returns true so the expired slot option is removed from booking.
          */
         fun isSlotEndTimeOver(endTimeStr: String, dateStr: String, startTimeStr: String = ""): Boolean {
             return try {
                 val today = java.time.LocalDate.now().toString()
                 if (dateStr < today) return true
                 if (dateStr > today) return false
-                var endMins = parseTimeToMinutes(endTimeStr) ?: return false
-                val startMins = parseTimeToMinutes(startTimeStr)
+
+                // Extract effective start & end strings, handling range strings like "12:00 - 1:00" or "12 to 1"
+                var cleanEnd = endTimeStr.trim()
+                var cleanStart = startTimeStr.trim()
+
+                val rangePattern = Regex("""\s*(?:-|–|—|\bto\b)\s*""", RegexOption.IGNORE_CASE)
+
+                if (cleanEnd.isBlank() && cleanStart.contains(rangePattern)) {
+                    val parts = cleanStart.split(rangePattern)
+                    if (parts.size >= 2) {
+                        cleanStart = parts[0].trim()
+                        cleanEnd = parts[1].trim()
+                    }
+                } else if (cleanEnd.contains(rangePattern)) {
+                    val parts = cleanEnd.split(rangePattern)
+                    if (parts.size >= 2) {
+                        if (cleanStart.isBlank()) cleanStart = parts[0].trim()
+                        cleanEnd = parts.last().trim()
+                    }
+                }
+
+                val startMins = parseTimeToMinutes(cleanStart)
+                var endMins = parseTimeToMinutes(cleanEnd)
+
+                if (endMins == null) {
+                    if (startMins != null) {
+                        // If no end time is specified, default to 30 mins after start
+                        endMins = startMins + 30
+                    } else {
+                        return false
+                    }
+                }
+
+                if (startMins != null && endMins == startMins) {
+                    endMins = startMins + 30
+                }
+
+                // Handle 12-hour rollover without AM/PM:
+                // E.g. start at 12:00 (720m) and end at 1:00 (which if not converted would be 60m)
+                // If endMins < startMins, check if adding 12 hours (720 mins) makes it a valid afternoon/evening slot
                 if (endMins == 0 && (startMins == null || startMins > 0)) {
                     endMins = 24 * 60
                 } else if (startMins != null && endMins < startMins) {
-                    endMins += 24 * 60
+                    if (endMins + 720 > startMins && (endMins + 720 - startMins) <= 720) {
+                        endMins += 720
+                    } else {
+                        endMins += 24 * 60
+                    }
                 }
+
                 val now = java.time.LocalTime.now()
                 val nowMins = now.hour * 60 + now.minute
                 endMins <= nowMins

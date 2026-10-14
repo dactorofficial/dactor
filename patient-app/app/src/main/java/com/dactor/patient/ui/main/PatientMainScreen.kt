@@ -1279,89 +1279,6 @@ fun HomeTab(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-        }
-
-        // ── SPECIALISTS & DIAGNOSTIC LABS CATEGORIES SECTION ──
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 4.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Specialists & Diagnostic Labs",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "View All",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable {
-                        navController.navigate(NavRoutes.Search.createRoute(selectedDate.toString())) {
-                            launchSingleTop = true
-                        }
-                    }
-                )
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(HOME_SPECIALIST_AND_LAB_CATEGORIES) { cat ->
-                    Surface(
-                        onClick = {
-                            navController.navigate(
-                                NavRoutes.Search.createRoute(selectedDate.toString(), cat.searchTerm)
-                            ) {
-                                launchSingleTop = true
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (cat.isLab) Color(0xFFEFF6FF) else Color(0xFFF0FDF4),
-                        border = BorderStroke(1.dp, if (cat.isLab) Color(0xFFBFDBFE) else Color(0xFFBBF7D0)),
-                        shadowElevation = 0.dp
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = cat.icon,
-                                contentDescription = null,
-                                tint = if (cat.isLab) Color(0xFF1D4ED8) else Color(0xFF15803D),
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = cat.title,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (cat.isLab) Color(0xFF1E3A8A) else Color(0xFF14532D)
-                                )
-                                Text(
-                                    text = cat.subtitle,
-                                    fontSize = 9.sp,
-                                    color = if (cat.isLab) Color(0xFF2563EB) else Color(0xFF16A34A),
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -1612,7 +1529,8 @@ fun HomeTab(
 
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
+                    .weight(1f)
                     .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -1703,7 +1621,8 @@ fun HomeTab(
         } else if (isNothingFound) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
+                    .weight(1f)
                     .padding(30.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -1738,7 +1657,7 @@ fun HomeTab(
             val showScrollToTop by remember {
                 derivedStateOf { clinicListState.firstVisibleItemIndex > 1 }
             }
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(
                 state = clinicListState,
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
@@ -2848,7 +2767,6 @@ fun HomeTab(
     }
 }
 }
-}
 
 // =========================================================================
 // TAB 1: DIRECTORY & RECORDS (Clinic Name, Doctor + Image, Date/Time, Bills)
@@ -3504,7 +3422,7 @@ fun RecordsTab(
                                             )
                                         }
                                         Text(
-                                            text = remarks?.takeIf { it.isNotBlank() } ?: "No clinical remarks recorded for this visit.",
+                                            text = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarks).takeIf { it.isNotBlank() } ?: "No clinical remarks recorded for this visit.",
                                             fontSize = 12.sp,
                                             color = Color(0xFF334155)
                                         )
@@ -3758,9 +3676,57 @@ fun RecordsTab(
                                                     }
                                                 }
                                             }
+                                        // Payment Receipts & Time Log
+                                        val paymentLogs = com.dactor.patient.util.PaymentLedgerHelper.parsePaymentRecords(remarks, paidAmount, invoice?.paidAt)
+                                        if (paymentLogs.isNotEmpty()) {
+                                            Surface(
+                                                color = Color(0xFFF0FDF4),
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Text(
+                                                        "Payment Receipts & Time Log:",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFF166534)
+                                                    )
+                                                    paymentLogs.forEachIndexed { pIdx, p ->
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(
+                                                                    text = p.dateTime,
+                                                                    fontSize = 10.5.sp,
+                                                                    fontWeight = FontWeight.SemiBold,
+                                                                    color = Color(0xFF0F172A)
+                                                                )
+                                                                if (!p.note.isNullOrBlank()) {
+                                                                    Text(
+                                                                        text = p.note,
+                                                                        fontSize = 9.5.sp,
+                                                                        color = Color(0xFF64748B)
+                                                                    )
+                                                                }
+                                                            }
+                                                            Text(
+                                                                text = "Rs. ${p.amount.toInt()}",
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = Color(0xFF15803D)
+                                                            )
+                                                        }
+                                                        if (pIdx < paymentLogs.size - 1) {
+                                                            HorizontalDivider(color = Color(0xFFDCFCE7), thickness = 0.5.dp)
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
-
-                                        // Action Buttons: Download Bill PDF & Update Paid/Left
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -4267,6 +4233,7 @@ fun RecordsTab(
         )
     }
 }
+}
 
 // =========================================================================
 // TAB 2: APPOINTMENTS (Live Queue Tracking, Add Code, Upcoming OPD)
@@ -4526,6 +4493,12 @@ fun AppointmentsTab(
                                     }
                                 },
                                 singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF0F172A),
+                                    lineHeight = 18.sp
+                                ),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = Color(0xFF00796B),
@@ -4535,7 +4508,7 @@ fun AppointmentsTab(
                                 ),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(48.dp)
+                                    .height(52.dp)
                             )
 
                             Button(
@@ -4561,7 +4534,7 @@ fun AppointmentsTab(
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
                                 enabled = trackingInput.length == 10 && !isAddingCode,
-                                modifier = Modifier.height(48.dp)
+                                modifier = Modifier.height(52.dp)
                             ) {
                                 Text(if (isAddingCode) "..." else "Track", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.width(4.dp))

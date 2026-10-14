@@ -148,10 +148,13 @@ fun DactorTemplateNotificationCard(
             )
 
             // Bottom 2-Column Pill Container matching Unified Notification Template
+            val isArriveFast = templateData.rightValue.contains("arrive fast", ignoreCase = true) ||
+                templateData.leftValue.contains("arrive fast", ignoreCase = true)
+
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = Color(0xFFF1F6F8),
-                border = BorderStroke(1.dp, Color(0xFFDCE8EC)),
+                border = BorderStroke(1.dp, if (isArriveFast) NotifTeal.copy(alpha = 0.35f) else Color(0xFFDCE8EC)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 4.dp)
@@ -171,11 +174,11 @@ fun DactorTemplateNotificationCard(
                         Box(
                             modifier = Modifier
                                 .size(34.dp)
-                                .background(NotifTeal, CircleShape),
+                                .background(if (isArriveFast) Color(0xFF0D5C4D) else NotifTeal, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.Groups,
+                                if (isArriveFast) Icons.Default.DirectionsRun else Icons.Default.Groups,
                                 contentDescription = null,
                                 tint = Color.White,
                                 modifier = Modifier.size(18.dp)
@@ -191,10 +194,11 @@ fun DactorTemplateNotificationCard(
                             )
                             Text(
                                 text = templateData.leftValue,
-                                fontSize = 14.sp,
+                                fontSize = 13.5.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = NotifSlateDark,
-                                maxLines = 1,
+                                color = if (isArriveFast) Color(0xFF0D5C4D) else NotifSlateDark,
+                                maxLines = 2,
+                                lineHeight = 16.sp,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
@@ -218,11 +222,11 @@ fun DactorTemplateNotificationCard(
                         Box(
                             modifier = Modifier
                                 .size(34.dp)
-                                .background(NotifTeal, CircleShape),
+                                .background(if (isArriveFast) Color(0xFF0D5C4D) else NotifTeal, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.EventAvailable,
+                                if (isArriveFast) Icons.Default.DirectionsRun else Icons.Default.EventAvailable,
                                 contentDescription = null,
                                 tint = Color.White,
                                 modifier = Modifier.size(18.dp)
@@ -238,10 +242,11 @@ fun DactorTemplateNotificationCard(
                             )
                             Text(
                                 text = templateData.rightValue,
-                                fontSize = 14.sp,
+                                fontSize = if (isArriveFast) 12.sp else 13.5.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = NotifSlateDark,
-                                maxLines = 1,
+                                color = if (isArriveFast) Color(0xFF0D5C4D) else NotifSlateDark,
+                                maxLines = 2,
+                                lineHeight = 15.sp,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
@@ -327,10 +332,18 @@ fun ClinicNotificationsScreen(
         topBar = {
             Surface(
                 color = Color.White,
-                shadowElevation = 2.dp
+                shadowElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White),
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                ) {
+                    TopAppBar(
+                        modifier = Modifier.fillMaxWidth(),
+                        windowInsets = WindowInsets(0, 0, 0, 0),
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White),
                     title = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -396,6 +409,7 @@ fun ClinicNotificationsScreen(
                         }
                     }
                 )
+                }
             }
         }
     ) { paddingValues ->

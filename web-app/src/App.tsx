@@ -16,7 +16,7 @@ import { NotFound } from './pages/NotFound'
 import { LiveTrackerModal } from './components/LiveTrackerModal'
 import { LabReportModal } from './components/LabReportModal'
 import { NotificationModal } from './components/NotificationModal'
-import { getPatientNotifications } from './services/db'
+import { getPatientNotifications, getDoctorById } from './services/db'
 import { supabase } from './lib/supabase'
 import { LiquidAuroraBackground } from './components/glass'
 
@@ -28,7 +28,9 @@ const getTabFromUrl = (): string => {
   try {
     const params = new URLSearchParams(window.location.search)
     if (params.get('clinic') || params.get('clinicId')) return 'clinic-detail'
+    if (params.get('doctor') || params.get('doctorId')) return 'clinic-detail'
     if (params.get('code') || params.get('track')) return 'live-queue'
+    if (params.get('q') || params.get('search') || params.get('specialty')) return 'clinics'
 
     const tabParam = params.get('tab') || params.get('page')
     if (tabParam) {
@@ -266,6 +268,21 @@ export const App: React.FC = () => {
     }
   }, [])
 
+  // Resolve clinic if only doctor ID was provided in URL (e.g. direct Google Search or AI overview link)
+  useEffect(() => {
+    if (selectedDoctorId && !selectedClinicId) {
+      let isMounted = true
+      getDoctorById(selectedDoctorId).then((doc) => {
+        if (isMounted && doc?.clinicId) {
+          setSelectedClinicId(doc.clinicId)
+        }
+      })
+      return () => {
+        isMounted = false
+      }
+    }
+  }, [selectedDoctorId, selectedClinicId])
+
   // Navigation handler with deep link support
   const handleNavigate = (tab: string, params?: any) => {
     if (tab === 'clinic-detail' && (params?.clinicId || selectedClinicId)) {
@@ -423,14 +440,23 @@ export const App: React.FC = () => {
           />
         )}
 
-        {activeTab === 'clinic-detail' && !selectedClinicId && (
+        {activeTab === 'clinic-detail' && !selectedClinicId && selectedDoctorId ? (
+          <div className="min-h-[60vh] flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                Opening doctor consultation & direct booking details...
+              </p>
+            </div>
+          </div>
+        ) : activeTab === 'clinic-detail' && !selectedClinicId ? (
           <NotFound
             attemptedPath="Clinic ID was not specified"
             onNavigate={handleNavigate}
             onOpenTrackerModal={() => setTrackerModalOpen(true)}
             onOpenReportModal={handleOpenReportModal}
           />
-        )}
+        ) : null}
 
         {(activeTab === 'live-queue' || activeTab === 'lab-reports') && (
           <LiveQueue

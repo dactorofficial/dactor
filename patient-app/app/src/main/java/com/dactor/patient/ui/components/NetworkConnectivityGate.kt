@@ -39,16 +39,50 @@ import kotlinx.coroutines.delay
 
 fun isInternetAvailable(context: Context): Boolean {
     return try {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val activeNetwork = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
-        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+
+        // 1. Check active default network capabilities & transports
+        val activeNetwork = cm.activeNetwork
+        if (activeNetwork != null) {
+            val caps = cm.getNetworkCapabilities(activeNetwork)
+            if (caps != null && (
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
-    } catch (e: Exception) {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            )) {
+                return true
+            }
+        }
+
+        // 2. Fallback check across all available networks
+        val allNetworks = cm.allNetworks
+        for (net in allNetworks) {
+            val caps = cm.getNetworkCapabilities(net)
+            if (caps != null && (
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            )) {
+                return true
+            }
+        }
+
+        // 3. Fallback to activeNetworkInfo (deprecated but resilient on OEM Android builds)
+        @Suppress("DEPRECATION")
+        val netInfo = cm.activeNetworkInfo
+        if (netInfo != null && (netInfo.isConnectedOrConnecting || netInfo.isConnected)) {
+            return true
+        }
+
         false
+    } catch (e: Exception) {
+        // Never block the user if connectivity check throws an exception
+        true
     }
 }
 
@@ -80,40 +114,41 @@ fun NetworkConnectivityGate(
 
     val initialConnected = remember { isInternetAvailable(context) }
     var isConnected by remember { mutableStateOf(initialConnected) }
-    // Tracks whether the app has had internet at least once since opening
-    var hasPassedInitialSetup by remember { mutableStateOf(initialConnected) }
-    var hasAutoRedirectedOnLaunch by remember { mutableStateOf(false) }
+    // Optimistic startup: always let the app render without blocking users on launch
+    var hasPassedInitialSetup by remember { mutableStateOf(true) }
 
-    // Real-time ConnectivityManager callback
+    // Real-time ConnectivityManager default network callback
     DisposableEffect(context) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                val nowOnline = isInternetAvailable(context)
-                isConnected = nowOnline
-                if (nowOnline) {
-                    hasPassedInitialSetup = true
-                }
+                isConnected = true
+                hasPassedInitialSetup = true
             }
 
             override fun onLost(network: Network) {
+                // Only mark disconnected if no other active/fallback network exists
                 isConnected = isInternetAvailable(context)
             }
 
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                 val hasNet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                isConnected = hasNet
                 if (hasNet) {
+                    isConnected = true
                     hasPassedInitialSetup = true
                 }
             }
         }
 
         try {
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
-            cm?.registerNetworkCallback(request, callback)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                cm?.registerDefaultNetworkCallback(callback)
+            } else {
+                val request = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+                cm?.registerNetworkCallback(request, callback)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -125,13 +160,13 @@ fun NetworkConnectivityGate(
         }
     }
 
-    // Re-check whenever user returns from Wi-Fi / Internet settings panel
+    // Re-check whenever user returns from background or Settings panel
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 val nowOnline = isInternetAvailable(context)
-                isConnected = nowOnline
                 if (nowOnline) {
+                    isConnected = true
                     hasPassedInitialSetup = true
                 }
             }
@@ -142,137 +177,24 @@ fun NetworkConnectivityGate(
         }
     }
 
-    // Periodic lightweight poll so connectivity changes are caught immediately
+    // Periodic lightweight poll with consecutive failure debounce to prevent false flickers
+    var consecutiveOfflineCount by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
+            delay(3000L)
             val nowOnline = isInternetAvailable(context)
-            if (isConnected && !nowOnline && hasPassedInitialSetup) {
-                Toast.makeText(context, "No internet connection", Toast.LENGTH_LONG).show()
-            }
-            isConnected = nowOnline
             if (nowOnline) {
-                hasPassedInitialSetup = true
-            }
-            delay(2000L)
-        }
-    }
-
-    // 1. If device doesn't have internet connection while opening app:
-    // Automatically redirect to connect internet, and once set up, transfer to the respective page.
-    LaunchedEffect(hasPassedInitialSetup) {
-        if (!hasPassedInitialSetup && !hasAutoRedirectedOnLaunch) {
-            hasAutoRedirectedOnLaunch = true
-            openInternetSettings(context)
-        }
-    }
-
-    if (!hasPassedInitialSetup) {
-        // Full-screen startup gate until internet is connected, then auto-transfers to respective page
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFFF8FAFC))
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFFFEE2E2),
-                        modifier = Modifier.size(76.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.WifiOff,
-                                contentDescription = "No Internet",
-                                tint = Color(0xFFDC2626),
-                                modifier = Modifier.size(40.dp)
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "No Internet Connection",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF0F172A),
-                        textAlign = TextAlign.Center
-                    )
-
-                    Text(
-                        text = "Your device is not connected to the internet. Please connect to Wi-Fi or Mobile Data.\n\nOnce connected, you will be automatically transferred to your page.",
-                        fontSize = 13.5.sp,
-                        lineHeight = 19.sp,
-                        color = Color(0xFF475569),
-                        textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Button(
-                        onClick = { openInternetSettings(context) },
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F4C81)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Connect to Internet",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.5.sp
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            val online = isInternetAvailable(context)
-                            isConnected = online
-                            if (online) {
-                                hasPassedInitialSetup = true
-                            } else {
-                                Toast.makeText(context, "Still no internet connection. Please enable Wi-Fi or Mobile Data.", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "I'm Connected — Retry Now",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp
-                        )
-                    }
+                consecutiveOfflineCount = 0
+                isConnected = true
+            } else {
+                consecutiveOfflineCount++
+                // Require 4 consecutive failures (~12-15s) before declaring connection lost
+                if (consecutiveOfflineCount >= 4) {
+                    isConnected = false
                 }
             }
         }
-    } else {
+    }
         // 2. Respective page is active; if internet goes away while doing something, show message that no internet connection
         Box(modifier = Modifier.fillMaxSize()) {
             content()
@@ -340,4 +262,3 @@ fun NetworkConnectivityGate(
             }
         }
     }
-}

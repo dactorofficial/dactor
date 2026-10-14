@@ -134,4 +134,25 @@ class NotificationRepository @Inject constructor(
             false
         }
     }
+
+    suspend fun markAllAsRead(ids: List<String>): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val validIds = ids.filter { it.isNotBlank() }
+            if (validIds.isEmpty()) return@withContext true
+            for (chunk in validIds.chunked(30)) {
+                supabaseClient.postgrest["notifications"]
+                    .update({
+                        set("is_read", true)
+                    }) {
+                        filter {
+                            isIn("id", chunk)
+                        }
+                    }
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
 }

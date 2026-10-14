@@ -79,8 +79,80 @@ class BillingRepository @Inject constructor(
     }
 
     /**
-     * Pushes a quick payment entry with date (e.g. Paid 1000 with no other detail required).
-     * Automatically adds into the patient's total bill and paid amount with a date-stamped ledger entry.
+     * Combines previous items with new items, logs the new payment with date/time,
+     * recalculates total bill, total paid, and balance due.
+     */
+    suspend fun saveFollowUpBill(
+        appointment: com.dactor.clinic.data.model.Appointment,
+        items: List<InvoiceItem>,
+        newPaymentAmount: Double,
+        paymentDateTime: String,
+        paymentNote: String? = null,
+        clinicalRemarks: String = ""
+    ): BillingInvoice? = withContext(Dispatchers.IO) {
+        try {
+            val existing = getInvoiceByAppointment(appointment.id)
+            val nowIso = java.time.Instant.now().toString()
+
+            val existingPayments = com.dactor.clinic.domain.util.PaymentLedgerHelper.parsePaymentRecords(
+                rawRemarks = existing?.remarks,
+                fallbackPaidAmount = existing?.effectivePaidAmount ?: 0.0,
+                fallbackDate = existing?.paidAt
+            )
+
+            val safeNewPayment = newPaymentAmount.coerceAtLeast(0.0)
+            val updatedPayments = if (safeNewPayment > 0.0) {
+                val cleanTime = paymentDateTime.trim().ifBlank {
+                    java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd hh:mm a"))
+                }
+                existingPayments + com.dactor.clinic.data.model.PaymentRecord(
+                    amount = safeNewPayment,
+                    dateTime = cleanTime,
+                    note = paymentNote?.trim()?.ifBlank { "Payment Received" } ?: "Payment Received"
+                )
+            } else {
+                existingPayments
+            }
+
+            val totalPaidAmount = updatedPayments.sumOf { it.amount }
+            val itemsTotal = items.sumOf { it.total }
+            // If items list is empty, bill total is at least the total paid
+            val calculatedTotal = if (itemsTotal > 0.0) itemsTotal else totalPaidAmount
+            val balanceDue = (calculatedTotal - totalPaidAmount).coerceAtLeast(0.0)
+            val paymentStatus = when {
+                balanceDue <= 0.0 && calculatedTotal > 0.0 -> "paid"
+                totalPaidAmount > 0.0 -> "partial"
+                else -> "pending"
+            }
+
+            val combinedRemarks = com.dactor.clinic.domain.util.PaymentLedgerHelper.buildCombinedRemarks(
+                cleanRemarks = clinicalRemarks,
+                paymentRecords = updatedPayments
+            )
+
+            val invoiceToSave = BillingInvoice(
+                id = existing?.id ?: java.util.UUID.randomUUID().toString(),
+                appointmentId = appointment.id,
+                clinicId = appointment.clinicId,
+                items = items,
+                totalAmount = calculatedTotal,
+                paidAmount = totalPaidAmount,
+                balanceDue = balanceDue,
+                paymentStatus = paymentStatus,
+                paidAt = if (safeNewPayment > 0.0) nowIso else (existing?.paidAt ?: nowIso),
+                remarks = combinedRemarks
+            )
+
+            saveInvoice(invoiceToSave)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Pushes a quick payment entry with date and time log (e.g. Paid 1000 with no other detail required).
+     * Automatically logs into the patient's payment ledger with timestamp and updates total bill and paid amounts.
      */
     suspend fun pushQuickPayment(
         appointment: com.dactor.clinic.data.model.Appointment,
@@ -91,62 +163,20 @@ class BillingRepository @Inject constructor(
         try {
             val safePaid = paidAmount.coerceAtLeast(0.0)
             val cleanDate = paymentDate.trim().ifBlank { java.time.LocalDate.now().toString() }
+            val currentTime = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
+            val timeFormatted = "$cleanDate $currentTime"
             val existing = getInvoiceByAppointment(appointment.id)
-            val nowIso = java.time.Instant.now().toString()
+            val cleanRemarks = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(existing?.remarks)
+            val currentItems = existing?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) } ?: emptyList()
 
-            val entryDescription = if (!note.isNullOrBlank()) {
-                "Payment Received ($cleanDate) • ${note.trim()}"
-            } else {
-                "Payment Received ($cleanDate)"
-            }
-
-            val newEntryItem = InvoiceItem(
-                itemName = entryDescription,
-                quantity = 1,
-                price = safePaid,
-                total = safePaid
+            saveFollowUpBill(
+                appointment = appointment,
+                items = currentItems,
+                newPaymentAmount = safePaid,
+                paymentDateTime = timeFormatted,
+                paymentNote = note?.takeIf { it.isNotBlank() } ?: "Quick Payment",
+                clinicalRemarks = cleanRemarks
             )
-
-            val invoiceToSave = if (existing != null) {
-                val updatedItems = existing.items + newEntryItem
-                val newPaidAmount = (existing.effectivePaidAmount + safePaid).coerceAtLeast(0.0)
-                // If previous total was already fully covered or empty, add the new payment to total bill
-                val newTotalAmount = if (existing.totalAmount <= existing.effectivePaidAmount) {
-                    (existing.totalAmount + safePaid).coerceAtLeast(safePaid)
-                } else {
-                    kotlin.math.max(existing.totalAmount, newPaidAmount)
-                }
-                val newBalance = (newTotalAmount - newPaidAmount).coerceAtLeast(0.0)
-                val newStatus = when {
-                    newBalance <= 0.0 && newTotalAmount > 0.0 -> "paid"
-                    newPaidAmount > 0.0 -> "partial"
-                    else -> "pending"
-                }
-                existing.copy(
-                    items = updatedItems,
-                    totalAmount = newTotalAmount,
-                    paidAmount = newPaidAmount,
-                    balanceDue = newBalance,
-                    paymentStatus = newStatus,
-                    paidAt = nowIso,
-                    remarks = note?.takeIf { it.isNotBlank() } ?: existing.remarks
-                )
-            } else {
-                BillingInvoice(
-                    id = java.util.UUID.randomUUID().toString(),
-                    appointmentId = appointment.id,
-                    clinicId = appointment.clinicId,
-                    items = listOf(newEntryItem),
-                    totalAmount = safePaid,
-                    paidAmount = safePaid,
-                    balanceDue = 0.0,
-                    paymentStatus = "paid",
-                    paidAt = nowIso,
-                    remarks = note?.takeIf { it.isNotBlank() }
-                )
-            }
-
-            saveInvoice(invoiceToSave)
         } catch (e: Exception) {
             e.printStackTrace()
             null

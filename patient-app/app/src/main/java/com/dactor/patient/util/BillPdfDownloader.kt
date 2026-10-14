@@ -135,8 +135,21 @@ object BillPdfDownloader {
 
             currentY += 108f
 
+            val logSource = when {
+                invoice?.remarks?.contains("<!--PAYMENT_LOG_START-->") == true -> invoice.remarks
+                clinicalRemarks?.contains("<!--PAYMENT_LOG_START-->") == true -> clinicalRemarks
+                !invoice?.remarks.isNullOrBlank() -> invoice.remarks
+                else -> clinicalRemarks
+            }
+            val cleanRemarks = PaymentLedgerHelper.extractCleanClinicalRemarks(
+                if (!clinicalRemarks.isNullOrBlank() && !clinicalRemarks.contains("<!--PAYMENT_LOG_START-->")) clinicalRemarks else logSource
+            )
+
             // ── 3. ITEMIZED BILL TABLE ────────────────────────────────────────
-            val effectiveItems: List<InvoiceItem> = if (!invoice?.items.isNullOrEmpty()) {
+            val cleanItems = invoice?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) } ?: emptyList()
+            val effectiveItems: List<InvoiceItem> = if (cleanItems.isNotEmpty()) {
+                cleanItems
+            } else if (!invoice?.items.isNullOrEmpty()) {
                 invoice!!.items
             } else {
                 val fallbackTotal = invoice?.totalAmount?.takeIf { it > 0.0 }
@@ -145,7 +158,7 @@ object BillPdfDownloader {
                 if (fallbackTotal > 0.0) {
                     listOf(
                         InvoiceItem(
-                            itemName = "Payment Received (${appointment.appointmentDate})",
+                            itemName = "Consultation / Service (${appointment.appointmentDate})",
                             quantity = 1,
                             price = fallbackTotal,
                             total = fallbackTotal
@@ -158,125 +171,170 @@ object BillPdfDownloader {
 
             // Table Header
             paint.color = tealLight
-            val headerRect = RectF(36f, currentY, (pageWidth - 36).toFloat(), currentY + 28f)
+            val headerRect = RectF(36f, currentY, (pageWidth - 36).toFloat(), currentY + 26f)
             canvas.drawRoundRect(headerRect, 6f, 6f, paint)
 
             textPaint.color = tealDark
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textPaint.textSize = 10.5f
-            canvas.drawText("#", 48f, currentY + 18f, textPaint)
-            canvas.drawText("DESCRIPTION / SERVICE", 74f, currentY + 18f, textPaint)
-            canvas.drawText("QTY", 360f, currentY + 18f, textPaint)
-            canvas.drawText("UNIT PRICE", 415f, currentY + 18f, textPaint)
+            textPaint.textSize = 10f
+            canvas.drawText("#", 48f, currentY + 17f, textPaint)
+            canvas.drawText("SERVICES & PROCEDURES", 74f, currentY + 17f, textPaint)
+            canvas.drawText("QTY", 360f, currentY + 17f, textPaint)
+            canvas.drawText("UNIT PRICE", 415f, currentY + 17f, textPaint)
             textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("AMOUNT (NPR)", (pageWidth - 48).toFloat(), currentY + 18f, textPaint)
+            canvas.drawText("AMOUNT (NPR)", (pageWidth - 48).toFloat(), currentY + 17f, textPaint)
             textPaint.textAlign = Paint.Align.LEFT
 
-            currentY += 32f
+            currentY += 30f
 
             effectiveItems.forEachIndexed { idx, item ->
                 if (idx % 2 == 1) {
                     paint.color = rowBg
-                    canvas.drawRect(36f, currentY, (pageWidth - 36).toFloat(), currentY + 26f, paint)
+                    canvas.drawRect(36f, currentY, (pageWidth - 36).toFloat(), currentY + 22f, paint)
                 }
 
                 textPaint.color = slateDark
                 textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                textPaint.textSize = 10.5f
-                canvas.drawText("${idx + 1}", 48f, currentY + 17f, textPaint)
-                canvas.drawText(item.itemName.take(44), 74f, currentY + 17f, textPaint)
-                canvas.drawText("${item.quantity}", 365f, currentY + 17f, textPaint)
-                canvas.drawText("Rs. ${item.price.toInt()}", 415f, currentY + 17f, textPaint)
+                textPaint.textSize = 10f
+                canvas.drawText("${idx + 1}", 48f, currentY + 15f, textPaint)
+                canvas.drawText(item.itemName.take(44), 74f, currentY + 15f, textPaint)
+                canvas.drawText("${item.quantity}", 365f, currentY + 15f, textPaint)
+                canvas.drawText("Rs. ${item.price.toInt()}", 415f, currentY + 15f, textPaint)
 
                 textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textPaint.textAlign = Paint.Align.RIGHT
                 val rowTotal = if (item.total > 0) item.total else (item.price * item.quantity)
-                canvas.drawText("Rs. ${rowTotal.toInt()}", (pageWidth - 48).toFloat(), currentY + 17f, textPaint)
+                canvas.drawText("Rs. ${rowTotal.toInt()}", (pageWidth - 48).toFloat(), currentY + 15f, textPaint)
                 textPaint.textAlign = Paint.Align.LEFT
 
-                currentY += 26f
+                currentY += 22f
                 paint.color = borderGray
                 canvas.drawLine(36f, currentY, (pageWidth - 36).toFloat(), currentY, paint)
             }
 
-            currentY += 18f
+            currentY += 14f
 
-            // ── 4. FINANCIAL TOTALS (TOTAL, PAID, LEFT/DUE) ───────────────────
+            // ── 4. PAYMENT RECEIPTS & TIME LOG TABLE ─────────────────────────
             val calculatedItemsTotal = effectiveItems.sumOf { if (it.total > 0) it.total else (it.price * it.quantity) }
-            val totalBill = invoice?.totalAmount?.takeIf { it > 0.0 } ?: calculatedItemsTotal
+            val totalBill = invoice?.totalAmount?.takeIf { it > 0.0 } ?: calculatedItemsTotal.takeIf { it > 0.0 } ?: (invoice?.paidAmount ?: 0.0)
             val paidAmt = invoice?.paidAmount ?: (if (appointment.paymentStatus == "paid") totalBill else 0.0)
             val leftAmt = (totalBill - paidAmt).coerceAtLeast(0.0)
 
+            val paymentLogs = PaymentLedgerHelper.parsePaymentRecords(logSource, paidAmt, invoice?.paidAt)
+            if (paymentLogs.isNotEmpty()) {
+                paint.color = Color.parseColor("#DCFCE7") // Light green header for payment receipts
+                val payHeaderRect = RectF(36f, currentY, (pageWidth - 36).toFloat(), currentY + 24f)
+                canvas.drawRoundRect(payHeaderRect, 6f, 6f, paint)
+
+                textPaint.color = Color.parseColor("#166534")
+                textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textPaint.textSize = 9.5f
+                canvas.drawText("#", 48f, currentY + 16f, textPaint)
+                canvas.drawText("PAYMENT RECEIPTS & TIME LOG", 74f, currentY + 16f, textPaint)
+                canvas.drawText("NOTE / MODE", 300f, currentY + 16f, textPaint)
+                textPaint.textAlign = Paint.Align.RIGHT
+                canvas.drawText("PAID (NPR)", (pageWidth - 48).toFloat(), currentY + 16f, textPaint)
+                textPaint.textAlign = Paint.Align.LEFT
+
+                currentY += 28f
+
+                paymentLogs.forEachIndexed { pIdx, p ->
+                    if (pIdx % 2 == 1) {
+                        paint.color = rowBg
+                        canvas.drawRect(36f, currentY, (pageWidth - 36).toFloat(), currentY + 22f, paint)
+                    }
+
+                    textPaint.color = slateDark
+                    textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                    textPaint.textSize = 9.5f
+                    canvas.drawText("${pIdx + 1}", 48f, currentY + 15f, textPaint)
+                    canvas.drawText(p.dateTime, 74f, currentY + 15f, textPaint)
+                    canvas.drawText((p.note ?: "Payment Received").take(28), 300f, currentY + 15f, textPaint)
+
+                    textPaint.color = greenPaid
+                    textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    textPaint.textAlign = Paint.Align.RIGHT
+                    canvas.drawText("Rs. ${p.amount.toInt()}", (pageWidth - 48).toFloat(), currentY + 15f, textPaint)
+                    textPaint.textAlign = Paint.Align.LEFT
+
+                    currentY += 22f
+                    paint.color = borderGray
+                    canvas.drawLine(36f, currentY, (pageWidth - 36).toFloat(), currentY, paint)
+                }
+
+                currentY += 14f
+            }
+
+            // ── 5. FINANCIAL TOTALS (TOTAL, PAID, LEFT/DUE) ───────────────────
             val summaryBoxLeft = 290f
             val summaryBoxRight = (pageWidth - 36).toFloat()
             paint.color = rowBg
-            val totalsRect = RectF(summaryBoxLeft, currentY, summaryBoxRight, currentY + 102f)
-            canvas.drawRoundRect(totalsRect, 10f, 10f, paint)
+            val totalsRect = RectF(summaryBoxLeft, currentY, summaryBoxRight, currentY + 92f)
+            canvas.drawRoundRect(totalsRect, 8f, 8f, paint)
 
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 1.2f
             paint.color = tealPrimary
-            canvas.drawRoundRect(totalsRect, 10f, 10f, paint)
+            canvas.drawRoundRect(totalsRect, 8f, 8f, paint)
             paint.style = Paint.Style.FILL
 
             // Row A: Total Bill Amount
             textPaint.color = slateMuted
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            textPaint.textSize = 11f
-            canvas.drawText("Total Bill Amount:", summaryBoxLeft + 16f, currentY + 26f, textPaint)
+            textPaint.textSize = 10.5f
+            canvas.drawText("Total Bill Amount:", summaryBoxLeft + 16f, currentY + 24f, textPaint)
             textPaint.color = slateDark
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("Rs. ${totalBill.toInt()}", summaryBoxRight - 16f, currentY + 26f, textPaint)
+            canvas.drawText("Rs. ${totalBill.toInt()}", summaryBoxRight - 16f, currentY + 24f, textPaint)
             textPaint.textAlign = Paint.Align.LEFT
 
-            // Row B: Amount Paid
+            // Row B: Total Amount Paid
             textPaint.color = slateMuted
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            canvas.drawText("Amount Paid:", summaryBoxLeft + 16f, currentY + 50f, textPaint)
+            canvas.drawText("Total Amount Paid:", summaryBoxLeft + 16f, currentY + 48f, textPaint)
             textPaint.color = greenPaid
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("Rs. ${paidAmt.toInt()}", summaryBoxRight - 16f, currentY + 50f, textPaint)
+            canvas.drawText("Rs. ${paidAmt.toInt()}", summaryBoxRight - 16f, currentY + 48f, textPaint)
             textPaint.textAlign = Paint.Align.LEFT
 
             // Divider inside summary box
             paint.color = borderGray
-            canvas.drawLine(summaryBoxLeft + 14f, currentY + 62f, summaryBoxRight - 14f, currentY + 62f, paint)
+            canvas.drawLine(summaryBoxLeft + 14f, currentY + 58f, summaryBoxRight - 14f, currentY + 58f, paint)
 
             // Row C: Remaining / Left Amount
             textPaint.color = slateDark
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textPaint.textSize = 12f
-            canvas.drawText("Remaining Left / Due:", summaryBoxLeft + 16f, currentY + 84f, textPaint)
+            textPaint.textSize = 11.5f
+            canvas.drawText("Remaining Left / Due:", summaryBoxLeft + 16f, currentY + 78f, textPaint)
             textPaint.color = if (leftAmt > 0.0) redDue else greenPaid
             textPaint.textAlign = Paint.Align.RIGHT
             val leftLabel = if (leftAmt > 0.0) "Rs. ${leftAmt.toInt()} (DUE)" else "Rs. 0 (PAID)"
-            canvas.drawText(leftLabel, summaryBoxRight - 16f, currentY + 84f, textPaint)
+            canvas.drawText(leftLabel, summaryBoxRight - 16f, currentY + 78f, textPaint)
             textPaint.textAlign = Paint.Align.LEFT
 
-            currentY += 124f
+            currentY += 108f
 
-            // ── 5. CLINICAL REMARKS / PRESCRIPTION NOTES ──────────────────────
-            val remarksToDisplay = clinicalRemarks?.ifBlank { null } ?: invoice?.remarks?.ifBlank { null }
-            if (!remarksToDisplay.isNullOrBlank()) {
+            // ── 6. CLINICAL REMARKS / PRESCRIPTION NOTES ──────────────────────
+            if (cleanRemarks.isNotBlank()) {
                 paint.color = Color.parseColor("#F0FDF4")
-                val remRect = RectF(36f, currentY, (pageWidth - 36).toFloat(), currentY + 84f)
+                val remRect = RectF(36f, currentY, (pageWidth - 36).toFloat(), currentY + 68f)
                 canvas.drawRoundRect(remRect, 8f, 8f, paint)
 
                 textPaint.color = tealDark
                 textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                textPaint.textSize = 10.5f
-                canvas.drawText("DOCTOR'S CLINICAL REMARKS & PRESCRIPTION:", 48f, currentY + 22f, textPaint)
+                textPaint.textSize = 10f
+                canvas.drawText("DOCTOR'S CLINICAL REMARKS & PRESCRIPTION:", 48f, currentY + 20f, textPaint)
 
                 textPaint.color = slateDark
                 textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                textPaint.textSize = 10f
-                val lines = remarksToDisplay.chunked(85).take(3)
+                textPaint.textSize = 9.5f
+                val lines = cleanRemarks.chunked(85).take(3)
                 lines.forEachIndexed { i, line ->
-                    canvas.drawText(line, 48f, currentY + 42f + (i * 15f), textPaint)
+                    canvas.drawText(line, 48f, currentY + 38f + (i * 14f), textPaint)
                 }
-                currentY += 100f
+                currentY += 82f
             }
 
             // ── 6. FOOTER ─────────────────────────────────────────────────────

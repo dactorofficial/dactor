@@ -157,10 +157,13 @@ fun DactorTemplateNotificationCard(
 
             // Bottom 2-Column Pill Container: ONLY for Queue Status Reminders
             if (templateData.isQueueReminder) {
+                val isArriveFast = templateData.rightValue.contains("arrive fast", ignoreCase = true) ||
+                    templateData.leftValue.contains("arrive fast", ignoreCase = true)
+
                 Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = Color.White,
-                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    border = BorderStroke(1.dp, if (isArriveFast) NotifTeal.copy(alpha = 0.35f) else Color(0xFFE2E8F0)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp)
@@ -180,11 +183,11 @@ fun DactorTemplateNotificationCard(
                             Box(
                                 modifier = Modifier
                                     .size(34.dp)
-                                    .background(NotifTeal, CircleShape),
+                                    .background(if (isArriveFast) Color(0xFF0D5C4D) else NotifTeal, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    Icons.Default.Groups,
+                                    if (isArriveFast) Icons.Default.DirectionsRun else Icons.Default.Groups,
                                     contentDescription = null,
                                     tint = Color.White,
                                     modifier = Modifier.size(18.dp)
@@ -200,10 +203,11 @@ fun DactorTemplateNotificationCard(
                                 )
                                 Text(
                                     text = templateData.leftValue,
-                                    fontSize = 14.sp,
+                                    fontSize = 13.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = NotifSlateDark,
-                                    maxLines = 1,
+                                    color = if (isArriveFast) Color(0xFF0D5C4D) else NotifSlateDark,
+                                    maxLines = 2,
+                                    lineHeight = 16.sp,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
@@ -218,7 +222,7 @@ fun DactorTemplateNotificationCard(
                                 .background(Color(0xFFCBD5E1))
                         )
 
-                        // Right Metric: Your Appointment Time
+                        // Right Metric: Your Appointment Time / Turn Status
                         Row(
                             modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically,
@@ -227,11 +231,11 @@ fun DactorTemplateNotificationCard(
                             Box(
                                 modifier = Modifier
                                     .size(34.dp)
-                                    .background(NotifTeal, CircleShape),
+                                    .background(if (isArriveFast) Color(0xFF0D5C4D) else NotifTeal, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    Icons.Default.EventAvailable,
+                                    if (isArriveFast) Icons.Default.DirectionsRun else Icons.Default.EventAvailable,
                                     contentDescription = null,
                                     tint = Color.White,
                                     modifier = Modifier.size(18.dp)
@@ -247,10 +251,11 @@ fun DactorTemplateNotificationCard(
                                 )
                                 Text(
                                     text = templateData.rightValue,
-                                    fontSize = 14.sp,
+                                    fontSize = if (isArriveFast) 12.sp else 13.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = NotifSlateDark,
-                                    maxLines = 1,
+                                    color = if (isArriveFast) Color(0xFF0D5C4D) else NotifSlateDark,
+                                    maxLines = 2,
+                                    lineHeight = 15.sp,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
@@ -263,23 +268,37 @@ fun DactorTemplateNotificationCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 2.dp),
+                        .padding(top = 4.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = actionLabel,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = NotifTeal
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
-                        tint = NotifTeal,
-                        modifier = Modifier.size(14.dp)
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = NotifTealSoft,
+                        border = BorderStroke(1.dp, NotifTeal.copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onClick() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text(
+                                text = actionLabel,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NotifTealDark
+                            )
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = NotifTealDark,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -369,87 +388,111 @@ fun NotificationsScreen(
         topBar = {
             Surface(
                 color = Color.White,
-                shadowElevation = 2.dp
+                shadowElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 TopAppBar(
+                    modifier = Modifier.fillMaxWidth(),
+                    windowInsets = TopAppBarDefaults.windowInsets,
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White),
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.app_logo),
-                                contentDescription = "Dactor",
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(7.dp))
-                            )
-                            Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text(
-                                        "Notifications",
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 19.sp,
-                                        color = NotifSlateDark
-                                    )
-                                    if (unreadCount > 0) {
-                                        Surface(
-                                            shape = RoundedCornerShape(50),
-                                            color = NotifTeal
-                                        ) {
-                                            Text(
-                                                text = "$unreadCount new",
-                                                color = Color.White,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                            )
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.app_logo),
+                                    contentDescription = "Dactor",
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(RoundedCornerShape(7.dp))
+                                )
+                                Column {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            "Notifications",
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 18.sp,
+                                            color = NotifSlateDark
+                                        )
+                                        if (unreadCount > 0) {
+                                            Surface(
+                                                shape = RoundedCornerShape(50),
+                                                color = NotifTeal
+                                            ) {
+                                                Text(
+                                                    text = "$unreadCount new",
+                                                    color = Color.White,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                )
+                                            }
                                         }
                                     }
+                                    Text(
+                                        "Queue turns, doctor alerts & lab reports",
+                                        fontSize = 11.sp,
+                                        color = NotifSlateMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
-                                Text(
-                                    "Queue turns, doctor alerts & lab reports",
-                                    fontSize = 11.sp,
-                                    color = NotifSlateMuted
-                                )
                             }
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = NotifSlateDark
-                            )
-                        }
-                    },
-                    actions = {
-                        if (unreadCount > 0) {
-                            TextButton(
-                                onClick = {
-                                    notifications = notifications.map { it.copy(isRead = true) }
-                                }
-                            ) {
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { navController.popBackStack() }) {
                                 Icon(
-                                    Icons.Default.DoneAll,
-                                    contentDescription = null,
-                                    tint = NotifTeal,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    "Mark all read",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = NotifTeal
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = NotifSlateDark
                                 )
                             }
-                        }
+                        },
+                        actions = {
+                            if (unreadCount > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = NotifTealSoft,
+                                    border = BorderStroke(1.dp, NotifTeal.copy(alpha = 0.35f)),
+                                    modifier = Modifier
+                                        .padding(end = 4.dp)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .clickable {
+                                            val unreadIds = notifications.filter { !it.isRead }.map { it.id }
+                                            notifications = notifications.map { it.copy(isRead = true) }
+                                            coroutineScope.launch {
+                                                try {
+                                                    notificationRepository?.markAllAsRead(unreadIds)
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                            }
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DoneAll,
+                                            contentDescription = null,
+                                            tint = NotifTealDark,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            "Mark all read",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = NotifTealDark
+                                        )
+                                    }
+                                }
+                            }
                         IconButton(
                             onClick = {
                                 coroutineScope.launch {

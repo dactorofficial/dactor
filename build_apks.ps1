@@ -8,7 +8,9 @@
 param(
     [ValidateSet("All", "Clinic", "Patient")]
     [string]$App = "All",
-    [string]$Version = ""
+    [string]$Version = "",
+    [ValidateSet("Release", "Debug")]
+    [string]$BuildType = "Release"
 )
 
 $ErrorActionPreference = "Stop"
@@ -75,13 +77,36 @@ function Bump-App {
     # Replace versionCode and versionName in build.gradle.kts
     $updatedContent = $content -replace 'versionCode\s*=\s*\d+', "versionCode = $newCode"
     $updatedContent = $updatedContent -replace 'versionName\s*=\s*"[^"]+"', "versionName = `"$newName`""
-    Set-Content -Path $gradlePath -Value $updatedContent -NoNewline
+    $written = $false
+    for ($retry = 0; $retry -lt 10; $retry++) {
+        try {
+            Set-Content -Path $gradlePath -Value $updatedContent -NoNewline -ErrorAction Stop
+            $written = $true
+            break
+        } catch {
+            Start-Sleep -Milliseconds 1500
+        }
+    }
+    if (-not $written) {
+        Set-Content -Path $gradlePath -Value $updatedContent -NoNewline
+    }
 
     # Run Gradle build directly in AppDir
     Push-Location $AppDir
     try {
-        Write-Host "Running Gradle assembleDebug in $AppDir..." -ForegroundColor Yellow
-        & .\gradlew.bat assembleDebug --console=plain
+        Write-Host "Running Gradle assemble${BuildType} in $AppDir..." -ForegroundColor Yellow
+        if (Test-Path "C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot") {
+            $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot"
+            $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+        } elseif (Test-Path "D:\jdk17") {
+            $env:JAVA_HOME = "D:\jdk17"
+            $env:PATH = "D:\jdk17\bin;$env:PATH"
+        }
+        $cacheDir = "D:\gradle_cache\$OutputPrefix"
+        if (-not (Test-Path $cacheDir)) {
+            New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+        }
+        & .\gradlew.bat "assemble$BuildType" --console=plain --project-cache-dir "$cacheDir"
         if ($LASTEXITCODE -ne 0) {
             throw "Gradle build failed with exit code $LASTEXITCODE"
         }
@@ -89,12 +114,22 @@ function Bump-App {
         Pop-Location
     }
 
-    # Locate freshest generated APK in AppDir
-    $found = Get-ChildItem -Path (Join-Path $AppDir "app") -Filter "*.apk" -Recurse -ErrorAction SilentlyContinue |
+    $btLower = $BuildType.ToLower()
+    $searchLocations = @(
+        (Join-Path $AppDir "app\build4\outputs\apk\$btLower"),
+        (Join-Path $AppDir "app\build2\outputs\apk\$btLower"),
+        (Join-Path $AppDir "app\build\outputs\apk\$btLower"),
+        (Join-Path $AppDir "app\build3\outputs\apk\$btLower"),
+        (Join-Path $AppDir "app\build4\outputs\apk\debug"),
+        (Join-Path $AppDir "app\build2\outputs\apk\debug"),
+        (Join-Path $AppDir "app\build\outputs\apk\debug")
+    ) | Where-Object { Test-Path $_ }
+
+    $found = Get-ChildItem -Path $searchLocations -Filter "*.apk" -Recurse -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
     if (-not $found) {
-        throw "Could not find built APK in $searchLocations"
+        throw "Could not find built APK in $($searchLocations -join ', ')"
     }
     $builtApk = $found.FullName
 
@@ -104,7 +139,7 @@ function Bump-App {
     Copy-Item $builtApk $destVersionedPath -Force
 
     # Also keep standard alias for backward compatibility
-    $destAliasPath = Join-Path $apksDir "$OutputPrefix-debug.apk"
+    $destAliasPath = Join-Path $apksDir "$OutputPrefix-$btLower.apk"
     Copy-Item $builtApk $destAliasPath -Force
 
     $fileSizeMB = [math]::Round(((Get-Item $destVersionedPath).Length / 1MB), 2)

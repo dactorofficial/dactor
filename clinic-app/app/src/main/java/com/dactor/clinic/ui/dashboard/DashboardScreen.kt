@@ -760,7 +760,35 @@ fun DashboardScreen(
                             }
                         }
                     }
-                }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            sessionManager.clearSession()
+                            clinicRepository?.clearCache()
+                            doctorRepository?.clearCache()
+                            try {
+                                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
+                                    context,
+                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                                ).signOut()
+                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                            } catch (ignored: Exception) {}
+                            navController.navigate(NavRoutes.ClinicLogin) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Sign Out from Clinic Account", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                    }
+                } else if (clinic != null) {
 
                 // 1. TOP CLINIC IDENTITY HEADER
                 Row(
@@ -1878,6 +1906,7 @@ fun DashboardScreen(
                     Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(8.dp))
                     Text("Sign Out from Clinic Account", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                }
                 }
             }
         }
