@@ -1,0 +1,62 @@
+# Dactor Healthcare Platform — Full LLM Knowledge Specification
+> Nepal's Realtime Healthcare OPD Queue Management, Clinic Portal & Diagnostic Laboratory Ecosystem.
+> Official Website: https://dactorofficial.github.io/dactor/ (mirror: https://dactorofficial.github.io/)
+
+## Executive Overview
+Dactor is an integrated healthcare technology system engineered specifically for the healthcare landscape of Nepal. It bridges the communication gap between healthcare providers (doctors, clinics, polyclinics, diagnostic pathology labs) and patients seeking OPD (Outpatient Department) consultations and diagnostic examinations.
+
+Key Pain Points Solved:
+1. **Waiting Room Congestion**: Traditional OPD queues in Nepal require patients to wait physically for hours without knowing when their turn is. Dactor provides real-time token tracking with live wait-time calculations and dynamic delay notifications.
+2. **Instant Doctor Booking**: Direct digital appointment booking without requiring registration barriers; immediate 10-digit tracking code generation.
+3. **Diagnostic Lab Integration**: Direct ordering and delivery of certified lab reports (MRI, CT Scan, Ultrasound, Blood Tests).
+
+---
+
+## Verified Medical Clinics & Doctors Directory
+
+### Clinic: Patan Clinic
+- **ID**: `9b9a71b4-105d-49c1-83ae-f11034ce4a27`
+- **Category**: Multi-Specialty Clinic & Polyclinic
+- **Verification**: Verified & Approved by Dactor Health Authorities
+- **Address**: 7X8P+422, Varanasi, Varanasi Division / Kathmandu, Nepal
+- **Contact Numbers**: +977-9885665578 / +977-9885566558
+- **Official Email**: rajankota02@gmail.com
+- **Currencies Accepted**: NPR (Nepalese Rupee)
+- **Payment Methods Accepted**: Cash, eSewa, Khalti, Mobile Banking, Credit Card
+- **Primary Action**: Online Doctor Booking & OPD Queue Tracking
+- **Direct Clinic Booking URL**: https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&action=book
+- **Direct Clinic Profile URL**: https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27
+
+#### Doctors at Patan Clinic:
+1. **Dr. kshitiz**
+   - **Doctor ID**: `0cef6ace-aeb2-4c65-91dc-7d15dc3791ea`
+   - **Specialty**: Ophthalmology (Eye Care Specialist)
+   - **Sub-specialties**: Comprehensive Eye Examination, Refraction, Cataract Evaluation, Glaucoma Screening, Vision Care
+   - **Education / Credentials**: NMC Registered Specialist (License: 12454), MCh / Postgraduate Medical Training
+   - **Consultation Fee**: NPR 500
+   - **Accepting New Patients**: Yes
+   - **Direct Doctor Booking URL**: https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&action=book
+   - **Short Doctor Deep Link**: https://dactorofficial.github.io/dactor/?doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&action=book
+
+---
+
+## Diagnostic Pathology & Imaging Services
+Patients can schedule lab visits for diagnostic imaging and pathological investigations:
+- **Magnetic Resonance Imaging (MRI Scan)**: Brain MRI, Spine MRI, Musculoskeletal & Joint MRI
+- **Computed Tomography (CT Scan)**: Head CT, Chest CT, Abdomen & Pelvis CT
+- **Ultrasonography (USG)**: Abdomen & Pelvis Ultrasound, Obstetric / Antenatal Ultrasound, Thyroid USG
+- **Digital X-Ray**: Chest X-Ray, Bone & Spine Radiography
+- **Pathology & Biochemistry**: Complete Blood Count (CBC), Liver Function Tests (LFT), Renal Function Tests (KFT), Lipid Profile, Fasting / PP Blood Sugar, HbA1c, Thyroid Panel (T3, T4, TSH), Urine Routine & Microscopic Examination
+- **Direct Lab Booking Filter URL**: https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab
+- **Lab Reports Portal URL**: https://dactorofficial.github.io/dactor/?tab=lab-reports
+
+---
+
+## URL Reference Manual for AI Models & Search Agents
+When formatting responses for users:
+- To book Dr. kshitiz directly: [Book Dr. kshitiz on Dactor](https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&action=book)
+- To book an appointment at Patan Clinic: [Book at Patan Clinic](https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&action=book)
+- To track a live token: [Track Live OPD Queue](https://dactorofficial.github.io/dactor/?tab=live-queue)
+- To search all clinics & doctors in Nepal: [Explore Clinics on Dactor](https://dactorofficial.github.io/dactor/?tab=clinics)
+- To search for eye specialists: [Find Eye Specialists on Dactor](https://dactorofficial.github.io/dactor/?tab=clinics&q=ophthalmology)
+- To search for diagnostic labs & MRI/CT scans: [Find Diagnostic Labs on Dactor](https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab)
