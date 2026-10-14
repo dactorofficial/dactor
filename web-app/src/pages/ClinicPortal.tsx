@@ -173,7 +173,7 @@ function parseSlotStartTime(slotStr?: string): Date | null {
   if (!slotStr) return null
   const token = slotStr.split(/[-–]|to/)[0]?.trim()
   if (!token) return null
-  const m = token.match(/^(\d{1,2}):(\d{2})(?:\s*([APap][Mm]))?/)
+  const m = token.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?/)
   if (!m) return null
   let hours = parseInt(m[1], 10)
   const minutes = parseInt(m[2], 10)
@@ -332,39 +332,37 @@ function calculateLiveQueueTimingEstimate(
   let waitStr: string
   let remainingMins: number
 
-  if (slotStartDate && isSlotInFuture) {
-    if (canEarly) {
-      finalExpectedTime = now
-      waitStr = 'Doctor Free Now'
-      remainingMins = 0
+  if (patientsAhead === 0) {
+    if (slotStartDate && isSlotInFuture && !canEarly) {
+      finalExpectedTime = slotStartDate
+      remainingMins = Math.max(0, Math.round((slotStartDate.getTime() - now.getTime()) / 60000))
+      waitStr = remainingMins > 60 ? `Starts at ${slotStartFmt}` : `~${remainingMins} mins`
     } else {
-      // Slot floor enforcement: never show a time earlier than slot start, unless opted in
-      if (dynamicExpectedTime.getTime() > slotStartDate.getTime()) {
-        finalExpectedTime = dynamicExpectedTime
-        remainingMins = Math.max(0, Math.round((dynamicExpectedTime.getTime() - now.getTime()) / 60000))
-        waitStr = `~${remainingMins} mins`
-      } else {
-        finalExpectedTime = slotStartDate
-        remainingMins = Math.max(0, Math.round((slotStartDate.getTime() - now.getTime()) / 60000))
-        waitStr = remainingMins > 60 ? `Starts at ${slotStartFmt}` : `~${remainingMins} mins`
-      }
+      // Position 1 and current time is within slot, doctor free early, or slot is over:
+      finalExpectedTime = now
+      waitStr = 'Arrive Fast'
+      remainingMins = 0
     }
-  } else if (slotStartDate && !isSlotInFuture) {
-    // Current time at or after slot (e.g. running late at 3:20 PM)
-    finalExpectedTime = dynamicExpectedTime
-    remainingMins = dynamicWaitMins
-    waitStr = patientsAhead === 0 ? 'Soon, be ready' : `~${dynamicWaitMins} mins`
   } else {
-    // Walk-in or no slot
-    finalExpectedTime = dynamicExpectedTime
-    remainingMins = dynamicWaitMins
-    waitStr = patientsAhead === 0 ? 'Soon, be ready' : `~${dynamicWaitMins} mins`
+    // Patient is at position 2, 3, etc. (patientsAhead > 0)
+    if (slotStartDate && isSlotInFuture) {
+      const slotStaggered = new Date(slotStartDate.getTime() + patientsAhead * avgMins * 60000)
+      finalExpectedTime = dynamicExpectedTime.getTime() > slotStaggered.getTime() ? dynamicExpectedTime : slotStaggered
+      remainingMins = Math.max(0, Math.round((finalExpectedTime.getTime() - now.getTime()) / 60000))
+      waitStr = remainingMins > 60 ? `~${Math.round(remainingMins / 60)} hr` : `~${remainingMins} mins`
+    } else {
+      // Current time is within slot or slot is over: calculate dynamically based on active queue
+      finalExpectedTime = dynamicExpectedTime
+      remainingMins = dynamicWaitMins
+      waitStr = `~${dynamicWaitMins} mins`
+    }
   }
 
-  const windowText = formatTimeWindow(finalExpectedTime)
-  const approxText = formatApproxTime(finalExpectedTime)
+  const isArriveFast = waitStr === 'Arrive Fast'
+  const windowText = isArriveFast ? 'Immediate' : formatTimeWindow(finalExpectedTime)
+  const approxText = isArriveFast ? 'Your turn, arrive fast' : formatApproxTime(finalExpectedTime)
 
-  const isSoon = patientsAhead === 0 || remainingMins <= 3 || waitStr.includes('Soon') || canEarly
+  const isSoon = patientsAhead === 0 || remainingMins <= 3 || waitStr.includes('Soon') || isArriveFast || canEarly
 
   return {
     statusText: slotNotice,

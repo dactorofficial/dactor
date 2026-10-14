@@ -36,6 +36,7 @@ import {
 import { Appointment, Clinic, Doctor, LabReport, BillingInvoice } from '../types'
 import {
   getAppointmentByTrackingCode,
+  getAppointmentByTrackingCodeOrContact,
   getAppointmentsByClinic,
   getClinicById,
   getDoctorById,
@@ -48,12 +49,14 @@ interface LiveQueueProps {
   initialCode?: string
   onOpenReportModal?: (code: string) => void
   onNavigateHome?: () => void
+  onNavigate?: (tab: string, params?: any) => void
 }
 
 export const LiveQueue: React.FC<LiveQueueProps> = ({
   initialCode = '',
   onOpenReportModal,
   onNavigateHome,
+  onNavigate,
 }) => {
   const [inputCode, setInputCode] = useState(initialCode)
   const [activeCode, setActiveCode] = useState(initialCode)
@@ -105,24 +108,25 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     return () => clearInterval(timer)
   }, [])
 
-  // Main data loader by 10-digit code
+  // Main data loader by 10-digit code, Gmail address, or phone number
   const fetchQueueData = async (targetCode: string, silent = false) => {
-    const clean = targetCode.trim().replace(/\D/g, '')
+    const clean = targetCode.trim()
     if (!clean) return
     if (!silent) setLoading(true)
     setErrorMsg('')
 
     try {
-      const appt = await getAppointmentByTrackingCode(clean)
+      const appt = await getAppointmentByTrackingCodeOrContact(clean)
       setAppointment(appt)
 
       if (appt) {
+        const effectiveCode = appt.trackingCode10Digit || clean
         // Fetch clinic details
         if (appt.clinicId) {
           const [clinicData, queueList, reportsData] = await Promise.all([
             getClinicById(appt.clinicId),
             getAppointmentsByClinic(appt.clinicId, appt.appointmentDate),
-            getLabReportsByTrackingCode(clean),
+            getLabReportsByTrackingCode(effectiveCode),
           ])
           setClinic(clinicData)
           setClinicQueue(queueList)
@@ -137,7 +141,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           }
         }
       } else {
-        if (!silent) setErrorMsg(`No booking record found for 10-digit code #${clean}.`)
+        if (!silent) setErrorMsg(`No booking record found for '${clean}'.`)
       }
     } catch {
       if (!silent) setErrorMsg('Failed to update live queue status. Please try again.')
@@ -164,9 +168,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const clean = inputCode.trim().replace(/\D/g, '')
-    if (clean.length < 5) {
-      setErrorMsg('Please enter a valid 10-digit tracking code.')
+    const clean = inputCode.trim()
+    if (!clean) {
+      setErrorMsg('Please enter your 10-digit tracking code, Gmail address, or mobile number.')
       return
     }
     setActiveCode(clean)
@@ -253,9 +257,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         setSelectedReportToView(rep || null)
         setShowReportModal(true)
       } else if (pendingVerificationAction === 'reschedule') {
-        setRescheduleDate(appointment?.appointmentDate || '')
-        setRescheduleTime(appointment?.appointmentTime || '10:00 AM')
-        setShowRescheduleModal(true)
+        if (onNavigate && appointment?.clinicId) {
+          setShowVerificationModal(false)
+          onNavigate('clinic-detail', {
+            clinicId: appointment.clinicId,
+            doctorId: appointment.doctorId,
+            trackingCode: appointment.trackingCode10Digit,
+            isReschedule: true,
+          })
+        } else {
+          setRescheduleDate(appointment?.appointmentDate || '')
+          setRescheduleTime(appointment?.appointmentTime || '10:00 AM')
+          setShowRescheduleModal(true)
+        }
       } else if (pendingVerificationAction === 'cancel') {
         executeCancellation()
       }
@@ -275,9 +289,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       } else if (action === 'download_report') {
         triggerReportDownload()
       } else if (action === 'reschedule') {
-        setRescheduleDate(appointment?.appointmentDate || '')
-        setRescheduleTime(appointment?.appointmentTime || '10:00 AM')
-        setShowRescheduleModal(true)
+        if (onNavigate && appointment?.clinicId) {
+          onNavigate('clinic-detail', {
+            clinicId: appointment.clinicId,
+            doctorId: appointment.doctorId,
+            trackingCode: appointment.trackingCode10Digit,
+            isReschedule: true,
+          })
+        } else {
+          setRescheduleDate(appointment?.appointmentDate || '')
+          setRescheduleTime(appointment?.appointmentTime || '10:00 AM')
+          setShowRescheduleModal(true)
+        }
       } else if (action === 'cancel') {
         executeCancellation()
       }
@@ -343,7 +366,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     if (!appointment?.appointmentTime) return null
     const token = appointment.appointmentTime.split(/[-–]|to/)[0]?.trim()
     if (!token) return null
-    const m = token.match(/^(\d{1,2}):(\d{2})(?:\s*([APap][Mm]))?/)
+    const m = token.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?/)
     if (!m) return null
     let hours = parseInt(m[1], 10)
     const minutes = parseInt(m[2], 10)
@@ -391,39 +414,43 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     let finalExpected: Date
     let waitText: string
 
-    if (slotStartDate && isSlotInFuture) {
-      if (canEarly) {
-        finalExpected = now
-        waitText = 'Doctor Free Now'
+    if (patientsAhead === 0) {
+      if (isSlotInFuture && !canEarly) {
+        finalExpected = slotStartDate || now
+        const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
+        waitText = diffMins > 60 ? `Starts at ${slotStartFmt}` : `~${diffMins} min`
       } else {
-        if (dynamicTime.getTime() > slotStartDate.getTime()) {
-          finalExpected = dynamicTime
-          const diffMins = Math.round((dynamicTime.getTime() - now.getTime()) / 60000)
-          waitText = `~${diffMins} min`
-        } else {
-          finalExpected = slotStartDate
-          const diffMins = Math.round((slotStartDate.getTime() - now.getTime()) / 60000)
-          waitText = diffMins > 60 ? `Starts at ${slotStartFmt}` : `~${diffMins} min`
-        }
+        // Position 1 and current time is within slot, doctor free early, or slot is over:
+        finalExpected = now
+        waitText = 'Arrive Fast'
       }
-    } else if (slotStartDate && !isSlotInFuture) {
-      finalExpected = dynamicTime
-      waitText = patientsAhead === 0 ? 'Soon, be ready' : `~${estimatedWaitMinutes} min`
     } else {
-      finalExpected = dynamicTime
-      waitText = patientsAhead === 0 ? '< 5 min' : `~${estimatedWaitMinutes} min`
+      // Patient is at position 2, 3, etc. (patientsAhead > 0)
+      if (isSlotInFuture && slotStartDate) {
+        // Stagger patient by (patientsAhead * clinicAvgMinutes) so time is in between the time slot!
+        const slotStaggered = new Date(slotStartDate.getTime() + patientsAhead * clinicAvgMinutes * 60000)
+        finalExpected = dynamicTime.getTime() > slotStaggered.getTime() ? dynamicTime : slotStaggered
+        const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
+        waitText = diffMins > 60 ? `~${Math.round(diffMins / 60)} hr` : `~${diffMins} min`
+      } else {
+        // Current time is within slot or slot is over: calculate dynamically based on active queue
+        finalExpected = dynamicTime
+        waitText = `~${estimatedWaitMinutes} min`
+      }
     }
 
     const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     const startWin = new Date(finalExpected.getTime() - 5 * 60000)
     const endWin = new Date(finalExpected.getTime() + 10 * 60000)
 
+    const isArriveFast = waitText === 'Arrive Fast'
+
     return {
       effectiveExpectedTime: finalExpected,
-      timeWindowText: `${fmt(startWin)} – ${fmt(endWin)}`,
-      approxTimeText: `around ${fmt(finalExpected)}`,
+      timeWindowText: isArriveFast ? 'Immediate' : `${fmt(startWin)} – ${fmt(endWin)}`,
+      approxTimeText: isArriveFast ? 'Your turn, arrive fast' : `around ${fmt(finalExpected)}`,
       suggestedArrivalText: arrivalAdvice,
-      slotNoticeText: notice,
+      slotNoticeText: isArriveFast ? 'You are at position 1! You are next in line — arrive fast.' : notice,
       canOfferEarlyArrival: canEarly,
       displayWaitText: waitText
     }
@@ -1023,7 +1050,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             )}
 
             {/* 10. RESCHEDULE & CANCEL ACTIONS */}
-            {!isConsultancyCompleted && (
+            {!isConsultancyCompleted ? (
               <div className="flex items-center justify-between text-xs pt-2">
                 <button
                   onClick={() => handleActionWithAuth('reschedule')}
@@ -1040,7 +1067,26 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   Cancel Appointment
                 </button>
               </div>
-            )}
+            ) : appointment?.clinicId ? (
+              <div className="flex items-center justify-between text-xs pt-2">
+                <button
+                  onClick={() => {
+                    if (onNavigate) {
+                      onNavigate('clinic-detail', {
+                        clinicId: appointment.clinicId,
+                        doctorId: appointment.doctorId,
+                        trackingCode: appointment.trackingCode10Digit,
+                        isReschedule: false,
+                      })
+                    }
+                  }}
+                  className="font-bold text-emerald-700 dark:text-emerald-300 hover:text-emerald-800 dark:hover:text-emerald-200 transition cursor-pointer flex items-center space-x-1.5 active:scale-95 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>Book Free Follow-Up Visit</span>
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

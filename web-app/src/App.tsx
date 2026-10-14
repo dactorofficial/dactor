@@ -164,6 +164,22 @@ export const App: React.FC = () => {
     }
   })
   const [clinicFilter, setClinicFilter] = useState<string>('all')
+  const [rescheduleTrackingCode, setRescheduleTrackingCode] = useState<string>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search)
+      return p.get('rescheduleCode') || p.get('followupCode') || ''
+    } catch {
+      return ''
+    }
+  })
+  const [isRescheduleMode, setIsRescheduleMode] = useState<boolean>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search)
+      return p.get('reschedule') === 'true'
+    } catch {
+      return false
+    }
+  })
 
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
@@ -263,6 +279,16 @@ export const App: React.FC = () => {
       } else {
         setAutoOpenBooking(false)
       }
+      if (params?.trackingCode || params?.followupCode) {
+        setRescheduleTrackingCode(params.trackingCode || params.followupCode)
+      } else if (params?.resetTrackingCode) {
+        setRescheduleTrackingCode('')
+      }
+      if (params?.isReschedule !== undefined) {
+        setIsRescheduleMode(Boolean(params.isReschedule))
+      } else if (params?.resetTrackingCode) {
+        setIsRescheduleMode(false)
+      }
       setActiveTab('clinic-detail')
       try {
         const url = new URL(window.location.href)
@@ -271,6 +297,12 @@ export const App: React.FC = () => {
         else url.searchParams.delete('doctor')
         if (params?.action === 'book') url.searchParams.set('action', 'book')
         else url.searchParams.delete('action')
+        if (params?.trackingCode) {
+          url.searchParams.set(params.isReschedule ? 'rescheduleCode' : 'followupCode', params.trackingCode)
+        }
+        if (params?.isReschedule !== undefined) {
+          url.searchParams.set('reschedule', String(params.isReschedule))
+        }
         url.searchParams.delete('tab')
         url.searchParams.delete('page')
         window.history.pushState({}, '', url.toString())
@@ -380,7 +412,13 @@ export const App: React.FC = () => {
             clinicId={selectedClinicId}
             initialDoctorId={selectedDoctorId || undefined}
             autoOpenBooking={autoOpenBooking}
-            onBack={() => handleNavigate('clinics')}
+            initialTrackingCode={rescheduleTrackingCode || undefined}
+            isReschedule={isRescheduleMode}
+            onBack={() => {
+              setRescheduleTrackingCode('')
+              setIsRescheduleMode(false)
+              handleNavigate('clinics')
+            }}
             onOpenLiveQueue={handleOpenLiveQueue}
           />
         )}
@@ -399,6 +437,7 @@ export const App: React.FC = () => {
             initialCode={activeTrackingCode}
             onOpenReportModal={handleOpenReportModal}
             onNavigateHome={() => handleNavigate('home')}
+            onNavigate={handleNavigate}
           />
         )}
 
@@ -413,6 +452,7 @@ export const App: React.FC = () => {
             onNavigateHome={() => handleNavigate('home')}
             onOpenLiveQueue={handleOpenLiveQueue}
             onOpenReportModal={handleOpenReportModal}
+            onNavigate={handleNavigate}
           />
         )}
 

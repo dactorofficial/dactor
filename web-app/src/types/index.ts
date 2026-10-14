@@ -124,6 +124,7 @@ export interface Appointment {
   userId?: string | null
   clinicId: string
   doctorId?: string | null
+  slotId?: string | null
   patientName: string
   patientAge?: number | null
   patientGender?: string | null
@@ -207,6 +208,7 @@ export interface BillingInvoice {
   paidAt?: string
   remarks?: string
   receiptUrl?: string
+  items?: { id?: string; itemName?: string; name?: string; quantity: number; price: number; total?: number }[]
   createdAt?: string
 }
 

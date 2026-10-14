@@ -287,6 +287,56 @@ export async function getAppointmentByTrackingCode(code: string): Promise<Appoin
   }
 }
 
+export async function getAppointmentByTrackingCodeOrContact(identifier: string): Promise<Appointment | null> {
+  try {
+    const clean = identifier.trim()
+    if (!clean) return null
+
+    // 1. Try 10-digit code directly
+    if (/^\d{10}$/.test(clean)) {
+      const byCode = await getAppointmentByTrackingCode(clean)
+      if (byCode) return byCode
+    }
+
+    // 2. Try Email
+    if (clean.includes('@') && clean.includes('.')) {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .ilike('patient_email', clean)
+        .order('appointment_date', { ascending: false })
+        .limit(10)
+
+      if (!error && data && data.length > 0) {
+        const active = data.find((a: any) => a.checkin_status !== 'completed' && a.checkin_status !== 'cancelled') || data[0]
+        return mapAppointment(active)
+      }
+    }
+
+    // 3. Try Mobile Phone
+    const digitsOnly = clean.replace(/\D/g, '')
+    if (digitsOnly.length >= 10) {
+      const phone10 = digitsOnly.slice(-10)
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .ilike('patient_mobile', `%${phone10}%`)
+        .order('appointment_date', { ascending: false })
+        .limit(10)
+
+      if (!error && data && data.length > 0) {
+        const active = data.find((a: any) => a.checkin_status !== 'completed' && a.checkin_status !== 'cancelled') || data[0]
+        return mapAppointment(active)
+      }
+    }
+
+    // Fallback: direct code lookup
+    return await getAppointmentByTrackingCode(clean)
+  } catch {
+    return null
+  }
+}
+
 export async function getAppointmentsByClinic(clinicId: string, date?: string): Promise<Appointment[]> {
   try {
     let query = supabase
@@ -340,6 +390,48 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
     const cleanEmail = appt.patientEmail?.trim().toLowerCase() || null
     const cleanMobile = appt.patientMobile?.trim().replace(/\D/g, '') || ''
     const patientNameClean = appt.patientName?.trim() || 'Patient'
+
+    // ==========================================
+    // IDEMPOTENCY SAFETY CHECKS
+    // ==========================================
+    // 1. If an appointment already exists with this ID, return it immediately
+    if (appt.id) {
+      const { data: existingById } = await supabase
+        .from('appointments')
+        .select('*, clinic:clinics(*), doctor:doctors(*)')
+        .eq('id', appt.id)
+        .maybeSingle()
+      if (existingById) {
+        return mapAppointment(existingById)
+      }
+    }
+
+    // 2. If an appointment already exists with this 10-digit tracking code, return it
+    if (appt.trackingCode10Digit) {
+      const { data: existingByCode } = await supabase
+        .from('appointments')
+        .select('*, clinic:clinics(*), doctor:doctors(*)')
+        .eq('tracking_code_10_digit', appt.trackingCode10Digit)
+        .maybeSingle()
+      if (existingByCode) {
+        return mapAppointment(existingByCode)
+      }
+    }
+
+    // 3. Deduplication guard against rapid double-taps on poor connections
+    if (cleanMobile && appt.clinicId && apptDate && appt.slotId) {
+      const { data: existingDup } = await supabase
+        .from('appointments')
+        .select('*, clinic:clinics(*), doctor:doctors(*)')
+        .eq('clinic_id', appt.clinicId)
+        .eq('slot_id', appt.slotId)
+        .eq('patient_mobile', cleanMobile)
+        .eq('appointment_date', apptDate)
+        .maybeSingle()
+      if (existingDup) {
+        return mapAppointment(existingDup)
+      }
+    }
 
     try {
       let existingProf: any = null
@@ -487,24 +579,26 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       console.warn('Queue entry slot-aware auto-enroll warning:', qErr)
     }
 
-    // Increment slot booked_count if applicable
+    // Idempotent slot capacity recount
     try {
-      if (appt.slotId) {
-        const { data: slotRow } = await supabase.from('slots').select('booked_count').eq('id', appt.slotId).maybeSingle()
-        if (slotRow) {
-          await supabase.from('slots').update({ booked_count: (Number(slotRow.booked_count) || 0) + 1 }).eq('id', appt.slotId)
-        }
-      } else if (appt.clinicId) {
-        const { data: slotRow } = await supabase
+      let targetSlotId = appt.slotId
+      if (!targetSlotId && appt.clinicId) {
+        const { data: foundSlot } = await supabase
           .from('slots')
-          .select('id, booked_count')
+          .select('id')
           .eq('clinic_id', appt.clinicId)
           .eq('slot_date', apptDate)
           .eq('start_time', apptTime)
           .maybeSingle()
-        if (slotRow) {
-          await supabase.from('slots').update({ booked_count: (Number(slotRow.booked_count) || 0) + 1 }).eq('id', slotRow.id)
-        }
+        if (foundSlot?.id) targetSlotId = foundSlot.id
+      }
+      if (targetSlotId) {
+        const { data: slotAppts } = await supabase
+          .from('appointments')
+          .select('id, checkin_status')
+          .eq('slot_id', targetSlotId)
+        const realCount = (slotAppts || []).filter((a: any) => a.checkin_status !== 'cancelled').length
+        await supabase.from('slots').update({ booked_count: realCount }).eq('id', targetSlotId)
       }
     } catch {}
 
@@ -1598,7 +1692,7 @@ export async function searchPatientRecords(clinicId: string, searchQuery: string
       .from('appointments')
       .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
       .eq('clinic_id', clinicId)
-      .or(`tracking_code_10_digit.ilike.%${q}%,patient_mobile.ilike.%${q}%,patient_name.ilike.%${q}%`)
+      .or(`tracking_code_10_digit.ilike.%${q}%,patient_mobile.ilike.%${q}%,patient_name.ilike.%${q}%,patient_email.ilike.%${q}%`)
       .order('appointment_date', { ascending: false })
 
     if (error) throw error

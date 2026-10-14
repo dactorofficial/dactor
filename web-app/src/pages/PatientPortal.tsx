@@ -178,6 +178,7 @@ interface PatientPortalProps {
   onNavigateHome?: () => void
   onOpenLiveQueue?: (trackingCode: string) => void
   onOpenReportModal?: (trackingCode: string) => void
+  onNavigate?: (tab: string, params?: any) => void
 }
 
 interface FamilyMember {
@@ -193,6 +194,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   onNavigateHome,
   onOpenLiveQueue,
   onOpenReportModal,
+  onNavigate,
 }) => {
   // ==========================================
   // AUTHENTICATION & PATIENT PROFILE STATE
@@ -2142,10 +2144,19 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           <div className="flex items-center space-x-1.5">
                             <button
                               onClick={() => {
-                                setRescheduleAppt(appt)
-                                setNewRescheduleDate(appt.appointmentDate)
-                                setNewRescheduleTime(appt.appointmentTime || '10:00 AM - 11:00 AM')
-                                setRescheduleReason('')
+                                if (onNavigate && appt.clinicId) {
+                                  onNavigate('clinic-detail', {
+                                    clinicId: appt.clinicId,
+                                    doctorId: appt.doctorId,
+                                    trackingCode: appt.trackingCode10Digit,
+                                    isReschedule: true,
+                                  })
+                                } else {
+                                  setRescheduleAppt(appt)
+                                  setNewRescheduleDate(appt.appointmentDate)
+                                  setNewRescheduleTime(appt.appointmentTime || '10:00 AM - 11:00 AM')
+                                  setRescheduleReason('')
+                                }
                               }}
                               className="px-3 py-2 text-xs font-bold text-teal-700 dark:text-teal-300 liquid-glass-card hover:bg-teal-500/20 rounded-xl transition border border-teal-500/30 cursor-pointer active:scale-[0.98]"
                             >
@@ -2159,6 +2170,25 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               {cancellingApptId === appt.id ? 'Cancelling...' : 'Cancel'}
                             </button>
                           </div>
+                        )}
+
+                        {appt.checkinStatus === 'completed' && appt.clinicId && (
+                          <button
+                            onClick={() => {
+                              if (onNavigate) {
+                                onNavigate('clinic-detail', {
+                                  clinicId: appt.clinicId,
+                                  doctorId: appt.doctorId,
+                                  trackingCode: appt.trackingCode10Digit,
+                                  isReschedule: false,
+                                })
+                              }
+                            }}
+                            className="px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 liquid-glass-card hover:bg-emerald-500/20 rounded-xl transition border border-emerald-500/30 flex items-center gap-1 cursor-pointer active:scale-[0.98]"
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>Follow-Up Visit</span>
+                          </button>
                         )}
                       </div>
                     </div>

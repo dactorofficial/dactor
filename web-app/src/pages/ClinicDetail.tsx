@@ -38,6 +38,7 @@ import {
   recordPaymentTransaction,
   getPatientProfileByEmail,
   getAppointmentByTrackingCode,
+  shiftAppointmentDate,
 } from '../services/db'
 import { supabase } from '../lib/supabase'
 import { updatePageSEO } from '../utils/seo'
@@ -46,6 +47,8 @@ interface ClinicDetailProps {
   clinicId: string
   initialDoctorId?: string
   autoOpenBooking?: boolean
+  initialTrackingCode?: string
+  isReschedule?: boolean
   onBack: () => void
   onOpenLiveQueue: (trackingCode: string) => void
 }
@@ -54,6 +57,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   clinicId,
   initialDoctorId,
   autoOpenBooking,
+  initialTrackingCode,
+  isReschedule,
   onBack,
   onOpenLiveQueue,
 }) => {
@@ -89,12 +94,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const [selectedSlotTime, setSelectedSlotTime] = useState<string>('')
   const [selectedSlotId, setSelectedSlotId] = useState<string | undefined>(undefined)
 
-  // Follow-Up (Multi-Visit Polyclinic)
-  const [isReturningPatient, setIsReturningPatient] = useState(false)
-  const [followupCodeInput, setFollowupCodeInput] = useState('')
+  // Follow-Up (Multi-Visit Polyclinic) & Reschedule
+  const [isReturningPatient, setIsReturningPatient] = useState(() => Boolean(initialTrackingCode))
+  const [followupCodeInput, setFollowupCodeInput] = useState(() => initialTrackingCode || '')
   const [retainedAppointment, setRetainedAppointment] = useState<Appointment | null>(null)
   const [isLookingUpCode, setIsLookingUpCode] = useState(false)
   const [followupLookupError, setFollowupLookupError] = useState<string | null>(null)
+
+  // Stable Idempotency Key per booking attempt session
+  const [bookingDraftId, setBookingDraftId] = useState<string>(() => crypto.randomUUID())
 
   // Diagnostic Lab Selection
   const [selectedTests, setSelectedTests] = useState<{ [serviceId: string]: boolean }>({})
@@ -252,16 +260,24 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     }
   }, [isSingleDoctorClinic, doctors])
 
-  // Reset returning patient if not polyclinic
+  // Reset returning patient if not polyclinic (unless in Reschedule mode)
   useEffect(() => {
-    if (!isPolyclinic && isReturningPatient) {
+    if (!isPolyclinic && isReturningPatient && !isReschedule) {
       setIsReturningPatient(false)
       setFollowupCodeInput('')
       setRetainedAppointment(null)
     }
-  }, [isPolyclinic, isReturningPatient])
+  }, [isPolyclinic, isReturningPatient, isReschedule])
 
-  // Lookup 10-digit Appointment ID for Follow-up
+  // Sync initialTrackingCode prop changes
+  useEffect(() => {
+    if (initialTrackingCode) {
+      setIsReturningPatient(true)
+      setFollowupCodeInput(initialTrackingCode)
+    }
+  }, [initialTrackingCode])
+
+  // Lookup 10-digit Appointment ID for Follow-up or Reschedule
   useEffect(() => {
     let active = true
     const clean = followupCodeInput.trim()
@@ -280,6 +296,11 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             setPatientMobile(found.patientMobile || '')
             if (found.patientEmail) setPatientEmail(found.patientEmail)
             setFormErrors({})
+            // Auto-select doctor from existing appointment if present
+            if (found.doctorId && doctors.length > 0) {
+              const matchedDoc = doctors.find((d) => d.id === found.doctorId)
+              if (matchedDoc) setSelectedDoctor(matchedDoc)
+            }
           } else {
             setRetainedAppointment(null)
             setFollowupLookupError(`No appointment record found for 10-digit code #${clean}.`)
@@ -303,6 +324,16 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       active = false
     }
   }, [isReturningPatient, followupCodeInput])
+
+  // Auto-match doctor from retained appointment once doctors list loads
+  useEffect(() => {
+    if (retainedAppointment?.doctorId && doctors.length > 0) {
+      const matchedDoc = doctors.find((d) => d.id === retainedAppointment.doctorId)
+      if (matchedDoc) {
+        setSelectedDoctor(matchedDoc)
+      }
+    }
+  }, [retainedAppointment, doctors])
 
   useEffect(() => {
     setLoading(true)
@@ -605,11 +636,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     if (activeTab === 'lab') {
       return calculatedLabFee
     }
+    if (isReschedule) {
+      return 0
+    }
     if (isReturningPatient && retainedAppointment) {
       return 0
     }
     return selectedDoctor?.consultationFee || 500
-  }, [activeTab, calculatedLabFee, isReturningPatient, retainedAppointment, selectedDoctor?.consultationFee])
+  }, [activeTab, calculatedLabFee, isReschedule, isReturningPatient, retainedAppointment, selectedDoctor?.consultationFee])
 
   // Live criteria validation helpers
   const isNameValid = (val: string) => val.trim().length >= 2
@@ -671,6 +705,34 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
     setSubmitting(true)
     try {
+      // 1. Reschedule handling: Shift existing appointment in place without duplicating
+      if (isReschedule && retainedAppointment) {
+        const ok = await shiftAppointmentDate(
+          retainedAppointment.id,
+          selectedDate,
+          selectedSlotTime || '10:00 AM',
+          'Patient rescheduled via clinic booking portal'
+        )
+        if (ok) {
+          const updatedAppt: Appointment = {
+            ...retainedAppointment,
+            appointmentDate: selectedDate,
+            appointmentTime: selectedSlotTime || '10:00 AM',
+          }
+          setConfirmedAppt(updatedAppt)
+          setConfirmedTxnId(`RESCHEDULED-${retainedAppointment.trackingCode10Digit}`)
+          setConfirmedPayMethod('Rescheduled Appointment (Retained Fee)')
+          setShowBookingModal(false)
+          setSubmitting(false)
+          return
+        } else {
+          alert('Could not shift appointment to this slot. Please select another slot.')
+          setSubmitting(false)
+          return
+        }
+      }
+
+      // 2. New Booking / Free Follow-Up with Idempotent Session Key
       const code10 = generate10DigitTrackingCode()
       const testsSelectedNames = activeTab === 'lab' ? selectedTestList.map((t) => t.serviceName) : []
       const cleanMobile = patientMobile.replace(/\D/g, '')
@@ -679,6 +741,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       const payStatus = isFreeBooking ? 'paid' : isPaidNow ? 'paid' : 'unpaid'
 
       const created = await createAppointment({
+        id: bookingDraftId,
         clinicId,
         doctorId: activeTab === 'opd' ? selectedDoctor?.id : undefined,
         userId: patientUserId,
@@ -849,13 +912,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
           <div>
             <span className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-teal-600 dark:text-teal-400">
-              Booking & Queue Token Confirmed
+              {isReschedule ? 'Appointment Rescheduled' : 'Booking & Queue Token Confirmed'}
             </span>
             <h2 className="text-xl sm:text-3xl font-black text-slate-900 dark:text-white mt-1">
-              Token #{confirmedAppt.queueNumber || 1} Generated!
+              {isReschedule ? `Visit Shifted to ${confirmedAppt.appointmentDate}!` : `Token #${confirmedAppt.queueNumber || 1} Generated!`}
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-1">
-              Your appointment is registered in live queue at {clinic.name}.
+              {isReschedule
+                ? `Your appointment at ${clinic.name} is updated to ${confirmedAppt.appointmentTime}.`
+                : `Your appointment is registered in live queue at ${clinic.name}.`}
             </p>
           </div>
 
@@ -934,6 +999,71 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         <ArrowLeft className="w-4 h-4" />
         <span>Back to Clinics Directory</span>
       </button>
+
+      {/* Reschedule Banner */}
+      {isReschedule && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-cyan-500/10 border border-cyan-500/25 shadow-glass-sm backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 text-cyan-600 dark:text-cyan-300 flex items-center justify-center shrink-0 border border-cyan-500/30">
+              <Calendar className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                  Rescheduling Consultation
+                </span>
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-cyan-600 text-white">
+                  Fee Retained (Rs. 0)
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                Appointment ID #{retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}
+                {retainedAppointment ? ` • Patient: ${retainedAppointment.patientName}` : ''}
+                {selectedDoctor ? ` • Specialist: Dr. ${selectedDoctor.fullName}` : ''}
+              </p>
+            </div>
+          </div>
+          <a
+            href="#booking-schedule"
+            className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-bold transition shadow-glass-sm cursor-pointer whitespace-nowrap active:scale-95 flex items-center gap-1.5"
+          >
+            <span>Pick Date & Slot Below</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      )}
+
+      {/* Free Follow-Up Banner */}
+      {!isReschedule && initialTrackingCode && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-emerald-500/10 border border-emerald-500/25 shadow-glass-sm backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center shrink-0 border border-emerald-500/30">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                  Free Follow-Up Consultation
+                </span>
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                  NPR 0
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                Linked to Previous Token #{retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}
+                {retainedAppointment ? ` • Patient: ${retainedAppointment.patientName}` : ''}
+              </p>
+            </div>
+          </div>
+          <a
+            href="#booking-schedule"
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-glass-sm cursor-pointer whitespace-nowrap active:scale-95 flex items-center gap-1.5"
+          >
+            <span>Pick Date & Slot Below</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      )}
 
       {/* ========================================================= */}
       {/* 1. CLINIC HERO PHOTO CAROUSEL (Real Supabase Pictures)   */}
@@ -1282,110 +1412,144 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             ) : (
               /* 2. MULTI-VISIT POLYCLINIC: VISIT TYPE + SPECIALISTS ROSTER */
               <div className="space-y-6">
-                {/* Visit Type Toggle: New Consultation vs Free Follow-Up */}
+                {/* Visit Type Toggle: New Consultation vs Free Follow-Up OR Reschedule Active */}
                 <div className="p-5 rounded-3xl liquid-glass-elevated space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                        Visit Type (Multi-Visit Polyclinic)
-                      </h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Choose New Consultation or claim a 100% Free Follow-Up with your 10-digit Appointment ID.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsReturningPatient(false)
-                        setFollowupLookupError(null)
-                      }}
-                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer active:scale-95 ${
-                        !isReturningPatient
-                          ? 'border-teal-500 bg-teal-500/10 ring-2 ring-teal-500/20 shadow-glass-sm'
-                          : 'liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70'
-                      }`}
-                    >
+                  {isReschedule ? (
+                    <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-slate-900 dark:text-white">New Patient</span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-600 text-white">
-                          Rs. {selectedDoctor?.consultationFee || 500}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Standard initial consultation</p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsReturningPatient(true)
-                        setFollowupLookupError(null)
-                      }}
-                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer active:scale-95 ${
-                        isReturningPatient
-                          ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20 shadow-glass-sm'
-                          : 'liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-slate-900 dark:text-white">Follow-Up Visit</span>
-                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white uppercase tracking-wider">
-                          FREE
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Free with 10-digit Appointment ID</p>
-                    </button>
-                  </div>
-
-                  {/* Follow-Up 10-digit Input and Retained Box */}
-                  {isReturningPatient && (
-                    <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 space-y-3 animate-in fade-in duration-150 backdrop-blur-sm">
-                      <div>
-                        <label className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block mb-1">
-                          Enter 10-Digit Appointment ID for Follow-Up *
-                        </label>
-                        <input
-                          type="text"
-                          maxLength={10}
-                          value={followupCodeInput}
-                          onChange={(e) => {
-                            const val = e.target.value.replace(/\D/g, '').slice(0, 10)
-                            setFollowupCodeInput(val)
-                          }}
-                          placeholder="e.g. 8492049182 (10 digits)"
-                          className="w-full px-3.5 py-2.5 rounded-xl text-sm font-mono font-bold liquid-glass-input text-slate-900 dark:text-white"
-                        />
-                      </div>
-
-                      {isLookingUpCode && (
-                        <div className="flex items-center space-x-2 text-xs text-emerald-700 dark:text-emerald-400">
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Looking up previous appointment details in Supabase...</span>
+                        <div className="flex items-center space-x-2 text-cyan-900 dark:text-cyan-300 font-black text-sm">
+                          <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                          <span>Reschedule Mode Active</span>
                         </div>
-                      )}
-
+                        <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-cyan-600 text-white">
+                          FEE RETAINED
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                        Shifting appointment time for Token ID <strong className="font-mono font-bold">#{retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}</strong>.
+                      </p>
                       {retainedAppointment && (
-                        <div className="p-3 rounded-xl liquid-glass-subtle text-xs flex items-center justify-between border-emerald-500/30">
+                        <div className="p-3.5 rounded-2xl liquid-glass-subtle text-xs flex items-center justify-between border-cyan-500/30">
                           <div>
-                            <span className="font-bold text-sm block text-emerald-900 dark:text-emerald-300">
-                              ✓ Patient Retained: {retainedAppointment.patientName}
+                            <span className="font-bold text-sm block text-cyan-900 dark:text-cyan-300">
+                              ✓ Patient: {retainedAppointment.patientName}
                             </span>
-                            <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                               {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
                             </span>
                           </div>
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-cyan-500/10 text-cyan-800 dark:text-cyan-300 border border-cyan-500/20">
                             Verified
                           </span>
                         </div>
                       )}
-
-                      {followupLookupError && (
-                        <p className="text-xs text-rose-600 font-bold">{followupLookupError}</p>
-                      )}
                     </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                            Visit Type (Multi-Visit Polyclinic)
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            Choose New Consultation or claim a 100% Free Follow-Up with your 10-digit Appointment ID.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsReturningPatient(false)
+                            setFollowupLookupError(null)
+                          }}
+                          className={`p-3.5 rounded-2xl border text-left transition cursor-pointer active:scale-95 ${
+                            !isReturningPatient
+                              ? 'border-teal-500 bg-teal-500/10 ring-2 ring-teal-500/20 shadow-glass-sm'
+                              : 'liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-slate-900 dark:text-white">New Patient</span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-600 text-white">
+                              Rs. {selectedDoctor?.consultationFee || 500}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Standard initial consultation</p>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsReturningPatient(true)
+                            setFollowupLookupError(null)
+                          }}
+                          className={`p-3.5 rounded-2xl border text-left transition cursor-pointer active:scale-95 ${
+                            isReturningPatient
+                              ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20 shadow-glass-sm'
+                              : 'liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-slate-900 dark:text-white">Follow-Up Visit</span>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white uppercase tracking-wider">
+                              FREE
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Free with 10-digit Appointment ID</p>
+                        </button>
+                      </div>
+
+                      {/* Follow-Up 10-digit Input and Retained Box */}
+                      {isReturningPatient && (
+                        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 space-y-3 animate-in fade-in duration-150 backdrop-blur-sm">
+                          <div>
+                            <label className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block mb-1">
+                              Enter 10-Digit Appointment ID for Follow-Up *
+                            </label>
+                            <input
+                              type="text"
+                              maxLength={10}
+                              value={followupCodeInput}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/\D/g, '').slice(0, 10)
+                                setFollowupCodeInput(val)
+                              }}
+                              placeholder="e.g. 8492049182 (10 digits)"
+                              className="w-full px-3.5 py-2.5 rounded-xl text-sm font-mono font-bold liquid-glass-input text-slate-900 dark:text-white"
+                            />
+                          </div>
+
+                          {isLookingUpCode && (
+                            <div className="flex items-center space-x-2 text-xs text-emerald-700 dark:text-emerald-400">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Looking up previous appointment details in Supabase...</span>
+                            </div>
+                          )}
+
+                          {retainedAppointment && (
+                            <div className="p-3 rounded-xl liquid-glass-subtle text-xs flex items-center justify-between border-emerald-500/30">
+                              <div>
+                                <span className="font-bold text-sm block text-emerald-900 dark:text-emerald-300">
+                                  ✓ Patient Retained: {retainedAppointment.patientName}
+                                </span>
+                                <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                                  {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
+                                </span>
+                              </div>
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
+                                Verified
+                              </span>
+                            </div>
+                          )}
+
+                          {followupLookupError && (
+                            <p className="text-xs text-rose-600 font-bold">{followupLookupError}</p>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -1485,8 +1649,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
           {/* Right Column: Slot Selection & Appointment Trigger */}
           <div className="space-y-6">
-            <div className="liquid-glass-elevated p-6 rounded-3xl space-y-6 sticky top-28">
-              <h3 className="text-lg font-black text-slate-900 dark:text-white">Book OPD Consultation</h3>
+            <div id="booking-schedule" className="liquid-glass-elevated p-6 rounded-3xl space-y-6 sticky top-28">
+              <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                {isReschedule
+                  ? 'Reschedule OPD Consultation'
+                  : isReturningPatient && retainedAppointment
+                  ? 'Book Free Follow-Up'
+                  : 'Book OPD Consultation'}
+              </h3>
 
               {/* Date Selection: Interactive Month Calendar with 4 states */}
               <div className="space-y-3">
@@ -1741,8 +1911,12 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 </div>
                 <div className="flex justify-between pt-1 border-t border-slate-200/50 font-bold">
                   <span className="text-slate-700">Total Fee:</span>
-                  <span className="text-teal-700 text-sm">
-                    Rs. {selectedDoctor?.consultationFee || 500}
+                  <span className={isReschedule || (isReturningPatient && retainedAppointment) ? 'text-emerald-600 font-black text-sm' : 'text-teal-700 text-sm'}>
+                    {isReschedule
+                      ? 'Rs. 0 (Retained Fee)'
+                      : isReturningPatient && retainedAppointment
+                      ? 'Rs. 0 (Free Follow-Up)'
+                      : `Rs. ${selectedDoctor?.consultationFee || 500}`}
                   </span>
                 </div>
               </div>
@@ -1758,14 +1932,22 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     setSelectedDate(nextAvailableDate)
                     return
                   }
-                  setBookingStep('details')
+                  if (isReschedule && retainedAppointment) {
+                    setBookingStep('payment')
+                  } else {
+                    setBookingStep('details')
+                  }
                   setShowBookingModal(true)
                 }}
                 className="w-full py-3.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-glass-base active:scale-[0.98] transition-all flex items-center justify-center space-x-2 cursor-pointer border-t border-white/20"
               >
                 <span>
                   {selectedSlotTime
-                    ? `Proceed to Patient Details (${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+                    ? isReschedule
+                      ? `Confirm Reschedule (${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+                      : isReturningPatient && retainedAppointment
+                      ? `Confirm Free Follow-Up (${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+                      : `Proceed to Patient Details (${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
                     : nextAvailableDate
                     ? `Book on Another Date (${new Date(nextAvailableDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
                     : 'Select an Available Slot'}
@@ -2223,7 +2405,11 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       type="submit"
                       className="flex-1 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white font-bold rounded-xl text-xs transition-all shadow-glass-base cursor-pointer active:scale-95 border-t border-white/20"
                     >
-                      Continue to Payment (Rs. {totalBookingFee})
+                      {isReschedule
+                        ? 'Proceed to Confirm Reschedule (Rs. 0)'
+                        : totalBookingFee === 0
+                        ? 'Proceed to Free Follow-Up (Rs. 0)'
+                        : `Continue to Payment (Rs. ${totalBookingFee})`}
                     </button>
                   </div>
                 </form>
@@ -2234,10 +2420,16 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xl font-black text-slate-900 dark:text-white">
-                      {totalBookingFee === 0 ? 'Confirm Free Follow-Up' : 'Complete Payment'}
+                      {isReschedule
+                        ? 'Confirm Rescheduled Appointment'
+                        : totalBookingFee === 0
+                        ? 'Confirm Free Follow-Up'
+                        : 'Complete Payment'}
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {totalBookingFee === 0
+                      {isReschedule
+                        ? 'Fee retained under existing 10-digit Appointment ID'
+                        : totalBookingFee === 0
                         ? 'Zero-cost consultation linked to verified 10-digit Appointment ID'
                         : 'Select payment gateway to issue your live queue token'}
                     </p>
@@ -2278,20 +2470,30 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   <div className="flex justify-between pt-1.5 border-t border-slate-200/50 dark:border-white/10 text-sm font-black">
                     <span className="text-slate-800 dark:text-white">Amount Payable:</span>
                     <span className={totalBookingFee === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-teal-700 dark:text-teal-300'}>
-                      {totalBookingFee === 0 ? 'FREE (Follow-Up)' : `Rs. ${totalBookingFee}`}
+                      {totalBookingFee === 0
+                        ? isReschedule
+                          ? 'FREE (Rescheduled)'
+                          : 'FREE (Follow-Up)'
+                        : `Rs. ${totalBookingFee}`}
                     </span>
                   </div>
                 </div>
 
                 {totalBookingFee === 0 ? (
                   <div className="space-y-4">
-                    <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-1.5 backdrop-blur-sm">
-                      <div className="flex items-center space-x-2 text-emerald-900 dark:text-emerald-300 font-black text-sm">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        <span>100% Free Follow-Up Visit</span>
+                    <div className={`p-4 rounded-2xl border text-xs space-y-1.5 backdrop-blur-sm ${
+                      isReschedule ? 'bg-cyan-500/10 border-cyan-500/20' : 'bg-emerald-500/10 border-emerald-500/20'
+                    }`}>
+                      <div className={`flex items-center space-x-2 font-black text-sm ${
+                        isReschedule ? 'text-cyan-900 dark:text-cyan-300' : 'text-emerald-900 dark:text-emerald-300'
+                      }`}>
+                        <CheckCircle2 className={`w-4 h-4 shrink-0 ${isReschedule ? 'text-cyan-600 dark:text-cyan-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
+                        <span>{isReschedule ? 'Reschedule Appointment (Fee Retained)' : '100% Free Follow-Up Visit'}</span>
                       </div>
-                      <p className="text-emerald-700 dark:text-emerald-400/90 leading-relaxed">
-                        This follow-up consultation is retained under previous Appointment ID #{retainedAppointment?.trackingCode10Digit || followupCodeInput}. No payment is charged.
+                      <p className={`leading-relaxed ${isReschedule ? 'text-cyan-800 dark:text-cyan-300/90' : 'text-emerald-700 dark:text-emerald-400/90'}`}>
+                        {isReschedule
+                          ? `Your consultation with Dr. ${selectedDoctor?.fullName || 'the specialist'} is shifted to ${selectedDate} at ${selectedSlotTime} under existing Token #${retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}. No payment is charged.`
+                          : `This follow-up consultation is retained under previous Appointment ID #${retainedAppointment?.trackingCode10Digit || followupCodeInput}. No payment is charged.`}
                       </p>
                     </div>
 
@@ -2307,9 +2509,19 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         type="button"
                         disabled={submitting}
                         onClick={handleConfirmBookingAndPayment}
-                        className="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white font-black rounded-xl text-xs transition-all shadow-glass-base cursor-pointer active:scale-95 border-t border-white/20"
+                        className={`flex-1 py-3 text-white font-black rounded-xl text-xs transition-all shadow-glass-base cursor-pointer active:scale-95 border-t border-white/20 disabled:opacity-50 ${
+                          isReschedule
+                            ? 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-700 hover:to-teal-700'
+                            : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700'
+                        }`}
                       >
-                        {submitting ? 'Issuing Free Follow-Up Token...' : 'Confirm Free Follow-Up Booking'}
+                        {submitting
+                          ? isReschedule
+                            ? 'Shifting Appointment in Supabase...'
+                            : 'Issuing Free Follow-Up Token...'
+                          : isReschedule
+                          ? 'Confirm Rescheduled Appointment'
+                          : 'Confirm Free Follow-Up Booking'}
                       </button>
                     </div>
                   </div>
