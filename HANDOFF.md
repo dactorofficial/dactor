@@ -31,8 +31,8 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 | Component | Platform / Tech | Source Folder | Live Deployment / Artifacts | Current Latest Version |
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
-| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.9.apk` | v1.0.9 (Code 10) |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.32.apk` | v1.0.32 (Code 32) |
+| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.30.apk` | v1.0.30 (Code 30) |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.40.apk` | v1.0.40 (Code 40) |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---
@@ -313,6 +313,8 @@ Run the install script, which automatically resolves the latest versioned APK:
 | 2026-10-12 | Clinic & Doctor | v1.0.9 | 10 | `APKs/Dactor-ClinicApp-v1.0.9.apk` | Fix add slot in future appointments: dynamic doctor active clinic ID resolution, published OPD slots card with deletion, quick duration chips, daytime defaults for future dates, blue dot on calendar for published slots |
 | 2026-10-12 | Patient | v1.0.6 | 7 | `APKs/Dactor-PatientApp-v1.0.6.apk` | Fix live tracking queue position: displays exact live count of patients ahead in line in concentric circle badge & main screen with "Token #X" pill; handles NOW/UP NEXT states; cache force-refresh support |
 | 2026-10-14 | Patient | v1.0.32 | 32 | `APKs/Dactor-PatientApp-v1.0.32.apk` | Fix search page: replaced squished chunked(3) specialty chips with dynamic wrapping `FlowRow`, added maxLines=1 with ellipsis, fixed brace balance in PatientMainScreen & NotificationsScreen, and configured SSD build cache |
+| 2026-10-14 | Clinic & Doctor | v1.0.30 | 30 | `APKs/Dactor-ClinicApp-v1.0.30.apk` | Resilient network gate (eliminates false "No internet connection" banner); multi-visit cumulative billing with timestamped payment log & date-wise directory; resolved duplicate variable collisions; on-demand formal PDF generator |
+| 2026-10-14 | Patient | v1.0.40 | 40 | `APKs/Dactor-PatientApp-v1.0.40.apk` | Resilient network gate (eliminates false "No internet connection" banner); FlowRow specialty chips; live Payment Receipts & Time Log timeline on Queue Status screen; clean clinical remarks; updated PDF invoice with payment receipt table |
 
 ---
 

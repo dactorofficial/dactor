@@ -137,8 +137,12 @@ function Bump-App {
     Copy-Item $builtApk $destVersionedPath -Force
 
     # Also keep standard alias for backward compatibility
-    $destAliasPath = Join-Path $apksDir "$OutputPrefix-$btLower.apk"
-    Copy-Item $builtApk $destAliasPath -Force
+    try {
+        $destAliasPath = Join-Path $apksDir "$OutputPrefix-$btLower.apk"
+        Copy-Item $builtApk $destAliasPath -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Warning "Could not update alias file due to file lock: $_"
+    }
 
     $fileSizeMB = [math]::Round(((Get-Item $destVersionedPath).Length / 1MB), 2)
     Write-Host "✅ Successfully generated: $destVersionedPath ($fileSizeMB MB)" -ForegroundColor Green
