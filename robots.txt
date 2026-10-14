@@ -39,6 +39,8 @@ User-agent: Bingbot
 Allow: /
 
 # Sitemaps & Semantic AI Indices
+Sitemap: https://dactorofficial.github.io/dactor/sitemap.xml
 Sitemap: https://dactorofficial.github.io/sitemap.xml
 # LLM Knowledge Index
+# https://dactorofficial.github.io/dactor/llms.txt
 # https://dactorofficial.github.io/llms.txt
