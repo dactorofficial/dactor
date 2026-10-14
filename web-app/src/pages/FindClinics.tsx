@@ -25,6 +25,7 @@ import {
   getRecentSearches,
   saveRecentSearch,
 } from '../utils/searchEngine'
+import { updatePageSEO } from '../utils/seo'
 
 interface FindClinicsProps {
   onSelectClinic: (clinicId: string, initialTab?: string) => void
@@ -74,6 +75,23 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
     }
     load()
   }, [])
+
+  useEffect(() => {
+    const termClean = searchTerm.trim()
+    const title = termClean
+      ? `Find ${termClean} in Nepal • Book Online | Dactor`
+      : filterType === 'diagnostic_lab'
+      ? 'Find Diagnostic Pathology Labs & Scans in Nepal | Dactor'
+      : 'Find Clinics & Specialist Doctors in Nepal • Book Online | Dactor'
+    const desc = termClean
+      ? `Search and book verified ${termClean} specialist doctors, OPD clinics, and diagnostic centers in Kathmandu, Lalitpur, and across Nepal.`
+      : 'Browse verified polyclinics, OPD medical centers, and diagnostic laboratories in Nepal. View consultation fees, live queue status, and book appointments online.'
+    updatePageSEO({
+      title,
+      description: desc,
+      canonicalUrl: typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?tab=clinics${termClean ? `&q=${encodeURIComponent(termClean)}` : ''}` : undefined,
+    })
+  }, [searchTerm, filterType])
 
   const handleSearchChange = (term: string) => {
     setSearchTerm(term)

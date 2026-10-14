@@ -51,6 +51,7 @@ interface ClinicDetailProps {
   isReschedule?: boolean
   onBack: () => void
   onOpenLiveQueue: (trackingCode: string) => void
+  onNavigate?: (tab: string, params?: any) => void
 }
 
 export const ClinicDetail: React.FC<ClinicDetailProps> = ({
@@ -61,6 +62,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   isReschedule,
   onBack,
   onOpenLiveQueue,
+  onNavigate,
 }) => {
   const [clinic, setClinic] = useState<Clinic | null>(null)
   const [doctors, setDoctors] = useState<Doctor[]>([])
@@ -194,7 +196,66 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         setSelectedDoctor(dData[0])
       }
 
+      // Restore pending booking redirect if returning from login
+      try {
+        const pendingRaw = localStorage.getItem('dactor_pending_booking_redirect')
+        if (pendingRaw) {
+          const parsed = JSON.parse(pendingRaw)
+          if (parsed.clinicId === clinicId) {
+            if (parsed.bookingDate) setSelectedDate(parsed.bookingDate)
+            if (parsed.selectedSlotTime) setSelectedSlotTime(parsed.selectedSlotTime)
+            if (parsed.selectedSlotId) setSelectedSlotId(parsed.selectedSlotId)
+            if (parsed.bookingMode) setActiveTab(parsed.bookingMode)
+            if (parsed.doctorId && dData.length > 0) {
+              const matchedDoc = dData.find((d: any) => d.id === parsed.doctorId)
+              if (matchedDoc) setSelectedDoctor(matchedDoc)
+            }
+            if (parsed.selectedLabTestIds && Array.isArray(parsed.selectedLabTestIds)) {
+              const testMap: Record<string, boolean> = {}
+              parsed.selectedLabTestIds.forEach((id: string) => {
+                testMap[id] = true
+              })
+              setSelectedTests(testMap)
+            }
+            localStorage.removeItem('dactor_pending_booking_redirect')
+            localStorage.removeItem('dactor_booking_login_notice')
+          }
+        }
+      } catch {}
+
       if (autoOpenBooking) {
+        const isUserLoggedIn = Boolean(
+          localStorage.getItem('dactor_patient_session') ||
+            (localStorage.getItem('dactor_auth_logged_in') === 'true' &&
+              localStorage.getItem('dactor_auth_role') === 'patient')
+        )
+        if (!isUserLoggedIn) {
+          const pendingData = {
+            clinicId,
+            doctorId: selectedDoctor?.id || initialDoctorId,
+            selectedSlotId,
+            selectedSlotTime,
+            bookingDate: selectedDate,
+            bookingMode: activeTab === 'lab' ? 'lab' : 'opd',
+            selectedLabTestIds: selectedTestList.map((t) => t.id),
+            isReturningPatient,
+            followupCodeInput,
+            isReschedule,
+            retainedAppointment,
+            returnRoute: 'clinic-detail',
+          }
+          try {
+            localStorage.setItem('dactor_pending_booking_redirect', JSON.stringify(pendingData))
+            localStorage.setItem('dactor_booking_login_notice', 'Please sign in with Google to book an appointment')
+          } catch {}
+
+          if (onNavigate) {
+            onNavigate('login')
+          } else {
+            window.location.hash = '#login'
+          }
+          return
+        }
         setShowBookingModal(true)
       }
     } catch (err) {
@@ -364,6 +425,12 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 phone: prof.phone,
                 email: prof.email,
               })
+              setPatientUserId(prof.id)
+              setPatientName((prev) => prev || prof.fullName)
+              setPatientAge((prev) => prev || String(prof.age))
+              setPatientGender((prev) => prev || prof.gender)
+              setPatientMobile((prev) => prev || prof.phone)
+              setPatientEmail((prev) => prev || prof.email || '')
             }
           })
         }
@@ -1957,6 +2024,42 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     setSelectedDate(nextAvailableDate)
                     return
                   }
+
+                  const isUserLoggedIn = Boolean(
+                    localStorage.getItem('dactor_patient_session') ||
+                      (localStorage.getItem('dactor_auth_logged_in') === 'true' &&
+                        localStorage.getItem('dactor_auth_role') === 'patient')
+                  )
+
+                  if (!isUserLoggedIn) {
+                    const pendingData = {
+                      clinicId,
+                      doctorId: selectedDoctor?.id,
+                      serviceId: undefined,
+                      selectedSlotId,
+                      selectedSlotTime,
+                      bookingDate: selectedDate,
+                      bookingMode: 'opd',
+                      selectedLabTestIds: [],
+                      isReturningPatient,
+                      followupCodeInput,
+                      isReschedule,
+                      retainedAppointment,
+                      returnRoute: 'clinic-detail',
+                    }
+                    try {
+                      localStorage.setItem('dactor_pending_booking_redirect', JSON.stringify(pendingData))
+                      localStorage.setItem('dactor_booking_login_notice', 'Please sign in with Google to book an appointment')
+                    } catch {}
+
+                    if (onNavigate) {
+                      onNavigate('login')
+                    } else {
+                      window.location.hash = '#login'
+                    }
+                    return
+                  }
+
                   if (isReschedule && retainedAppointment) {
                     setBookingStep('payment')
                   } else {
@@ -2203,6 +2306,41 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 type="button"
                 disabled={selectedTestList.length === 0 || !selectedSlotTime || isSelectedDateHoliday}
                 onClick={() => {
+                  const isUserLoggedIn = Boolean(
+                    localStorage.getItem('dactor_patient_session') ||
+                      (localStorage.getItem('dactor_auth_logged_in') === 'true' &&
+                        localStorage.getItem('dactor_auth_role') === 'patient')
+                  )
+
+                  if (!isUserLoggedIn) {
+                    const pendingData = {
+                      clinicId,
+                      doctorId: undefined,
+                      serviceId: undefined,
+                      selectedSlotId,
+                      selectedSlotTime,
+                      bookingDate: selectedDate,
+                      bookingMode: 'lab',
+                      selectedLabTestIds: selectedTestList.map((t) => t.id),
+                      isReturningPatient,
+                      followupCodeInput,
+                      isReschedule,
+                      retainedAppointment,
+                      returnRoute: 'clinic-detail',
+                    }
+                    try {
+                      localStorage.setItem('dactor_pending_booking_redirect', JSON.stringify(pendingData))
+                      localStorage.setItem('dactor_booking_login_notice', 'Please sign in with Google to book an appointment')
+                    } catch {}
+
+                    if (onNavigate) {
+                      onNavigate('login')
+                    } else {
+                      window.location.hash = '#login'
+                    }
+                    return
+                  }
+
                   setBookingStep('details')
                   setShowBookingModal(true)
                 }}

@@ -11,6 +11,7 @@ import { AverageTime } from './pages/AverageTime'
 import { ClinicPortal } from './pages/ClinicPortal'
 import { PatientPortal } from './pages/PatientPortal'
 import { DoctorPortal } from './pages/DoctorPortal'
+import { Login } from './pages/Login'
 import { Support } from './pages/Support'
 import { NotFound } from './pages/NotFound'
 import { LiveTrackerModal } from './components/LiveTrackerModal'
@@ -35,6 +36,7 @@ const getTabFromUrl = (): string => {
     const tabParam = params.get('tab') || params.get('page')
     if (tabParam) {
       const cleanParam = tabParam.toLowerCase().trim()
+      if (cleanParam === 'login' || cleanParam === 'signin' || cleanParam === 'auth') return 'login'
       if (cleanParam === 'support' || cleanParam === 'contact' || cleanParam === 'helpdesk') return 'support'
       if (cleanParam === 'patient' || cleanParam === 'patient-portal' || cleanParam === 'my-health') return 'patient-portal'
       if (cleanParam === 'doctor' || cleanParam === 'doctor-portal' || cleanParam === 'practitioner') return 'doctor-portal'
@@ -54,6 +56,7 @@ const getTabFromUrl = (): string => {
   if (rawHash) {
     const hash = rawHash.replace(/^#\/?/, '').replace(/\/$/, '').split('?')[0]
     if (hash === '' || hash === 'home') return 'home'
+    if (hash === 'login' || hash === 'signin' || hash === 'auth') return 'login'
     if (hash === 'support' || hash === 'contact' || hash === 'helpdesk') return 'support'
     if (hash === 'patient' || hash === 'patient-portal' || hash === 'my-health') return 'patient-portal'
     if (hash === 'doctor' || hash === 'doctor-portal' || hash === 'practitioner') return 'doctor-portal'
@@ -90,6 +93,7 @@ const getTabFromUrl = (): string => {
 
   if (!path || path === '' || path === '/' || path === '/index.html' || path === '/index') return 'home'
 
+  if (path.includes('login') || path.includes('signin') || path.includes('auth')) return 'login'
   if (path.includes('support') || path.includes('contact') || path.includes('helpdesk')) return 'support'
   if (path.includes('patient') || path.includes('my-health')) return 'patient-portal'
   if (path.includes('doctor') || path.includes('practitioner')) return 'doctor-portal'
@@ -437,6 +441,7 @@ export const App: React.FC = () => {
               handleNavigate('clinics')
             }}
             onOpenLiveQueue={handleOpenLiveQueue}
+            onNavigate={handleNavigate}
           />
         )}
 
@@ -482,6 +487,14 @@ export const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'login' && (
+          <Login
+            onNavigate={handleNavigate}
+            onOpenTrackerModal={() => setTrackerModalOpen(true)}
+            onOpenReportModal={handleOpenReportModal}
+          />
+        )}
+
         {activeTab === 'doctor-portal' && <DoctorPortal />}
 
         {activeTab === 'portal' && <ClinicPortal />}
@@ -497,6 +510,7 @@ export const App: React.FC = () => {
             'lab-reports',
             'average-time',
             'patient-portal',
+            'login',
             'doctor-portal',
             'portal',
             'support',

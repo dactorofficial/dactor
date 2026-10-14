@@ -220,6 +220,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [editPhone, setEditPhone] = useState('')
   const [editAge, setEditAge] = useState('')
   const [editGender, setEditGender] = useState('Male')
+  const [editCity, setEditCity] = useState('')
+  const [editTermsAccepted, setEditTermsAccepted] = useState(false)
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false)
   const [supportUrl, setSupportUrl] = useState<string>(() => {
     try {
@@ -714,6 +716,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setEditPhone(profile.phone || '')
     setEditAge(profile.age ? profile.age.toString() : '')
     setEditGender(profile.gender || 'Male')
+    setEditCity(profile.city || '')
+    setEditTermsAccepted(!!profile.fullName)
 
     setBookPatientName(profile.fullName || '')
     setBookPatientPhone(profile.phone || '')
@@ -1207,7 +1211,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       return
     }
 
-    // If unauthenticated (Guest / Demo mode), save booking position and prompt Google Sign-In
+    // If unauthenticated (Guest / Demo mode), save booking position and redirect to login page
     if (!patientUser) {
       const pendingRedirect = {
         clinicId: selectedClinic?.id,
@@ -1219,12 +1223,18 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         selectedSlotId: selectedSlot?.id,
         isReturningPatient,
         followupCodeInput,
+        returnRoute: 'patient-portal',
       }
       try {
         localStorage.setItem('dactor_pending_booking_redirect', JSON.stringify(pendingRedirect))
+        localStorage.setItem('dactor_booking_login_notice', 'Please sign in with Google to book an appointment')
       } catch {}
       setPendingBookingRedirectNotice(true)
-      setShowAuthModal(true)
+      if (onNavigate) {
+        onNavigate('login')
+      } else {
+        setShowAuthModal(true)
+      }
       return
     }
 
@@ -1492,6 +1502,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           phone: profile?.phone || '',
           age: profile?.age,
           gender: profile?.gender || '',
+          city: profile?.city || '',
           photoUrl: photo,
           role: 'patient',
         }
@@ -1500,6 +1511,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         setEditPhone(partial.phone || '')
         setEditAge(partial.age ? String(partial.age) : '')
         setEditGender(partial.gender || '')
+        setEditCity(partial.city || '')
+        setEditTermsAccepted(false)
         localStorage.setItem('dactor_patient_email', partial.email)
         localStorage.setItem('dactor_auth_logged_in', 'true')
         localStorage.setItem('dactor_auth_email', partial.email)
@@ -1545,6 +1558,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       alert('Please select your gender.')
       return
     }
+    if (!editTermsAccepted) {
+      alert('Please read and accept the Dactor Terms of Service and Privacy Policy to continue.')
+      return
+    }
 
     setIsUpdatingProfile(true)
     try {
@@ -1556,6 +1573,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         phone: cleanPhone,
         age: ageNum,
         gender: editGender,
+        city: editCity.trim() || undefined,
         role: 'patient',
       })
       if (updated) {
@@ -2019,6 +2037,23 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               <button
                 key={tab.id}
                 onClick={() => {
+                  if (tab.id === 'book' && !patientUser) {
+                    const pendingRedirect = {
+                      bookingMode: 'opd',
+                      returnRoute: 'patient-portal',
+                    }
+                    try {
+                      localStorage.setItem('dactor_pending_booking_redirect', JSON.stringify(pendingRedirect))
+                      localStorage.setItem('dactor_booking_login_notice', 'Please sign in with Google to book an appointment')
+                    } catch {}
+                    if (onNavigate) {
+                      onNavigate('login')
+                    } else {
+                      setPendingBookingRedirectNotice(true)
+                      setShowAuthModal(true)
+                    }
+                    return
+                  }
                   setActiveTab(tab.id as any)
                   if (tab.id === 'book') setBookingStep(1)
                 }}
@@ -4427,6 +4462,30 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </select>
                 </div>
               </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">City / District (Nepal)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Kathmandu, Lalitpur, Pokhara"
+                  value={editCity}
+                  onChange={(e) => setEditCity(e.target.value)}
+                  className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-semibold text-slate-900 dark:text-white outline-none"
+                />
+              </div>
+
+              {/* Terms Checkbox */}
+              <label className="flex items-start space-x-2.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={editTermsAccepted}
+                  onChange={(e) => setEditTermsAccepted(e.target.checked)}
+                  className="mt-0.5 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
+                />
+                <span className="text-[11px] leading-relaxed">
+                  I agree to Dactor's Terms of Service, Privacy Policy, and patient healthcare privacy regulations.
+                </span>
+              </label>
 
               <button
                 type="submit"

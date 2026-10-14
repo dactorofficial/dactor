@@ -44,6 +44,7 @@ import {
   shiftAppointmentDate,
   cancelAppointment,
 } from '../services/db'
+import { updatePageSEO } from '../utils/seo'
 
 interface LiveQueueProps {
   initialCode?: string
@@ -156,6 +157,15 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       fetchQueueData(activeCode)
     }
   }, [activeCode])
+
+  useEffect(() => {
+    updatePageSEO({
+      title: appointment
+        ? `Live OPD Queue #${appointment.queueNumber || ''} • ${appointment.patientName} | Dactor`
+        : 'Real-Time Live OPD Queue Tracker Nepal | Dactor',
+      description: 'Track live doctor consultation token numbers, doctor cabin status, estimated wait times, and delays in real-time at clinics across Nepal with your 10-digit Dactor code.',
+    })
+  }, [appointment])
 
   // Live auto-refresh every 4 seconds (matching Android QueueStatusScreen.kt)
   useEffect(() => {

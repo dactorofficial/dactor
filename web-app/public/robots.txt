@@ -19,6 +19,9 @@ Allow: /
 User-agent: GPTBot
 Allow: /
 
+User-agent: ChatGPT-User
+Allow: /
+
 User-agent: OAI-SearchBot
 Allow: /
 
@@ -26,16 +29,29 @@ Allow: /
 User-agent: PerplexityBot
 Allow: /
 
-# Anthropic Claude Crawler
+# Anthropic Claude Crawlers
 User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
 Allow: /
 
 # Apple Intelligence Crawler
 User-agent: Applebot-Extended
 Allow: /
 
-# Microsoft Bing
+User-agent: Applebot
+Allow: /
+
+# Microsoft Bing & Copilot
 User-agent: Bingbot
+Allow: /
+
+# Common Crawl & Other AI Indexers
+User-agent: CCBot
+Allow: /
+
+User-agent: cohere-ai
 Allow: /
 
 # Sitemaps & Semantic AI Indices
@@ -43,4 +59,6 @@ Sitemap: https://dactorofficial.github.io/dactor/sitemap.xml
 Sitemap: https://dactorofficial.github.io/sitemap.xml
 # LLM Knowledge Index
 # https://dactorofficial.github.io/dactor/llms.txt
+# https://dactorofficial.github.io/dactor/llms-full.txt
 # https://dactorofficial.github.io/llms.txt
+# https://dactorofficial.github.io/llms-full.txt

@@ -89,6 +89,8 @@ export interface Doctor {
   activeClinicId?: string
   kycStatus?: string // approved, pending, rejected
   profilePictureUrl?: string
+  licenseDocUrl?: string
+  certificatesDocUrl?: string
   description?: string
   bio?: string
   practitionerRole?: string // doctor or lab_technician
@@ -234,6 +236,7 @@ export interface PatientProfile {
   phone?: string
   gender?: string
   age?: number
+  city?: string
   photoUrl?: string
   isArchived?: boolean
   archivedAt?: string

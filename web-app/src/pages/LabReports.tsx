@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   FlaskConical,
   Search,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { getLabReportsByTrackingCode, getAppointmentByTrackingCode } from '../services/db'
 import { LabReport, Appointment } from '../types'
+import { updatePageSEO } from '../utils/seo'
 
 export const LabReports: React.FC = () => {
   const [code, setCode] = useState('')
@@ -22,6 +23,13 @@ export const LabReports: React.FC = () => {
   const [appointment, setAppointment] = useState<Appointment | null>(null)
   const [searched, setSearched] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+
+  useEffect(() => {
+    updatePageSEO({
+      title: 'Retrieve Diagnostic Pathology Lab Reports Online | Dactor Nepal',
+      description: 'Track sample collection, testing progress, and securely view or download certified pathology lab reports (MRI, CT Scan, Blood, USG) in Nepal.',
+    })
+  }, [])
 
   // Verification state
   const [verifyNameInput, setVerifyNameInput] = useState('')

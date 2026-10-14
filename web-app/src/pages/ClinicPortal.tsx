@@ -70,7 +70,6 @@ import {
   DayScheduleInfo,
   MedicalSpecialty,
   MedicalQualification,
-  SupportTicket,
 } from '../types'
 import {
   getClinics,
@@ -133,8 +132,6 @@ import {
   cancelClinicInvitation,
   deleteClinicPermanently,
   purgeExpiredClinicData,
-  getSupportTickets,
-  updateSupportTicketStatus,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import {
@@ -519,24 +516,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     | 'lab'
     | 'rates'
     | 'broadcast'
-    | 'tickets'
     | 'settings'
-  >(() => {
-    try {
-      const p = new URLSearchParams(window.location.search)
-      const t = p.get('desk') || p.get('tab')
-      if (t === 'tickets' || t === 'support' || t === 'support_tickets') return 'tickets'
-      if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('tickets')) return 'tickets'
-    } catch {}
-    return 'queue'
-  })
+  >('queue')
 
-  // Support Tickets Helpdesk State
-  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([])
-  const [loadingTickets, setLoadingTickets] = useState(false)
-  const [ticketSearchQuery, setTicketSearchQuery] = useState('')
-  const [ticketStatusFilter, setTicketStatusFilter] = useState<'all' | 'open' | 'in_progress' | 'resolved'>('all')
-  const [updatingTicketCode, setUpdatingTicketCode] = useState<string | null>(null)
 
   useEffect(() => {
     // Keep desk tab clean
@@ -994,38 +976,6 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       .catch((err) => console.error('Error loading walkin slots:', err))
   }, [walkinDoctorId, clinicDoctors, refreshKey])
 
-  // Load support helpdesk tickets for administration
-  useEffect(() => {
-    async function loadTickets() {
-      setLoadingTickets(true)
-      try {
-        const list = await getSupportTickets()
-        setSupportTickets(list)
-      } catch (err) {
-        console.error('Error loading support tickets:', err)
-      } finally {
-        setLoadingTickets(false)
-      }
-    }
-    loadTickets()
-  }, [refreshKey])
-
-  const handleTicketStatusChange = async (
-    ticketCode: string,
-    newStatus: 'open' | 'in_progress' | 'resolved' | 'closed'
-  ) => {
-    setUpdatingTicketCode(ticketCode)
-    try {
-      await updateSupportTicketStatus(ticketCode, newStatus)
-      setSupportTickets((prev) =>
-        prev.map((t) => (t.ticketCode === ticketCode ? { ...t, status: newStatus } : t))
-      )
-    } catch (err) {
-      console.error('Error updating ticket status:', err)
-    } finally {
-      setUpdatingTicketCode(null)
-    }
-  }
 
   // Recalculate bill total amount when line items change
   useEffect(() => {
@@ -3665,17 +3615,6 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           <span>Broadcast Alerts</span>
         </button>
 
-        <button
-          onClick={() => setDeskTab('tickets')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-            deskTab === 'tickets'
-              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-glass-brand border border-white/25'
-              : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/15'
-          }`}
-        >
-          <Headphones className="w-4 h-4" />
-          <span>Support Tickets ({supportTickets.filter((t) => t.status === 'open' || t.status === 'in_progress').length})</span>
-        </button>
 
         <button
           onClick={() => setDeskTab('settings')}
@@ -6796,314 +6735,6 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </GlassButton>
             </form>
           </GlassCard>
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* DESK TAB: CENTRAL SUPPORT HELPDESK & TICKETS DIRECTORY     */}
-      {/* ========================================================= */}
-      {deskTab === 'tickets' && (
-        <div className="space-y-6">
-          <GlassCard variant="base" padding="md" radius="xl" className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-                  <Headphones className="w-4 h-4" />
-                </span>
-                <h2 className="text-xl font-black text-slate-900 dark:text-white">Central Support Tickets Directory</h2>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Access, review, and resolve all direct support inquiries and help tickets dispatched by patients, doctors, and clinics.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  setLoadingTickets(true)
-                  try {
-                    const list = await getSupportTickets()
-                    setSupportTickets(list)
-                  } finally {
-                    setLoadingTickets(false)
-                  }
-                }}
-                className="px-3 py-1.5 rounded-xl bg-white/75 dark:bg-slate-800/75 border border-white/80 dark:border-white/10 hover:bg-white text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center space-x-1.5 cursor-pointer shadow-glass-sm transition"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingTickets ? 'animate-spin' : ''}`} />
-                <span>Refresh Tickets</span>
-              </button>
-              <GlassBadge variant="brand" size="md">
-                {supportTickets.length} Total Tickets
-              </GlassBadge>
-            </div>
-          </GlassCard>
-
-          {/* Quick Metrics Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-4 rounded-2xl liquid-glass-card border border-white/60 dark:border-white/10 text-left">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Total Inquiries</span>
-              <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">{supportTickets.length}</span>
-            </div>
-            <div className="p-4 rounded-2xl liquid-glass-card border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/40 text-left">
-              <span className="text-[10px] font-bold text-rose-700 uppercase tracking-wider block">Open / Pending</span>
-              <span className="text-2xl font-black text-rose-700 font-mono">
-                {supportTickets.filter((t) => t.status === 'open').length}
-              </span>
-            </div>
-            <div className="p-4 rounded-2xl liquid-glass-card border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 text-left">
-              <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider block">In Progress</span>
-              <span className="text-2xl font-black text-amber-700 font-mono">
-                {supportTickets.filter((t) => t.status === 'in_progress').length}
-              </span>
-            </div>
-            <div className="p-4 rounded-2xl liquid-glass-card border border-emerald-200/60 dark:border-emerald-900/40 bg-emerald-50/40 text-left">
-              <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">Resolved</span>
-              <span className="text-2xl font-black text-emerald-700 font-mono">
-                {supportTickets.filter((t) => t.status === 'resolved' || t.status === 'closed').length}
-              </span>
-            </div>
-          </div>
-
-          {/* Filter Bar & Search */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {(['all', 'open', 'in_progress', 'resolved'] as const).map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setTicketStatusFilter(st)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer capitalize ${
-                    ticketStatusFilter === st
-                      ? 'bg-brand-600 text-white shadow-sm'
-                      : 'bg-white/70 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 border border-white/80 dark:border-white/10 hover:bg-white'
-                  }`}
-                >
-                  {st === 'all'
-                    ? `All (${supportTickets.length})`
-                    : `${st.replace('_', ' ')} (${
-                        supportTickets.filter((t) =>
-                          st === 'resolved' ? t.status === 'resolved' || t.status === 'closed' : t.status === st
-                        ).length
-                      })`}
-                </button>
-              ))}
-            </div>
-
-            <div className="relative min-w-[260px]">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={ticketSearchQuery}
-                onChange={(e) => setTicketSearchQuery(e.target.value)}
-                placeholder="Search ticket code, email, phone, name..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl text-xs font-semibold liquid-glass-input outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Tickets List */}
-          {loadingTickets ? (
-            <div className="p-12 text-center text-xs font-bold text-slate-500">
-              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-600" />
-              <span>Loading official support tickets...</span>
-            </div>
-          ) : supportTickets.length === 0 ? (
-            <GlassCard variant="base" padding="lg" radius="xl" className="text-center py-12 space-y-3">
-              <Headphones className="w-10 h-10 text-slate-400 mx-auto" />
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">No Support Tickets Found</h3>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
-                No inquiries matching your criteria. Inquiries submitted via the Support page will automatically appear here with their generated Ticket ID.
-              </p>
-            </GlassCard>
-          ) : (
-            <div className="space-y-4">
-              {supportTickets
-                .filter((t) => {
-                  if (ticketStatusFilter === 'all') return true
-                  if (ticketStatusFilter === 'resolved') return t.status === 'resolved' || t.status === 'closed'
-                  return t.status === ticketStatusFilter
-                })
-                .filter((t) => {
-                  if (!ticketSearchQuery.trim()) return true
-                  const q = ticketSearchQuery.toLowerCase().trim()
-                  return (
-                    (t.ticketCode || '').toLowerCase().includes(q) ||
-                    (t.email || '').toLowerCase().includes(q) ||
-                    (t.phone || '').toLowerCase().includes(q) ||
-                    (t.name || '').toLowerCase().includes(q) ||
-                    (t.category || '').toLowerCase().includes(q) ||
-                    (t.message || '').toLowerCase().includes(q)
-                  )
-                })
-                .map((ticket) => {
-                  const rawDigits = (ticket.phone || '').replace(/[^0-9]/g, '')
-                  const waNumber = rawDigits.startsWith('977')
-                    ? rawDigits
-                    : rawDigits.length === 10
-                    ? `977${rawDigits}`
-                    : rawDigits
-                  const isUpdating = updatingTicketCode === ticket.ticketCode
-
-                  return (
-                    <GlassCard
-                      key={ticket.ticketCode}
-                      variant="base"
-                      padding="md"
-                      radius="xl"
-                      className="text-left space-y-4 hover:border-brand-300 transition-all shadow-glass-sm"
-                    >
-                      {/* Ticket Card Header */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/60 dark:border-white/10">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono font-black text-sm text-brand-700 dark:text-brand-300 bg-brand-500/10 px-2.5 py-1 rounded-lg border border-brand-500/20">
-                            #{ticket.ticketCode}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                            {ticket.role?.toUpperCase() || 'PATIENT'}
-                          </span>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                              ticket.status === 'open'
-                                ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                                : ticket.status === 'in_progress'
-                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            }`}
-                          >
-                            {ticket.status?.replace('_', ' ')?.toUpperCase() || 'OPEN'}
-                          </span>
-                        </div>
-
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                          {ticket.createdAt
-                            ? new Date(ticket.createdAt).toLocaleString([], {
-                                dateStyle: 'short',
-                                timeStyle: 'short',
-                              })
-                            : 'Recent'}
-                        </span>
-                      </div>
-
-                      {/* Submitter & Category */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                            Submitter Name
-                          </span>
-                          <span className="font-bold text-slate-900 dark:text-white text-sm">
-                            {ticket.name || 'Valued User'}
-                          </span>
-                        </div>
-
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                            Registered Gmail / Email
-                          </span>
-                          <a
-                            href={`mailto:${ticket.email}?subject=Regarding Dactor Support Ticket #${ticket.ticketCode}`}
-                            className="font-bold text-brand-600 hover:text-brand-700 hover:underline inline-flex items-center gap-1"
-                          >
-                            <Mail className="w-3 h-3" />
-                            <span>{ticket.email}</span>
-                          </a>
-                        </div>
-
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                            Contact Phone Number
-                          </span>
-                          <a
-                            href={`tel:${ticket.phone}`}
-                            className="font-bold text-slate-900 dark:text-white hover:text-brand-600 hover:underline inline-flex items-center gap-1 font-mono"
-                          >
-                            <Phone className="w-3 h-3 text-slate-500" />
-                            <span>{ticket.phone}</span>
-                          </a>
-                        </div>
-                      </div>
-
-                      {/* Reason & Message Bubble */}
-                      <div className="p-3.5 rounded-xl liquid-glass-subtle border border-white/70 dark:border-white/10 space-y-1.5 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-[10px] uppercase text-brand-700 dark:text-brand-300 bg-brand-500/15 px-2 py-0.5 rounded">
-                            Reason: {ticket.category}
-                          </span>
-                          {ticket.customReason && (
-                            <span className="text-slate-600 dark:text-slate-300 text-[11px] font-semibold">
-                              ({ticket.customReason})
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
-                          {ticket.message || 'No additional message details provided.'}
-                        </p>
-                      </div>
-
-                      {/* Action Controls & Quick Reply */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-                        {/* Direct Contact Buttons */}
-                        <div className="flex flex-wrap items-center gap-2">
-                          {rawDigits.length >= 7 && (
-                            <a
-                              href={`https://wa.me/${waNumber}?text=Hello%20${encodeURIComponent(
-                                ticket.name || 'there'
-                              )},%20this%20is%20Dactor%20Official%20Support%20regarding%20your%20ticket%20%23${
-                                ticket.ticketCode
-                              }:%20`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                              <span>WhatsApp Reply</span>
-                            </a>
-                          )}
-
-                          <a
-                            href={`mailto:${ticket.email}?subject=Regarding Dactor Support Ticket #${ticket.ticketCode}&body=Hello ${encodeURIComponent(
-                              ticket.name || 'there'
-                            )},%0D%0A%0D%0AThis is Dactor Official Support in reference to your ticket #${
-                              ticket.ticketCode
-                            } (${encodeURIComponent(ticket.category)}).%0D%0A%0D%0A`}
-                            className="px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                          >
-                            <Mail className="w-3.5 h-3.5" />
-                            <span>Email Reply</span>
-                          </a>
-
-                          <a
-                            href={`tel:${ticket.phone}`}
-                            className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                          >
-                            <Phone className="w-3.5 h-3.5" />
-                            <span>Call</span>
-                          </a>
-                        </div>
-
-                        {/* Status Change Selector */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-500">Update Status:</span>
-                          <select
-                            value={ticket.status}
-                            disabled={isUpdating}
-                            onChange={(e) =>
-                              handleTicketStatusChange(ticket.ticketCode, e.target.value as any)
-                            }
-                            className="px-3 py-1.5 rounded-xl text-xs font-bold liquid-glass-input outline-none cursor-pointer"
-                          >
-                            <option value="open">Open</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="resolved">Resolved</option>
-                            <option value="closed">Closed</option>
-                          </select>
-                        </div>
-                      </div>
-                    </GlassCard>
-                  )
-                })}
-            </div>
-          )}
         </div>
       )}
 

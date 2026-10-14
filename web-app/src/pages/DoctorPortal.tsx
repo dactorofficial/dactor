@@ -33,6 +33,8 @@ import {
   Headphones,
   ExternalLink,
   LifeBuoy,
+  Receipt,
+  CreditCard,
 } from 'lucide-react'
 import {
   Doctor,
@@ -133,7 +135,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const [kycCheckMsg, setKycCheckMsg] = useState<string | null>(null)
 
   // Desk State
-  const [deskTab, setDeskTab] = useState<'today_queue' | 'future_appts' | 'profile_settings'>('today_queue')
+  const [deskTab, setDeskTab] = useState<
+    'today_queue' | 'future_appts' | 'patients' | 'billing' | 'profile_settings'
+  >('today_queue')
+  const [docPatientSearch, setDocPatientSearch] = useState('')
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loadingAppts, setLoadingAppts] = useState(false)
   const [selectedFutureDate, setSelectedFutureDate] = useState<string>(() => {
@@ -473,6 +478,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           undefined
       }
 
+      let certificatesDocUrl: string | undefined
+      if (regDegreeFile) {
+        const compressed = await compressImage(regDegreeFile, 300 * 1024)
+        certificatesDocUrl =
+          (await uploadClinicDocument(`degree_${regDegreeFile.name}`, compressed, 'doctor_kyc_docs')) ||
+          undefined
+      }
+
       const cleanPublic = regPublicPhone.replace(/\D/g, '')
 
       const payload: Partial<Doctor> = {
@@ -492,6 +505,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         consultationFee: regFee || 500,
         description: regDesc.trim() || undefined,
         profilePictureUrl: photoUrl,
+        licenseDocUrl,
+        certificatesDocUrl,
         kycStatus: 'pending',
         isInClinic: true,
       }
@@ -557,6 +572,21 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       setAppointments(refreshed)
     } catch (err) {
       console.error('Error completing consultation:', err)
+    }
+  }
+
+  const handleMarkNoShow = async (appt: Appointment) => {
+    if (!currentDoctor) return
+    const confirmed = window.confirm(
+      `Mark ${appt.patientName} (Token #${appt.queueNumber || 'N/A'}) as No-Show? They can be readmitted from the reception desk if they arrive.`
+    )
+    if (!confirmed) return
+    try {
+      await updateAppointmentStatus(appt.id, 'no_show')
+      const refreshed = await getDoctorAppointments(currentDoctor.id)
+      setAppointments(refreshed)
+    } catch (err) {
+      console.error('Error marking no-show:', err)
     }
   }
 
@@ -687,6 +717,83 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     () => appointments.filter((a) => a.appointmentDate === selectedFutureDate),
     [appointments, selectedFutureDate]
   )
+
+  // Grouped patients for patient directory
+  const doctorPatientsList = useMemo(() => {
+    const map = new Map<string, {
+      patientName: string
+      patientMobile: string
+      patientAge?: number
+      patientGender?: string
+      trackingCodes: string[]
+      totalVisits: number
+      lastVisitDate: string
+      notes: string[]
+      lastStatus: string
+    }>()
+
+    appointments.forEach((a) => {
+      const key = (a.patientMobile?.trim() || a.patientName?.trim() || a.id).toLowerCase()
+      const existing = map.get(key)
+      if (existing) {
+        existing.totalVisits += 1
+        if (a.trackingCode10Digit && !existing.trackingCodes.includes(a.trackingCode10Digit)) {
+          existing.trackingCodes.push(a.trackingCode10Digit)
+        }
+        if (a.appointmentDate > existing.lastVisitDate) {
+          existing.lastVisitDate = a.appointmentDate
+          existing.lastStatus = a.checkinStatus || 'completed'
+        }
+        if (a.notes && !existing.notes.includes(a.notes)) {
+          existing.notes.push(a.notes)
+        }
+      } else {
+        map.set(key, {
+          patientName: a.patientName,
+          patientMobile: a.patientMobile || '',
+          patientAge: a.patientAge,
+          patientGender: a.patientGender,
+          trackingCodes: a.trackingCode10Digit ? [a.trackingCode10Digit] : [],
+          totalVisits: 1,
+          lastVisitDate: a.appointmentDate,
+          notes: a.notes ? [a.notes] : [],
+          lastStatus: a.checkinStatus || 'completed',
+        })
+      }
+    })
+
+    const list = Array.from(map.values())
+    if (!docPatientSearch.trim()) return list
+    const q = docPatientSearch.trim().toLowerCase()
+    return list.filter(
+      (p) =>
+        p.patientName.toLowerCase().includes(q) ||
+        p.patientMobile.includes(q) ||
+        p.trackingCodes.some((code) => code.includes(q))
+    )
+  }, [appointments, docPatientSearch])
+
+  // Billing ledger calculations
+  const doctorBillingStats = useMemo(() => {
+    let totalBilled = 0
+    let onlinePaid = 0
+    let settledCash = 0
+    appointments.forEach((a) => {
+      const fee = a.feeAmount > 0 ? a.feeAmount : (currentDoctor?.consultationFee || 500)
+      totalBilled += fee
+      if (a.paymentStatus === 'paid') {
+        onlinePaid += fee
+      } else {
+        settledCash += fee
+      }
+    })
+    return {
+      totalBilled,
+      onlinePaid,
+      settledCash,
+      totalCount: appointments.length,
+    }
+  }, [appointments, currentDoctor])
 
   // ==========================================
   // VIEW 1: DEDICATED DOCTOR AUTH / SIGN-IN
@@ -1132,7 +1239,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             </div>
 
             {/* Document Uploads */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/40 dark:border-white/10">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-white/40 dark:border-white/10">
               <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/40 dark:border-white/10 space-y-2">
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
                   <Camera className="w-4 h-4 text-teal-600 dark:text-teal-400" />
@@ -1149,12 +1256,25 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/40 dark:border-white/10 space-y-2">
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
                   <Award className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-                  <span>NMC Certificate Document / Photo *</span>
+                  <span>NMC Certificate / Photo *</span>
                 </label>
                 <input
                   type="file"
                   accept="image/*,application/pdf"
                   onChange={(e) => setRegLicenseFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:bg-teal-500/10 file:text-teal-700 dark:file:text-teal-300 file:font-bold hover:file:bg-teal-500/20 cursor-pointer"
+                />
+              </div>
+
+              <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/40 dark:border-white/10 space-y-2">
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                  <FileText className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                  <span>Degree Certificate (MBBS/MD)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => setRegDegreeFile(e.target.files?.[0] || null)}
                   className="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:bg-teal-500/10 file:text-teal-700 dark:file:text-teal-300 file:font-bold hover:file:bg-teal-500/20 cursor-pointer"
                 />
               </div>
@@ -1358,6 +1478,30 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         </button>
 
         <button
+          onClick={() => setDeskTab('patients')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'patients'
+              ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-md shadow-teal-500/20'
+              : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60 border border-white/40 dark:border-white/10'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Patient Directory</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('billing')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'billing'
+              ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white shadow-md shadow-teal-500/20'
+              : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60 border border-white/40 dark:border-white/10'
+          }`}
+        >
+          <Receipt className="w-4 h-4" />
+          <span>Invoices & Rx Fee</span>
+        </button>
+
+        <button
           onClick={() => setDeskTab('profile_settings')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'profile_settings'
@@ -1553,6 +1697,15 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
                       <button
                         type="button"
+                        onClick={() => handleMarkNoShow(appt)}
+                        className="px-3 py-2.5 rounded-xl liquid-glass-subtle border border-rose-300/60 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 hover:bg-rose-500/15 text-xs font-bold transition-all cursor-pointer active:scale-[0.98]"
+                        title="Mark patient as absent / no-show"
+                      >
+                        No-Show
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => handleMarkInsideCabin(appt)}
                         className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center space-x-1.5 active:scale-[0.98]"
                       >
@@ -1645,7 +1798,197 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       )}
 
       {/* ==========================================
-          TAB 3: PRACTITIONER PROFILE & SETTINGS
+          TAB: PATIENT DIRECTORY & CLINICAL RECORDS
+          ========================================== */}
+      {deskTab === 'patients' && (
+        <div className="space-y-6">
+          <div className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 shadow-sm p-6 sm:p-8 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Patient Directory & Clinical History</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Search past patients, view visit frequencies, 10-digit tracking codes, and clinical notes.
+                </p>
+              </div>
+              <div className="relative w-full sm:w-72">
+                <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search name, phone, code..."
+                  value={docPatientSearch}
+                  onChange={(e) => setDocPatientSearch(e.target.value)}
+                  className="w-full pl-9 pr-3.5 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+
+            {doctorPatientsList.length === 0 ? (
+              <div className="p-12 text-center space-y-2">
+                <Users className="w-10 h-10 text-slate-400 mx-auto" />
+                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                  {docPatientSearch.trim() ? 'No Matching Patients Found' : 'No Patient Consultations Recorded Yet'}
+                </h4>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Patients who book or complete consultations will be archived in your directory.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {doctorPatientsList.map((p, idx) => (
+                  <div
+                    key={idx}
+                    className="p-5 rounded-2xl liquid-glass-subtle border border-white/30 dark:border-white/10 space-y-3"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 dark:text-white">{p.patientName}</h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          {p.patientAge ? `${p.patientAge} Yrs` : ''} {p.patientGender ? `• ${p.patientGender}` : ''}{' '}
+                          {p.patientMobile ? `• ${p.patientMobile}` : ''}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
+                        {p.totalVisits} {p.totalVisits === 1 ? 'Visit' : 'Visits'}
+                      </span>
+                    </div>
+
+                    <div className="text-xs space-y-1 pt-1 border-t border-white/20 dark:border-white/5">
+                      <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                        <span>Last Consulted:</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">{p.lastVisitDate}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                        <span>Active Tracking:</span>
+                        <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                          {p.trackingCodes.slice(-1)[0] || 'N/A'}
+                        </span>
+                      </div>
+                      {p.notes.length > 0 && (
+                        <div className="pt-1">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Clinical Remarks:</span>
+                          <p className="text-[11px] text-teal-800 dark:text-teal-300 font-medium line-clamp-2">
+                            {p.notes.slice(-1)[0]}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          TAB: OPD INVOICES & CONSULTATION FEES
+          ========================================== */}
+      {deskTab === 'billing' && (
+        <div className="space-y-6">
+          {/* Summary Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center font-bold border border-teal-500/20">
+                <Receipt className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  NPR {doctorBillingStats.totalBilled}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">Total OPD Consultation Billed</div>
+              </div>
+            </div>
+
+            <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold border border-emerald-500/20">
+                <CreditCard className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  NPR {doctorBillingStats.onlinePaid}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">Online Verified (eSewa / Khalti)</div>
+              </div>
+            </div>
+
+            <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold border border-blue-500/20">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  NPR {doctorBillingStats.settledCash}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">Cash at Reception / Desk</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Invoices List */}
+          <div className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 shadow-sm p-6 sm:p-8 space-y-4">
+            <div className="flex items-center justify-between pb-4 border-b border-white/20 dark:border-white/5">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">OPD Consultation Invoices</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Real-time billing transactions for all consultations under your practitioner profile.
+                </p>
+              </div>
+              <span className="text-xs font-bold px-3 py-1 rounded-full liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/20">
+                {appointments.length} Total Records
+              </span>
+            </div>
+
+            {appointments.length === 0 ? (
+              <div className="p-12 text-center space-y-2">
+                <Receipt className="w-10 h-10 text-slate-400 mx-auto" />
+                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">No Invoices Recorded Yet</h4>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Booked patients and consultation records will automatically generate invoices here.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-white/20 dark:divide-white/5">
+                {appointments.slice(0, 30).map((a) => {
+                  const fee = a.feeAmount > 0 ? a.feeAmount : (currentDoctor?.consultationFee || 500)
+                  return (
+                    <div key={a.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-slate-900 dark:text-white">{a.patientName}</span>
+                          <span className="font-mono text-[10px] px-2 py-0.5 rounded-md liquid-glass-subtle text-slate-600 dark:text-slate-400 border border-white/20">
+                            {a.trackingCode10Digit}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          {a.appointmentDate} • Slot: {a.appointmentTime || 'Walk-In'} • Mobile: {a.patientMobile || 'N/A'}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-3 justify-between sm:justify-end">
+                        <div className="text-right">
+                          <div className="font-black text-slate-900 dark:text-white">NPR {fee}</div>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              a.paymentStatus === 'paid'
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20'
+                                : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20'
+                            }`}
+                          >
+                            {a.paymentStatus === 'paid' ? 'Paid Online' : 'Settled at Reception'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          TAB: PRACTITIONER PROFILE & SETTINGS
           ========================================== */}
       {deskTab === 'profile_settings' && (
         <div className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 shadow-sm p-6 sm:p-8 space-y-6 max-w-2xl mx-auto">

@@ -233,10 +233,11 @@ export async function createDoctor(doctor: Partial<Doctor>): Promise<Doctor | nu
       is_in_clinic: doctor.isInClinic ?? true,
       clinic_id: doctor.clinicId || null,
       active_clinic_id: doctor.activeClinicId || doctor.clinicId || null,
-      kyc_status: 'approved',
+      kyc_status: doctor.kycStatus || 'approved',
       profile_picture_url: doctor.profilePictureUrl || null,
+      license_doc_url: doctor.licenseDocUrl || null,
       description: doctor.description || null,
-      certificates_doc_url: certMeta,
+      certificates_doc_url: doctor.certificatesDocUrl || certMeta,
     }
 
     const { data, error } = await supabase
@@ -2335,6 +2336,7 @@ export async function getPatientProfileByEmail(email: string): Promise<PatientPr
       phone: p.phone,
       gender: p.gender,
       age: p.age,
+      city: p.city,
       isArchived: p.is_archived ?? false,
       archivedAt: p.archived_at,
       deletionScheduledAt: p.deletion_scheduled_at,
@@ -2478,6 +2480,7 @@ export async function savePatientProfile(profile: Partial<PatientProfile>): Prom
     if (profile.phone !== undefined) payload.phone = profile.phone.trim()
     if (profile.gender !== undefined) payload.gender = profile.gender
     if (profile.age !== undefined) payload.age = profile.age
+    if (profile.city !== undefined) payload.city = profile.city.trim()
     if (profile.role !== undefined) payload.role = profile.role
     if (profile.authUid !== undefined) payload.auth_uid = profile.authUid
 
@@ -2515,6 +2518,7 @@ export async function savePatientProfile(profile: Partial<PatientProfile>): Prom
       phone: resData.phone,
       gender: resData.gender,
       age: resData.age,
+      city: resData.city,
       isArchived: resData.is_archived,
       createdAt: resData.created_at,
       updatedAt: resData.updated_at,

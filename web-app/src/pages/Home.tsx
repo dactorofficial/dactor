@@ -29,6 +29,7 @@ import {
 import { Clinic, Doctor } from '../types'
 import { getClinics, getDoctors } from '../services/db'
 import { matchClinic } from '../utils/searchEngine'
+import { updatePageSEO } from '../utils/seo'
 import dactorLogo from '../assets/logo.png'
 
 interface HomeProps {
@@ -126,6 +127,10 @@ export const Home: React.FC<HomeProps> = ({
       }
     }
     loadData()
+    updatePageSEO({
+      title: "Dactor - Nepal Healthcare OPD Queue Tracker & Clinic Booking Portal",
+      description: "Search verified specialist doctors, polyclinics, and diagnostic pathology labs in Nepal. Book doctor appointments online, track live token queue status in real time, and download certified medical test reports.",
+    })
   }, [])
 
   const handleTrackSubmit = (e: React.FormEvent) => {
