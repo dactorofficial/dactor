@@ -39,6 +39,8 @@ const getTabFromUrl = (): string => {
       if (cleanParam === 'login' || cleanParam === 'signin' || cleanParam === 'auth') return 'login'
       if (cleanParam === 'support' || cleanParam === 'contact' || cleanParam === 'helpdesk') return 'support'
       if (cleanParam === 'patient' || cleanParam === 'patient-portal' || cleanParam === 'my-health') return 'patient-portal'
+      if (cleanParam === 'records' || cleanParam === 'medical-records') return 'records'
+      if (cleanParam === 'account' || cleanParam === 'profile') return 'account'
       if (cleanParam === 'doctor' || cleanParam === 'doctor-portal' || cleanParam === 'practitioner') return 'doctor-portal'
       if (cleanParam === 'portal' || cleanParam === 'admin-portal' || cleanParam === 'clinic-portal' || cleanParam === 'clinic') return 'portal'
       if (cleanParam === 'clinics') return 'clinics'
@@ -51,14 +53,24 @@ const getTabFromUrl = (): string => {
     }
   } catch {}
 
-  // 2. Check URL Hash (e.g. #clinics, #live-queue, #clinic-detail)
+  // 2. Check URL Hash (e.g. #clinics, #live-queue, #records, #account)
   const rawHash = window.location.hash.toLowerCase()
   if (rawHash) {
     const hash = rawHash.replace(/^#\/?/, '').replace(/\/$/, '').split('?')[0]
     if (hash === '' || hash === 'home') return 'home'
     if (hash === 'login' || hash === 'signin' || hash === 'auth') return 'login'
     if (hash === 'support' || hash === 'contact' || hash === 'helpdesk') return 'support'
-    if (hash === 'patient' || hash === 'patient-portal' || hash === 'my-health') return 'patient-portal'
+    if (
+      hash === 'patient' ||
+      hash === 'patient-portal' ||
+      hash === 'my-health' ||
+      hash === 'book' ||
+      hash === 'booking' ||
+      hash === 'book-appointment'
+    )
+      return 'patient-portal'
+    if (hash === 'records') return 'records'
+    if (hash === 'account' || hash === 'profile') return 'account'
     if (hash === 'doctor' || hash === 'doctor-portal' || hash === 'practitioner') return 'doctor-portal'
     if (
       hash === 'portal' ||
@@ -82,7 +94,7 @@ const getTabFromUrl = (): string => {
     return '404'
   }
 
-  // 3. Check pathname (e.g. /support, /clinics, /unknown-page)
+  // 3. Check pathname (e.g. /support, /clinics, /records, /account)
   let path = window.location.pathname.toLowerCase().replace(/\/$/, '')
   // Support GitHub Pages project subpath /dactor or /dactor/
   if (path === '/dactor' || path === '/dactor/index.html' || path === '/dactor/index') {
@@ -95,7 +107,15 @@ const getTabFromUrl = (): string => {
 
   if (path.includes('login') || path.includes('signin') || path.includes('auth')) return 'login'
   if (path.includes('support') || path.includes('contact') || path.includes('helpdesk')) return 'support'
-  if (path.includes('patient') || path.includes('my-health')) return 'patient-portal'
+  if (path.includes('records')) return 'records'
+  if (path.includes('account') || path.includes('profile')) return 'account'
+  if (
+    path.includes('patient') ||
+    path.includes('my-health') ||
+    path.includes('book') ||
+    path.includes('booking')
+  )
+    return 'patient-portal'
   if (path.includes('doctor') || path.includes('practitioner')) return 'doctor-portal'
   if (
     path.includes('admin-portal') ||
@@ -187,28 +207,61 @@ export const App: React.FC = () => {
     }
   })
 
-  // Authentication State
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+  // Isolated Authentication State per Active Portal Tab
+  const getTabAuthState = (tab: string) => {
     try {
-      return localStorage.getItem('dactor_auth_logged_in') === 'true'
+      if (tab === 'portal') {
+        const isClinic = localStorage.getItem('dactor_clinic_logged_in') === 'true'
+        const email = localStorage.getItem('dactor_clinic_email') || null
+        return {
+          isLoggedIn: isClinic,
+          currentUserEmail: isClinic ? email : null,
+          authRole: isClinic ? ('clinic_manager' as const) : null,
+        }
+      }
+      if (tab === 'doctor-portal') {
+        const isDoc =
+          localStorage.getItem('dactor_doctor_logged_in') === 'true' &&
+          Boolean(localStorage.getItem('dactor_doctor_session'))
+        const email = localStorage.getItem('dactor_doctor_email') || null
+        return {
+          isLoggedIn: isDoc,
+          currentUserEmail: isDoc ? email : null,
+          authRole: isDoc ? ('doctor' as const) : null,
+        }
+      }
+      if (tab === 'patient-portal' || tab === 'records' || tab === 'account') {
+        const isPat =
+          localStorage.getItem('dactor_patient_logged_in') === 'true' ||
+          Boolean(localStorage.getItem('dactor_patient_session'))
+        const email = localStorage.getItem('dactor_patient_email') || null
+        return {
+          isLoggedIn: isPat,
+          currentUserEmail: isPat ? email : null,
+          authRole: isPat ? ('patient' as const) : null,
+        }
+      }
+      // Public browsing tabs: associate with patient session if active
+      const isPat =
+        localStorage.getItem('dactor_patient_logged_in') === 'true' ||
+        Boolean(localStorage.getItem('dactor_patient_session'))
+      if (isPat) {
+        return {
+          isLoggedIn: true,
+          currentUserEmail: localStorage.getItem('dactor_patient_email') || null,
+          authRole: 'patient' as const,
+        }
+      }
+      return { isLoggedIn: false, currentUserEmail: null, authRole: null }
     } catch {
-      return false
+      return { isLoggedIn: false, currentUserEmail: null, authRole: null }
     }
-  })
-  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem('dactor_auth_email') || null
-    } catch {
-      return null
-    }
-  })
-  const [authRole, setAuthRole] = useState<'clinic_manager' | 'doctor' | 'patient' | null>(() => {
-    try {
-      return (localStorage.getItem('dactor_auth_role') as any) || null
-    } catch {
-      return null
-    }
-  })
+  }
+
+  const initialTabAuth = getTabAuthState(getTabFromUrl())
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(initialTabAuth.isLoggedIn)
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(initialTabAuth.currentUserEmail)
+  const [authRole, setAuthRole] = useState<'clinic_manager' | 'doctor' | 'patient' | null>(initialTabAuth.authRole)
 
   // Live unread notification count from Supabase (never hardcoded)
   const [unreadCount, setUnreadCount] = useState<number>(0)
@@ -242,13 +295,19 @@ export const App: React.FC = () => {
     const handleHashChange = () => {
       const tab = getTabFromUrl()
       setActiveTab(tab)
+      const st = getTabAuthState(tab)
+      setIsLoggedIn(st.isLoggedIn)
+      setCurrentUserEmail(st.currentUserEmail)
+      setAuthRole(st.authRole)
     }
 
     const syncAuth = () => {
       try {
-        setIsLoggedIn(localStorage.getItem('dactor_auth_logged_in') === 'true')
-        setCurrentUserEmail(localStorage.getItem('dactor_auth_email') || null)
-        setAuthRole((localStorage.getItem('dactor_auth_role') as any) || null)
+        const currentTab = getTabFromUrl()
+        const st = getTabAuthState(currentTab)
+        setIsLoggedIn(st.isLoggedIn)
+        setCurrentUserEmail(st.currentUserEmail)
+        setAuthRole(st.authRole)
         refreshUnreadNotifications()
       } catch {}
     }
@@ -295,7 +354,7 @@ export const App: React.FC = () => {
       if (params?.doctorId !== undefined) {
         setSelectedDoctorId(params.doctorId || null)
       }
-      if (params?.action === 'book' || params?.autoOpenBooking) {
+      if (params?.action === 'book' || params?.autoOpenBooking || params?.isReschedule) {
         setAutoOpenBooking(true)
       } else {
         setAutoOpenBooking(false)
@@ -337,6 +396,11 @@ export const App: React.FC = () => {
     }
 
     setActiveTab(tab)
+    const nextAuth = getTabAuthState(tab)
+    setIsLoggedIn(nextAuth.isLoggedIn)
+    setCurrentUserEmail(nextAuth.currentUserEmail)
+    setAuthRole(nextAuth.authRole)
+
     try {
       const url = new URL(window.location.href)
       if (tab === 'home') {
@@ -359,17 +423,24 @@ export const App: React.FC = () => {
   // Handle logout
   const handleLogout = () => {
     try {
-      localStorage.removeItem('dactor_auth_logged_in')
-      localStorage.removeItem('dactor_auth_email')
-      localStorage.removeItem('dactor_auth_role')
-      localStorage.removeItem('dactor_doctor_session')
-      localStorage.removeItem('dactor_doctor_email')
-      localStorage.removeItem('dactor_doctor_pending_kyc')
-      localStorage.removeItem('dactor_patient_session')
-      localStorage.removeItem('dactor_patient_email')
-      setIsLoggedIn(false)
-      setCurrentUserEmail(null)
-      setAuthRole(null)
+      if (activeTab === 'portal') {
+        localStorage.removeItem('dactor_clinic_logged_in')
+        localStorage.removeItem('dactor_clinic_email')
+        localStorage.removeItem('dactor_clinic_role')
+      } else if (activeTab === 'doctor-portal') {
+        localStorage.removeItem('dactor_doctor_session')
+        localStorage.removeItem('dactor_doctor_email')
+        localStorage.removeItem('dactor_doctor_logged_in')
+        localStorage.removeItem('dactor_doctor_pending_kyc')
+      } else {
+        localStorage.removeItem('dactor_patient_session')
+        localStorage.removeItem('dactor_patient_email')
+        localStorage.removeItem('dactor_patient_logged_in')
+      }
+      const st = getTabAuthState(activeTab)
+      setIsLoggedIn(st.isLoggedIn)
+      setCurrentUserEmail(st.currentUserEmail)
+      setAuthRole(st.authRole)
       window.dispatchEvent(new Event('storage'))
     } catch {}
   }
@@ -478,8 +549,9 @@ export const App: React.FC = () => {
           />
         )}
 
-        {activeTab === 'patient-portal' && (
+        {(activeTab === 'patient-portal' || activeTab === 'records' || activeTab === 'account') && (
           <PatientPortal
+            initialTab={activeTab === 'records' ? 'records' : activeTab === 'account' ? 'account' : 'book'}
             onNavigateHome={() => handleNavigate('home')}
             onOpenLiveQueue={handleOpenLiveQueue}
             onOpenReportModal={handleOpenReportModal}

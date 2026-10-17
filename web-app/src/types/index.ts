@@ -22,6 +22,7 @@ export interface Clinic {
   archivedAt?: string
   deletionScheduledAt?: string
   logoUrl?: string
+  photoUrl?: string
   isOnBreak?: boolean
   breakUpdatedAt?: string
   weeklyScheduleJson?: string

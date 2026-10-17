@@ -53,9 +53,10 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
   const clinicDoctorsMap = useMemo(() => {
     const map: Record<string, Doctor[]> = {}
     for (const doc of allDoctors) {
-      if (doc.clinicId) {
-        if (!map[doc.clinicId]) map[doc.clinicId] = []
-        map[doc.clinicId].push(doc)
+      const cids = [doc.clinicId, (doc as any).primaryClinicId, (doc as any).activeClinicId].filter(Boolean) as string[]
+      for (const cid of new Set(cids)) {
+        if (!map[cid]) map[cid] = []
+        map[cid].push(doc)
       }
     }
     return map

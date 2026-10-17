@@ -179,7 +179,9 @@ function injectClinicJsonLd(clinic: Clinic, selectedDoctor?: Doctor | null, doct
     priceRange: 'NPR 100 - 1500',
     isAcceptingNewPatients: true,
     availableService: availableServices,
-    hasMap: `https://maps.google.com/?q=${encodeURIComponent(clinic.name + ' ' + (clinic.addressText || 'Nepal'))}`,
+    hasMap: clinic.latitude && clinic.longitude
+      ? `https://www.google.com/maps/dir/?api=1&destination=${clinic.latitude},${clinic.longitude}`
+      : `https://maps.google.com/?q=${encodeURIComponent(clinic.name + ' ' + (clinic.addressText || 'Nepal'))}`,
     // Google Reserve / Direct Appointment Booking Action
     potentialAction: {
       '@type': 'ReserveAction',

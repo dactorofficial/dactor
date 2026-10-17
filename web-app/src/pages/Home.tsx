@@ -953,7 +953,7 @@ export const Home: React.FC<HomeProps> = ({
                 </h3>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed font-normal">
-                Track live OPD queue tokens in real time, view appointment schedules, manage family health profiles, and download name-verified diagnostic lab reports.
+                Track live OPD queue tokens in real time, view appointment schedules, and download name-verified diagnostic lab reports.
               </p>
             </div>
             <button

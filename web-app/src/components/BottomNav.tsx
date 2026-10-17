@@ -1,10 +1,11 @@
 import React from 'react'
 import {
+  Home,
   Activity,
-  Stethoscope,
-  Clock,
+  FileText,
   User,
   Building2,
+  Stethoscope,
   Sparkles,
 } from 'lucide-react'
 
@@ -21,14 +22,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   onOpenTrackerModal,
   authRole,
 }) => {
-  // Determine role-specific portal tab
-  const portalTab =
-    authRole === 'clinic_manager'
-      ? { id: 'portal', label: 'Clinic', icon: Building2 }
-      : authRole === 'doctor'
-      ? { id: 'doctor-portal', label: 'Doctor', icon: Stethoscope }
-      : { id: 'patient-portal', label: 'My Health', icon: User }
-
   interface NavItem {
     id: string
     label: string
@@ -36,12 +29,17 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     isAction?: boolean
   }
 
+  // 1:1 Parity with Android App Navigation (PatientMainScreen.kt)
   const navItems: NavItem[] = [
-    { id: 'home', label: 'Home', icon: Activity },
-    { id: 'clinics', label: 'Clinics', icon: Stethoscope },
+    { id: 'home', label: 'Home', icon: Home },
+    { id: 'live-queue', label: 'Track / Queue', icon: Activity },
     { id: 'track-action', label: 'Track', icon: Sparkles, isAction: true },
-    { id: 'live-queue', label: 'Queue', icon: Activity },
-    portalTab,
+    { id: 'records', label: 'Records', icon: FileText },
+    authRole === 'clinic_manager'
+      ? { id: 'portal', label: 'Clinic', icon: Building2 }
+      : authRole === 'doctor'
+      ? { id: 'doctor-portal', label: 'Doctor', icon: Stethoscope }
+      : { id: 'account', label: 'Account', icon: User },
   ]
 
   return (

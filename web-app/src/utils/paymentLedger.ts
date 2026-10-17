@@ -1,17 +1,8 @@
 export interface WebPaymentRecord {
-  id: string
+  id?: string
   amount: number
   dateTime: string
   note?: string
-}
-
-export interface WebInvoiceItem {
-  id?: string
-  name?: string
-  itemName?: string
-  quantity: number
-  price: number
-  total: number
 }
 
 const START_TAG = '<!--PAYMENT_LOG_START-->'
@@ -19,19 +10,19 @@ const END_TAG = '<!--PAYMENT_LOG_END-->'
 
 export function parsePaymentRecords(
   rawRemarks?: string | null,
-  fallbackPaidAmount: number = 0,
+  fallbackPaidAmount = 0,
   fallbackDate?: string | null
 ): WebPaymentRecord[] {
   if (rawRemarks && rawRemarks.includes(START_TAG) && rawRemarks.includes(END_TAG)) {
     try {
       const jsonStr = rawRemarks.split(START_TAG)[1].split(END_TAG)[0].trim()
       if (jsonStr) {
-        const list = JSON.parse(jsonStr)
-        if (Array.isArray(list) && list.length > 0) {
-          return list.map((item: any) => ({
-            id: item.id || crypto.randomUUID(),
+        const parsed = JSON.parse(jsonStr)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((item: any) => ({
+            id: item.id || undefined,
             amount: Number(item.amount || 0),
-            dateTime: item.date_time || item.dateTime || new Date().toLocaleString(),
+            dateTime: item.dateTime || item.date_time || 'Recorded',
             note: item.note || 'Payment Received',
           }))
         }
@@ -40,13 +31,14 @@ export function parsePaymentRecords(
       console.error('Error parsing payment records from remarks:', e)
     }
   }
+
   if (fallbackPaidAmount > 0) {
-    const dateStr = fallbackDate ? fallbackDate.slice(0, 16).replace('T', ' ') : new Date().toISOString().slice(0, 10)
+    const dStr = fallbackDate ? fallbackDate.slice(0, 16).replace('T', ' ') : new Date().toISOString().slice(0, 10)
     return [
       {
-        id: crypto.randomUUID(),
+        id: 'initial',
         amount: fallbackPaidAmount,
-        dateTime: dateStr,
+        dateTime: dStr,
         note: 'Payment Received',
       },
     ]
@@ -56,10 +48,46 @@ export function parsePaymentRecords(
 
 export function extractCleanClinicalRemarks(rawRemarks?: string | null): string {
   if (!rawRemarks) return ''
-  if (!rawRemarks.includes(START_TAG)) return rawRemarks.trim()
-  const before = rawRemarks.split(START_TAG)[0].trim()
-  const after = rawRemarks.includes(END_TAG) ? rawRemarks.split(END_TAG)[1].trim() : ''
-  return [before, after].filter(Boolean).join('\n').trim()
+  let text = rawRemarks
+
+  // 1. Strip <!--PAYMENT_LOG_START--> ... <!--PAYMENT_LOG_END-->
+  if (text.includes(START_TAG)) {
+    const before = text.split(START_TAG)[0].trim()
+    const after = text.includes(END_TAG) ? text.split(END_TAG)[1].trim() : ''
+    text = [before, after].filter(Boolean).join('\n').trim()
+  }
+
+  // 2. Strip any other HTML comments <!-- ... -->
+  text = text.replace(/<!--[\s\S]*?-->/g, '').trim()
+
+  // 3. Strip [[META:...]] tags
+  text = text.replace(/\[\[META:[\s\S]*?\]\]/g, '').trim()
+
+  // 4. Strip any generic [[...]] tags
+  text = text.replace(/\[\[[\s\S]*?\]\]/g, '').trim()
+
+  // 5. Strip [CLINIC_ID:...] bracket tags
+  text = text.replace(/\[[A-Z0-9_]+:[^\]]*\]/gi, '').trim()
+
+  // 6. Strip raw JSON arrays or objects
+  text = text.replace(/\[\s*\{[\s\S]*?\}\s*\]/g, '').trim()
+  text = text.replace(/\{\s*"[a-zA-Z0-9_]+"\s*:[\s\S]*?\}/g, '').trim()
+
+  // 7. Clean up lines
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(
+      (l) =>
+        Boolean(l) &&
+        !l.startsWith('<!--') &&
+        !l.endsWith('-->') &&
+        !l.startsWith('[[') &&
+        !l.startsWith('{"') &&
+        !l.startsWith('[{"')
+    )
+    .join('\n')
+    .trim()
 }
 
 export function buildCombinedRemarks(cleanRemarks: string, paymentRecords: WebPaymentRecord[]): string {

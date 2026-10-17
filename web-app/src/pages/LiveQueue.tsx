@@ -222,9 +222,20 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     labReports.length > 0
 
   const isConsultancyCompleted =
-    appointment?.checkinStatus === 'completed' || appointment?.checkinStatus === 'done'
+    appointment?.checkinStatus === 'completed' ||
+    appointment?.checkinStatus === 'done' ||
+    (appointment as any)?.queueStatus === 'completed' ||
+    (appointment as any)?.queueStatus === 'done'
 
-  const isInsideChamber = appointment?.checkinStatus === 'in_consultation'
+  const isInsideChamber =
+    ['inside', 'in_consultation', 'called', 'serving'].includes(
+      appointment?.checkinStatus?.toLowerCase() || ''
+    ) ||
+    ['inside', 'in_consultation', 'called', 'serving'].includes(
+      (appointment as any)?.queueStatus?.toLowerCase() || ''
+    )
+
+  const isCalledInsideOrDone = isConsultancyCompleted || isInsideChamber
 
   const hasPreparedReport = labReports.some((r) => r.status === 'prepared' || r.status === 'delivered')
   const hasProcessingReport = labReports.some((r) => r.status === 'processing')
@@ -267,18 +278,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         setSelectedReportToView(rep || null)
         setShowReportModal(true)
       } else if (pendingVerificationAction === 'reschedule') {
-        if (onNavigate && appointment?.clinicId) {
+        if (appointment?.clinicId) {
           setShowVerificationModal(false)
-          onNavigate('clinic-detail', {
-            clinicId: appointment.clinicId,
-            doctorId: appointment.doctorId,
-            trackingCode: appointment.trackingCode10Digit,
-            isReschedule: true,
-          })
-        } else {
-          setRescheduleDate(appointment?.appointmentDate || '')
-          setRescheduleTime(appointment?.appointmentTime || '10:00 AM')
-          setShowRescheduleModal(true)
+          if (onNavigate) {
+            onNavigate('clinic-detail', {
+              clinicId: appointment.clinicId,
+              doctorId: appointment.doctorId,
+              trackingCode: appointment.trackingCode10Digit,
+              isReschedule: true,
+              autoOpenBooking: true,
+            })
+          } else {
+            window.location.href = `/?clinic=${appointment.clinicId}&doctor=${appointment.doctorId || ''}&rescheduleCode=${appointment.trackingCode10Digit}&reschedule=true#clinic-detail`
+          }
         }
       } else if (pendingVerificationAction === 'cancel') {
         executeCancellation()
@@ -299,17 +311,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       } else if (action === 'download_report') {
         triggerReportDownload()
       } else if (action === 'reschedule') {
-        if (onNavigate && appointment?.clinicId) {
-          onNavigate('clinic-detail', {
-            clinicId: appointment.clinicId,
-            doctorId: appointment.doctorId,
-            trackingCode: appointment.trackingCode10Digit,
-            isReschedule: true,
-          })
-        } else {
-          setRescheduleDate(appointment?.appointmentDate || '')
-          setRescheduleTime(appointment?.appointmentTime || '10:00 AM')
-          setShowRescheduleModal(true)
+        if (appointment?.clinicId) {
+          if (onNavigate) {
+            onNavigate('clinic-detail', {
+              clinicId: appointment.clinicId,
+              doctorId: appointment.doctorId,
+              trackingCode: appointment.trackingCode10Digit,
+              isReschedule: true,
+              autoOpenBooking: true,
+            })
+          } else {
+            window.location.href = `/?clinic=${appointment.clinicId}&doctor=${appointment.doctorId || ''}&rescheduleCode=${appointment.trackingCode10Digit}&reschedule=true#clinic-detail`
+          }
         }
       } else if (action === 'cancel') {
         executeCancellation()
@@ -843,9 +856,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               {/* Clinic Information */}
               <div className="space-y-3">
                 <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-800 dark:text-teal-300 border border-teal-500/20 flex items-center justify-center shrink-0">
-                    <Building2 className="w-5 h-5" />
-                  </div>
+                  {clinic?.photoUrl || clinic?.logoUrl || (clinic?.pictures && clinic.pictures[0]) ? (
+                    <img
+                      src={clinic.photoUrl || clinic.logoUrl || clinic.pictures[0]}
+                      alt={clinic.name || 'Clinic'}
+                      className="w-10 h-10 rounded-xl object-cover shrink-0 border border-teal-500/20 shadow-sm"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-800 dark:text-teal-300 border border-teal-500/20 flex items-center justify-center shrink-0">
+                      <Building2 className="w-5 h-5" />
+                    </div>
+                  )}
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
                       HEALTHCARE FACILITY
@@ -872,9 +893,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   </a>
 
                   <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                      `${clinic?.name || ''} ${clinic?.addressText || ''}`
-                    )}`}
+                    href={
+                      (clinic?.latitude && clinic?.longitude) || (appointment.clinic?.latitude && appointment.clinic?.longitude)
+                        ? `https://www.google.com/maps/dir/?api=1&destination=${clinic?.latitude || appointment.clinic?.latitude},${clinic?.longitude || appointment.clinic?.longitude}`
+                        : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                            `${clinic?.name || appointment.clinic?.name || ''} ${clinic?.addressText || appointment.clinic?.addressText || ''}`.trim()
+                          )}`
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     className="py-2.5 px-3 rounded-xl liquid-glass-subtle text-teal-700 dark:text-teal-300 hover:bg-white/80 dark:hover:bg-slate-800/80 text-xs font-bold transition flex items-center justify-center space-x-1.5 active:scale-95"
@@ -1064,7 +1089,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             )}
 
             {/* 10. RESCHEDULE & CANCEL ACTIONS */}
-            {!isConsultancyCompleted ? (
+            {!isCalledInsideOrDone ? (
               <div className="flex items-center justify-between text-xs pt-2">
                 <button
                   onClick={() => handleActionWithAuth('reschedule')}

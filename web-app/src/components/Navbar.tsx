@@ -15,6 +15,7 @@ import {
   Ticket,
   ShieldCheck,
   Headphones,
+  Home,
 } from 'lucide-react'
 import dactorLogo from '../assets/logo.png'
 
@@ -46,29 +47,32 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   // Priority logic for portal association:
-  // 1. If actively viewing a portal tab, strictly associate with that portal!
-  // 2. Otherwise if logged in, use authRole.
+  // 1. If actively logged in to the viewed portal tab, strictly associate with that portal!
+  // 2. Otherwise if not logged in, treat as visitor (null).
   const activePortalRole: 'clinic_manager' | 'doctor' | 'patient' | null =
-    activeTab === 'portal'
-      ? 'clinic_manager'
-      : activeTab === 'doctor-portal'
-      ? 'doctor'
-      : activeTab === 'patient-portal'
-      ? 'patient'
-      : authRole || null
+    isLoggedIn
+      ? (activeTab === 'portal'
+          ? 'clinic_manager'
+          : activeTab === 'doctor-portal'
+          ? 'doctor'
+          : activeTab === 'patient-portal' || activeTab === 'records' || activeTab === 'account'
+          ? 'patient'
+          : authRole || null)
+      : null
 
+  // 1:1 Parity with Android App Navigation (PatientMainScreen.kt)
   const allNavLinks = [
-    { id: 'home', label: 'Home', icon: Activity },
-    { id: 'clinics', label: 'Find Clinics & OPD', icon: Stethoscope },
-    { id: 'patient-portal', label: 'Patient Portal', icon: User },
-    { id: 'live-queue', label: 'Live Queue & Reports', icon: Activity },
-    { id: 'average-time', label: 'Wait Time', icon: Clock },
+    { id: 'home', label: 'Home', icon: Home },
+    { id: 'live-queue', label: 'Track / Queue', icon: Activity },
+    { id: 'records', label: 'Records', icon: FileText },
+    { id: 'account', label: 'Account', icon: User },
+    { id: 'clinics', label: 'Find Clinics', icon: Stethoscope },
   ]
 
   // Strictly remove unassociated portal links from navigation
   const navLinks = allNavLinks.filter((item) => {
     if (activePortalRole === 'clinic_manager' || activePortalRole === 'doctor') {
-      return item.id !== 'patient-portal'
+      return item.id !== 'records' && item.id !== 'account'
     }
     return true
   })
@@ -221,20 +225,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
               </div>
             ) : activePortalRole === 'patient' ? (
-              /* PATIENT PORTAL VIEW: ONLY Patient Health button and Logout */
+              /* PATIENT PORTAL VIEW: User email badge and Logout */
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setActiveTab('patient-portal')}
-                  className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-brand-600 text-white shadow-sm border border-brand-600 cursor-pointer"
-                  title="Patient Health Records & Queue"
-                >
-                  <User className="w-3.5 h-3.5" />
-                  <span>My Health</span>
-                </button>
-
                 {currentUserEmail && (
                   <span
-                    className="hidden xl:inline-flex items-center px-2.5 py-1 text-[11px] font-bold bg-brand-50 text-brand-800 rounded-xl border border-brand-200 truncate max-w-[150px]"
+                    className="hidden xl:inline-flex items-center px-2.5 py-1 text-[11px] font-bold bg-brand-50 text-brand-800 rounded-xl border border-brand-200 truncate max-w-[170px]"
                     title={currentUserEmail}
                   >
                     {currentUserEmail}
@@ -261,7 +256,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       ? 'bg-gradient-to-r from-brand-600 to-cyan-600 text-white border-white/40 shadow-glass-brand'
                       : 'bg-white/70 text-slate-800 border-white/60 hover:bg-white/90 hover:text-brand-700'
                   }`}
-                  title="Open Patient Portal (Appointments, Family, Lab Reports & Bills)"
+                  title="Open Patient Portal (Appointments, Lab Reports & Bills)"
                 >
                   <User className="w-3.5 h-3.5" />
                   <span>My Health</span>
@@ -420,16 +415,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </>
               ) : activePortalRole === 'patient' ? (
                 <>
-                  <button
-                    onClick={() => {
-                      setActiveTab('patient-portal')
-                      setMobileMenuOpen(false)
-                    }}
-                    className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-brand-600 shadow-sm"
-                  >
-                    <User className="w-4 h-4" />
-                    <span>My Health Portal</span>
-                  </button>
+                  {currentUserEmail && (
+                    <div className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-50 rounded-xl truncate">
+                      Signed in as: <span className="text-brand-700">{currentUserEmail}</span>
+                    </div>
+                  )}
                   {onLogout && (
                     <button
                       onClick={() => {

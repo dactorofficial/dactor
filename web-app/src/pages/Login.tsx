@@ -53,7 +53,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
   const [patientAge, setPatientAge] = useState('')
   const [patientGender, setPatientGender] = useState<'Male' | 'Female' | 'Other'>('Male')
   const [patientCity, setPatientCity] = useState('')
-  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [termsAccepted, setTermsAccepted] = useState(true)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
   const [showTermsModal, setShowTermsModal] = useState(false)
 
@@ -62,8 +62,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
     try {
       const isAlreadyLoggedIn = Boolean(
         localStorage.getItem('dactor_patient_session') ||
-          (localStorage.getItem('dactor_auth_logged_in') === 'true' &&
-            localStorage.getItem('dactor_auth_role') === 'patient')
+          localStorage.getItem('dactor_patient_logged_in') === 'true'
       )
 
       const rawPending = localStorage.getItem('dactor_pending_booking_redirect')
@@ -146,22 +145,22 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
         }
         localStorage.setItem('dactor_patient_email', profile.email)
         localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
-        localStorage.setItem('dactor_auth_logged_in', 'true')
-        localStorage.setItem('dactor_auth_email', profile.email)
-        localStorage.setItem('dactor_auth_role', 'patient')
+        localStorage.setItem('dactor_patient_logged_in', 'true')
         window.dispatchEvent(new Event('storage'))
 
         resumeBookingOrNavigate(fullProfile)
       } else {
         // New or incomplete patient: strictly do NOT auto-fill name, gender, or age from Google account
+        const normGen = (profile?.gender || 'Male').trim().toLowerCase()
+        const resolvedGender = normGen === 'female' ? 'Female' : normGen === 'other' ? 'Other' : 'Male'
         setVerifiedEmail(cleanEmail)
         setAuthUid(gUser.uid)
         setPatientName(profile?.fullName || '')
         setPatientPhone(profile?.phone || '')
         setPatientAge(profile?.age ? String(profile.age) : '')
-        setPatientGender(((profile?.gender as any) || 'Male'))
+        setPatientGender(resolvedGender)
         setPatientCity(profile?.city || '')
-        setTermsAccepted(false)
+        setTermsAccepted(true)
         setCurrentView('register_form')
         setIsLoading(false)
       }
@@ -241,9 +240,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
 
       localStorage.setItem('dactor_patient_email', finalProfile.email)
       localStorage.setItem('dactor_patient_session', JSON.stringify(finalProfile))
-      localStorage.setItem('dactor_auth_logged_in', 'true')
-      localStorage.setItem('dactor_auth_email', finalProfile.email)
-      localStorage.setItem('dactor_auth_role', 'patient')
+      localStorage.setItem('dactor_patient_logged_in', 'true')
       window.dispatchEvent(new Event('storage'))
 
       resumeBookingOrNavigate(finalProfile)
@@ -264,9 +261,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
       }
       localStorage.setItem('dactor_patient_email', fallback.email)
       localStorage.setItem('dactor_patient_session', JSON.stringify(fallback))
-      localStorage.setItem('dactor_auth_logged_in', 'true')
-      localStorage.setItem('dactor_auth_email', fallback.email)
-      localStorage.setItem('dactor_auth_role', 'patient')
+      localStorage.setItem('dactor_patient_logged_in', 'true')
       window.dispatchEvent(new Event('storage'))
 
       resumeBookingOrNavigate(fallback)
@@ -635,7 +630,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
                         }
                       }}
                       className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                        patientGender === g
+                        patientGender.toLowerCase() === g.toLowerCase()
                           ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-transparent shadow-md shadow-teal-500/20'
                           : 'liquid-glass-card text-slate-700 dark:text-slate-300 border-white/60 dark:border-white/10 hover:bg-white/70'
                       }`}

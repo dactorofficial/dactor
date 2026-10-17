@@ -40,6 +40,7 @@ import {
   Doctor,
   Appointment,
   Clinic,
+  ClinicInvitation,
   MedicalSpecialty,
   MedicalQualification,
 } from '../types'
@@ -48,8 +49,11 @@ import {
   getDoctorById,
   updateDoctorPresence,
   updateAppointmentStatus,
+  updateAppointmentNotes,
   getDoctorAppointments,
   getAffiliatedClinicsForDoctor,
+  getDoctorInvitations,
+  respondToDoctorInvitation,
   createDoctor,
   updateDoctor,
   uploadClinicDocument,
@@ -62,6 +66,8 @@ import {
   getSupportUrl,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
+import { extractCleanClinicalRemarks } from '../utils/paymentLedger'
+import { playChimeSound } from '../utils/audioChime'
 import { supabase } from '../lib/supabase'
 import { signInWithFirebaseGoogle, signOutFirebase } from '../lib/firebase'
 
@@ -80,8 +86,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     'auth_screen' | 'register_form' | 'kyc_pending' | 'consultation_desk'
   >(() => {
     try {
+      const isDoctorLoggedIn = localStorage.getItem('dactor_doctor_logged_in') === 'true'
       const savedDoc = localStorage.getItem('dactor_doctor_session')
-      if (savedDoc) return 'consultation_desk'
+      if (savedDoc && isDoctorLoggedIn) return 'consultation_desk'
       const pending = localStorage.getItem('dactor_doctor_pending_kyc')
       if (pending) return 'kyc_pending'
       return 'auth_screen'
@@ -165,6 +172,26 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const [editBio, setEditBio] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileSaveSuccess, setProfileSaveSuccess] = useState(false)
+
+  // Prescription & Clinical Notes Writer State (Parity with DoctorDashboardScreen.kt)
+  const [rxModalOpen, setRxModalOpen] = useState(false)
+  const [rxTargetAppt, setRxTargetAppt] = useState<Appointment | null>(null)
+  const [rxDiagnosis, setRxDiagnosis] = useState('')
+  const [rxMedicines, setRxMedicines] = useState<Array<{ name: string; dosage: string; frequency: string; duration: string; instructions: string }>>([
+    { name: '', dosage: '500mg', frequency: '1-0-1 (Twice daily)', duration: '5 days', instructions: 'After meals' },
+  ])
+  const [rxAdvice, setRxAdvice] = useState('')
+  const [savingRx, setSavingRx] = useState(false)
+
+  // Patient History Drawer / Modal State
+  const [historyModalOpen, setHistoryModalOpen] = useState(false)
+  const [historyPatientName, setHistoryPatientName] = useState('')
+  const [historyVisits, setHistoryVisits] = useState<Appointment[]>([])
+
+  // Clinic Affiliation Invitations for Doctor
+  const [doctorInvitations, setDoctorInvitations] = useState<ClinicInvitation[]>([])
+  const [invitationClinics, setInvitationClinics] = useState<Record<string, Clinic>>({})
+  const [respondingInviteId, setRespondingInviteId] = useState<string | null>(null)
 
   // ==========================================
   // REGISTRATION & KYC FORM FIELDS
@@ -288,6 +315,21 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       const todayStr = new Date().toISOString().split('T')[0]
       const appts = await getDoctorAppointments(doctor.id)
       setAppointments(appts)
+
+      // Load pending clinic affiliation invitations
+      if (doctor.email) {
+        const invites = await getDoctorInvitations(doctor.email, doctor.id)
+        setDoctorInvitations(invites)
+        if (invites.length > 0) {
+          const allCls = await getClinics()
+          const map: Record<string, Clinic> = {}
+          invites.forEach((inv) => {
+            const found = allCls.find((c) => c.id === inv.clinicId)
+            if (found) map[inv.id] = found
+          })
+          setInvitationClinics(map)
+        }
+      }
     } catch (err) {
       console.error('Error loading doctor data:', err)
     } finally {
@@ -321,9 +363,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     try {
       localStorage.setItem('dactor_doctor_session', JSON.stringify(doctor))
       localStorage.setItem('dactor_doctor_email', doctor.email || '')
-      localStorage.setItem('dactor_auth_logged_in', 'true')
-      localStorage.setItem('dactor_auth_email', doctor.email || '')
-      localStorage.setItem('dactor_auth_role', 'doctor')
+      localStorage.setItem('dactor_doctor_logged_in', 'true')
       window.dispatchEvent(new Event('storage'))
     } catch {}
   }
@@ -555,12 +595,86 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   // Consultation Status Update Actions
   const handleMarkInsideCabin = async (appt: Appointment) => {
     if (!currentDoctor) return
+    playChimeSound()
     try {
       await updateAppointmentStatus(appt.id, 'in_consultation')
+      // Send real notification to patient that doctor is ready
+      sendManualNotification(
+        appt.id,
+        `Dr. ${currentDoctor.fullName} is Ready`,
+        `Token #${appt.queueNumber || 'N/A'}: Dr. ${currentDoctor.fullName} is ready for your consultation. Please enter the cabin.`,
+        undefined,
+        undefined,
+        appt.trackingCode10Digit,
+        appt.userId || undefined,
+        appt.clinicId
+      ).catch(() => {})
       const refreshed = await getDoctorAppointments(currentDoctor.id)
       setAppointments(refreshed)
     } catch (err) {
       console.error('Error updating to inside cabin:', err)
+    }
+  }
+
+  const handleOpenPrescriptionModal = (appt: Appointment) => {
+    setRxTargetAppt(appt)
+    setRxDiagnosis('')
+    setRxMedicines([
+      { name: '', dosage: '500mg', frequency: '1-0-1 (Twice daily)', duration: '5 days', instructions: 'After meals' },
+    ])
+    setRxAdvice('')
+    setRxModalOpen(true)
+  }
+
+  const handleAddMedicineRow = () => {
+    setRxMedicines((prev) => [
+      ...prev,
+      { name: '', dosage: '', frequency: '1-0-1', duration: '5 days', instructions: 'After meals' },
+    ])
+  }
+
+  const handleRemoveMedicineRow = (index: number) => {
+    setRxMedicines((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleUpdateMedicineField = (index: number, field: string, val: string) => {
+    setRxMedicines((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, [field]: val } : item))
+    )
+  }
+
+  const handleSavePrescriptionAndComplete = async () => {
+    if (!rxTargetAppt || !currentDoctor) return
+    setSavingRx(true)
+    try {
+      const validMeds = rxMedicines.filter((m) => m.name.trim().length > 0)
+      let formattedNotes = ''
+      if (rxDiagnosis.trim()) {
+        formattedNotes += `DIAGNOSIS:\n${rxDiagnosis.trim()}\n\n`
+      }
+      if (validMeds.length > 0) {
+        formattedNotes += `PRESCRIPTION (Rx):\n` + validMeds.map((m, idx) =>
+          `${idx + 1}. ${m.name} ${m.dosage ? `(${m.dosage})` : ''} - ${m.frequency} for ${m.duration} [${m.instructions}]`
+        ).join('\n') + '\n\n'
+      }
+      if (rxAdvice.trim()) {
+        formattedNotes += `CLINICAL ADVICE:\n${rxAdvice.trim()}`
+      }
+
+      if (formattedNotes.trim()) {
+        await updateAppointmentNotes(rxTargetAppt.id, formattedNotes.trim())
+      }
+      await updateAppointmentStatus(rxTargetAppt.id, 'completed')
+
+      // Refresh appointments
+      const refreshed = await getDoctorAppointments(currentDoctor.id)
+      setAppointments(refreshed)
+      setRxModalOpen(false)
+      setRxTargetAppt(null)
+    } catch (err) {
+      console.error('Error saving prescription:', err)
+    } finally {
+      setSavingRx(false)
     }
   }
 
@@ -572,6 +686,30 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       setAppointments(refreshed)
     } catch (err) {
       console.error('Error completing consultation:', err)
+    }
+  }
+
+  const handleOpenPatientHistory = (patientName: string) => {
+    setHistoryPatientName(patientName)
+    const visits = appointments.filter(
+      (a) => a.patientName?.trim().toLowerCase() === patientName.trim().toLowerCase()
+    )
+    setHistoryVisits(visits)
+    setHistoryModalOpen(true)
+  }
+
+  const handleRespondInvitation = async (invite: ClinicInvitation, accept: boolean) => {
+    if (!currentDoctor) return
+    setRespondingInviteId(invite.id)
+    try {
+      const ok = await respondToDoctorInvitation(invite.id, accept, currentDoctor.id, invite.clinicId)
+      if (ok) {
+        await loadDoctorClinicsAndAppointments(currentDoctor)
+      }
+    } catch (err) {
+      console.error('Error responding to invitation:', err)
+    } finally {
+      setRespondingInviteId(null)
     }
   }
 
@@ -681,10 +819,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const handleLogout = () => {
     localStorage.removeItem('dactor_doctor_session')
     localStorage.removeItem('dactor_doctor_email')
+    localStorage.removeItem('dactor_doctor_logged_in')
     localStorage.removeItem('dactor_doctor_pending_kyc')
-    localStorage.removeItem('dactor_auth_logged_in')
-    localStorage.removeItem('dactor_auth_email')
-    localStorage.removeItem('dactor_auth_role')
     setCurrentDoctor(null)
     setCurrentView('auth_screen')
     signOutFirebase().catch(() => {})
@@ -1451,6 +1587,65 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         </div>
       </div>
 
+      {/* PENDING CLINIC AFFILIATION INVITATIONS (Parity with DoctorDashboardScreen.kt) */}
+      {doctorInvitations.length > 0 && (
+        <div className="space-y-3">
+          {doctorInvitations.map((inv) => {
+            const clinicInfo = invitationClinics[inv.id]
+            const isResponding = respondingInviteId === inv.id
+            return (
+              <div
+                key={inv.id}
+                className="liquid-glass-elevated p-4 sm:p-5 rounded-2xl border border-blue-500/30 bg-gradient-to-r from-blue-900/10 via-sky-900/10 to-indigo-900/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm"
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
+                        Clinic Invitation
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        {inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : 'Recent'}
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-black text-slate-900 dark:text-white mt-0.5">
+                      {clinicInfo?.name || 'Verified Dactor Clinic Partner'}
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      {clinicInfo?.addressText ? `Location: ${clinicInfo.addressText}. ` : ''}
+                      Accepting allows this clinic to schedule patients and publish OPD slots for your profile.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2 w-full sm:w-auto justify-end shrink-0">
+                  <button
+                    type="button"
+                    disabled={isResponding}
+                    onClick={() => handleRespondInvitation(inv, false)}
+                    className="px-3.5 py-2 rounded-xl liquid-glass-subtle hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 font-bold text-xs border border-rose-300/60 dark:border-rose-500/30 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    Decline
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isResponding}
+                    onClick={() => handleRespondInvitation(inv, true)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:brightness-110 text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{isResponding ? 'Accepting...' : 'Accept Invite'}</span>
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* Navigation Tabs */}
       <div className="flex items-center space-x-2 border-b border-white/40 dark:border-white/10 pb-3 overflow-x-auto scrollbar-none">
         <button
@@ -1594,7 +1789,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                   </p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-center gap-3 justify-end">
+                <div className="flex flex-col sm:flex-row items-center gap-2.5 justify-end">
                   <button
                     type="button"
                     onClick={() => {
@@ -1603,7 +1798,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                       setAlertMessage('Your consultation is ongoing. Please remain inside cabin.')
                       setAlertModalOpen(true)
                     }}
-                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
+                    className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>Send Alert</span>
@@ -1611,11 +1806,21 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
                   <button
                     type="button"
-                    onClick={() => handleMarkCompleted(currentInsidePatient)}
-                    className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-black text-xs shadow-lg shadow-emerald-500/25 transition-all cursor-pointer flex items-center justify-center space-x-2 active:scale-[0.98]"
+                    onClick={() => handleOpenPrescriptionModal(currentInsidePatient)}
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:brightness-110 text-white font-black text-xs shadow-md shadow-blue-500/30 border border-white/30 transition-all cursor-pointer flex items-center justify-center space-x-2 active:scale-[0.98]"
                   >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Mark Consultation Completed</span>
+                    <FileText className="w-4 h-4" />
+                    <span>Write Rx & Complete</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleMarkCompleted(currentInsidePatient)}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
+                    title="Complete consultation without adding new prescription notes"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Quick Complete</span>
                   </button>
                 </div>
               </div>
@@ -1652,8 +1857,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                     className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
                   >
                     <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-teal-700 dark:text-teal-300 flex flex-col items-center justify-center font-mono font-black shrink-0">
-                        <span className="text-[10px] text-teal-600 dark:text-teal-400 uppercase leading-none">Token</span>
+                      <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 flex flex-col items-center justify-center font-mono font-black shrink-0">
+                        <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase leading-none">Token</span>
                         <span className="text-base leading-none">
                           #{String(appt.queueNumber || idx + 1).padStart(2, '0')}
                         </span>
@@ -1673,12 +1878,22 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                           {appt.appointmentTime ? `• Slot: ${appt.appointmentTime}` : ''}
                         </p>
                         {appt.notes && (
-                          <p className="text-[11px] text-teal-700 dark:text-teal-300 font-medium">Notes: {appt.notes}</p>
+                          <p className="text-[11px] text-blue-700 dark:text-blue-300 font-medium">Notes: {appt.notes}</p>
                         )}
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end flex-wrap gap-y-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPatientHistory(appt.patientName)}
+                        className="px-3 py-2 rounded-xl liquid-glass-card border border-white/40 dark:border-white/10 text-slate-700 dark:text-slate-200 hover:text-blue-600 hover:bg-blue-500/10 text-xs font-bold transition-colors cursor-pointer flex items-center space-x-1 active:scale-[0.98]"
+                        title="View Patient's Past Visits and Prescriptions"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>History</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => {
@@ -1689,7 +1904,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                           )
                           setAlertModalOpen(true)
                         }}
-                        className="p-2.5 rounded-xl liquid-glass-card border border-white/40 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:text-teal-600 hover:bg-teal-500/10 transition-colors cursor-pointer active:scale-[0.98]"
+                        className="p-2 rounded-xl liquid-glass-card border border-white/40 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:bg-blue-500/10 transition-colors cursor-pointer active:scale-[0.98]"
                         title="Send Push Alert to Patient"
                       >
                         <Send className="w-4 h-4" />
@@ -1698,7 +1913,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                       <button
                         type="button"
                         onClick={() => handleMarkNoShow(appt)}
-                        className="px-3 py-2.5 rounded-xl liquid-glass-subtle border border-rose-300/60 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 hover:bg-rose-500/15 text-xs font-bold transition-all cursor-pointer active:scale-[0.98]"
+                        className="px-3 py-2 rounded-xl liquid-glass-subtle border border-rose-300/60 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 hover:bg-rose-500/15 text-xs font-bold transition-all cursor-pointer active:scale-[0.98]"
                         title="Mark patient as absent / no-show"
                       >
                         No-Show
@@ -1707,7 +1922,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                       <button
                         type="button"
                         onClick={() => handleMarkInsideCabin(appt)}
-                        className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center space-x-1.5 active:scale-[0.98]"
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:brightness-110 text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center space-x-1.5 active:scale-[0.98]"
                       >
                         <UserCheck className="w-4 h-4" />
                         <span>Call to Cabin</span>
@@ -1867,7 +2082,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                         <div className="pt-1">
                           <span className="text-[10px] uppercase font-bold text-slate-400 block">Clinical Remarks:</span>
                           <p className="text-[11px] text-teal-800 dark:text-teal-300 font-medium line-clamp-2">
-                            {p.notes.slice(-1)[0]}
+                            {extractCleanClinicalRemarks(p.notes.slice(-1)[0])}
                           </p>
                         </div>
                       )}
@@ -2176,6 +2391,288 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                   <Send className="w-4 h-4" />
                 )}
                 <span>Send Alert</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          PRESCRIPTION & CLINICAL NOTES WRITER MODAL
+          ======================================================== */}
+      {rxModalOpen && rxTargetAppt && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="liquid-glass-elevated w-full max-w-2xl rounded-3xl p-5 sm:p-7 border border-blue-500/30 shadow-2xl space-y-5 my-8 text-left bg-white/95 dark:bg-slate-900/95 relative max-h-[90vh] overflow-y-auto">
+            {/* Top specular refraction sheen */}
+            <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-600 via-sky-500 to-indigo-600 rounded-t-3xl" />
+
+            <div className="flex items-start justify-between border-b border-[var(--border)] pb-3">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded-full border border-blue-500/20">
+                    OPD Consultation Rx
+                  </span>
+                  <span className="text-xs font-mono font-bold text-slate-500">
+                    Token #{rxTargetAppt.queueNumber || 'N/A'} • {rxTargetAppt.trackingCode10Digit}
+                  </span>
+                </div>
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white mt-1">
+                  Clinical Diagnosis & Prescription
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Patient: <strong className="text-slate-900 dark:text-white">{rxTargetAppt.patientName}</strong>{' '}
+                  {rxTargetAppt.patientAge ? `(${rxTargetAppt.patientAge} Yrs` : ''}
+                  {rxTargetAppt.patientGender ? `, ${rxTargetAppt.patientGender})` : ')'} • Dr. {currentDoctor?.fullName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRxModalOpen(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Diagnosis Input */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                <span>Clinical Diagnosis / Impression *</span>
+                <span className="text-[10px] text-slate-400 font-normal">Primary medical diagnosis</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Acute upper respiratory infection, Essential hypertension, Viral gastritis"
+                value={rxDiagnosis}
+                onChange={(e) => setRxDiagnosis(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white border border-[var(--border)]"
+              />
+            </div>
+
+            {/* Medications List */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
+                  <FileText className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Prescribed Medications (Rx)</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAddMedicineRow}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 hover:bg-blue-100 flex items-center space-x-1 cursor-pointer transition-all"
+                >
+                  <span>+ Add Medicine</span>
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                {rxMedicines.map((med, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-[var(--border)] space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                        Medicine #{idx + 1}
+                      </span>
+                      {rxMedicines.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMedicineRow(idx)}
+                          className="text-rose-500 hover:text-rose-700 text-xs font-semibold flex items-center space-x-1 cursor-pointer"
+                        >
+                          <span>Remove</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder="Drug / Brand Name (e.g. Paracetamol, Azithromycin)"
+                        value={med.name}
+                        onChange={(e) => handleUpdateMedicineField(idx, 'name', e.target.value)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-900 border border-[var(--border)] text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Strength / Dosage (e.g. 500mg, 10ml, 1 tab)"
+                        value={med.dosage}
+                        onChange={(e) => handleUpdateMedicineField(idx, 'dosage', e.target.value)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-slate-900 border border-[var(--border)] text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[10px] text-slate-500 font-semibold block mb-0.5">Frequency</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 1-0-1, TDS, OD"
+                          value={med.frequency}
+                          onChange={(e) => handleUpdateMedicineField(idx, 'frequency', e.target.value)}
+                          className="w-full px-2.5 py-1 rounded-lg text-xs bg-white dark:bg-slate-900 border border-[var(--border)] text-slate-900 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500 font-semibold block mb-0.5">Duration</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 5 days, 1 week"
+                          value={med.duration}
+                          onChange={(e) => handleUpdateMedicineField(idx, 'duration', e.target.value)}
+                          className="w-full px-2.5 py-1 rounded-lg text-xs bg-white dark:bg-slate-900 border border-[var(--border)] text-slate-900 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500 font-semibold block mb-0.5">Instructions</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. After food"
+                          value={med.instructions}
+                          onChange={(e) => handleUpdateMedicineField(idx, 'instructions', e.target.value)}
+                          className="w-full px-2.5 py-1 rounded-lg text-xs bg-white dark:bg-slate-900 border border-[var(--border)] text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Advice & Remarks */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                Clinical Advice, Dietary Precautions & Follow-up
+              </label>
+              <textarea
+                rows={3}
+                placeholder="e.g. Drink warm fluids, avoid heavy exertion, return for follow-up review after 5 days if symptoms do not improve."
+                value={rxAdvice}
+                onChange={(e) => setRxAdvice(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white border border-[var(--border)]"
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-3 border-t border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => setRxModalOpen(false)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-[var(--border)] text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setRxModalOpen(false)
+                  handleMarkCompleted(rxTargetAppt)
+                }}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                title="Complete consultation without adding Rx text"
+              >
+                Skip Prescription & Complete
+              </button>
+
+              <button
+                type="button"
+                disabled={savingRx}
+                onClick={handleSavePrescriptionAndComplete}
+                className="w-full sm:flex-1 py-2.5 px-5 rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:brightness-110 text-white font-black text-xs shadow-md shadow-blue-500/25 border border-white/20 flex items-center justify-center space-x-2 transition-all cursor-pointer disabled:opacity-60"
+              >
+                {savingRx ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Saving Prescription to Database...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Save Rx & Complete Consultation</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          PATIENT MEDICAL HISTORY MODAL
+          ======================================================== */}
+      {historyModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="liquid-glass-elevated w-full max-w-xl rounded-3xl p-5 sm:p-6 border border-white/40 dark:border-white/10 shadow-2xl space-y-4 text-left bg-white/95 dark:bg-slate-900/95 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  Patient Medical History & Past Visits
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Patient: <strong className="text-slate-800 dark:text-slate-200">{historyPatientName}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {historyVisits.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-500 space-y-2">
+                <FileText className="w-8 h-8 mx-auto text-slate-400" />
+                <p>No prior visits recorded for this patient yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {historyVisits.map((visit) => (
+                  <div
+                    key={visit.id}
+                    className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-[var(--border)] space-y-2 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        Visit Date: {visit.appointmentDate} • {visit.appointmentTime}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          visit.checkinStatus === 'completed'
+                            ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
+                            : 'bg-blue-500/10 text-blue-600 border border-blue-500/20'
+                        }`}
+                      >
+                        {visit.checkinStatus}
+                      </span>
+                    </div>
+
+                    <div className="font-mono text-[11px] text-slate-500">
+                      Token #{visit.queueNumber || 'N/A'} • Universal Code: {visit.trackingCode10Digit}
+                    </div>
+
+                    {visit.notes ? (
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-[var(--border)] text-slate-700 dark:text-slate-300 font-mono text-[11px] whitespace-pre-wrap">
+                        {visit.notes}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-400 italic">No notes recorded for this visit.</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setHistoryModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-bold text-xs"
+              >
+                Close History
               </button>
             </div>
           </div>

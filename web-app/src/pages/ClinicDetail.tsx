@@ -23,6 +23,7 @@ import {
   History,
   Info,
   Check,
+  Share2,
   Layers,
   Lock,
 } from 'lucide-react'
@@ -153,6 +154,49 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const [confirmedTxnId, setConfirmedTxnId] = useState<string>('')
   const [confirmedPayMethod, setConfirmedPayMethod] = useState<string>('')
 
+  // Share Clinic Profile
+  const [copiedShareLink, setCopiedShareLink] = useState(false)
+
+  const handleShareClinic = async () => {
+    const targetClinicId = clinic?.id || clinicId
+    const origin = typeof window !== 'undefined' && window.location.origin
+      ? window.location.origin
+      : 'https://dactorofficial.github.io'
+    let pathname = typeof window !== 'undefined' ? window.location.pathname : '/dactor/'
+    if (!pathname.endsWith('/')) {
+      pathname = pathname + '/'
+    }
+    const clinicUrl = `${origin}${pathname}?clinic=${targetClinicId}`
+    const clinicTitle = clinic?.name ? `${clinic.name} - Dactor Nepal` : 'Dactor Nepal Clinic Profile'
+    const locationPart = clinic?.addressText ? ` (${clinic.addressText})` : ''
+    const clinicText = `Check out ${clinic?.name || 'this clinic'}${locationPart} on Dactor Nepal. Book doctor appointments and track realtime OPD queue live:`
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: clinicTitle,
+          text: clinicText,
+          url: clinicUrl,
+        })
+        return
+      } catch (err: any) {
+        if (err.name === 'AbortError') return
+      }
+    }
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(clinicUrl)
+        setCopiedShareLink(true)
+        setTimeout(() => setCopiedShareLink(false), 2500)
+      } else {
+        window.prompt('Copy clinic profile link:', clinicUrl)
+      }
+    } catch {
+      window.prompt('Copy clinic profile link:', clinicUrl)
+    }
+  }
+
   // Load clinic, doctors, lab services, and payment config from Supabase
   const loadClinicData = async () => {
     try {
@@ -226,10 +270,16 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       } catch {}
 
       if (autoOpenBooking) {
+        if (isReschedule) {
+          setTimeout(() => {
+            const el = document.getElementById('booking-schedule')
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }, 300)
+          return
+        }
         const isUserLoggedIn = Boolean(
           localStorage.getItem('dactor_patient_session') ||
-            (localStorage.getItem('dactor_auth_logged_in') === 'true' &&
-              localStorage.getItem('dactor_auth_role') === 'patient')
+            localStorage.getItem('dactor_patient_logged_in') === 'true'
         )
         if (!isUserLoggedIn) {
           const pendingData = {
@@ -404,6 +454,16 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   }, [retainedAppointment, doctors])
 
   useEffect(() => {
+    if (isReschedule && !loading) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById('booking-schedule')
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 350)
+      return () => clearTimeout(timer)
+    }
+  }, [isReschedule, loading])
+
+  useEffect(() => {
     setLoading(true)
     loadClinicData()
 
@@ -537,6 +597,19 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           }
         }
       } catch {}
+    }
+
+    const isLabClinic =
+      activeTab === 'lab' ||
+      clinic?.type === 'diagnostic_lab' ||
+      clinic?.type?.toLowerCase().includes('lab') ||
+      clinic?.name?.toLowerCase().includes('lab') ||
+      (clinic?.specialties?.some(
+        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+      ) ?? false)
+
+    if (isLabClinic) {
+      return 'available'
     }
 
     const rawSlots = (monthSlotsMap[dateStr] || []).filter((s) => s.isAvailable !== false)
@@ -735,7 +808,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     const n = Number(val)
     return val.trim() !== '' && Number.isInteger(n) && n >= 1 && n <= 120
   }
-  const isGenderValid = (val: string) => ['Male', 'Female', 'Other'].includes(val || 'Male')
+  const normalizeGender = (g?: string): 'Male' | 'Female' | 'Other' => {
+    if (!g) return 'Male'
+    const l = g.trim().toLowerCase()
+    if (l === 'female') return 'Female'
+    if (l === 'other') return 'Other'
+    return 'Male'
+  }
+  const isGenderValid = (val: string) => ['Male', 'Female', 'Other'].includes(normalizeGender(val))
   const isMobileValid = (val: string) => /^9\d{9}$/.test(val.replace(/\D/g, ''))
 
   // Validate form and scroll/focus first missing/invalid field
@@ -878,9 +958,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           : selectedPaymentMethod === 'khalti'
           ? 'Khalti Digital Wallet'
           : selectedPaymentMethod === 'fonepay'
-          ? 'Fonepay QR'
-          : selectedPaymentMethod === 'bypass'
-          ? 'Bypass Test Gateway'
+          ? 'Fonepay Direct QR'
           : 'Pay at Clinic Counter'
 
         await recordPaymentTransaction({
@@ -1093,14 +1171,35 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 space-y-6 sm:space-y-8">
-      {/* Back Button */}
-      <button
-        onClick={onBack}
-        className="inline-flex items-center space-x-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-teal-600 dark:hover:text-teal-400 transition-colors py-1 cursor-pointer active:scale-95"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        <span>Back to Clinics Directory</span>
-      </button>
+      {/* Back Button & Share Top Bar */}
+      <div className="flex items-center justify-between gap-3">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center space-x-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-teal-600 dark:hover:text-teal-400 transition-colors py-1 cursor-pointer active:scale-95"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to Clinics Directory</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleShareClinic}
+          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-slate-800/80 hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-teal-600 dark:hover:text-teal-400 border border-slate-200/60 dark:border-white/10 text-xs font-bold transition shadow-glass-sm cursor-pointer active:scale-95"
+          title="Share Clinic Profile Link"
+        >
+          {copiedShareLink ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span className="text-emerald-600 font-bold">Link Copied!</span>
+            </>
+          ) : (
+            <>
+              <Share2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+              <span>Share Clinic</span>
+            </>
+          )}
+        </button>
+      </div>
 
       {/* Reschedule Banner */}
       {isReschedule && (
@@ -1299,9 +1398,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   <span className="font-semibold truncate max-w-[200px] sm:max-w-none">{clinic.addressText || 'Nepal'}</span>
                 </span>
                 <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                    `${clinic.name} ${clinic.addressText || ''}`.trim()
-                  )}`}
+                  href={
+                    clinic.latitude && clinic.longitude
+                      ? `https://www.google.com/maps/dir/?api=1&destination=${clinic.latitude},${clinic.longitude}`
+                      : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                          `${clinic.name} ${clinic.addressText || ''}`.trim()
+                        )}`
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center space-x-1 px-2.5 sm:px-3 py-1 rounded-xl bg-blue-500/10 text-blue-700 dark:text-blue-300 hover:bg-blue-500/20 font-bold border border-blue-500/20 transition text-[11px] backdrop-blur-sm"
@@ -1309,6 +1412,24 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                   <span>Google Maps Directions</span>
                 </a>
+                <button
+                  type="button"
+                  onClick={handleShareClinic}
+                  className="inline-flex items-center space-x-1.5 px-2.5 sm:px-3 py-1 rounded-xl bg-teal-500/10 text-teal-700 dark:text-teal-300 hover:bg-teal-500/20 font-bold border border-teal-500/20 transition text-[11px] backdrop-blur-sm cursor-pointer active:scale-95"
+                  title="Share Clinic Profile Link"
+                >
+                  {copiedShareLink ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="text-emerald-600 font-bold">Link Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Share Clinic</span>
+                    </>
+                  )}
+                </button>
                 {clinic.contactPhone && (
                   <a
                     href={`tel:${clinic.contactPhone}`}
@@ -1343,8 +1464,11 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           <div className="w-full sm:w-auto grid grid-cols-2 sm:flex items-center gap-2">
             {(!isLabClinic || doctors.length > 0) && (
               <button
-                onClick={() => setActiveTab('opd')}
-                className={`w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 ${
+                disabled={isReschedule}
+                onClick={() => !isReschedule && setActiveTab('opd')}
+                className={`w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                  isReschedule ? 'cursor-not-allowed opacity-90' : 'cursor-pointer active:scale-95'
+                } ${
                   activeTab === 'opd'
                     ? 'bg-slate-900 text-white shadow-glass-base dark:bg-white dark:text-slate-950 border border-slate-700/50 dark:border-white'
                     : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60'
@@ -1356,11 +1480,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     ? 'Attending Doctor'
                     : `Specialists (${doctors.length})`}
                 </span>
+                {isReschedule && <Lock className="w-3 h-3 text-amber-400 ml-1" />}
               </button>
             )}
             <button
-              onClick={() => setActiveTab('lab')}
-              className={`w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 ${
+              disabled={isReschedule}
+              onClick={() => !isReschedule && setActiveTab('lab')}
+              className={`w-full sm:w-auto justify-center px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                isReschedule ? 'cursor-not-allowed opacity-40' : 'cursor-pointer active:scale-95'
+              } ${
                 activeTab === 'lab'
                   ? 'bg-teal-600 text-white shadow-glass-base border border-teal-500/50'
                   : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60'
@@ -1607,7 +1735,12 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         <div>
                           <div className="flex items-center space-x-2">
                             <h3 className="text-lg font-black text-slate-900 dark:text-white">{selectedDoctor.fullName}</h3>
-                            {isDoctorInThisClinic(selectedDoctor) ? (
+                            {isReschedule ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20 gap-1">
+                                <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                Doctor Locked
+                              </span>
+                            ) : isDoctorInThisClinic(selectedDoctor) ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-ping" />
                                 In Clinic Now
@@ -1657,7 +1790,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               <div className="space-y-6">
                 {/* Specialists Roster Header */}
                 <div className="flex items-center justify-between pt-2">
-                  <h3 className="text-lg font-black text-slate-900 dark:text-white">Specialist Doctors on Roster</h3>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white">Specialist Doctors on Roster</h3>
+                    {isReschedule && (
+                      <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20 flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                        Doctor Change Blocked
+                      </span>
+                    )}
+                  </div>
                   <span className="text-xs font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 border border-teal-500/20 px-3 py-1 rounded-full">
                     {doctors.length} Doctors
                   </span>
@@ -1676,11 +1817,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       return (
                         <div
                           key={doc.id}
-                          onClick={() => setSelectedDoctor(doc)}
-                          className={`p-5 rounded-3xl transition-all cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                          onClick={isReschedule ? undefined : () => setSelectedDoctor(doc)}
+                          className={`p-5 rounded-3xl transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
                             isSelected
                               ? 'liquid-glass-elevated border-teal-500/50 shadow-glass-base ring-2 ring-teal-500/30'
-                              : 'liquid-glass-card hover:-translate-y-0.5'
+                              : isReschedule
+                              ? 'liquid-glass-card opacity-40 cursor-not-allowed'
+                              : 'liquid-glass-card hover:-translate-y-0.5 cursor-pointer'
                           }`}
                         >
                           <div className="flex items-center space-x-4">
@@ -1733,11 +1876,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                             <span
                               className={`mt-1 text-xs font-bold px-3 py-1 rounded-xl transition-all ${
                                 isSelected
-                                  ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-glass-sm'
+                                  ? isReschedule
+                                    ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30 flex items-center gap-1 shadow-glass-sm'
+                                    : 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-glass-sm'
+                                  : isReschedule
+                                  ? 'liquid-glass-subtle text-slate-400 dark:text-slate-500 cursor-not-allowed'
                                   : 'liquid-glass-subtle text-slate-700 dark:text-slate-300'
                               }`}
                             >
-                              {isSelected ? 'Selected' : 'Select'}
+                              {isSelected ? (isReschedule ? 'Doctor Locked' : 'Selected') : isReschedule ? 'Locked' : 'Select'}
                             </span>
                           </div>
                         </div>
@@ -1759,6 +1906,65 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   ? 'Book Free Follow-Up'
                   : 'Book OPD Consultation'}
               </h3>
+
+              {/* Reschedule Patient Details & Locked Status Banner */}
+              {isReschedule && (
+                <div className="p-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2 text-cyan-900 dark:text-cyan-300 font-black text-xs">
+                      <Lock className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                      <span>Patient Details Locked</span>
+                    </div>
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-cyan-600 text-white">
+                      Fee Retained (Rs. 0)
+                    </span>
+                  </div>
+
+                  <div className="liquid-glass-subtle p-3.5 rounded-xl space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">Patient:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {retainedAppointment?.patientName || patientName || 'Verified Patient'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">Contact:</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        {retainedAppointment?.patientMobile || patientMobile || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">Age & Gender:</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        {retainedAppointment?.patientAge || patientAge || 'N/A'} yrs • {retainedAppointment?.patientGender || patientGender || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">Token ID:</span>
+                      <span className="font-mono font-bold text-cyan-700 dark:text-cyan-400">
+                        #{retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5 border-t border-slate-200/50 dark:border-white/10">
+                      <span className="text-slate-500 font-medium">Attending Doctor:</span>
+                      <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-amber-500" />
+                        Dr. {selectedDoctor?.fullName || 'Assigned Specialist'}
+                      </span>
+                    </div>
+                    {retainedAppointment?.appointmentDate && (
+                      <div className="flex justify-between items-center text-[11px] text-slate-500">
+                        <span>Original Slot:</span>
+                        <span>{retainedAppointment.appointmentDate} at {retainedAppointment.appointmentTime || '10:00 AM'}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-cyan-800 dark:text-cyan-300 leading-snug">
+                    Doctor and patient details are retained. Only new date and time slot can be chosen below.
+                  </p>
+                </div>
+              )}
 
               {/* Date Selection: Interactive Month Calendar with 4 states */}
               <div className="space-y-3">
@@ -1856,7 +2062,20 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         viewedYearMonth.month + 1
                       ).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
                       const dateState = computeCalendarDateState(dateStr)
-                      const isSelectable = dateState === 'available'
+                      const isHoliday = Boolean(clinic?.declaredHolidays && clinic.declaredHolidays.includes(dateStr))
+                      let isWeeklyOff = false
+                      if (clinic?.weeklyScheduleJson) {
+                        try {
+                          const parsed = JSON.parse(clinic.weeklyScheduleJson)
+                          if (Array.isArray(parsed)) {
+                            const dObj = new Date(dateStr + 'T00:00:00')
+                            const dayName = dObj.toLocaleDateString('en-US', { weekday: 'short' }).toLowerCase()
+                            const match = parsed.find((p: any) => String(p.day || '').toLowerCase().startsWith(dayName))
+                            if (match && match.isOpen === false) isWeeklyOff = true
+                          }
+                        } catch {}
+                      }
+                      const isSelectable = dateStr >= todayIso && !isHoliday && !isWeeklyOff
                       const isSelected = selectedDate === dateStr
 
                       return (
@@ -2026,8 +2245,17 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               {/* Action Button: Book for selected date or switch to next available date */}
               <button
                 type="button"
-                disabled={(!selectedSlotTime || isSelectedDateHoliday) && !nextAvailableDate}
+                disabled={isReschedule ? (!selectedSlotTime || isSelectedDateHoliday || submitting) : ((!selectedSlotTime || isSelectedDateHoliday) && !nextAvailableDate)}
                 onClick={() => {
+                  if (isReschedule && retainedAppointment) {
+                    if (!selectedSlotTime) {
+                      alert('Please select an available time slot to reschedule.')
+                      return
+                    }
+                    handleConfirmBookingAndPayment()
+                    return
+                  }
+
                   if (!selectedSlotTime && nextAvailableDate) {
                     const targetD = new Date(nextAvailableDate + 'T00:00:00')
                     setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
@@ -2037,8 +2265,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
                   const isUserLoggedIn = Boolean(
                     localStorage.getItem('dactor_patient_session') ||
-                      (localStorage.getItem('dactor_auth_logged_in') === 'true' &&
-                        localStorage.getItem('dactor_auth_role') === 'patient')
+                      localStorage.getItem('dactor_patient_logged_in') === 'true'
                   )
 
                   if (!isUserLoggedIn) {
@@ -2070,22 +2297,22 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     return
                   }
 
-                  if (isReschedule && retainedAppointment) {
-                    setBookingStep('payment')
-                  } else {
-                    setBookingStep('details')
-                  }
+                  setBookingStep('details')
                   setShowBookingModal(true)
                 }}
                 className="w-full py-3.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-glass-base active:scale-[0.98] transition-all flex items-center justify-center space-x-2 cursor-pointer border-t border-white/20"
               >
                 <span>
-                  {selectedSlotTime
+                  {submitting
+                    ? 'Shifting Appointment...'
+                    : selectedSlotTime
                     ? isReschedule
-                      ? 'Confirm Reschedule'
+                      ? `Confirm Reschedule to ${selectedDate} (${selectedSlotTime}) • Free`
                       : isReturningPatient && retainedAppointment
                       ? 'Confirm Follow-Up'
                       : 'Book Appointment'
+                    : isReschedule
+                    ? 'Select a Published Slot to Reschedule'
                     : nextAvailableDate
                     ? 'Book on another date'
                     : 'Select a Published Slot to Book'}
@@ -2318,8 +2545,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 onClick={() => {
                   const isUserLoggedIn = Boolean(
                     localStorage.getItem('dactor_patient_session') ||
-                      (localStorage.getItem('dactor_auth_logged_in') === 'true' &&
-                        localStorage.getItem('dactor_auth_role') === 'patient')
+                      localStorage.getItem('dactor_patient_logged_in') === 'true'
                   )
 
                   if (!isUserLoggedIn) {
@@ -2396,7 +2622,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         setPatientUserId(savedProfile.id)
                         setPatientName(savedProfile.fullName)
                         setPatientAge(String(savedProfile.age))
-                        setPatientGender(savedProfile.gender)
+                        setPatientGender(normalizeGender(savedProfile.gender))
                         setPatientMobile(savedProfile.phone)
                         setPatientEmail(savedProfile.email || '')
                         setFormErrors({})
@@ -2516,7 +2742,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       </label>
                       <div className="grid grid-cols-3 gap-2" id="field-patient-gender">
                         {(['Male', 'Female', 'Other'] as const).map((g) => {
-                          const isSelected = (patientGender || 'Male') === g
+                          const isSelected = normalizeGender(patientGender) === g
                           return (
                             <button
                               key={g}
@@ -2786,22 +3012,17 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         {
                           id: 'esewa',
                           title: paymentConfig?.esewa?.title || 'eSewa Mobile Wallet',
-                          sub: `Merchant ID: ${paymentConfig?.esewa?.merchantCode || 'EPAYTEST'}`,
+                          sub: 'Digital Wallet & NetBanking',
                         },
                         {
                           id: 'khalti',
                           title: paymentConfig?.khalti?.title || 'Khalti Digital Wallet',
-                          sub: 'Instant Wallet / Banking Checkout',
+                          sub: 'Instant Wallet & Mobile Banking',
                         },
                         {
                           id: 'fonepay',
                           title: paymentConfig?.fonepay?.title || 'Fonepay QR / Direct Banking',
                           sub: 'Nepal Interbank QR Payment',
-                        },
-                        {
-                          id: 'bypass',
-                          title: 'Instant Bypass Test Payment (Mark Paid)',
-                          sub: 'Records immediate verified paid invoice in Supabase',
                         },
                         {
                           id: 'pay_at_clinic',

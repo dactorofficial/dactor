@@ -388,7 +388,7 @@ export async function getAppointmentsByDoctor(doctorId: string, date?: string): 
 
 export async function createAppointment(appt: Partial<Appointment> & { slotId?: string }): Promise<Appointment | null> {
   try {
-    const code10 = appt.trackingCode10Digit || generate10DigitTrackingCode()
+    let code10 = appt.trackingCode10Digit ? appt.trackingCode10Digit.trim() : ''
     const apptId = appt.id || crypto.randomUUID()
     const isWalkin = appt.isWalkin ?? (appt.notes?.toLowerCase().includes('walk-in') || false)
     const apptDate = appt.appointmentDate || new Date().toISOString().split('T')[0]
@@ -401,9 +401,9 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
     const patientNameClean = appt.patientName?.trim() || 'Patient'
 
     // ==========================================
-    // IDEMPOTENCY SAFETY CHECKS
+    // IDEMPOTENCY SAFETY CHECKS & PATIENT ISOLATION
     // ==========================================
-    // 1. If an appointment already exists with this ID, return it immediately
+    // 1. If an appointment already exists with this exact UUID ID, return it immediately
     if (appt.id) {
       const { data: existingById } = await supabase
         .from('appointments')
@@ -415,16 +415,31 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       }
     }
 
-    // 2. If an appointment already exists with this 10-digit tracking code, return it
-    if (appt.trackingCode10Digit) {
+    // 2. Guarantee that two separate patients NEVER share the same appointment ID
+    if (code10) {
       const { data: existingByCode } = await supabase
         .from('appointments')
         .select('*, clinic:clinics(*), doctor:doctors(*)')
-        .eq('tracking_code_10_digit', appt.trackingCode10Digit)
+        .eq('tracking_code_10_digit', code10)
+        .order('appointment_date', { ascending: false })
+        .limit(1)
         .maybeSingle()
       if (existingByCode) {
-        return mapAppointment(existingByCode)
+        const cleanExistingPhone = (existingByCode.patient_mobile || '').replace(/\D/g, '')
+        const isSamePatient = (cleanExistingPhone && cleanExistingPhone === cleanMobile) ||
+          (existingByCode.user_id && existingByCode.user_id === resolvedUserId)
+        if (isSamePatient) {
+          // If rapid double-tap on exact same date & slot, return it
+          if (existingByCode.appointment_date === apptDate && existingByCode.slot_id === (appt.slotId || null)) {
+            return mapAppointment(existingByCode)
+          }
+        } else {
+          // Two separate patients MUST NEVER get the same appointment ID!
+          code10 = await generateGuaranteedUniqueTrackingCode()
+        }
       }
+    } else {
+      code10 = await generateGuaranteedUniqueTrackingCode()
     }
 
     // 3. Deduplication guard against rapid double-taps on poor connections
@@ -511,11 +526,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       payment_status: normalizePaymentStatus(appt.paymentStatus),
       fee_amount: Number(appt.feeAmount) || 0,
       is_walkin: isWalkin,
-      opt_in_early_call: Boolean(appt.optInEarlyCall),
-    }
-
-    if (appt.selectedTests && appt.selectedTests.length > 0) {
-      dbPayload.selected_lab_tests = JSON.stringify(appt.selectedTests)
+      slot_id: appt.slotId || null,
     }
 
     const { data, error } = await supabase
@@ -627,7 +638,14 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       })
     } catch {}
 
-    return data ? mapAppointment({ ...data, queue_entries: [{ status: 'waiting', queue_position: nextPos }] }) : null
+    if (!data) return null
+    const mapped = mapAppointment({ ...data, queue_entries: [{ status: 'waiting', queue_position: nextPos }] })
+    return {
+      ...mapped,
+      optInEarlyCall: Boolean(appt.optInEarlyCall),
+      selectedTests: appt.selectedTests || [],
+      notes: appt.notes,
+    }
   } catch (err) {
     console.error('Error creating appointment:', err)
     return null
@@ -912,7 +930,7 @@ export async function deleteSlot(slotId: string): Promise<boolean> {
 export async function reorderQueuePosition(
   clinicId: string,
   appointmentId: string,
-  direction: 'up' | 'down'
+  direction: 'up' | 'down' | 'top'
 ): Promise<{ success: boolean; message?: string }> {
   try {
     // 1. Fetch all waiting queue entries for this clinic ordered by position
@@ -930,6 +948,19 @@ export async function reorderQueuePosition(
     const currentIndex = entries.findIndex((e) => e.appointment_id === appointmentId)
     if (currentIndex === -1) {
       return { success: false, message: 'Patient not currently in waiting queue.' }
+    }
+
+    if (direction === 'top') {
+      if (currentIndex === 0) {
+        return { success: false, message: 'Already at the top of the waiting queue.' }
+      }
+      const topPos = (entries[0].queue_position || 1) - 1
+      await supabase
+        .from('queue_entries')
+        .update({ queue_position: topPos, updated_at: new Date().toISOString() })
+        .eq('id', entries[currentIndex].id)
+
+      return { success: true }
     }
 
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
@@ -1889,7 +1920,7 @@ export async function getMedicalSpecialties(): Promise<MedicalSpecialty[]> {
       .order('name', { ascending: true })
 
     if (error) throw error
-    return data || []
+    return (data || []).filter(s => s.category !== 'system_config' && !s.name?.startsWith('system_config'))
   } catch {
     return [
       { id: '1', name: 'General Physician', description: 'Primary Care, Fever, Infection, Blood Pressure' },
@@ -1980,6 +2011,7 @@ function mapClinic(c: any): Clinic {
     archivedAt: c.archived_at || meta.archived_at,
     deletionScheduledAt: c.deletion_scheduled_at || meta.deletion_scheduled_at,
     logoUrl: c.logo_url || meta.logo_url || (pics.length > 0 ? pics[0] : null),
+    photoUrl: c.photo_url || meta.photo_url || c.logo_url || meta.logo_url || (pics.length > 0 ? pics[0] : null),
     isOnBreak: c.is_on_break ?? meta.is_on_break ?? false,
     breakUpdatedAt: c.break_updated_at || meta.break_updated_at,
     weeklyScheduleJson: c.weekly_schedule_json || meta.weekly_schedule_json,
@@ -2222,6 +2254,25 @@ export function generate10DigitTrackingCode(): string {
   const first = Math.floor(Math.random() * 9) + 1 // 1-9
   const rest = Math.floor(Math.random() * 1000000000).toString().padStart(9, '0')
   return `${first}${rest}`
+}
+
+export async function generateGuaranteedUniqueTrackingCode(): Promise<string> {
+  for (let i = 0; i < 15; i++) {
+    const candidate = generate10DigitTrackingCode()
+    try {
+      const { data } = await supabase
+        .from('appointments')
+        .select('id')
+        .eq('tracking_code_10_digit', candidate)
+        .limit(1)
+        .maybeSingle()
+      if (!data) return candidate
+    } catch {
+      break
+    }
+  }
+  const epochPart = (Date.now() % 1000000000).toString().padStart(9, '0')
+  return `9${epochPart}`
 }
 
 // ==========================================
@@ -3177,6 +3228,52 @@ export async function cancelClinicInvitation(invitationId: string, clinicId: str
     localStorage.setItem(`dactor_clinic_invitations_${clinicId}`, JSON.stringify(updated))
   } catch {}
   return true
+}
+
+export async function getDoctorInvitations(doctorEmail: string, doctorId?: string): Promise<ClinicInvitation[]> {
+  try {
+    let query = supabase.from('clinic_invitations').select('*').eq('status', 'pending')
+    if (doctorEmail) {
+      query = query.ilike('invited_email', doctorEmail.trim().toLowerCase())
+    }
+    const { data, error } = await query
+    if (!error && data) {
+      return data.map((d: any) => ({
+        id: d.id,
+        clinicId: d.clinic_id,
+        clinicName: d.clinic_name || 'Associated Clinic',
+        invitedEmail: d.invited_email,
+        invitedName: d.invited_name || d.invited_email || 'Doctor',
+        role: d.role || 'doctor',
+        status: d.status || 'pending',
+        createdAt: d.created_at,
+        token: d.token,
+      }))
+    }
+  } catch {}
+  return []
+}
+
+export async function respondToDoctorInvitation(
+  invitationId: string,
+  accept: boolean,
+  doctorId?: string,
+  clinicId?: string
+): Promise<boolean> {
+  try {
+    const newStatus = accept ? 'accepted' : 'declined'
+    await supabase
+      .from('clinic_invitations')
+      .update({ status: newStatus, doctor_id: doctorId || null, updated_at: new Date().toISOString() })
+      .eq('id', invitationId)
+
+    if (accept && doctorId && clinicId) {
+      await supabase.from('doctors').update({ active_clinic_id: clinicId, clinic_id: clinicId }).eq('id', doctorId)
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 // ==========================================

@@ -142,10 +142,6 @@ export function firebaseSignOut(): void {
       ;(window as any).dactorFirebase.signOut().catch(() => {})
     }
     localStorage.removeItem('dactor_google_user')
-    localStorage.removeItem('dactor_patient_session')
-    localStorage.removeItem('dactor_auth_logged_in')
-    localStorage.removeItem('dactor_auth_email')
-    localStorage.removeItem('dactor_auth_role')
   } catch {}
 }
 
