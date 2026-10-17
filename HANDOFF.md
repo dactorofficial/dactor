@@ -31,8 +31,8 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 | Component | Platform / Tech | Source Folder | Live Deployment / Artifacts | Current Latest Version |
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
-| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.30.apk` | v1.0.30 (Code 30) |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.40.apk` | v1.0.40 (Code 40) |
+| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.41.apk` | v1.0.41 (Code 41) |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.49.apk` | v1.0.49 (Code 49) |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---
@@ -315,6 +315,12 @@ Run the install script, which automatically resolves the latest versioned APK:
 | 2026-10-14 | Patient | v1.0.32 | 32 | `APKs/Dactor-PatientApp-v1.0.32.apk` | Fix search page: replaced squished chunked(3) specialty chips with dynamic wrapping `FlowRow`, added maxLines=1 with ellipsis, fixed brace balance in PatientMainScreen & NotificationsScreen, and configured SSD build cache |
 | 2026-10-14 | Clinic & Doctor | v1.0.30 | 30 | `APKs/Dactor-ClinicApp-v1.0.30.apk` | Resilient network gate (eliminates false "No internet connection" banner); multi-visit cumulative billing with timestamped payment log & date-wise directory; resolved duplicate variable collisions; on-demand formal PDF generator |
 | 2026-10-14 | Patient | v1.0.40 | 40 | `APKs/Dactor-PatientApp-v1.0.40.apk` | Resilient network gate (eliminates false "No internet connection" banner); FlowRow specialty chips; live Payment Receipts & Time Log timeline on Queue Status screen; clean clinical remarks; updated PDF invoice with payment receipt table |
+| 2026-10-16 | Patient | v1.0.45 | 45 | `APKs/Dactor-PatientApp-v1.0.45.apk` | Show all doctors on clinic profile: replaced single-doctor firstOrNull restriction with full consulting doctors list, per-doctor booking navigation, forceRefresh doctor roster, interactive clinic link in booking screen |
+| 2026-10-16 | Clinic & Doctor | v1.0.38 | 38 | `APKs/Dactor-ClinicApp-v1.0.38.apk` | Generated fresh release APK: local Android SDK resolution, JBR JDK 17 support, and build6 output parity |
+| 2026-10-16 | Patient | v1.0.46 | 46 | `APKs/Dactor-PatientApp-v1.0.46.apk` | Fixed SHA ID permanently: integrated shared project debug keystore (`keystores/debug.keystore`), updated `google-services.json` from Firebase, verified SHA-1 `b65ff6c53826dfbf360ec3fd2d75af2e83ea2c79` |
+| 2026-10-16 | Clinic & Doctor | v1.0.39 | 39 | `APKs/Dactor-ClinicApp-v1.0.39.apk` | Fixed SHA ID permanently: integrated shared project debug keystore (`keystores/debug.keystore`), updated `google-services.json` from Firebase, verified SHA-1 `b65ff6c53826dfbf360ec3fd2d75af2e83ea2c79` |
+| 2026-10-17 | Clinic & Doctor | v1.0.41 | 41 | `APKs/Dactor-ClinicApp-v1.0.41.apk` | Filtered out system_config:support from specialty list, dynamic multi-laptop SDK/Java paths, permanent shared keystore verified SHA-1: `b65ff6c53826dfbf360ec3fd2d75af2e83ea2c79` |
+| 2026-10-17 | Patient | v1.0.49 | 49 | `APKs/Dactor-PatientApp-v1.0.49.apk` | Added 1-tap Save Code option on QueueStatusScreen for logged-in users with Supabase claim, resolved system_config specialty filter, fixed BookingScreen reschedule syntax, permanent shared keystore verified SHA-1: `b65ff6c53826dfbf360ec3fd2d75af2e83ea2c79` |
 
 ---
 
@@ -346,8 +352,65 @@ Run the install script, which automatically resolves the latest versioned APK:
 
 ---
 
-## 9. Next Recommended Priorities
-1. **Live Admin Verification**: Visit `https://dactorofficial.github.io/admin-portal/` and update the support URL to verify real-time propagation across web and mobile.
-2. **Mobile App Testing on Physical Devices**: Test the "Contact Us" buttons on Android to ensure `Intent.ACTION_VIEW` launches the browser with the configured support URL.
-3. **Production Domain Configuration**: Connect custom domain (e.g. `dactor.com` or `dactor.np`) to GitHub Pages when ready.
+## 10. Decoupling Working Hours & Manual Slot Publishing ("Add slot") (October 2026)
+
+### A. Working Hours Decoupled from Online Booking Slots
+- **Informational Working Hours**: Clinic operating hours and weekly schedules are strictly informational (informing patients of general operating windows). They never auto-generate booking slots.
+- **Removed Automatic 7-Day Slot Generation**: Removed the automatic loop in `clinic-app/app/src/main/java/com/dactor/clinic/ui/slots/SlotManagerScreen.kt` that was inserting slots into Supabase for 7 days ahead on saving the weekly schedule.
+- **Strict Manual Slot Publishing**: Booking slots exist in the database and appear to patients if and only if staff/doctors explicitly create them.
+
+### B. Standardized Button Label to "Add slot"
+- **`clinic-app`**:
+  - `SlotManagerScreen.kt`: Button updated from `Publish Slot for $selectedDate` ➔ `Add slot`. Dialog title updated to `Add Slot ($selectedDate)` and submit button to `Add slot`.
+  - `FutureAppointmentsScreen.kt`: FAB label updated to `Add slot`, submit button updated from `Publish Slot` ➔ `Add slot`, and empty state prompt updated.
+- **`web-app`**:
+  - `ClinicPortal.tsx`: Button updated from `Publish Timed Slot` ➔ `Add slot`, and header updated to `Add Timed Slot`.
+- **`patient-app`**:
+  - Buttons previously showing awkward or clipped `Book on another date` streamlined to `Book` (with availability status clearly indicated above the button).
+
+### C. Release Constraint
+- Per user instruction **"no apk generation"**, zero APKs were compiled. All changes are committed directly into the codebase and web build.
+
+---
+
+## 12. Booking Confirmation Enrichment & Unrestricted Slot Publishing (October 2026)
+
+### A. Complete Booking Confirmation Screen Details
+- **Root Cause of Empty Fields**: `AppointmentConfirmedScreen.kt` previously took `clinicName` and `doctorName` only as empty default parameters without resolving `clinicRepository` or `doctorRepository`, omitted patient name entirely, and defaulted time window to a static `09:30` point string.
+- **Enriched Information Display**:
+  - **Clinic & Facility**: Resolves `clinicRepository.getClinicById(appt.clinicId)` to show full clinic name (e.g., `Patan Clinic`) with hospital badge icon.
+  - **Consulting Doctor**: Resolves `doctorRepository.getDoctorById(appt.doctorId)` to show full doctor name and specialty (e.g., `Dr. Kshitiz • Ophthalmology`) with specialist icon.
+  - **Patient Name**: Displays `appt.patientName` (e.g., `Nitup (User)`) with dedicated patient badge icon.
+  - **Slot Time Window**: Formats the full slot interval (e.g., `09:00 AM – 12:00 PM`) using `slotRepository.getSlotById(appt.slotId)` or normalized slot interval, accompanied by the formatted appointment date (e.g., `Saturday, 17 Oct 2026`).
+- **Zero-Flicker Session Caching**:
+  - Added `saveLastConfirmedAppointment()` and `getLastConfirmedAppointment()` to `UserSessionManager.kt`.
+  - `PaymentScreen.kt` and `BookingFormScreen.kt` immediately persist the confirmed appointment summary to local storage prior to navigation, ensuring instant, non-empty rendering while asynchronous Supabase resolution verifies freshness.
+- **Navigation Wiring**:
+  - Updated `DactorNavHost.kt` to inject `clinicRepository`, `doctorRepository`, and `slotRepository` into `AppointmentConfirmedScreen`.
+
+### B. Unrestricted Slot Publishing (After-Hours & Closed Days)
+- **Clinic App (`clinic-app`)**:
+  - `SlotManagerScreen.kt`: Relaxed `hasTimeError` check to `isDateInPast || isInvalidInterval`. Removed the restrictive `isTimeInPast` lock (`startMinutes < minAllowedMinutesToday`) that previously prevented clinic staff from adding after-hours or current-session slots.
+  - `FutureAppointmentsScreen.kt`: Relaxed `hasTimeError` check to `isDateInPast || isInvalidInterval`. Removed the block (`startMinutes <= currentMinutesToday`) that erroneously flagged ongoing slots (e.g., 9 to 12 slot opened at 10 AM) as past.
+  - Added helpful status confirmation: `✓ Slot Time Window: START to END — Can be published anytime, even on closed days or outside regular hours.`
+  - Enabled override authority so clinics can freely publish slots on declared holidays, weekends, or outside regular informational working hours.
+- **Web Portal (`web-app`)**:
+  - Confirmed that `handlePublishSlot` in `ClinicPortal.tsx` publishes slots directly to Supabase without any restrictive constraints on clinic hours or closed days.
+
+### C. Generative UI Interactive Preview
+- Created `C:\Users\nitup\.gemini\antigravity\brain\2aa84235-d09f-4d53-b5ff-9f9d82ad3056/booking_success_ui_preview.html` adhering strictly to the user's explicit preference (**keep original theme**):
+  - Uses Tailwind CSS with Dactor design tokens (emerald green `#059669`, clean card typography, and blue-tinted 10-digit tracking card).
+  - Showcases complete metadata: Clinic Name, Doctor Name with Specialty, Patient Name, and the full `09:00 AM – 12:00 PM` Slot Time Window.
+  - Interactive demonstration controls for copy-code toast, sample switching (9-12 slot vs. after-hours), and navigation preview.
+
+### D. Release Constraint Compliance
+- Per explicit instruction **"no apk generation"**, zero APK binaries were compiled. All code changes are committed directly in source files.
+
+---
+
+## 13. Next Recommended Priorities
+1. **Confirmation Screen Live Review**: Open the Generative UI preview in the chat/browser to confirm the visual presentation of the redesigned booking confirmation screen.
+2. **Physical App Booking Verification**: Perform a test booking on the patient app to verify that Clinic Name, Doctor Name, Patient Name, and the full `09:00 AM – 12:00 PM` slot window render cleanly.
+3. **Clinic Slot Creation After-Hours**: Open the Clinic app on a closed day or after operating hours, tap "Add slot", and verify that slots can be published without validation errors.
+
 

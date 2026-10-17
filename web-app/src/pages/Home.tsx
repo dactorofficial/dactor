@@ -760,7 +760,7 @@ export const Home: React.FC<HomeProps> = ({
                           ? 'Book Lab'
                           : isDocInClinic
                           ? 'Book OPD'
-                          : 'Book on Another Date'}
+                          : 'Book'}
                       </span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>

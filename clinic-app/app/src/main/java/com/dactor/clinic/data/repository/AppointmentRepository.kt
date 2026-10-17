@@ -31,8 +31,7 @@ data class AppointmentInsertDto(
     @SerialName("appointment_date") val appointmentDate: String,
     @SerialName("appointment_time") val appointmentTime: String,
     @SerialName("fee_amount") val feeAmount: Double = 0.0,
-    @SerialName("is_walkin") val isWalkin: Boolean = false,
-    @SerialName("opt_in_early_call") val optInEarlyCall: Boolean = false
+    @SerialName("is_walkin") val isWalkin: Boolean = false
 )
 
 @Serializable
@@ -428,8 +427,7 @@ class AppointmentRepository @Inject constructor(
                 appointmentDate = appointment.appointmentDate,
                 appointmentTime = normalizedTime,
                 feeAmount = appointment.feeAmount,
-                isWalkin = true,
-                optInEarlyCall = appointment.optInEarlyCall
+                isWalkin = true
             )
 
             // Insert appointment (with fallback if userId or slotId FK fails)

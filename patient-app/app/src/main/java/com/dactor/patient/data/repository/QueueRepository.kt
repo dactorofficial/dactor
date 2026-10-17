@@ -1,9 +1,11 @@
 package com.dactor.patient.data.repository
 
+import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.Clinic
 import com.dactor.patient.data.model.ClinicScheduleHelper
 import com.dactor.patient.data.model.NotificationTemplateData
 import com.dactor.patient.data.model.QueueEntry
+import com.dactor.patient.data.model.Slot
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.serialization.SerialName
@@ -46,6 +48,20 @@ data class LiveQueueTimingEstimate(
     val slotNoticeText: String = "",
     val canOfferEarlyArrival: Boolean = false,
     val earlyArrivalOfferText: String? = null
+)
+
+data class MultiSlotPositionResult(
+    val cumulativePosition: Int = 1,
+    val patientsAheadInDay: Int = 0,
+    val positionInSlot: Int = 1,
+    val slotStartTimeText: String = "",
+    val slotEndTimeText: String = "",
+    val approxAppointmentTimeText: String = "",
+    val timeWindowText: String = "",
+    val dateLabel: String = "",
+    val isToday: Boolean = true,
+    val isTomorrow: Boolean = false,
+    val isFutureDate: Boolean = false
 )
 
 @Singleton
@@ -248,6 +264,59 @@ class QueueRepository @Inject constructor(
             e.printStackTrace()
             false
         }
+    }
+
+    /**
+     * Calculates cumulative line position across all slots of the day,
+     * including prior slots count, in-slot position, and approximate time with ±15m tolerance.
+     */
+    suspend fun calculateMultiSlotDailyPosition(
+        clinicId: String,
+        doctorId: String?,
+        appointmentDate: String,
+        targetAppointmentId: String,
+        targetSlotId: String?,
+        targetAppointmentTime: String?,
+        avgConsultationMinutes: Int = 10
+    ): MultiSlotPositionResult = withContext(Dispatchers.IO) {
+        val targetDateStr = appointmentDate.trim().take(10)
+        val slots = try {
+            if (clinicId.isNotBlank() && targetDateStr.isNotBlank()) {
+                supabaseClient.postgrest["slots"].select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                        eq("slot_date", targetDateStr)
+                        eq("is_published", true)
+                    }
+                }.decodeList<Slot>()
+            } else emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        val appointments = try {
+            if (clinicId.isNotBlank() && targetDateStr.isNotBlank()) {
+                supabaseClient.postgrest["appointments"].select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                        eq("appointment_date", targetDateStr)
+                    }
+                }.decodeList<Appointment>().filter { it.checkinStatus != "cancelled" }
+            } else emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        computeMultiSlotDailyPosition(
+            targetAppointmentId = targetAppointmentId,
+            targetSlotId = targetSlotId,
+            targetAppointmentTime = targetAppointmentTime,
+            appointmentDate = targetDateStr,
+            allSlotsForDate = slots,
+            allAppointmentsForDate = appointments,
+            doctorId = doctorId,
+            avgConsultationMinutes = avgConsultationMinutes
+        )
     }
 
     companion object {
@@ -563,6 +632,139 @@ class QueueRepository @Inject constructor(
                 slotNoticeText = slotNotice,
                 canOfferEarlyArrival = canOfferEarly,
                 earlyArrivalOfferText = earlyArrivalMsg
+            )
+        }
+
+        fun computeMultiSlotDailyPosition(
+            targetAppointmentId: String,
+            targetSlotId: String?,
+            targetAppointmentTime: String?,
+            appointmentDate: String,
+            allSlotsForDate: List<Slot>,
+            allAppointmentsForDate: List<Appointment>,
+            doctorId: String? = null,
+            avgConsultationMinutes: Int = 10,
+            nowDate: java.time.LocalDate = java.time.LocalDate.now()
+        ): MultiSlotPositionResult {
+            val targetDateStr = appointmentDate.trim().take(10)
+            val targetLocalDate = try {
+                if (targetDateStr.isNotBlank()) java.time.LocalDate.parse(targetDateStr) else nowDate
+            } catch (_: Exception) {
+                nowDate
+            }
+            val isToday = targetLocalDate.isEqual(nowDate)
+            val isTomorrow = targetLocalDate.isEqual(nowDate.plusDays(1))
+            val isFutureDate = targetLocalDate.isAfter(nowDate)
+
+            val dateLabel = when {
+                isToday -> "Today"
+                isTomorrow -> "Tomorrow"
+                else -> targetLocalDate.format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
+            }
+
+            val relevantSlots = if (!doctorId.isNullOrBlank()) {
+                val matching = allSlotsForDate.filter { it.doctorId == doctorId }
+                if (matching.isNotEmpty()) matching else allSlotsForDate
+            } else {
+                allSlotsForDate
+            }
+
+            val sortedSlots = relevantSlots.sortedBy { SlotRepository.parseTimeToMinutes(it.startTime) ?: 0 }
+
+            val relevantAppointments = if (!doctorId.isNullOrBlank()) {
+                val matching = allAppointmentsForDate.filter { it.doctorId == doctorId }
+                if (matching.isNotEmpty()) matching else allAppointmentsForDate
+            } else {
+                allAppointmentsForDate
+            }
+
+            var targetSlot = sortedSlots.firstOrNull { it.id == targetSlotId }
+            if (targetSlot == null && !targetAppointmentTime.isNullOrBlank()) {
+                val targetTimeMins = SlotRepository.parseTimeToMinutes(targetAppointmentTime)
+                if (targetTimeMins != null) {
+                    targetSlot = sortedSlots.firstOrNull { slot ->
+                        val sMins = SlotRepository.parseTimeToMinutes(slot.startTime) ?: -1
+                        val eMins = SlotRepository.parseTimeToMinutes(slot.endTime) ?: -1
+                        (targetTimeMins in sMins until eMins) || targetTimeMins == sMins
+                    }
+                }
+            }
+
+            var priorAppointmentsCount = 0
+            var positionInSlot = 1
+            var cumulativePos = 1
+
+            if (targetSlot != null && sortedSlots.isNotEmpty()) {
+                val targetSlotIndex = sortedSlots.indexOfFirst { it.id == targetSlot.id }
+                val priorSlotIds = if (targetSlotIndex > 0) {
+                    sortedSlots.take(targetSlotIndex).map { it.id }.toSet()
+                } else emptySet()
+
+                val targetSlotStartMins = SlotRepository.parseTimeToMinutes(targetSlot.startTime) ?: 0
+
+                val priorAppointments = relevantAppointments.filter { appt ->
+                    appt.id != targetAppointmentId && (
+                        (appt.slotId != null && appt.slotId in priorSlotIds) ||
+                        (appt.slotId.isNullOrBlank() && appt.appointmentTime.isNotBlank() &&
+                            (SlotRepository.parseTimeToMinutes(appt.appointmentTime) ?: 9999) < targetSlotStartMins)
+                    )
+                }
+                priorAppointmentsCount = priorAppointments.size
+
+                val inSlotAppointments = relevantAppointments.filter { appt ->
+                    appt.slotId == targetSlot.id ||
+                    (appt.slotId.isNullOrBlank() && appt.appointmentTime.isNotBlank() &&
+                        (SlotRepository.parseTimeToMinutes(appt.appointmentTime) ?: -1) == targetSlotStartMins) ||
+                    appt.id == targetAppointmentId
+                }.distinctBy { it.id }.sortedWith(compareBy({ it.appointmentTime }, { it.id }))
+
+                val inSlotIndex = inSlotAppointments.indexOfFirst { it.id == targetAppointmentId }
+                positionInSlot = if (inSlotIndex >= 0) inSlotIndex + 1 else 1
+                cumulativePos = priorAppointmentsCount + positionInSlot
+            } else {
+                val sortedAppts = relevantAppointments
+                    .sortedWith(compareBy({ SlotRepository.parseTimeToMinutes(it.appointmentTime) ?: 0 }, { it.id }))
+                val myIdx = sortedAppts.indexOfFirst { it.id == targetAppointmentId }
+                cumulativePos = if (myIdx >= 0) myIdx + 1 else 1
+                priorAppointmentsCount = (cumulativePos - 1).coerceAtLeast(0)
+                positionInSlot = 1
+            }
+
+            val effectiveSlotStartStr = targetSlot?.startTime?.ifBlank { null }
+                ?: targetAppointmentTime?.takeIf { it.isNotBlank() }
+                ?: "09:00 AM"
+
+            val effectiveSlotEndStr = targetSlot?.endTime?.ifBlank { null }
+                ?: ""
+
+            val baseStartTime = parseSlotStartTime(effectiveSlotStartStr)
+                ?: parseTimeString(effectiveSlotStartStr)
+                ?: LocalTime.of(9, 0)
+
+            val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+            val formattedSlotStart = baseStartTime.format(timeFormatter)
+
+            val staggerMinutes = ((positionInSlot - 1).coerceAtLeast(0) * avgConsultationMinutes.coerceAtLeast(1)).toLong()
+            val approxAppointmentTime = baseStartTime.plusMinutes(staggerMinutes)
+            val approxTimeFormatted = approxAppointmentTime.format(timeFormatter)
+
+            val approxAppointmentTimeText = "$approxTimeFormatted (±15 min)"
+            val windowStart = approxAppointmentTime.minusMinutes(15).format(timeFormatter)
+            val windowEnd = approxAppointmentTime.plusMinutes(15).format(timeFormatter)
+            val timeWindowText = "$windowStart – $windowEnd"
+
+            return MultiSlotPositionResult(
+                cumulativePosition = cumulativePos,
+                patientsAheadInDay = (cumulativePos - 1).coerceAtLeast(0),
+                positionInSlot = positionInSlot,
+                slotStartTimeText = formattedSlotStart,
+                slotEndTimeText = effectiveSlotEndStr,
+                approxAppointmentTimeText = approxAppointmentTimeText,
+                timeWindowText = timeWindowText,
+                dateLabel = dateLabel,
+                isToday = isToday,
+                isTomorrow = isTomorrow,
+                isFutureDate = isFutureDate
             )
         }
     }

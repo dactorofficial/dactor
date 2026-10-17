@@ -1222,6 +1222,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
         // FILTER: Remove slots whose end time has already expired!
         const validSlots = rawSlots.filter((slot) => {
+          if (selectedDoctor && slot.doctorId && slot.doctorId !== selectedDoctor.id) {
+            return false
+          }
           const isExpired = isSlotTimeExpired(bookingDate, slot.endTime, slot.startTime)
           const hasCapacity = slot.bookedCount < slot.maxCapacity
           return !isExpired && hasCapacity && slot.isAvailable !== false
@@ -1241,7 +1244,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
 
     loadSlotsForDate()
-  }, [selectedClinic, bookingDate, bookingStep, isLabClinic])
+  }, [selectedClinic, selectedDoctor, bookingDate, bookingStep, isLabClinic])
 
   // Calculate Fee strictly matching rules for all 3 clinic types
   const calculatedFee = useMemo(() => {
@@ -1313,6 +1316,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         userId: patientUser?.id,
         clinicId: selectedClinic!.id,
         doctorId: isLabClinic ? undefined : selectedDoctor?.id,
+        slotId: selectedSlot?.id,
         patientName: targetPatientName,
         patientAge: targetPatientAge,
         patientGender: targetPatientGender,

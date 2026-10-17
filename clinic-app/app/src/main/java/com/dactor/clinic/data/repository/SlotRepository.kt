@@ -184,8 +184,12 @@ class SlotRepository @Inject constructor(
 
     suspend fun createSlot(slot: Slot): Slot? = withContext(Dispatchers.IO) {
         try {
+            val normalizedSlot = slot.copy(
+                startTime = AppointmentRepository.normalizeTimeForPostgres(slot.startTime),
+                endTime = AppointmentRepository.normalizeTimeForPostgres(slot.endTime)
+            )
             supabaseClient.postgrest["slots"]
-                .insert(slot) {
+                .insert(normalizedSlot) {
                     select()
                 }.decodeSingleOrNull<Slot>()
         } catch (e: Exception) {

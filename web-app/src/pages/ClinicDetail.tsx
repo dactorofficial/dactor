@@ -2314,7 +2314,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     : isReschedule
                     ? 'Select a Published Slot to Reschedule'
                     : nextAvailableDate
-                    ? 'Book on another date'
+                    ? 'Book Next Available Date'
                     : 'Select a Published Slot to Book'}
                 </span>
                 <ChevronRight className="w-4 h-4" />

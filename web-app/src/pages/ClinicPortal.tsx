@@ -1806,8 +1806,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     const errors: { [key: string]: string } = {}
     if (!walkinName.trim()) errors.name = 'Patient name is required.'
     if (!walkinAge || Number(walkinAge) <= 0) errors.age = 'Valid age is required.'
-    if (!walkinMobile.trim() || walkinMobile.replace(/\D/g, '').length < 8) {
-      errors.mobile = 'Valid 8-10 digit mobile number is required.'
+    if (walkinMobile.trim() && walkinMobile.replace(/\D/g, '').length < 8) {
+      errors.mobile = 'Mobile number must be 8-10 digits if provided.'
     }
     if (isLabClinic && walkinSelectedTests.length === 0) {
       errors.tests = 'Please select at least one diagnostic lab test.'
@@ -1831,17 +1831,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         ? `Walk-In Free Follow-Up Visit (Previous Token #${walkinRetainedAppt.trackingCode10Digit})`
         : 'Walk-In Reception Registration'
 
+      const rawTime = walkinSlotTime.trim() || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+
       const created = await createAppointment({
         clinicId: selectedClinic.id,
         doctorId: isLabClinic ? undefined : (walkinDoctorId || clinicDoctors[0]?.id || undefined),
         trackingCode10Digit: code10,
         patientName: walkinName.trim(),
-        patientAge: Number(walkinAge),
-        patientGender: walkinGender,
-        patientMobile: walkinMobile.trim(),
+        patientAge: Number(walkinAge) || 25,
+        patientGender: walkinGender || 'Other',
+        patientMobile: walkinMobile.trim() || '9800000000',
         patientEmail: walkinEmail.trim() || undefined,
         appointmentDate: new Date().toISOString().split('T')[0],
-        appointmentTime: walkinSlotTime.trim() || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        appointmentTime: rawTime,
         slotId: walkinSlotId || undefined,
         checkinStatus: 'waiting',
         paymentStatus: 'paid',
@@ -4888,7 +4890,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <GlassCard variant="base" padding="md" radius="xl" className="space-y-4">
                 <div className="flex items-center space-x-2 text-brand-700 font-black text-sm pb-2 border-b border-white/60">
                   <CalendarClock className="w-4 h-4" />
-                  <span>Create Individual Timed Slot</span>
+                  <span>Add Timed Slot</span>
                 </div>
 
                 <form onSubmit={handlePublishSlot} className="space-y-3">
@@ -4938,7 +4940,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     fullWidth
                     disabled={publishingSlot}
                   >
-                    {publishingSlot ? 'Publishing...' : 'Publish Timed Slot'}
+                    {publishingSlot ? 'Adding...' : 'Add slot'}
                   </GlassButton>
                 </form>
               </GlassCard>

@@ -257,9 +257,10 @@ export async function createDoctor(doctor: Partial<Doctor>): Promise<Doctor | nu
 // ==========================================
 // APPOINTMENTS & LIVE QUEUE API
 // ==========================================
-function formatTimeForPostgres(timeStr?: string): string {
+export function formatTimeForPostgres(timeStr?: string): string {
   if (!timeStr) return '10:00:00'
-  const clean = timeStr.trim().toUpperCase()
+  const firstPart = timeStr.split(/\s*[-–—]|to\s*/i)[0].trim()
+  const clean = firstPart.toUpperCase()
   const isPM = clean.includes('PM')
   const isAM = clean.includes('AM')
   const timeOnly = clean.replace(/[^0-9:]/g, '')
@@ -884,7 +885,6 @@ export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
       max_capacity: slot.maxCapacity || 10,
       booked_count: slot.bookedCount || 0,
       is_published: slot.isPublished ?? true,
-      is_available: slot.isAvailable ?? true,
     }
 
     const { data, error } = await supabase
@@ -893,9 +893,13 @@ export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Error creating slot in Supabase:', error)
+      throw error
+    }
     return data ? mapSlot(data) : null
-  } catch {
+  } catch (err) {
+    console.error('Failed to create slot:', err)
     return null
   }
 }
@@ -3121,8 +3125,8 @@ export async function updateSlot(
 ): Promise<boolean> {
   try {
     const payload: any = {}
-    if (updates.startTime !== undefined) payload.start_time = updates.startTime
-    if (updates.endTime !== undefined) payload.end_time = updates.endTime
+    if (updates.startTime !== undefined) payload.start_time = formatTimeForPostgres(updates.startTime)
+    if (updates.endTime !== undefined) payload.end_time = formatTimeForPostgres(updates.endTime)
     if (updates.maxCapacity !== undefined) payload.max_capacity = updates.maxCapacity
     const { error } = await supabase.from('slots').update(payload).eq('id', slotId)
     return !error
