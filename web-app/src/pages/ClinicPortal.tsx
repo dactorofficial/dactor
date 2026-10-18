@@ -2109,7 +2109,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
     try {
       const existing = await getInvoiceForAppointment(appt.id)
-      if (existing && ((existing.items && existing.items.length > 0) || existing.totalAmount > 0)) {
+      if (existing) {
         if (existing.items && existing.items.length > 0) {
           setBillItems(
             existing.items.map((it, idx) => ({
@@ -2133,9 +2133,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
         const parsedLogs = parsePaymentRecords(existing.remarks, existing.paidAmount, existing.paidAt)
         setBillPaymentRecords(parsedLogs)
-        setBillTotalAmount(String(existing.totalAmount))
-        setBillPaidAmount(String(existing.paidAmount))
-        setBillRemarks(extractCleanClinicalRemarks(existing.remarks))
+        const calcTotal = Number(existing.totalAmount || appt.feeAmount || 500)
+        setBillTotalAmount(String(calcTotal))
+        setBillPaidAmount(String(existing.paidAmount || 0))
+        setBillRemarks(extractCleanClinicalRemarks(existing.remarks) || appt.notes || '')
       } else {
         const initialFee = Number(appt.feeAmount) || 500
         setBillItems([
@@ -2194,7 +2195,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       }
 
       const itemsTotal = billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0)
-      const finalTotalAmount = Number(billTotalAmount) || itemsTotal || 0
+      const inputTotal = Number(billTotalAmount) || 0
+      const finalTotalAmount = itemsTotal > 0 ? (inputTotal > itemsTotal ? inputTotal : itemsTotal) : (inputTotal > 0 ? inputTotal : (Number(billTargetAppt.feeAmount) || 500))
+
+      // If user typed a larger total than items sum, add a reconciling item so itemized list reflects the total
+      let itemsToPersist = [...billItems]
+      if (itemsToPersist.length === 0) {
+        itemsToPersist = [
+          {
+            id: 'consultation',
+            name: `${billTargetAppt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+            price: finalTotalAmount,
+            quantity: 1,
+          }
+        ]
+      } else if (inputTotal > itemsTotal) {
+        const diff = inputTotal - itemsTotal
+        itemsToPersist.push({
+          id: crypto.randomUUID(),
+          name: 'Additional Clinical Procedures & Services',
+          price: diff,
+          quantity: 1,
+        })
+      }
 
       const newPaymentAmt = Number(billNewPaymentInput) || 0
       let updatedPayments = [...billPaymentRecords]
@@ -2212,15 +2235,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         ? updatedPayments.reduce((acc, p) => acc + p.amount, 0)
         : (Number(billPaidAmount) || 0)
 
-      await saveOrUpdateInvoicePayment({
+      const savedInvoice = await saveOrUpdateInvoicePayment({
         appointmentId: billTargetAppt.id,
-        clinicId: selectedClinic.id,
+        clinicId: billTargetAppt.clinicId || selectedClinic.id,
         totalAmount: finalTotalAmount,
         paidAmount: finalPaidAmount,
         remarks: billRemarks.trim() || undefined,
         receiptUrl,
-        items: billItems.map((it) => ({
+        items: itemsToPersist.map((it) => ({
           itemName: it.name,
+          name: it.name,
           quantity: it.quantity,
           price: it.price,
           total: it.price * it.quantity,
@@ -2228,11 +2252,38 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         paymentRecords: updatedPayments,
       })
 
+      if (!savedInvoice) {
+        alert('Failed to save bill. Please check your connection and try again.')
+        return
+      }
+
+      // Update local invoice list so UI updates immediately
+      setInvoices((prev) => {
+        const idx = prev.findIndex((i) => i.appointmentId === billTargetAppt.id)
+        if (idx >= 0) {
+          const updated = [...prev]
+          updated[idx] = savedInvoice
+          return updated
+        }
+        return [savedInvoice, ...prev]
+      })
+
+      // Update local appointments list with new fee and payment status
+      const derivedApptStatus = finalPaidAmount >= finalTotalAmount && finalTotalAmount > 0 ? 'paid' : (finalPaidAmount > 0 ? 'partial' : 'unpaid')
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === billTargetAppt.id
+            ? { ...a, feeAmount: finalTotalAmount, paymentStatus: derivedApptStatus as any }
+            : a
+        )
+      )
+
       setBillModalOpen(false)
       setRefreshKey((k) => k + 1)
       alert(`Combined bill saved (Total: Rs. ${finalTotalAmount}, Paid: Rs. ${finalPaidAmount}, Due: Rs. ${Math.max(0, finalTotalAmount - finalPaidAmount)})`)
     } catch (err) {
       console.error('Error saving invoice bill:', err)
+      alert('Error saving bill. Please check your network and try again.')
     } finally {
       setSavingBill(false)
     }

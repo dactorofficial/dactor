@@ -33,28 +33,99 @@ class BillingRepository @Inject constructor(
     suspend fun saveInvoice(invoice: BillingInvoice): BillingInvoice? = withContext(Dispatchers.IO) {
         try {
             val existing = getInvoiceByAppointment(invoice.appointmentId)
-            val invoiceToSave = if (existing != null) {
-                invoice.copy(
-                    id = existing.id,
-                    remarks = invoice.remarks?.takeIf { it.isNotBlank() } ?: existing.remarks
-                )
-            } else {
-                invoice
+            // Sanitize payment status for DB: PostgreSQL payment_status_enum only accepts 'paid' or 'pending'
+            val dbPaymentStatus = if (invoice.balanceDue <= 0.0 && invoice.totalAmount > 0.0) "paid" else "pending"
+            val invoiceId = existing?.id?.takeIf { it.isNotBlank() } ?: invoice.id.takeIf { it.isNotBlank() } ?: java.util.UUID.randomUUID().toString()
+            val invoiceToSave = invoice.copy(
+                id = invoiceId,
+                paymentStatus = dbPaymentStatus,
+                remarks = invoice.remarks?.takeIf { it.isNotBlank() } ?: existing?.remarks
+            )
+
+            val saved = try {
+                if (existing != null) {
+                    supabaseClient.postgrest["billing_invoices"]
+                        .update({
+                            set("items", invoiceToSave.items)
+                            set("total_amount", invoiceToSave.totalAmount)
+                            set("paid_amount", invoiceToSave.paidAmount)
+                            set("balance_due", invoiceToSave.balanceDue)
+                            set("payment_status", dbPaymentStatus)
+                            if (invoiceToSave.paidAt != null) {
+                                set("paid_at", invoiceToSave.paidAt)
+                            }
+                            if (invoiceToSave.remarks != null) {
+                                set("remarks", invoiceToSave.remarks)
+                            }
+                        }) {
+                            filter { eq("id", existing.id) }
+                        }
+                    invoiceToSave
+                } else {
+                    try {
+                        supabaseClient.postgrest["billing_invoices"]
+                            .insert(invoiceToSave) {
+                                select()
+                            }.decodeSingleOrNull<BillingInvoice>() ?: invoiceToSave
+                    } catch (insertEx: Exception) {
+                        insertEx.printStackTrace()
+                        // Fallback: update if row for this appointment_id already exists in Supabase
+                        supabaseClient.postgrest["billing_invoices"]
+                            .update({
+                                set("items", invoiceToSave.items)
+                                set("total_amount", invoiceToSave.totalAmount)
+                                set("paid_amount", invoiceToSave.paidAmount)
+                                set("balance_due", invoiceToSave.balanceDue)
+                                set("payment_status", dbPaymentStatus)
+                                if (invoiceToSave.paidAt != null) {
+                                    set("paid_at", invoiceToSave.paidAt)
+                                }
+                                if (invoiceToSave.remarks != null) {
+                                    set("remarks", invoiceToSave.remarks)
+                                }
+                            }) {
+                                filter { eq("appointment_id", invoiceToSave.appointmentId) }
+                            }
+                        invoiceToSave
+                    }
+                }
+            } catch (saveEx: Exception) {
+                saveEx.printStackTrace()
+                try {
+                    supabaseClient.postgrest["billing_invoices"]
+                        .update({
+                            set("items", invoiceToSave.items)
+                            set("total_amount", invoiceToSave.totalAmount)
+                            set("paid_amount", invoiceToSave.paidAmount)
+                            set("balance_due", invoiceToSave.balanceDue)
+                            set("payment_status", dbPaymentStatus)
+                            if (invoiceToSave.paidAt != null) {
+                                set("paid_at", invoiceToSave.paidAt)
+                            }
+                            if (invoiceToSave.remarks != null) {
+                                set("remarks", invoiceToSave.remarks)
+                            }
+                        }) {
+                            filter { eq("appointment_id", invoiceToSave.appointmentId) }
+                        }
+                    invoiceToSave
+                } catch (fallbackEx: Exception) {
+                    fallbackEx.printStackTrace()
+                    null
+                }
             }
-            val saved = supabaseClient.postgrest["billing_invoices"]
-                .upsert(invoiceToSave) {
-                    select()
-                }.decodeSingleOrNull<BillingInvoice>() ?: invoiceToSave
 
             // Also sync fee_amount and payment_status on the appointments table so patient profile & directory always see the bill
             try {
                 supabaseClient.postgrest["appointments"].update({
                     set("fee_amount", invoiceToSave.totalAmount)
-                    set("payment_status", invoiceToSave.paymentStatus)
+                    set("payment_status", dbPaymentStatus)
                 }) {
                     filter { eq("id", invoiceToSave.appointmentId) }
                 }
-            } catch (ignored: Exception) {}
+            } catch (ignored: Exception) {
+                ignored.printStackTrace()
+            }
 
             saved
         } catch (e: Exception) {
@@ -233,7 +304,16 @@ class BillingRepository @Inject constructor(
                     paymentStatus = "paid",
                     remarks = remarks
                 )
-                supabaseClient.postgrest["billing_invoices"].insert(newInvoice)
+                try {
+                    supabaseClient.postgrest["billing_invoices"].insert(newInvoice)
+                } catch (insEx: Exception) {
+                    supabaseClient.postgrest["billing_invoices"]
+                        .update({
+                            set("remarks", remarks)
+                        }) {
+                            filter { eq("appointment_id", appointmentId) }
+                        }
+                }
             }
             true
         } catch (e: Exception) {

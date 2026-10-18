@@ -151,6 +151,27 @@ USING (
 );
 
 -- -------------------------------------------------------------------------
+-- 4b. BILLING INVOICES RLS POLICIES
+-- -------------------------------------------------------------------------
+DROP POLICY IF EXISTS "billing_invoices_select_rule" ON billing_invoices;
+CREATE POLICY "billing_invoices_select_rule" ON billing_invoices FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "billing_invoices_insert_rule" ON billing_invoices;
+CREATE POLICY "billing_invoices_insert_rule" ON billing_invoices FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "billing_invoices_update_rule" ON billing_invoices;
+CREATE POLICY "billing_invoices_update_rule" ON billing_invoices FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "billing_invoices_delete_rule" ON billing_invoices;
+CREATE POLICY "billing_invoices_delete_rule" ON billing_invoices FOR DELETE USING (
+    EXISTS (
+        SELECT 1 FROM clinics c WHERE c.id = billing_invoices.clinic_id
+        AND c.contact_email = (auth.jwt() ->> 'email')
+    ) OR
+    is_admin_portal_user()
+);
+
+-- -------------------------------------------------------------------------
 -- 5. FUNCTION TO PURGE EXPIRED CLINIC DATA (Admin Portal & Background Worker)
 -- -------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION purge_expired_archived_clinic_data(p_clinic_id UUID)

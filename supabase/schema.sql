@@ -26,7 +26,7 @@ EXCEPTION
 END $$;
 
 DO $$ BEGIN
-    CREATE TYPE payment_status_enum AS ENUM ('pending', 'paid', 'refunded', 'not_required');
+    CREATE TYPE payment_status_enum AS ENUM ('pending', 'paid', 'refunded', 'not_required', 'partial', 'unpaid');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;

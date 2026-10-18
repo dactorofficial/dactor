@@ -88,12 +88,47 @@ class QueueRepository @Inject constructor(
         if (appointmentId.isBlank() || clinicId.isBlank()) return@withContext null
         try {
             val existing = getQueueStatus(appointmentId)
-            if (existing != null) return@withContext existing
+            val cleanDocId = doctorId?.takeIf { com.dactor.patient.domain.util.PatientIdentitySync.isValidUuid(it) }
+
+            if (existing != null) {
+                // If previous queue entry is done, completed, or cancelled, reset it to active waiting for today's OPD
+                if (existing.status.lowercase() in listOf("done", "completed", "cancelled")) {
+                    val currentEntries = getQueueEntriesForClinic(clinicId)
+                    val nextPos = (currentEntries
+                        .filter { it.status == "waiting" || it.status == "inside" }
+                        .map { it.queuePosition }
+                        .maxOrNull() ?: 0) + 1
+                    val resolvedDoc = cleanDocId ?: existing.doctorId
+
+                    try {
+                        supabaseClient.postgrest["queue_entries"].update({
+                            set("status", "waiting")
+                            set("queue_position", nextPos)
+                            set("called_at", null as String?)
+                            set("inside_at", null as String?)
+                            set("completed_at", null as String?)
+                            if (resolvedDoc != null) set("doctor_id", resolvedDoc)
+                        }) {
+                            filter { eq("id", existing.id) }
+                        }
+                        return@withContext existing.copy(
+                            status = "waiting",
+                            queuePosition = nextPos,
+                            doctorId = resolvedDoc,
+                            calledAt = null,
+                            insideAt = null,
+                            completedAt = null
+                        )
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                return@withContext existing
+            }
 
             val currentEntries = getQueueEntriesForClinic(clinicId)
             val nextPos = (currentEntries.map { it.queuePosition }.maxOrNull() ?: 0) + 1
 
-            val cleanDocId = doctorId?.takeIf { com.dactor.patient.domain.util.PatientIdentitySync.isValidUuid(it) }
             val newEntry = QueueEntry(
                 id = UUID.randomUUID().toString(),
                 appointmentId = appointmentId,

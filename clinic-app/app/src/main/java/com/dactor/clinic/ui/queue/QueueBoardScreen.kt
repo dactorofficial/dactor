@@ -1689,18 +1689,34 @@ fun QueueBoardScreen(
                                                 }
                                             }
 
-                                            // Chart / Remarks / Billing Shortcut
+                                            // Direct Billing Shortcut
+                                            OutlinedButton(
+                                                onClick = {
+                                                    navController.navigate("${NavRoutes.BillingScreen}/${item.appointmentId}")
+                                                },
+                                                modifier = Modifier.weight(0.9f),
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00796B)),
+                                                border = BorderStroke(1.dp, Color(0xFF80CBC4)),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                                            ) {
+                                                Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF00796B))
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text("Bill", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF00796B))
+                                            }
+
+                                            // Patient Chart Shortcut
                                             OutlinedButton(
                                                 onClick = {
                                                     navController.navigate("${NavRoutes.PatientDetail}/${item.appointmentId}")
                                                 },
-                                                modifier = Modifier.weight(1f),
+                                                modifier = Modifier.weight(0.9f),
                                                 shape = RoundedCornerShape(8.dp),
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
                                             ) {
-                                                Icon(Icons.Default.MedicalInformation, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Chart / Bill", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                                Icon(Icons.Default.MedicalInformation, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text("Chart", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                             }
 
                                             // Send Alert Notification Button

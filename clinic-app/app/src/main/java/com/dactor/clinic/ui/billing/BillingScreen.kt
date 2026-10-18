@@ -206,11 +206,19 @@ fun BillingScreen(
             }
 
             // Auto-select initial appointment if specified or default to first
-            val target = if (resolvedAppointmentId.isNotBlank()) {
+            var target = if (resolvedAppointmentId.isNotBlank()) {
                 appts.find { it.id == resolvedAppointmentId || it.trackingCode10Digit == resolvedAppointmentId }
-            } else if (appts.isNotEmpty()) {
-                appts.find { it.appointmentDate == today } ?: appts.first()
             } else null
+
+            if (target == null && resolvedAppointmentId.isNotBlank()) {
+                try {
+                    target = appointmentRepository.getAppointmentById(resolvedAppointmentId)
+                } catch (_: Exception) {}
+            }
+
+            if (target == null && appts.isNotEmpty()) {
+                target = appts.find { it.appointmentDate == today } ?: appts.first()
+            }
 
             if (target != null && selectedAppointment == null) {
                 selectAppointment(target)
@@ -1082,12 +1090,18 @@ fun BillingScreen(
 
                             val saved = billingRepository?.saveInvoice(invoice)
                             isSaving = false
-                            successDialogInvoice = saved ?: invoice
-                            showSuccessDialog = true
-                            newPaymentAmountInput = ""
-                            newPaymentNote = ""
-                            loadAppointmentsAndInvoices()
-                            selectAppointment(finalAppt)
+                            if (saved != null) {
+                                successDialogInvoice = saved
+                                showSuccessDialog = true
+                                newPaymentAmountInput = ""
+                                newPaymentNote = ""
+                                val updatedAppt = finalAppt.copy(feeAmount = totalBillCalc, paymentStatus = statusCalc)
+                                selectedAppointment = updatedAppt
+                                loadAppointmentsAndInvoices()
+                                selectAppointment(updatedAppt)
+                            } else {
+                                android.widget.Toast.makeText(context, "Failed to save bill to server. Please check connection and try again.", android.widget.Toast.LENGTH_LONG).show()
+                            }
                         }
                     },
                     modifier = Modifier

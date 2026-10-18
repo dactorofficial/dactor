@@ -887,13 +887,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         return
       }
 
-      // 1. Reschedule handling: Shift existing appointment in place without duplicating
-      if (isReschedule && retainedAppointment) {
+      // 1. Reschedule & Follow-Up handling: Shift/Update existing appointment in place without generating a new ID
+      if ((isReschedule || isReturningPatient) && retainedAppointment) {
         const ok = await shiftAppointmentDate(
           retainedAppointment.id,
           selectedDate,
           selectedSlotTime || '10:00 AM',
-          'Patient rescheduled via clinic booking portal',
+          isReturningPatient
+            ? `Follow-Up Consultation (Ref: ${retainedAppointment.trackingCode10Digit})`
+            : 'Patient rescheduled via clinic booking portal',
           selectedSlotId
         )
         if (ok) {
@@ -902,15 +904,20 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             appointmentDate: selectedDate,
             appointmentTime: selectedSlotTime || '10:00 AM',
             slotId: selectedSlotId,
+            checkinStatus: 'waiting',
           }
           setConfirmedAppt(updatedAppt)
-          setConfirmedTxnId(`RESCHEDULED-${retainedAppointment.trackingCode10Digit}`)
-          setConfirmedPayMethod('Rescheduled Appointment (Retained Fee)')
+          setConfirmedTxnId(`${isReturningPatient ? 'FOLLOWUP' : 'RESCHEDULED'}-${retainedAppointment.trackingCode10Digit}`)
+          setConfirmedPayMethod(
+            isReturningPatient
+              ? 'Free Follow-Up (Retained 10-Digit ID)'
+              : 'Rescheduled Appointment (Retained Fee)'
+          )
           setShowBookingModal(false)
           setSubmitting(false)
           return
         } else {
-          alert('Could not shift appointment to this slot. Please select another slot.')
+          alert('Could not schedule appointment for this slot. Please select another slot.')
           setSubmitting(false)
           return
         }
@@ -2271,18 +2278,22 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               {/* Action Button: Book for selected date or switch to next available date */}
               <button
                 type="button"
-                disabled={isReschedule ? (!selectedSlotTime || isSelectedDateHoliday || submitting || isLookingUpCode) : ((!selectedSlotTime || isSelectedDateHoliday) && !nextAvailableDate)}
+                disabled={
+                  (isReschedule || (isReturningPatient && retainedAppointment))
+                    ? (!selectedSlotTime || isSelectedDateHoliday || submitting || isLookingUpCode)
+                    : ((!selectedSlotTime || isSelectedDateHoliday) && !nextAvailableDate)
+                }
                 onClick={() => {
                   if (isLookingUpCode) return
 
-                  if (isReschedule) {
+                  if (isReschedule || (isReturningPatient && retainedAppointment)) {
                     if (isLookingUpCode) return
                     if (!retainedAppointment) {
-                      alert('Could not verify existing appointment details for rescheduling. Please check your tracking code.')
+                      alert('Could not verify existing appointment details. Please check your tracking code.')
                       return
                     }
                     if (!selectedSlotTime) {
-                      alert('Please select an available time slot to reschedule.')
+                      alert('Please select an available time slot.')
                       return
                     }
                     handleConfirmBookingAndPayment()

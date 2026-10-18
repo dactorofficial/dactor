@@ -123,6 +123,8 @@ class AppointmentRepository @Inject constructor(
         val validDoctorId = doctorId?.takeIf { isValidUuid(it) } ?: existing.doctorId?.takeIf { isValidUuid(it) }
         val normalizedTime = normalizeTimeForPostgres(appointmentTime)
 
+        val isToday = (appointmentDate == java.time.LocalDate.now().toString())
+
         try {
             supabaseClient.postgrest["appointments"].update({
                 set("slot_id", validSlotId)
@@ -132,8 +134,10 @@ class AppointmentRepository @Inject constructor(
                 if (!retainedEmail.isNullOrBlank()) set("patient_email", retainedEmail)
                 set("appointment_date", appointmentDate)
                 set("appointment_time", normalizedTime)
-                set("payment_status", "not_required")
+                set("payment_status", "paid")
                 set("checkin_status", "checked_in")
+                set("status", "confirmed")
+                set("consultation_completed_at", null as String?)
                 set("fee_amount", 0.0)
             }) {
                 filter { eq("id", existing.id) }
@@ -156,31 +160,34 @@ class AppointmentRepository @Inject constructor(
             } catch (ignored: Exception) {}
         }
 
-        // Remove any completed/old queue entries for this appointment and insert fresh waiting queue entry
+        // Remove any completed/old queue entries for this appointment
         try {
             supabaseClient.postgrest["queue_entries"].delete {
                 filter { eq("appointment_id", existing.id) }
             }
         } catch (ignored: Exception) {}
 
-        try {
-            val existingEntries = supabaseClient.postgrest["queue_entries"]
-                .select { filter { eq("clinic_id", clinicId) } }
-                .decodeList<com.dactor.patient.data.model.QueueEntry>()
-            val nextPos = (existingEntries
-                .filter { it.status == "waiting" || it.status == "inside" }
-                .maxOfOrNull { it.queuePosition } ?: 0) + 1
-            val queueEntryDto = QueueEntryInsertDto(
-                id = UUID.randomUUID().toString(),
-                appointmentId = existing.id,
-                clinicId = clinicId,
-                doctorId = validDoctorId,
-                queuePosition = nextPos,
-                status = "waiting"
-            )
-            supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        // Only insert a fresh waiting queue entry if the follow-up appointment is for TODAY
+        if (isToday) {
+            try {
+                val existingEntries = supabaseClient.postgrest["queue_entries"]
+                    .select { filter { eq("clinic_id", clinicId) } }
+                    .decodeList<com.dactor.patient.data.model.QueueEntry>()
+                val nextPos = (existingEntries
+                    .filter { it.status == "waiting" || it.status == "inside" }
+                    .maxOfOrNull { it.queuePosition } ?: 0) + 1
+                val queueEntryDto = QueueEntryInsertDto(
+                    id = UUID.randomUUID().toString(),
+                    appointmentId = existing.id,
+                    clinicId = clinicId,
+                    doctorId = validDoctorId,
+                    queuePosition = nextPos,
+                    status = "waiting"
+                )
+                supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
 
         existing.copy(
@@ -400,8 +407,10 @@ class AppointmentRepository @Inject constructor(
                 emptySet()
             }
 
+            val todayStr = java.time.LocalDate.now().toString()
             distinctAppts.map { appt ->
-                if (doneIds.contains(appt.id)) appt.copy(checkinStatus = "completed") else appt
+                val isUpcomingOrToday = appt.appointmentDate >= todayStr && (appt.checkinStatus in listOf("waiting", "checked_in", "in_queue", "confirmed"))
+                if (doneIds.contains(appt.id) && !isUpcomingOrToday) appt.copy(checkinStatus = "completed") else appt
             }.sortedByDescending { it.appointmentDate }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -693,18 +702,63 @@ class AppointmentRepository @Inject constructor(
                     set("appointment_date", newDate)
                     set("appointment_time", normalizedTime)
                     set("checkin_status", "checked_in")
+                    set("status", "confirmed")
+                    set("consultation_completed_at", null as String?)
                     if (isValidUuid(slotId)) {
                         set("slot_id", slotId!!.trim())
                     }
                 }) {
                     filter { eq("id", id) }
                 }
-            if (newDate != java.time.LocalDate.now().toString()) {
+            val todayStr = java.time.LocalDate.now().toString()
+            if (newDate != todayStr) {
                 try {
                     supabaseClient.postgrest["queue_entries"].delete {
                         filter { eq("appointment_id", id) }
                     }
                 } catch (ignored: Exception) {}
+            } else {
+                try {
+                    val appt = supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("id", id) } }
+                        .decodeSingleOrNull<Appointment>()
+                    if (appt != null) {
+                        val existingQ = supabaseClient.postgrest["queue_entries"]
+                            .select { filter { eq("appointment_id", id) } }
+                            .decodeSingleOrNull<com.dactor.patient.data.model.QueueEntry>()
+                        val currentEntries = supabaseClient.postgrest["queue_entries"]
+                            .select { filter { eq("clinic_id", appt.clinicId) } }
+                            .decodeList<com.dactor.patient.data.model.QueueEntry>()
+                        val nextPos = (currentEntries
+                            .filter { it.status == "waiting" || it.status == "inside" }
+                            .map { it.queuePosition }
+                            .maxOrNull() ?: 0) + 1
+
+                        if (existingQ != null) {
+                            supabaseClient.postgrest["queue_entries"].update({
+                                set("status", "waiting")
+                                set("queue_position", nextPos)
+                                set("called_at", null as String?)
+                                set("inside_at", null as String?)
+                                set("completed_at", null as String?)
+                            }) {
+                                filter { eq("id", existingQ.id) }
+                            }
+                        } else {
+                            val queueEntryDto = QueueEntryInsertDto(
+                                id = UUID.randomUUID().toString(),
+                                appointmentId = id,
+                                clinicId = appt.clinicId,
+                                doctorId = appt.doctorId,
+                                queuePosition = nextPos,
+                                status = "waiting"
+                            )
+                            supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
+                        }
+                    }
+                } catch (ignored: Exception) {
+                    ignored.printStackTrace()
+                }
             }
             true
         } catch (e: Exception) {
@@ -852,7 +906,7 @@ class AppointmentRepository @Inject constructor(
 
             supabaseClient.postgrest["appointments"]
                 .update({
-                    set("payment_status", "failed")
+                    set("payment_status", "pending")
                     set("checkin_status", "cancelled")
                 }) {
                     filter { eq("id", appointmentId) }
@@ -891,7 +945,7 @@ class AppointmentRepository @Inject constructor(
                         totalAmount = appt.feeAmount,
                         paidAmount = 0.0,
                         balanceDue = appt.feeAmount,
-                        paymentStatus = "failed",
+                        paymentStatus = "pending",
                         remarks = "Transaction failed / cancelled: $reason"
                     )
                     supabaseClient.postgrest["billing_invoices"].insert(failDto)
@@ -1076,11 +1130,7 @@ class AppointmentRepository @Inject constructor(
             val safeTotal = totalAmount.coerceAtLeast(0.0)
             val safePaid = paidAmount.coerceAtLeast(0.0)
             val balanceLeft = (safeTotal - safePaid).coerceAtLeast(0.0)
-            val status = when {
-                balanceLeft <= 0.0 && safeTotal > 0.0 -> "paid"
-                safePaid > 0.0 -> "partial"
-                else -> "pending"
-            }
+            val dbStatus = if (balanceLeft <= 0.0 && safeTotal > 0.0) "paid" else "pending"
             val nowIso = Instant.now().toString()
 
             val current = existingInvoice ?: getInvoiceForAppointment(appointment.id)
@@ -1102,16 +1152,17 @@ class AppointmentRepository @Inject constructor(
                     totalAmount = safeTotal,
                     paidAmount = safePaid,
                     balanceDue = balanceLeft,
-                    paymentStatus = status,
+                    paymentStatus = dbStatus,
                     paidAt = nowIso,
                     remarks = remarks?.ifBlank { current.remarks } ?: current.remarks
                 )
                 supabaseClient.postgrest["billing_invoices"]
                     .update({
+                        set("items", updatedItems)
                         set("total_amount", safeTotal)
                         set("paid_amount", safePaid)
                         set("balance_due", balanceLeft)
-                        set("payment_status", status)
+                        set("payment_status", dbStatus)
                         set("paid_at", nowIso)
                         if (!remarks.isNullOrBlank()) {
                             set("remarks", remarks)
@@ -1123,7 +1174,7 @@ class AppointmentRepository @Inject constructor(
                 try {
                     supabaseClient.postgrest["appointments"].update({
                         set("fee_amount", safeTotal)
-                        set("payment_status", status)
+                        set("payment_status", dbStatus)
                     }) {
                         filter { eq("id", appointment.id) }
                     }
@@ -1145,16 +1196,32 @@ class AppointmentRepository @Inject constructor(
                     totalAmount = safeTotal,
                     paidAmount = safePaid,
                     balanceDue = balanceLeft,
-                    paymentStatus = status,
+                    paymentStatus = dbStatus,
                     paidAt = nowIso,
                     remarks = remarks
                 )
-                supabaseClient.postgrest["billing_invoices"].insert(newInvoice)
+                try {
+                    supabaseClient.postgrest["billing_invoices"].insert(newInvoice)
+                } catch (insEx: Exception) {
+                    supabaseClient.postgrest["billing_invoices"].update({
+                        set("items", newInvoice.items)
+                        set("total_amount", safeTotal)
+                        set("paid_amount", safePaid)
+                        set("balance_due", balanceLeft)
+                        set("payment_status", dbStatus)
+                        set("paid_at", nowIso)
+                        if (!remarks.isNullOrBlank()) {
+                            set("remarks", remarks)
+                        }
+                    }) {
+                        filter { eq("appointment_id", appointment.id) }
+                    }
+                }
                 // Sync appointments table fee_amount and payment_status
                 try {
                     supabaseClient.postgrest["appointments"].update({
                         set("fee_amount", safeTotal)
-                        set("payment_status", status)
+                        set("payment_status", dbStatus)
                     }) {
                         filter { eq("id", appointment.id) }
                     }

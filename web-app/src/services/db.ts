@@ -1098,6 +1098,8 @@ export async function shiftAppointmentDate(
     const updatePayload: any = {
       appointment_date: newDate,
       checkin_status: 'waiting',
+      status: 'confirmed',
+      consultation_completed_at: null,
       updated_at: new Date().toISOString(),
     }
     if (newTime) {
@@ -1119,7 +1121,7 @@ export async function shiftAppointmentDate(
 
     if (error) throw error
 
-    // Manage Queue Entry on Reschedule
+    // Manage Queue Entry on Reschedule / Follow-Up
     try {
       const todayStr = new Date().toISOString().split('T')[0]
       const targetTime = newTime || updatedAppt?.appointment_time
@@ -1132,7 +1134,7 @@ export async function shiftAppointmentDate(
         .maybeSingle()
 
       if (newDate === todayStr) {
-        // Patient rescheduled to today: reposition slot-aware
+        // Patient rescheduled/follow-up to today: reposition slot-aware
         const { data: activeEntries } = await supabase
           .from('queue_entries')
           .select('id, appointment_id, queue_position, status')
@@ -1174,6 +1176,8 @@ export async function shiftAppointmentDate(
             .update({
               queue_position: nextPos,
               status: 'waiting',
+              called_at: null,
+              completed_at: null,
               updated_at: new Date().toISOString(),
             })
             .eq('id', existingQ.id)
@@ -1188,11 +1192,11 @@ export async function shiftAppointmentDate(
           })
         }
       } else {
-        // Rescheduled to a future date: remove from today's active queue
+        // Rescheduled / follow-up to a future date: remove from today's active queue
         if (existingQ) {
           await supabase
             .from('queue_entries')
-            .update({ status: 'scheduled', updated_at: new Date().toISOString() })
+            .update({ status: 'scheduled', called_at: null, completed_at: null, updated_at: new Date().toISOString() })
             .eq('id', existingQ.id)
         }
       }
@@ -1671,17 +1675,43 @@ export async function saveOrUpdateInvoicePayment(params: {
     const finalRemarks = buildCombinedRemarks(combinedRemarksWithReceipt, updatedPayments)
 
     const itemsToSave = params.items && params.items.length > 0
-      ? params.items.map((it) => ({
-          itemName: it.itemName || it.name || 'Clinical Service',
-          quantity: Number(it.quantity || 1),
-          price: Number(it.price || 0),
-          total: Number(it.total || (Number(it.price || 0) * Number(it.quantity || 1))),
-        }))
+      ? params.items.map((it) => {
+          const name = it.name || it.itemName || (it as any).item_name || 'Clinical Service'
+          const qty = Number(it.quantity || 1)
+          const pr = Number(it.price || 0)
+          const tot = Number(it.total || pr * qty)
+          return {
+            id: it.id || crypto.randomUUID(),
+            item_name: name,
+            itemName: name,
+            name: name,
+            quantity: qty,
+            price: pr,
+            total: tot,
+          }
+        })
       : (Array.isArray(existing?.items) && existing.items.length > 0
-          ? existing.items
+          ? existing.items.map((it: any) => {
+              const name = it.item_name || it.itemName || it.name || 'Clinical Service'
+              const qty = Number(it.quantity || 1)
+              const pr = Number(it.price || 0)
+              const tot = Number(it.total || pr * qty)
+              return {
+                id: it.id || crypto.randomUUID(),
+                item_name: name,
+                itemName: name,
+                name: name,
+                quantity: qty,
+                price: pr,
+                total: tot,
+              }
+            })
           : [
               {
+                id: crypto.randomUUID(),
+                item_name: 'Consultation & Clinical Services',
                 itemName: 'Consultation & Clinical Services',
+                name: 'Consultation & Clinical Services',
                 quantity: 1,
                 price: totalAmount,
                 total: totalAmount,
@@ -1689,42 +1719,100 @@ export async function saveOrUpdateInvoicePayment(params: {
             ])
 
     const balanceDue = Math.max(0, totalAmount - calculatedTotalPaid)
-    const dbPaymentStatus = (calculatedTotalPaid >= totalAmount && totalAmount > 0) ? 'paid' : (calculatedTotalPaid > 0 ? 'partial' : 'pending')
+    // PostgreSQL payment_status_enum accepts 'paid' or 'pending' natively
+    const dbPaymentStatus = (calculatedTotalPaid >= totalAmount && totalAmount > 0) ? 'paid' : 'pending'
 
-    const invoicePayload: any = {
-      id: existing?.id || crypto.randomUUID(),
-      appointment_id: appointmentId,
-      clinic_id: clinicId,
-      items: itemsToSave,
-      total_amount: totalAmount,
-      paid_amount: calculatedTotalPaid,
-      balance_due: balanceDue,
-      payment_status: dbPaymentStatus,
-      paid_at: calculatedTotalPaid > 0 ? (existing?.paid_at || nowIso) : null,
-      remarks: finalRemarks,
-      created_at: existing?.created_at || nowIso,
-      updated_at: nowIso,
+    let savedData: any = null
+
+    if (existing?.id) {
+      // Update existing invoice without mutating primary key id or appointment_id
+      const { data, error } = await supabase
+        .from('billing_invoices')
+        .update({
+          items: itemsToSave,
+          total_amount: totalAmount,
+          paid_amount: calculatedTotalPaid,
+          balance_due: balanceDue,
+          payment_status: dbPaymentStatus,
+          paid_at: calculatedTotalPaid > 0 ? (existing.paid_at || nowIso) : null,
+          remarks: finalRemarks,
+          updated_at: nowIso,
+        })
+        .eq('id', existing.id)
+        .select()
+        .maybeSingle()
+
+      if (error) {
+        console.error('Supabase billing_invoices update failed:', error)
+        throw error
+      }
+      savedData = data
+    } else {
+      // Insert new invoice record
+      const newInvoiceId = crypto.randomUUID()
+      const { data, error } = await supabase
+        .from('billing_invoices')
+        .insert({
+          id: newInvoiceId,
+          appointment_id: appointmentId,
+          clinic_id: clinicId,
+          items: itemsToSave,
+          total_amount: totalAmount,
+          paid_amount: calculatedTotalPaid,
+          balance_due: balanceDue,
+          payment_status: dbPaymentStatus,
+          paid_at: calculatedTotalPaid > 0 ? nowIso : null,
+          remarks: finalRemarks,
+          created_at: nowIso,
+          updated_at: nowIso,
+        })
+        .select()
+        .maybeSingle()
+
+      if (error) {
+        // Fallback: row might already exist for this appointment_id
+        console.warn('Insert encountered error, falling back to update by appointment_id:', error.message)
+        const { data: updateFallback, error: updateErr } = await supabase
+          .from('billing_invoices')
+          .update({
+            items: itemsToSave,
+            total_amount: totalAmount,
+            paid_amount: calculatedTotalPaid,
+            balance_due: balanceDue,
+            payment_status: dbPaymentStatus,
+            paid_at: calculatedTotalPaid > 0 ? nowIso : null,
+            remarks: finalRemarks,
+            updated_at: nowIso,
+          })
+          .eq('appointment_id', appointmentId)
+          .select()
+          .maybeSingle()
+
+        if (updateErr) {
+          console.error('Supabase billing_invoices fallback update failed:', updateErr)
+          throw updateErr
+        }
+        savedData = updateFallback
+      } else {
+        savedData = data
+      }
     }
 
-    const { data, error } = await supabase
-      .from('billing_invoices')
-      .upsert(invoicePayload, { onConflict: 'appointment_id' })
-      .select()
-      .single()
+    // Also update the appointment fee_amount and payment_status safely
+    try {
+      await supabase
+        .from('appointments')
+        .update({
+          fee_amount: totalAmount,
+          payment_status: dbPaymentStatus,
+          updated_at: nowIso,
+        })
+        .eq('id', appointmentId)
+    } catch (apptErr) {
+      console.warn('Could not sync fee_amount to appointments table:', apptErr)
+    }
 
-    if (error) throw error
-
-    // Also update the appointment fee_amount and payment_status
-    await supabase
-      .from('appointments')
-      .update({
-        fee_amount: totalAmount,
-        payment_status: dbPaymentStatus,
-        updated_at: nowIso,
-      })
-      .eq('id', appointmentId)
-
-    return data ? mapBillingInvoice(data) : null
+    return savedData ? mapBillingInvoice(savedData) : null
   } catch (err) {
     console.error('Error saving billing invoice:', err)
     return null
@@ -2491,7 +2579,22 @@ function mapAppointment(a: any): Appointment {
   const qe = Array.isArray(a.queue_entries) ? a.queue_entries[0] : a.queue_entries
   let derivedStatus = 'waiting'
 
-  if (qe?.status) {
+  const todayIso = new Date().toISOString().split('T')[0]
+  const isFutureOrToday = (a.appointment_date || '') >= todayIso
+
+  if (isFutureOrToday && a.checkin_status === 'waiting') {
+    // If appointment is booked/rescheduled for today or future and checkin_status is waiting,
+    // do not let a stale 'done' queue entry from a previous date override it to completed!
+    if (qe?.status && qe.status !== 'done' && qe.status !== 'no_show') {
+      if (qe.status === 'inside') derivedStatus = 'in_consultation'
+      else if (qe.status === 'sample_collected') derivedStatus = 'sample_collected'
+      else if (qe.status === 'processing') derivedStatus = 'processing'
+      else if (qe.status === 'report_prepared') derivedStatus = 'report_prepared'
+      else derivedStatus = 'waiting'
+    } else {
+      derivedStatus = 'waiting'
+    }
+  } else if (qe?.status) {
     if (qe.status === 'inside') derivedStatus = 'in_consultation'
     else if (qe.status === 'done') derivedStatus = 'completed'
     else if (qe.status === 'no_show') derivedStatus = 'cancelled'
@@ -2630,24 +2733,46 @@ function mapNotification(n: any): DactorNotification {
 }
 
 function mapBillingInvoice(b: any): BillingInvoice {
+  const total = Number(b.total_amount || 0)
+  const paid = Number(b.paid_amount || 0)
+  const balance = Number(b.balance_due || Math.max(0, total - paid))
+  let effectiveStatus: string = b.payment_status || 'unpaid'
+  if (paid >= total && total > 0) {
+    effectiveStatus = 'paid'
+  } else if (paid > 0) {
+    effectiveStatus = 'partial'
+  } else if (b.payment_status === 'pending') {
+    effectiveStatus = 'unpaid'
+  }
+
+  let rawItems = b.items
+  if (typeof rawItems === 'string') {
+    try { rawItems = JSON.parse(rawItems) } catch {}
+  }
+
   return {
     id: b.id,
     appointmentId: b.appointment_id,
     clinicId: b.clinic_id,
-    items: Array.isArray(b.items)
-      ? b.items.map((it: any) => ({
-          id: it.id || crypto.randomUUID(),
-          itemName: it.itemName || it.item_name || it.name || 'Clinical Service',
-          name: it.name || it.itemName || it.item_name || 'Clinical Service',
-          quantity: Number(it.quantity || 1),
-          price: Number(it.price || it.unitPrice || 0),
-          total: Number(it.total || (Number(it.price || 0) * Number(it.quantity || 1))),
-        }))
+    items: Array.isArray(rawItems)
+      ? rawItems.map((it: any) => {
+          const name = it.name || it.itemName || it.item_name || 'Clinical Service'
+          const price = Number(it.price || it.unitPrice || 0)
+          const qty = Number(it.quantity || 1)
+          return {
+            id: it.id || crypto.randomUUID(),
+            itemName: name,
+            name: name,
+            quantity: qty,
+            price: price,
+            total: Number(it.total || price * qty),
+          }
+        })
       : [],
-    totalAmount: Number(b.total_amount || 0),
-    paidAmount: Number(b.paid_amount || 0),
-    balanceDue: Number(b.balance_due || 0),
-    paymentStatus: b.payment_status === 'pending' ? 'unpaid' : (b.payment_status || 'unpaid'),
+    totalAmount: total,
+    paidAmount: paid,
+    balanceDue: balance,
+    paymentStatus: effectiveStatus as any,
     paidAt: b.paid_at,
     remarks: b.remarks,
     receiptUrl: b.receipt_url,
@@ -3390,17 +3515,42 @@ export async function recordPaymentTransaction(record: {
       })
       .eq('id', record.appointmentId)
 
-    // 2. Create or update billing invoice in Supabase
+    // 2. Create or update billing invoice in Supabase (preserving existing line items)
+    const { data: existingInv } = await supabase
+      .from('billing_invoices')
+      .select('id, items, remarks, total_amount')
+      .eq('appointment_id', record.appointmentId)
+      .maybeSingle()
+
+    const existingItems = Array.isArray(existingInv?.items) && existingInv.items.length > 0
+      ? existingInv.items
+      : [
+          {
+            id: crypto.randomUUID(),
+            item_name: 'Consultation & Clinical Services',
+            itemName: 'Consultation & Clinical Services',
+            name: 'Consultation & Clinical Services',
+            quantity: 1,
+            price: record.amount,
+            total: record.amount,
+          },
+        ]
+
+    const effectiveTotal = Math.max(record.amount, Number(existingInv?.total_amount || 0))
+    const paidAmt = dbPayStatus === 'paid' ? effectiveTotal : 0
     const invoicePayload = {
-      id: crypto.randomUUID(),
+      id: existingInv?.id || crypto.randomUUID(),
       appointment_id: record.appointmentId,
       clinic_id: record.clinicId,
-      total_amount: record.amount,
-      paid_amount: dbPayStatus === 'paid' ? record.amount : 0,
-      balance_due: dbPayStatus === 'paid' ? 0 : record.amount,
+      items: existingItems,
+      total_amount: effectiveTotal,
+      paid_amount: paidAmt,
+      balance_due: Math.max(0, effectiveTotal - paidAmt),
       payment_status: dbPayStatus,
       paid_at: dbPayStatus === 'paid' ? nowIso : null,
-      remarks: `Method: ${record.paymentMethod} (Txn: ${txnId}) • ${record.notes || ''}`.trim(),
+      remarks: existingInv?.remarks
+        ? `${existingInv.remarks}\nMethod: ${record.paymentMethod} (Txn: ${txnId}) • ${record.notes || ''}`.trim()
+        : `Method: ${record.paymentMethod} (Txn: ${txnId}) • ${record.notes || ''}`.trim(),
     }
 
     const { error: invError } = await supabase

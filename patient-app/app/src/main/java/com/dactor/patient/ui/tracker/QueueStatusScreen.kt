@@ -288,8 +288,13 @@ fun QueueStatusScreen(
 
                 // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
                 var qEntry = queueRepository?.getQueueStatus(appt.id)
-                if (qEntry == null && appt.checkinStatus != "completed" && appt.checkinStatus != "cancelled" && appt.clinicId.isNotBlank() && appt.appointmentDate == today) {
-                    qEntry = queueRepository?.ensureQueueEntryForAppointment(appt.id, appt.clinicId, appt.doctorId)
+                val isUpcomingOrToday = appt.appointmentDate >= today && appt.checkinStatus in listOf("waiting", "checked_in", "in_queue", "confirmed", "booked")
+                if (isUpcomingOrToday && (qEntry == null || qEntry.status in listOf("done", "completed", "cancelled"))) {
+                    if (appt.appointmentDate == today && appt.clinicId.isNotBlank()) {
+                        qEntry = queueRepository?.ensureQueueEntryForAppointment(appt.id, appt.clinicId, appt.doctorId)
+                    } else if (appt.appointmentDate > today) {
+                        qEntry = null
+                    }
                 }
                 if (qEntry != null) {
                     tokenNumber = qEntry.queuePosition
