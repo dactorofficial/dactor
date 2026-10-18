@@ -2,6 +2,7 @@ package com.dactor.patient.ui.booking
 
 import android.net.Uri
 import android.widget.Toast
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -69,6 +70,13 @@ fun computeCalendarDateState(
     val isWeeklyOff = schedule?.isOpen == false
     if (isHoliday || isWeeklyOff) {
         return CalendarDateState.CLOSED
+    }
+
+    val isLabClinic = clinic?.type?.lowercase()?.let { it == "diagnostic_lab" || it.contains("lab") } == true ||
+        clinic?.name?.lowercase()?.contains("lab") == true ||
+        clinic?.specialties?.any { it.lowercase().contains("lab") || it.lowercase().contains("patholog") } == true
+    if (isLabClinic) {
+        return CalendarDateState.AVAILABLE
     }
 
     val rawSlots = monthSlotsMap[dateStr]?.filter { it.isPublished } ?: emptyList()
@@ -238,10 +246,15 @@ fun BookingScreen(
                         .firstOrNull { computeCalendarDateState(it, clinic, selectedDoctor, res, todayDate) == CalendarDateState.AVAILABLE }
 
                     val selDateParsed = try { LocalDate.parse(selectedDate) } catch (_: Exception) { null }
-                    if (nextAvail != null && (selectedDate.isBlank() || selDateParsed == null || selDateParsed < todayDate || YearMonth.from(selDateParsed) != viewedYearMonth)) {
+                    val isCurrentSelAvailable = selDateParsed != null &&
+                        selDateParsed >= todayDate &&
+                        YearMonth.from(selDateParsed) == viewedYearMonth &&
+                        computeCalendarDateState(selDateParsed, clinic, selectedDoctor, res, todayDate) == CalendarDateState.AVAILABLE
+
+                    if (nextAvail != null && !isCurrentSelAvailable) {
                         selectedDate = nextAvail.toString()
-                    } else if (selectedDate.isBlank()) {
-                        selectedDate = today
+                    } else if (selectedDate.isBlank() || selDateParsed == null || selDateParsed < todayDate) {
+                        selectedDate = (nextAvail ?: todayDate).toString()
                     }
                 }
             } catch (e: Exception) {
@@ -387,7 +400,15 @@ fun BookingScreen(
                                             slotId = selectedSlot.id
                                         ) ?: false
                                         if (ok) {
-                                            queueRepository?.removeOrCancelQueueEntry(pendingReschedule.appointmentId)
+                                            if (selectedDate == today) {
+                                                queueRepository?.ensureQueueEntryForAppointment(
+                                                    appointmentId = pendingReschedule.appointmentId,
+                                                    clinicId = pendingReschedule.clinicId,
+                                                    doctorId = pendingReschedule.doctorId ?: activeDoctor?.id
+                                                )
+                                            } else {
+                                                queueRepository?.removeOrCancelQueueEntry(pendingReschedule.appointmentId)
+                                            }
                                             sessionManager?.clearPendingReschedule()
                                             Toast.makeText(context, "Rescheduled to $selectedDate at ${selectedSlot.startTime} successfully!", Toast.LENGTH_LONG).show()
                                             navController.navigate(NavRoutes.QueueStatus.createRoute(pendingReschedule.trackingCode)) {
@@ -429,7 +450,7 @@ fun BookingScreen(
                             text = when {
                                 isExecutingReschedule -> "Rescheduling..."
                                 isRescheduleMode && !canBookSelectedSlot -> "Select a Slot to Reschedule"
-                                isRescheduleMode && selectedSlot != null -> "Confirm Reschedule to $selectedDate (${selectedSlot.startTime}) • Free"
+                                isRescheduleMode && selectedSlot != null -> "Confirm Reschedule to $selectedDate (${selectedSlot.startTime})"
                                 !canBookSelectedSlot -> "Select a Published Slot to Book"
                                 isLabClinic -> "Select Lab Tests & Book"
                                 else -> "Book Appointment"
@@ -484,7 +505,7 @@ fun BookingScreen(
                                     color = Color(0xFFDBEAFE)
                                 ) {
                                     Text(
-                                        text = "FEE RETAINED (Rs. 0)",
+                                        text = "FEE RETAINED",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF1D4ED8),
@@ -503,9 +524,9 @@ fun BookingScreen(
                 }
             }
             // ── 0. TRANSACTION FAILED BANNER (Auto-dismisses in 2 seconds) ────
-            if (showTransactionFailedBanner) {
+            if (showTransactionFailedBanner && !isRescheduleMode) {
                 item {
-                    androidx.compose.animation.AnimatedVisibility(visible = showTransactionFailedBanner) {
+                    androidx.compose.animation.AnimatedVisibility(visible = showTransactionFailedBanner && !isRescheduleMode) {
                         Surface(
                             color = Color(0xFFDC2626),
                             shape = RoundedCornerShape(12.dp),
@@ -531,7 +552,7 @@ fun BookingScreen(
             if (doctors.size > 1) {
                 item {
                     Text(
-                        "Select Doctor from Clinic",
+                        if (isRescheduleMode) "Assigned Doctor (Locked for Reschedule)" else "Select Doctor from Clinic",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp,
                         color = Color(0xFF64748B)
@@ -549,7 +570,8 @@ fun BookingScreen(
                                 .trim()
                             FilterChip(
                                 selected = isCur,
-                                onClick = { selectedDoctor = doc },
+                                onClick = { if (!isRescheduleMode) selectedDoctor = doc },
+                                enabled = !isRescheduleMode,
                                 label = { Text("Dr. $cleanShortName", fontSize = 12.sp) },
                                 leadingIcon = if (isCur) {
                                     { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
@@ -750,7 +772,9 @@ fun BookingScreen(
                             }
                         }
 
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
+                        if (isLabClinic || !isRescheduleMode) {
+                            HorizontalDivider(color = Color(0xFFF1F5F9))
+                        }
 
                         // Consultation Fee (or Lab Test Pricing notice for Lab Clinics)
                         if (isLabClinic) {
@@ -767,7 +791,7 @@ fun BookingScreen(
                                     color = Color(0xFF00796B)
                                 )
                             }
-                        } else {
+                        } else if (!isRescheduleMode) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -961,7 +985,7 @@ fun BookingScreen(
                                             .weight(1f)
                                             .defaultMinSize(minHeight = 60.dp)
                                             .clickable(enabled = !isFull) {
-                                                if (!isUserLoggedIn) {
+                                                if (!isUserLoggedIn && !isRescheduleMode) {
                                                     redirectToLoginSavingPosition(slot.id)
                                                 } else {
                                                     selectedSlotId = slot.id

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { getAppointmentByTrackingCode, getSupportTicketByCodeOrContact } from '../services/db'
 import { Appointment, SupportTicket } from '../types'
-import dactorLogo from '../assets/logo.png'
+import dactorLogo from '../assets/logo.svg'
 
 interface LiveTrackerModalProps {
   isOpen: boolean

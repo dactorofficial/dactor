@@ -57,6 +57,7 @@ import {
   LifeBuoy,
 } from 'lucide-react'
 import { GlassCard, GlassButton, GlassBadge } from '../components/glass'
+import { DateScroller } from '../components/DateScroller'
 import {
   Clinic,
   ClinicInvitation,
@@ -529,8 +530,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     // Keep desk tab clean
   }, [])
 
-  // Queue Board Segmented Sub-Tab (QueueBoardScreen.kt: Waiting vs Past/Completed)
+  // Queue Board Segmented Sub-Tab (QueueBoardScreen.kt: Live vs Completed)
   const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'past'>('waiting')
+  const [selectedQueueDate, setSelectedQueueDate] = useState<string>(
+    () => new Date().toISOString().split('T')[0]
+  )
+  const [expandedQueueApptId, setExpandedQueueApptId] = useState<string | null>(null)
 
   // Clinical Remark Modal State (QueueBoardScreen.kt & FutureAppointmentsScreen.kt)
   const [remarkModalOpen, setRemarkModalOpen] = useState(false)
@@ -2630,12 +2635,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     [medicalSpecialties]
   )
 
-  // Queue Counts
+  // Queue Counts (filtered by selected queue date from DateScroller)
   const todayDateStr = new Date().toISOString().split('T')[0]
-  const todayAppointments = useMemo(
-    () => appointments.filter((a) => a.appointmentDate === todayDateStr),
-    [appointments, todayDateStr]
-  )
+  const todayAppointments = useMemo(() => {
+    const list = appointments.filter((a) => a.appointmentDate === selectedQueueDate)
+    return [...list].sort((a, b) => {
+      const aInside = a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside' ? 0 : 1
+      const bInside = b.checkinStatus === 'in_consultation' || b.checkinStatus === 'inside' ? 0 : 1
+      if (aInside !== bInside) return aInside - bInside
+      return (a.appointmentTime || '').localeCompare(b.appointmentTime || '')
+    })
+  }, [appointments, selectedQueueDate])
 
   const noShowAppointments = useMemo(
     () => appointments.filter((a) => a.checkinStatus === 'no_show'),
@@ -3982,49 +3992,64 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           )}
 
-          {/* Section Header + Segmented Sub-Tabs */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <div className="flex p-1 liquid-glass-subtle rounded-2xl border border-white/40 dark:border-white/10">
-                <button
-                  type="button"
-                  onClick={() => setQueueSubTab('waiting')}
-                  className={`px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
-                    queueSubTab === 'waiting'
-                      ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                  }`}
-                >
-                  Waiting Queue ({queueWaitingCount + queueInsideCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQueueSubTab('past')}
-                  className={`px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
-                    queueSubTab === 'past'
-                      ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                  }`}
-                >
-                  Past / Completed Queue ({todayAppointments.filter((a) => a.checkinStatus === 'completed' || a.checkinStatus === 'no_show' || a.checkinStatus === 'cancelled').length})
-                </button>
-              </div>
+          {/* Date Scroller (Patient App Style, Compact) */}
+          <DateScroller
+            selectedDate={selectedQueueDate}
+            onSelectDate={(d) => {
+              setSelectedQueueDate(d)
+              setExpandedQueueApptId(null)
+            }}
+            className="mb-3"
+          />
+
+          {/* Section Header + Segmented Sub-Tabs (Live vs Completed) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-1.5 p-1 liquid-glass-subtle rounded-xl border border-white/40 dark:border-white/10 overflow-x-auto no-scrollbar max-w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setQueueSubTab('waiting')
+                  setExpandedQueueApptId(null)
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                  queueSubTab === 'waiting'
+                    ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                }`}
+              >
+                Live ({queueWaitingCount + queueInsideCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setQueueSubTab('past')
+                  setExpandedQueueApptId(null)
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                  queueSubTab === 'past'
+                    ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                }`}
+              >
+                Completed ({todayAppointments.filter((a) => a.checkinStatus === 'completed' || a.checkinStatus === 'done' || a.checkinStatus === 'no_show').length})
+              </button>
             </div>
+
             <div className="flex items-center space-x-2">
               <button
                 onClick={handleTriggerAutoNotify}
-                className="flex items-center space-x-1.5 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-300/60 px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
+                className="flex items-center space-x-1.5 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-300/60 px-2.5 py-1.5 rounded-xl cursor-pointer transition-colors"
                 title={`Notify patients who are ≤ ${settingThreshold} spots away from consultation cabin`}
               >
                 <Bell className="w-3.5 h-3.5" />
-                <span>Auto-Notify (Threshold: &le; {settingThreshold})</span>
+                <span>Auto-Notify (&le; {settingThreshold})</span>
               </button>
               <button
                 onClick={() => setRefreshKey((k) => k + 1)}
-                className="flex items-center space-x-1.5 text-xs font-bold text-brand-700 dark:text-brand-300 liquid-glass-subtle border border-brand-400/30 px-3 py-1.5 rounded-xl cursor-pointer transition"
+                className="flex items-center space-x-1.5 text-xs font-bold text-brand-700 dark:text-brand-300 liquid-glass-subtle border border-brand-400/30 px-2.5 py-1.5 rounded-xl cursor-pointer transition"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                <span>Refresh Board</span>
+                <span>Refresh</span>
               </button>
             </div>
           </div>
@@ -4032,9 +4057,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           {todayAppointments.length === 0 ? (
             <div className="p-12 text-center liquid-glass-card rounded-3xl border border-white/60 dark:border-white/10 shadow-glass-sm">
               <Activity className="w-10 h-10 text-slate-400 mx-auto mb-2" />
-              <h3 className="font-bold text-slate-800 dark:text-slate-200">No appointments scheduled for today</h3>
+              <h3 className="font-bold text-slate-800 dark:text-slate-200">
+                No appointments scheduled for {selectedQueueDate}
+              </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Patients registered via online booking or reception walk-in will automatically appear here.
+                Patients scheduled or registered for this date will automatically appear here.
               </p>
             </div>
           ) : (
@@ -4043,14 +4070,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <table className="w-full text-left text-xs">
                   <thead className="liquid-glass-subtle border-b border-white/40 dark:border-white/10 text-slate-600 dark:text-slate-300 uppercase tracking-wider font-bold">
                     <tr>
-                      <th className="py-3.5 px-4">Token Code</th>
-                      <th className="py-3.5 px-4">Patient Name & Phone</th>
-                      <th className="py-3.5 px-4">Age / Gender</th>
-                      <th className="py-3.5 px-4">Doctor</th>
-                      <th className="py-3.5 px-4">Status</th>
-                      <th className="py-3.5 px-4">Estimated Timing</th>
-                      <th className="py-3.5 px-4">Payment</th>
-                      <th className="py-3.5 px-4 text-right">Actions</th>
+                      <th className="py-3 px-4 w-12 text-center">Turn</th>
+                      <th className="py-3 px-4">Patient</th>
+                      <th className="py-3 px-4">Doctor</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Payment</th>
+                      <th className="py-3 px-4 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/30 dark:divide-white/5 font-medium">
@@ -4061,268 +4086,305 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             appt.checkinStatus === 'in_consultation' ||
                             appt.checkinStatus === 'inside'
                           : appt.checkinStatus === 'completed' ||
+                            appt.checkinStatus === 'done' ||
                             appt.checkinStatus === 'no_show' ||
                             appt.checkinStatus === 'cancelled'
                       )
-                      .map((appt) => {
-                      const isWaiting = appt.checkinStatus === 'waiting'
-                      const inCabin =
-                        appt.checkinStatus === 'in_consultation' || appt.checkinStatus === 'inside'
-                      const isDone = appt.checkinStatus === 'completed'
+                      .map((appt, idx) => {
+                        const isWaiting = appt.checkinStatus === 'waiting'
+                        const inCabin =
+                          appt.checkinStatus === 'in_consultation' || appt.checkinStatus === 'inside'
+                        const isDone = appt.checkinStatus === 'completed' || appt.checkinStatus === 'done'
+                        const isExpanded = expandedQueueApptId === appt.id
 
-                      const timing = calculateLiveQueueTimingEstimate(
-                        appt,
-                        todayAppointments,
-                        selectedClinic,
-                        selectedDoctor
-                      )
-
-                      return (
-                        <tr key={appt.id} className="hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
-                            <div className="flex items-center space-x-1.5">
-                              <span>#{appt.trackingCode10Digit}</span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  navigator.clipboard?.writeText(appt.trackingCode10Digit)
-                                  alert(`Copied 10-digit ID: ${appt.trackingCode10Digit}`)
-                                }}
-                                className="px-1.5 py-0.5 rounded liquid-glass-subtle hover:bg-brand-500/15 text-[10px] font-sans font-bold text-slate-600 dark:text-slate-300 hover:text-brand-700 cursor-pointer"
-                                title="Copy 10-Digit Tracking ID"
-                              >
-                                Copy
-                              </button>
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
-                            <div>{appt.patientName}</div>
-                            {appt.optInEarlyCall && (
-                              <div className="mt-0.5">
-                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40 text-[10px] font-bold">
-                                  <Zap className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
-                                  <span>Early Call Opted-In</span>
-                                </span>
-                              </div>
-                            )}
-                            {appt.patientMobile && (
-                              <a
-                                href={`tel:${appt.patientMobile}`}
-                                className="inline-flex items-center space-x-1 text-[11px] font-mono text-brand-700 dark:text-brand-400 hover:underline mt-0.5"
-                                title="Call Patient Mobile"
-                              >
-                                <Phone className="w-3 h-3" />
-                                <span>{appt.patientMobile}</span>
-                              </a>
-                            )}
-                            {appt.notes && (
-                              <div className="mt-1 px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-300/50 text-[10px] text-amber-900 dark:text-amber-200 font-medium">
-                                Remark: {appt.notes}
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
-                            {appt.patientAge || '–'} Yrs • {appt.patientGender || '–'}
-                          </td>
-                          <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
-                            {appt.doctor?.fullName || selectedDoctor?.fullName || 'General OPD'}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            {inCabin ? (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-400/40 animate-pulse">
-                                Inside Cabin
-                              </span>
-                            ) : isDone ? (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-900 dark:text-emerald-200 border border-emerald-400/40">
-                                Completed
-                              </span>
-                            ) : appt.checkinStatus === 'no_show' ? (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-900 dark:text-rose-200 border border-rose-400/40">
-                                No-Show
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-sky-500/20 text-sky-900 dark:text-sky-200 border border-sky-400/40">
-                                Waiting
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <div className="space-y-0.5">
-                              <span
-                                className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                  timing.isDoctorAway
-                                    ? 'bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-400/40'
-                                    : timing.isOnBreak
-                                    ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-400/40'
-                                    : timing.isSoonBeReady
-                                    ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40 animate-pulse'
-                                    : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/40'
-                                }`}
-                              >
-                                {timing.estimatedWait}
-                              </span>
-                              {timing.exactTimeStr !== '–' &&
-                                timing.exactTimeStr !== timing.estimatedWait && (
-                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                                    {timing.exactTimeStr}
-                                  </p>
-                                )}
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                appt.paymentStatus === 'paid'
-                                  ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40'
-                                  : appt.paymentStatus === 'partial'
-                                  ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-400/40'
-                                  : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/40'
+                        return (
+                          <React.Fragment key={appt.id}>
+                            <tr
+                              onClick={() => setExpandedQueueApptId(isExpanded ? null : appt.id)}
+                              className={`transition-colors cursor-pointer ${
+                                isExpanded
+                                  ? 'bg-blue-50/60 dark:bg-slate-800/60'
+                                  : 'hover:bg-white/40 dark:hover:bg-slate-800/40'
                               }`}
                             >
-                              Rs. {appt.feeAmount || 500} • {appt.paymentStatus.toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
-                            {/* Queue Sliding Up / Down and Emergency Priority #1 for Waiting Patients */}
-                            {isWaiting && (
-                              <span className="inline-flex items-center rounded-lg border border-white/50 dark:border-white/10 p-0.5 liquid-glass-subtle mr-1 align-middle space-x-0.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleQueueReorder(appt.id, 'up')}
-                                  className="p-1 hover:bg-white/60 text-slate-600 dark:text-slate-300 hover:text-blue-600 rounded cursor-pointer"
-                                  title="Slide Up (Move higher in waiting ranking)"
+                              {/* Turn # */}
+                              <td className="py-3.5 px-4 text-center font-black text-brand-700 dark:text-brand-300">
+                                #{idx + 1}
+                              </td>
+
+                              {/* Patient Name & Demographics (Token is hidden until tapped) */}
+                              <td className="py-3.5 px-4">
+                                <div className="font-bold text-slate-900 dark:text-white text-sm">
+                                  {appt.patientName}
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                  {appt.patientAge ? `${appt.patientAge} Yrs` : ''}
+                                  {appt.patientAge && appt.patientGender ? ' • ' : ''}
+                                  {appt.patientGender || ''}
+                                </div>
+                                {appt.notes && (
+                                  <div className="mt-1 px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-300/50 text-[10px] text-amber-900 dark:text-amber-200 font-medium line-clamp-1">
+                                    Remark: {appt.notes}
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Doctor */}
+                              <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
+                                {appt.doctor?.fullName || selectedDoctor?.fullName || 'General OPD'}
+                              </td>
+
+                              {/* Status Badge */}
+                              <td className="py-3.5 px-4">
+                                {inCabin ? (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-400/40 animate-pulse">
+                                    Inside Cabin
+                                  </span>
+                                ) : isDone ? (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-900 dark:text-emerald-200 border border-emerald-400/40">
+                                    Completed
+                                  </span>
+                                ) : appt.checkinStatus === 'no_show' ? (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-900 dark:text-rose-200 border border-rose-400/40">
+                                    No-Show
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-sky-500/20 text-sky-900 dark:text-sky-200 border border-sky-400/40">
+                                    Waiting
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Payment */}
+                              <td className="py-3.5 px-4">
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    appt.paymentStatus === 'paid'
+                                      ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40'
+                                      : appt.paymentStatus === 'partial'
+                                      ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-400/40'
+                                      : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/40'
+                                  }`}
                                 >
-                                  <ArrowUp className="w-3 h-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleQueueReorder(appt.id, 'down')}
-                                  className="p-1 hover:bg-white/60 text-slate-600 dark:text-slate-300 hover:text-blue-600 rounded cursor-pointer"
-                                  title="Slide Down (Move lower in waiting ranking)"
-                                >
-                                  <ArrowDown className="w-3 h-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleQueueReorder(appt.id, 'top')}
-                                  className="p-1 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded cursor-pointer"
-                                  title="Emergency Priority: Bump patient directly to #1 front of line"
-                                >
-                                  <AlertTriangle className="w-3 h-3" />
-                                </button>
-                              </span>
+                                  Rs. {appt.feeAmount || 500} • {appt.paymentStatus.toUpperCase()}
+                                </span>
+                              </td>
+
+                              {/* Action Cell: ONLY Call Inside or Mark Done without tapping */}
+                              <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                                {isWaiting && (
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
+                                      try {
+                                        playClinicChime()
+                                      } catch {}
+                                      await handleStatusChange(appt.id, 'in_consultation')
+                                    }}
+                                    className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
+                                  >
+                                    <Bell className="w-3.5 h-3.5" />
+                                    <span>Call Inside</span>
+                                  </button>
+                                )}
+
+                                {inCabin && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleStatusChange(appt.id, 'completed')
+                                    }}
+                                    className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Mark Done</span>
+                                  </button>
+                                )}
+
+                                {appt.checkinStatus === 'no_show' && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleStatusChange(appt.id, 'waiting')
+                                    }}
+                                    className="px-2.5 py-1.5 bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-400/40 rounded-lg font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                  >
+                                    <RefreshCw className="w-3 h-3" />
+                                    <span>Re-Queue</span>
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+
+                            {/* Tapped / Expanded Options Drawer */}
+                            {isExpanded && (
+                              <tr className="bg-slate-50/90 dark:bg-slate-900/90">
+                                <td colSpan={6} className="px-4 py-3.5">
+                                  <div className="p-3.5 rounded-2xl liquid-glass-subtle border border-brand-500/20 space-y-3">
+                                    {/* Patient Info with Token & Direct Phone Call Button */}
+                                    <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2 border-b border-white/50 dark:border-white/10">
+                                      <div className="flex items-center space-x-3">
+                                        <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 liquid-glass-card px-2.5 py-1 rounded-lg border border-white/40">
+                                          Token: #{appt.trackingCode10Digit}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            navigator.clipboard?.writeText(appt.trackingCode10Digit)
+                                            alert(`Copied Token #${appt.trackingCode10Digit}`)
+                                          }}
+                                          className="text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer"
+                                        >
+                                          Copy
+                                        </button>
+                                      </div>
+
+                                      {/* Direct Call Patient Option */}
+                                      {appt.patientMobile && (
+                                        <a
+                                          href={`tel:${appt.patientMobile}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40 text-xs font-bold transition cursor-pointer"
+                                        >
+                                          <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>Call Patient ({appt.patientMobile})</span>
+                                        </a>
+                                      )}
+                                    </div>
+
+                                    {/* Action Options Row */}
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {/* Slide Up / Down / Emergency Priority (if waiting) */}
+                                      {isWaiting && (
+                                        <div className="inline-flex items-center rounded-xl border border-white/50 dark:border-white/10 p-1 liquid-glass-subtle space-x-1">
+                                          <span className="text-[10px] font-bold text-slate-400 uppercase px-1">Order:</span>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleQueueReorder(appt.id, 'up')
+                                            }}
+                                            className="p-1 hover:bg-white/60 text-slate-600 dark:text-slate-300 hover:text-blue-600 rounded cursor-pointer"
+                                            title="Slide Up"
+                                          >
+                                            <ArrowUp className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleQueueReorder(appt.id, 'down')
+                                            }}
+                                            className="p-1 hover:bg-white/60 text-slate-600 dark:text-slate-300 hover:text-blue-600 rounded cursor-pointer"
+                                            title="Slide Down"
+                                          >
+                                            <ArrowDown className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleQueueReorder(appt.id, 'top')
+                                            }}
+                                            className="p-1 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded cursor-pointer font-bold text-[10px]"
+                                            title="Emergency Priority: Bump patient to front"
+                                          >
+                                            <AlertTriangle className="w-3.5 h-3.5 inline mr-0.5" />
+                                            <span>#1 Priority</span>
+                                          </button>
+                                        </div>
+                                      )}
+
+                                      {/* Clinical Remark */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleOpenRemarkModal(appt)
+                                        }}
+                                        className="px-2.5 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-900 dark:text-amber-200 border border-amber-300/50 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                      >
+                                        <MessageSquare className="w-3.5 h-3.5" />
+                                        <span>Remark</span>
+                                      </button>
+
+                                      {/* Push Bill / Update Payment */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleOpenBillModal(appt)
+                                        }}
+                                        className="px-2.5 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 text-sky-800 dark:text-sky-200 border border-sky-300/50 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                      >
+                                        <Receipt className="w-3.5 h-3.5" />
+                                        <span>Bill</span>
+                                      </button>
+
+                                      {/* Push Alert */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleOpenPushAlertModal(appt)
+                                        }}
+                                        className="px-2.5 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-300/50 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                      >
+                                        <Bell className="w-3.5 h-3.5" />
+                                        <span>Push Alert</span>
+                                      </button>
+
+                                      {/* Shift Date */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleOpenShiftModal(appt)
+                                        }}
+                                        className="px-2.5 py-1.5 bg-teal-500/15 hover:bg-teal-500/25 text-teal-800 dark:text-teal-300 border border-teal-300/50 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                      >
+                                        <Calendar className="w-3.5 h-3.5" />
+                                        <span>Shift Date</span>
+                                      </button>
+
+                                      {/* Print Slip */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleOpenPrintSlip(appt)
+                                        }}
+                                        className="px-2.5 py-1.5 liquid-glass-subtle hover:bg-white/70 text-slate-700 dark:text-slate-200 border border-white/50 dark:border-white/10 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                      >
+                                        <Printer className="w-3.5 h-3.5" />
+                                        <span>Slip</span>
+                                      </button>
+
+                                      {/* Mark No Show */}
+                                      {!isDone && appt.checkinStatus !== 'no_show' && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleStatusChange(appt.id, 'no_show')
+                                          }}
+                                          className="px-2.5 py-1.5 liquid-glass-subtle hover:bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-white/50 dark:border-white/10 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                          <span>No Show</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
                             )}
-
-                            {/* Call Patient Inside (Triggers Audio Chime) */}
-                            {isWaiting && (
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    playClinicChime()
-                                  } catch {}
-                                  await handleStatusChange(appt.id, 'in_consultation')
-                                }}
-                                className="px-2.5 py-1.5 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white rounded-lg font-bold text-[11px] shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
-                              >
-                                <Bell className="w-3 h-3" />
-                                <span>Call Inside</span>
-                              </button>
-                            )}
-
-                            {/* Mark Done Button */}
-                            {inCabin && (
-                              <button
-                                onClick={() => handleStatusChange(appt.id, 'completed')}
-                                className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg font-bold text-[11px] shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
-                              >
-                                <CheckCircle2 className="w-3 h-3" />
-                                <span>Mark Done</span>
-                              </button>
-                            )}
-
-                            {/* Re-Queue for No-Show Patients */}
-                            {appt.checkinStatus === 'no_show' && (
-                              <button
-                                onClick={() => handleStatusChange(appt.id, 'waiting')}
-                                className="px-2.5 py-1.5 bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-400/40 rounded-lg font-bold text-[11px] cursor-pointer inline-flex items-center space-x-1"
-                                title="Re-queue patient back to active waiting queue"
-                              >
-                                <RefreshCw className="w-3 h-3" />
-                                <span>Re-Queue</span>
-                              </button>
-                            )}
-
-                            {/* Add / Edit Clinical Remark */}
-                            <button
-                              type="button"
-                              onClick={() => handleOpenRemarkModal(appt)}
-                              className="px-2 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-900 dark:text-amber-200 border border-amber-300/50 rounded-lg font-bold text-[11px] cursor-pointer"
-                              title="Add or edit clinical remark / notes"
-                            >
-                              Remark
-                            </button>
-
-                            {/* Shift Appointment Date */}
-                            <button
-                              onClick={() => handleOpenShiftModal(appt)}
-                              className="px-2 py-1.5 bg-teal-500/15 hover:bg-teal-500/25 text-teal-800 dark:text-teal-300 border border-teal-300/50 rounded-lg font-bold text-[11px] cursor-pointer"
-                              title="Shift appointment to another date"
-                            >
-                              Shift Date
-                            </button>
-
-                            {/* Print Token Slip */}
-                            <button
-                              onClick={() => handleOpenPrintSlip(appt)}
-                              className="px-2 py-1.5 liquid-glass-subtle hover:bg-white/70 text-slate-700 dark:text-slate-200 border border-white/50 dark:border-white/10 rounded-lg font-bold text-[11px] cursor-pointer"
-                              title="Print thermal token slip"
-                            >
-                              <Printer className="w-3.5 h-3.5 inline" />
-                            </button>
-
-                            {/* ⚡ Invite Early for Opted-In Patients */}
-                            {appt.optInEarlyCall && isWaiting && (
-                              <button
-                                type="button"
-                                onClick={() => handleSendEarlyInvite(appt)}
-                                className="px-2 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-800 dark:text-emerald-300 border border-emerald-400/50 rounded-lg font-bold text-[11px] cursor-pointer inline-flex items-center space-x-1"
-                                title="Send 'Doctor is free now. Come in early?' push notification to patient"
-                              >
-                                <Zap className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                <span>Invite Early</span>
-                              </button>
-                            )}
-
-                            {/* Push Alert */}
-                            <button
-                              onClick={() => handleOpenPushAlertModal(appt)}
-                              className="px-2 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-300/50 rounded-lg font-bold text-[11px] cursor-pointer"
-                              title="Send real push notification template to patient"
-                            >
-                              Push Alert
-                            </button>
-
-                            {/* Push Bill / Update Payment */}
-                            <button
-                              onClick={() => handleOpenBillModal(appt)}
-                              className="px-2 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 text-sky-700 dark:text-sky-300 border border-sky-300/50 rounded-lg font-bold text-[11px] cursor-pointer"
-                            >
-                              Bill
-                            </button>
-
-                            {/* No Show */}
-                            {!isDone && appt.checkinStatus !== 'no_show' && (
-                              <button
-                                onClick={() => handleStatusChange(appt.id, 'no_show')}
-                                className="px-2 py-1.5 liquid-glass-subtle hover:bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-white/50 dark:border-white/10 rounded-lg font-bold text-[11px] cursor-pointer"
-                              >
-                                No Show
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
+                          </React.Fragment>
+                        )
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -5281,14 +5343,6 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         </td>
                         <td className="py-3.5 px-4 font-bold text-slate-900">
                           <div>{appt.patientName}</div>
-                          {appt.optInEarlyCall && (
-                            <div className="mt-0.5">
-                              <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-800 border border-emerald-400/40 text-[10px] font-bold">
-                                <Zap className="w-2.5 h-2.5 text-emerald-600" />
-                                <span>Early Call Opted-In</span>
-                              </span>
-                            </div>
-                          )}
                           {appt.notes && (
                             <div className="mt-0.5 text-[10px] text-amber-800 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200 inline-block">
                               Remark: {appt.notes}

@@ -25,12 +25,15 @@ import {
   Eye,
   Navigation,
   Camera,
+  GraduationCap,
+  Award,
+  Info,
 } from 'lucide-react'
-import { Clinic, Doctor } from '../types'
-import { getClinics, getDoctors } from '../services/db'
-import { matchClinic } from '../utils/searchEngine'
+import { Clinic, Doctor, DoctorHomeItem } from '../types'
+import { getClinics, getDoctors, resolveClinicCoverUrl, linkDoctorsWithClinics } from '../services/db'
+import { matchClinic, matchDoctor } from '../utils/searchEngine'
 import { updatePageSEO } from '../utils/seo'
-import dactorLogo from '../assets/logo.png'
+import dactorLogo from '../assets/logo.svg'
 
 interface HomeProps {
   onNavigate: (tab: string, params?: any) => void
@@ -92,6 +95,13 @@ export const Home: React.FC<HomeProps> = ({
   const [selectedSpecialty, setSelectedSpecialty] = useState('all')
   const [selectedSort, setSelectedSort] = useState<'default' | 'in_clinic' | 'fee_asc'>('default')
   const [showSortDropdown, setShowSortDropdown] = useState(false)
+
+  // Entity tab switcher: 'all' | 'doctors' | 'clinics' (Strict parity with mobile app)
+  const [activeEntityTab, setActiveEntityTab] = useState<'all' | 'doctors' | 'clinics'>('all')
+
+  // Doctor Modals
+  const [selectedDoctorForModal, setSelectedDoctorForModal] = useState<DoctorHomeItem | null>(null)
+  const [selectedDoctorForClinicPicker, setSelectedDoctorForClinicPicker] = useState<DoctorHomeItem | null>(null)
 
   // Date strip state (7 consecutive days starting from today)
   const today = useMemo(() => new Date(), [])
@@ -225,6 +235,85 @@ export const Home: React.FC<HomeProps> = ({
 
     return result
   }, [clinics, doctors, selectedLocation, searchQuery, selectedSpecialty, selectedSort])
+
+  // Pre-link all doctors with their practicing clinics (Parity with Mobile DoctorHomeItem)
+  const doctorHomeItems: DoctorHomeItem[] = useMemo(() => {
+    return linkDoctorsWithClinics(doctors, clinics)
+  }, [doctors, clinics])
+
+  // Filter and sort doctor cards (Strict Parity with Mobile App PatientMainScreen)
+  const filteredDoctorItems = useMemo(() => {
+    let result = doctorHomeItems.filter((item) => !item.doctor.isLabTechnician)
+
+    // Location filter
+    if (selectedLocation !== 'All Nepal') {
+      const locLower = selectedLocation.toLowerCase()
+      result = result.filter((item) => {
+        return item.practicingClinics.some(
+          (c) =>
+            c.addressText?.toLowerCase().includes(locLower) ||
+            c.city?.toLowerCase().includes(locLower) ||
+            c.name.toLowerCase().includes(locLower)
+        )
+      })
+    }
+
+    // Search query filter using matchDoctor
+    if (searchQuery.trim()) {
+      result = result.filter((item) => {
+        const match = matchDoctor(item.doctor, item.practicingClinics, searchQuery)
+        return match.isMatch
+      })
+    }
+
+    // Specialty chip filter
+    if (selectedSpecialty !== 'all') {
+      const target = selectedSpecialty.toLowerCase()
+      result = result.filter((item) => {
+        const docSpec = (item.doctor.specialty || '').toLowerCase()
+        const docSpecs = (item.doctor.specialties || []).map((s) => s.toLowerCase())
+        if (target === 'lab' || target === 'mri' || target === 'ct' || target === 'ultrasound') {
+          return (
+            docSpec.includes(target) ||
+            docSpecs.some((s) => s.includes(target)) ||
+            (target === 'lab' && docSpec.includes('patholog')) ||
+            ((target === 'mri' || target === 'ct' || target === 'ultrasound') &&
+              (docSpec.includes('radiolog') || docSpec.includes('imag')))
+          )
+        }
+        return (
+          docSpec.includes(target) ||
+          docSpecs.some((s) => s.includes(target)) ||
+          item.practicingClinics.some((c) =>
+            c.specialties?.some((s) => s.toLowerCase().includes(target))
+          )
+        )
+      })
+    }
+
+    // Sorting
+    if (selectedSort === 'in_clinic') {
+      result.sort((a, b) => (b.hasDocInClinic ? 1 : 0) - (a.hasDocInClinic ? 1 : 0))
+    } else if (selectedSort === 'fee_asc') {
+      result.sort((a, b) => {
+        const feeA = a.doctor.consultationFee || 500
+        const feeB = b.doctor.consultationFee || 500
+        return feeA - feeB
+      })
+    } else {
+      // Default: in-clinic first, then by experience
+      result.sort((a, b) => {
+        if (a.hasDocInClinic !== b.hasDocInClinic) {
+          return a.hasDocInClinic ? -1 : 1
+        }
+        const expA = a.doctor.experienceYears || 0
+        const expB = b.doctor.experienceYears || 0
+        return expB - expA
+      })
+    }
+
+    return result
+  }, [doctorHomeItems, selectedLocation, searchQuery, selectedSpecialty, selectedSort])
 
   return (
     <div className="min-h-screen space-y-8 sm:space-y-12 pb-24 font-sans text-slate-900 selection:bg-brand-500 selection:text-white">
@@ -542,9 +631,312 @@ export const Home: React.FC<HomeProps> = ({
       </section>
 
       {/* ========================================================= */}
-      {/* CLINIC & DOCTOR OPD CARDS (Matches 01_home_dashboard.png) */}
+      {/* ENTITY TYPE SELECTOR (All Providers vs Specialist Doctors vs Clinics) */}
       {/* ========================================================= */}
-      <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 space-y-4 sm:space-y-6">
+      <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-1.5 sm:gap-2 p-1.5 liquid-glass-subtle rounded-2xl border border-white/80 shadow-glass-sm max-w-xl">
+          <button
+            type="button"
+            onClick={() => setActiveEntityTab('all')}
+            className={`flex-1 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-center cursor-pointer ${
+              activeEntityTab === 'all'
+                ? 'bg-gradient-to-r from-brand-600 to-sky-600 text-white shadow-glass-brand scale-[1.01]'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            All Providers
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveEntityTab('doctors')}
+            className={`flex-1 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-center cursor-pointer flex items-center justify-center space-x-1.5 ${
+              activeEntityTab === 'doctors'
+                ? 'bg-gradient-to-r from-brand-600 to-sky-600 text-white shadow-glass-brand scale-[1.01]'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <Stethoscope className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span>Specialist Doctors</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${activeEntityTab === 'doctors' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-700'}`}>
+              {filteredDoctorItems.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveEntityTab('clinics')}
+            className={`flex-1 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all text-center cursor-pointer flex items-center justify-center space-x-1.5 ${
+              activeEntityTab === 'clinics'
+                ? 'bg-gradient-to-r from-brand-600 to-sky-600 text-white shadow-glass-brand scale-[1.01]'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span>Clinics & Labs</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${activeEntityTab === 'clinics' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-700'}`}>
+              {filteredClinics.length}
+            </span>
+          </button>
+        </div>
+      </section>
+
+      {/* ========================================================= */}
+      {/* 1. SPECIALIST DOCTORS SECTION (Parity with Mobile Doctor Roster) */}
+      {/* ========================================================= */}
+      {(activeEntityTab === 'all' || activeEntityTab === 'doctors') && (
+        <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 space-y-4">
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center font-bold">
+                <Stethoscope className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-black text-slate-900">
+                  {activeEntityTab === 'all' ? 'Featured Specialist Doctors' : 'Specialist Doctors & Medical Consultants'}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {filteredDoctorItems.length} verified doctors available in {selectedLocation}
+                </p>
+              </div>
+            </div>
+
+            {activeEntityTab === 'all' && filteredDoctorItems.length > 3 && (
+              <button
+                type="button"
+                onClick={() => setActiveEntityTab('doctors')}
+                className="text-xs font-bold text-brand-600 hover:text-brand-700 flex items-center space-x-1 cursor-pointer"
+              >
+                <span>View All ({filteredDoctorItems.length})</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-48 bg-slate-100 rounded-3xl animate-pulse" />
+              ))}
+            </div>
+          ) : filteredDoctorItems.length === 0 ? (
+            <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center max-w-md mx-auto space-y-3">
+              <Stethoscope className="w-12 h-12 text-slate-300 mx-auto" />
+              <h3 className="text-base font-bold text-slate-800">No doctors found matching criteria</h3>
+              <p className="text-xs text-slate-500">
+                Try searching for symptoms like "skin", "heart", or switch location to "All Nepal".
+              </p>
+              <button
+                onClick={() => {
+                  setSearchQuery('')
+                  setSelectedSpecialty('all')
+                  setSelectedLocation('All Nepal')
+                }}
+                className="px-4 py-2 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition-colors cursor-pointer"
+              >
+                Reset Filters
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {(activeEntityTab === 'all' ? filteredDoctorItems.slice(0, 6) : filteredDoctorItems).map((item) => {
+                const doc = item.doctor
+                const initials = doc.fullName
+                  .split(' ')
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((w) => w[0].toUpperCase())
+                  .join('') || 'DR'
+
+                const hasPhoto = Boolean(doc.profilePictureUrl && doc.profilePictureUrl.trim().length > 0)
+                const isDocInClinic = item.hasDocInClinic || doc.isInClinic
+                const primaryClinic = item.practicingClinics[0]
+
+                return (
+                  <div
+                    key={doc.id}
+                    className="group liquid-glass-card rounded-3xl border border-white/80 shadow-glass-md hover:shadow-glass-lg transition-all duration-300 p-4 sm:p-5 flex flex-col justify-between overflow-hidden"
+                  >
+                    <div className="space-y-3.5">
+                      {/* Top Header: Avatar & In-Clinic Status Badge */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center space-x-3">
+                          <div className="relative shrink-0">
+                            {hasPhoto ? (
+                              <img
+                                src={doc.profilePictureUrl}
+                                alt={doc.fullName}
+                                className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-white/80 shadow-glass-sm group-hover:scale-105 transition-transform"
+                                onError={(e) => {
+                                  (e.target as HTMLElement).style.display = 'none'
+                                }}
+                              />
+                            ) : null}
+                            {!hasPhoto && (
+                              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-tr from-sky-600 via-sky-500 to-cyan-500 text-white font-black text-lg sm:text-xl flex items-center justify-center border-2 border-white/80 shadow-glass-sm">
+                                {initials}
+                              </div>
+                            )}
+                            {isDocInClinic && (
+                              <span className="absolute -bottom-1 -right-1 flex h-4 w-4">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500 border-2 border-white" />
+                              </span>
+                            )}
+                          </div>
+
+                          <div>
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">
+                                {doc.education || 'MBBS'}
+                              </span>
+                              <span className="text-[10px] font-semibold text-slate-500">
+                                {doc.experienceYears || 5}+ Yrs Exp
+                              </span>
+                            </div>
+                            <h3
+                              onClick={() => setSelectedDoctorForModal(item)}
+                              className="text-base sm:text-lg font-black text-slate-900 line-clamp-1 group-hover:text-brand-600 transition-colors cursor-pointer mt-0.5"
+                            >
+                              Dr. {doc.fullName}
+                            </h3>
+                            <p className="text-xs font-bold text-brand-600 line-clamp-1">
+                              {doc.specialty || 'General Practitioner'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Verification Badge */}
+                        <div className="shrink-0">
+                          {isDocInClinic ? (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse" />
+                              In Clinic
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200/80">
+                              <ShieldCheck className="w-3 h-3 mr-1 text-sky-600" />
+                              Verified
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Sub-specialties tags */}
+                      {doc.specialties && doc.specialties.length > 1 && (
+                        <div className="flex flex-wrap gap-1">
+                          {doc.specialties.slice(0, 3).map((spec, sIdx) => (
+                            <span
+                              key={sIdx}
+                              className="text-[10px] font-semibold text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded-md"
+                            >
+                              {spec}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Practicing Clinics Line */}
+                      <div className="p-2.5 rounded-2xl bg-slate-50/80 border border-slate-100 text-xs space-y-1">
+                        <div className="flex items-center space-x-1.5 text-slate-700 font-medium">
+                          <Building2 className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+                          {item.practicingClinics.length === 0 ? (
+                            <span className="text-slate-500 italic text-[11px]">Private Consultation / Tele-health</span>
+                          ) : item.practicingClinics.length === 1 ? (
+                            <span className="truncate font-semibold text-slate-800 text-[11px]">
+                              {primaryClinic.name} ({primaryClinic.city || 'Nepal'})
+                            </span>
+                          ) : (
+                            <div className="flex items-center justify-between w-full">
+                              <span className="truncate font-semibold text-slate-800 text-[11px]">
+                                {primaryClinic.name}
+                              </span>
+                              <span className="text-[10px] font-bold bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded shrink-0">
+                                +{item.practicingClinics.length - 1} clinics
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Footer: Fee & Action Buttons */}
+                    <div className="pt-3.5 mt-3.5 border-t border-slate-100/80 flex items-center justify-between gap-2">
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Fee</span>
+                        <span className="text-sm sm:text-base font-black text-slate-900">
+                          Rs. {doc.consultationFee || 500}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDoctorForModal(item)}
+                          className="px-3 py-2 rounded-xl text-xs font-bold text-slate-700 bg-white/80 hover:bg-white border border-slate-200 transition-all cursor-pointer shadow-xs"
+                        >
+                          Profile
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (item.practicingClinics.length === 0) {
+                              alert(`Dr. ${doc.fullName} is currently accepting direct consultations at partner clinics. Please select an affiliated clinic.`)
+                            } else if (item.practicingClinics.length === 1) {
+                              onNavigate('clinic-detail', {
+                                clinicId: item.practicingClinics[0].id,
+                                doctorId: doc.id,
+                                action: 'book',
+                              })
+                            } else {
+                              setSelectedDoctorForClinicPicker(item)
+                            }
+                          }}
+                          className="px-3.5 py-2 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer shadow-glass-brand border border-white/30"
+                        >
+                          <span>Book Slot</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ========================================================= */}
+      {/* 2. CLINICS & DIAGNOSTIC LABS SECTION (Matches 01_home_dashboard.png) */}
+      {/* ========================================================= */}
+      {(activeEntityTab === 'all' || activeEntityTab === 'clinics') && (
+        <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 space-y-4 sm:space-y-6">
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-700 flex items-center justify-center font-bold">
+                <Building2 className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-black text-slate-900">
+                  {activeEntityTab === 'all' ? 'Clinics & Diagnostic Pathology Labs' : 'All Clinics & Diagnostic Centers'}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {filteredClinics.length} certified healthcare centers in {selectedLocation}
+                </p>
+              </div>
+            </div>
+
+            {activeEntityTab === 'all' && filteredClinics.length > 6 && (
+              <button
+                type="button"
+                onClick={() => setActiveEntityTab('clinics')}
+                className="text-xs font-bold text-brand-600 hover:text-brand-700 flex items-center space-x-1 cursor-pointer"
+              >
+                <span>View All ({filteredClinics.length})</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {[1, 2, 3].map((i) => (
@@ -592,7 +984,10 @@ export const Home: React.FC<HomeProps> = ({
                 } catch {}
               }
 
-              const coverPhoto = (clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures[0] : null) || clinic.logoUrl
+              const coverPhoto =
+                resolveClinicCoverUrl(clinic) ||
+                (clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures[0] : null) ||
+                clinic.logoUrl
 
               return (
                 <div
@@ -771,6 +1166,7 @@ export const Home: React.FC<HomeProps> = ({
           </div>
         )}
       </section>
+      )}
 
       {/* ========================================================= */}
       {/* 4 QUICK ACTION TILES (Medical Cyan & Deep Navy Themed) */}
@@ -1060,6 +1456,222 @@ export const Home: React.FC<HomeProps> = ({
           </div>
         </div>
       </section>
+
+      {/* ========================================================= */}
+      {/* 5. DOCTOR PROFILE DETAIL MODAL (Parity with Mobile Search) */}
+      {/* ========================================================= */}
+      {selectedDoctorForModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setSelectedDoctorForModal(null)}
+        >
+          <div
+            className="bg-white rounded-3xl max-w-xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-100 p-5 sm:p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header with Close */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center space-x-3.5">
+                {selectedDoctorForModal.doctor.profilePictureUrl ? (
+                  <img
+                    src={selectedDoctorForModal.doctor.profilePictureUrl}
+                    alt={selectedDoctorForModal.doctor.fullName}
+                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-brand-500 shadow-md"
+                  />
+                ) : (
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-tr from-sky-600 to-cyan-500 text-white font-black text-2xl flex items-center justify-center shadow-md">
+                    {selectedDoctorForModal.doctor.fullName.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                      Verified Specialist
+                    </span>
+                    {selectedDoctorForModal.hasDocInClinic && (
+                      <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                        In Clinic Now
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
+                    Dr. {selectedDoctorForModal.doctor.fullName}
+                  </h2>
+                  <p className="text-sm font-bold text-brand-600">
+                    {selectedDoctorForModal.doctor.specialty || 'General Practitioner'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedDoctorForModal(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Qualifications & License Info */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3.5 rounded-2xl bg-slate-50 border border-slate-100 text-xs">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Degrees</span>
+                <span className="font-extrabold text-slate-800">{selectedDoctorForModal.doctor.education || 'MBBS'}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">NMC Number</span>
+                <span className="font-extrabold text-slate-800">{selectedDoctorForModal.doctor.nmcLicenseNumber || 'NMC-Verified'}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Experience</span>
+                <span className="font-extrabold text-slate-800">{selectedDoctorForModal.doctor.experienceYears || 5}+ Years</span>
+              </div>
+            </div>
+
+            {/* Bio / Description */}
+            {selectedDoctorForModal.doctor.bio && (
+              <div className="space-y-1.5">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">About Doctor</h4>
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                  {selectedDoctorForModal.doctor.bio}
+                </p>
+              </div>
+            )}
+
+            {/* Practicing Clinics Section */}
+            <div className="space-y-3 pt-2 border-t border-slate-100">
+              <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center justify-between">
+                <span>Practicing Clinics & Hospital OPDs</span>
+                <span className="text-[11px] font-bold text-brand-600">
+                  {selectedDoctorForModal.practicingClinics.length} Available
+                </span>
+              </h4>
+
+              {selectedDoctorForModal.practicingClinics.length === 0 ? (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs space-y-1">
+                  <p className="font-bold">No active clinic schedules listed.</p>
+                  <p className="text-amber-700">Dr. {selectedDoctorForModal.doctor.fullName} is available for private appointments or upcoming roster assignments.</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {selectedDoctorForModal.practicingClinics.map((clinic) => (
+                    <div
+                      key={clinic.id}
+                      className="p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-brand-500 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+                    >
+                      <div>
+                        <h5 className="text-sm font-black text-slate-900">{clinic.name}</h5>
+                        <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{clinic.addressText || clinic.city || 'Nepal'}</span>
+                        </p>
+                        <p className="text-[11px] font-bold text-emerald-600 mt-1">
+                          Fee: Rs. {selectedDoctorForModal.doctor.consultationFee || 500}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const docId = selectedDoctorForModal.doctor.id
+                          setSelectedDoctorForModal(null)
+                          onNavigate('clinic-detail', {
+                            clinicId: clinic.id,
+                            doctorId: docId,
+                            action: 'book',
+                          })
+                        }}
+                        className="px-4 py-2 bg-gradient-to-r from-brand-600 to-sky-600 hover:from-brand-700 hover:to-sky-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center space-x-1 cursor-pointer shrink-0"
+                      >
+                        <span>Book at this Clinic</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 6. PRACTICING CLINIC PICKER MODAL (Parity with Mobile Booking) */}
+      {/* ========================================================= */}
+      {selectedDoctorForClinicPicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setSelectedDoctorForClinicPicker(null)}
+        >
+          <div
+            className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-100 p-5 sm:p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full border border-brand-100">
+                  Select Practice Location
+                </span>
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 mt-1">
+                  Choose Clinic for Dr. {selectedDoctorForClinicPicker.doctor.fullName}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  This doctor practices across {selectedDoctorForClinicPicker.practicingClinics.length} locations. Select your preferred clinic to check calendar slots:
+                </p>
+              </div>
+
+              <button
+                onClick={() => setSelectedDoctorForClinicPicker(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 pt-2">
+              {selectedDoctorForClinicPicker.practicingClinics.map((clinic) => (
+                <div
+                  key={clinic.id}
+                  onClick={() => {
+                    const docId = selectedDoctorForClinicPicker.doctor.id
+                    setSelectedDoctorForClinicPicker(null)
+                    onNavigate('clinic-detail', {
+                      clinicId: clinic.id,
+                      doctorId: docId,
+                      action: 'book',
+                    })
+                  }}
+                  className="p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-brand-500 hover:shadow-md transition-all flex items-center justify-between gap-3 cursor-pointer group"
+                >
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-black text-slate-900 group-hover:text-brand-600 transition-colors">
+                      {clinic.name}
+                    </h4>
+                    <p className="text-xs text-slate-500 flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>{clinic.addressText || clinic.city || 'Nepal'}</span>
+                    </p>
+                    <div className="flex items-center space-x-2 text-[11px] font-bold">
+                      <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                        Fee: Rs. {selectedDoctorForClinicPicker.doctor.consultationFee || 500}
+                      </span>
+                      <span className="text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-100">
+                        {clinic.type === 'diagnostic_lab' ? 'Lab OPD' : 'OPD Clinic'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0">
+                    <div className="w-8 h-8 rounded-xl bg-brand-50 group-hover:bg-brand-600 text-brand-600 group-hover:text-white flex items-center justify-center transition-all shadow-xs">
+                      <ArrowRight className="w-4 h-4" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -685,7 +685,7 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
-    suspend fun rescheduleAppointment(id: String, newDate: String, newTime: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun rescheduleAppointment(id: String, newDate: String, newTime: String, slotId: String? = null): Boolean = withContext(Dispatchers.IO) {
         try {
             val normalizedTime = normalizeTimeForPostgres(newTime)
             supabaseClient.postgrest["appointments"]
@@ -693,6 +693,9 @@ class AppointmentRepository @Inject constructor(
                     set("appointment_date", newDate)
                     set("appointment_time", normalizedTime)
                     set("checkin_status", "checked_in")
+                    if (isValidUuid(slotId)) {
+                        set("slot_id", slotId!!.trim())
+                    }
                 }) {
                     filter { eq("id", id) }
                 }

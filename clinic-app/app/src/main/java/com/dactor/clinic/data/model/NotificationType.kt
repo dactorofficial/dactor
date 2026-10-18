@@ -18,7 +18,12 @@ enum class NotificationType(val key: String) {
     companion object {
         fun from(key: String?): NotificationType {
             if (key.isNullOrBlank()) return MANUAL_ALERT
-            return values().firstOrNull { it.key.equals(key, ignoreCase = true) } ?: MANUAL_ALERT
+            val normalized = key.trim().lowercase()
+            return when (normalized) {
+                "doctor_arrived", "doctor_arrival", "doctor_in" -> DOCTOR_ARRIVAL
+                "doctor_status", "doctor_presence", "doctor_left", "doctor_away", "doctor_stepped_out" -> DOCTOR_STATUS
+                else -> values().firstOrNull { it.key.equals(normalized, ignoreCase = true) } ?: MANUAL_ALERT
+            }
         }
     }
 }

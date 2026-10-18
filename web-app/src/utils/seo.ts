@@ -1,4 +1,5 @@
 import { Clinic, Doctor } from '../types'
+import { resolveStorageUrl } from '../services/db'
 
 /**
  * Dactor Dynamic SEO & Schema.org Structured Data Injector
@@ -64,7 +65,9 @@ export function updatePageSEO(options: {
   linkCanonical.href = activeUrl
 
   // 4. Update OpenGraph Image
-  const imageUrl = ogImage || clinic?.pictures?.[0] || clinic?.logoUrl || `${baseUrl}/app_logo.png`
+  const clinicImage = clinic?.pictures?.[0] || clinic?.logoUrl
+  const resolvedClinicImage = clinicImage ? (resolveStorageUrl(clinicImage, 'clinic_photos') || clinicImage) : undefined
+  const imageUrl = ogImage || resolvedClinicImage || `${baseUrl}/app_logo.svg`
   updateMetaProperty('og:image', imageUrl)
   updateMetaProperty('twitter:image', imageUrl)
 
@@ -167,7 +170,7 @@ function injectClinicJsonLd(clinic: Clinic, selectedDoctor?: Doctor | null, doct
     url: clinicUrl,
     telephone: clinic.contactPhone || undefined,
     email: clinic.contactEmail || undefined,
-    image: clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures : `${baseUrl}/app_logo.png`,
+    image: clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures : `${baseUrl}/app_logo.svg`,
     address: {
       '@type': 'PostalAddress',
       streetAddress: clinic.addressText || 'Nepal',

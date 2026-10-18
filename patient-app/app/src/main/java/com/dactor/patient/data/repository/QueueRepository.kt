@@ -408,12 +408,20 @@ class QueueRepository @Inject constructor(
             // Count ONLY active people. Strictly exclude completed, cancelled and no-show patients.
             val activeEntries = allClinicQueueEntries
                 .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
-                .sortedBy { it.queuePosition }
+                .sortedWith(
+                    compareBy<QueueEntry> { if (it.status == "inside" || it.status == "in_consultation") 0 else 1 }
+                        .thenBy { it.queuePosition }
+                )
 
             val insideEntry = activeEntries.firstOrNull { it.status == "inside" || it.status == "in_consultation" }
 
             val totalPeopleAhead = if (targetEntry != null) {
-                activeEntries.count { it.queuePosition < targetEntry.queuePosition }
+                if (targetEntry.status in listOf("inside", "in_consultation")) {
+                    0
+                } else {
+                    val myIdx = activeEntries.indexOfFirst { it.id == targetEntry.id }
+                    if (myIdx >= 0) myIdx else fallbackPatientsAhead.coerceAtLeast(0)
+                }
             } else {
                 fallbackPatientsAhead.coerceAtLeast(0)
             }

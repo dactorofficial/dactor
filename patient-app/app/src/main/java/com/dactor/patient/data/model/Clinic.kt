@@ -83,6 +83,42 @@ data class Clinic(
             }
         }
     }
+
+    val resolvedLogoUrl: String?
+        get() {
+            val raw = logoUrl?.trim()
+            if (raw.isNullOrBlank()) return null
+            if (raw.startsWith("http://") || raw.startsWith("https://")) {
+                return raw
+            }
+            val cleanPath = raw.removePrefix("/")
+            return when {
+                cleanPath.startsWith("clinic_logos/") || cleanPath.startsWith("clinic-logos/") || cleanPath.startsWith("clinics/") || cleanPath.startsWith("logos/") -> {
+                    "https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public/$cleanPath"
+                }
+                else -> {
+                    "https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public/clinic_logos/$cleanPath"
+                }
+            }
+        }
+
+    val resolvedCoverPictureUrl: String?
+        get() {
+            val raw = (pictures.firstOrNull() ?: logoUrl)?.trim()
+            if (raw.isNullOrBlank()) return null
+            if (raw.startsWith("http://") || raw.startsWith("https://")) {
+                return raw
+            }
+            val cleanPath = raw.removePrefix("/")
+            return when {
+                cleanPath.startsWith("clinic_photos/") || cleanPath.startsWith("clinic-photos/") || cleanPath.startsWith("clinic_pictures/") || cleanPath.startsWith("clinic-pictures/") || cleanPath.startsWith("clinics/") || cleanPath.startsWith("clinic_logos/") -> {
+                    "https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public/$cleanPath"
+                }
+                else -> {
+                    "https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public/clinic_photos/$cleanPath"
+                }
+            }
+        }
 }
 
 @Serializable

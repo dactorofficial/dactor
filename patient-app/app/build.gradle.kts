@@ -18,12 +18,21 @@ android {
         applicationId = "com.dactor.patient"
         minSdk = 24
         targetSdk = 35
-        versionCode = 40
-        versionName = "1.0.40"
+        versionCode = 56
+        versionName = "1.0.51"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("keystores/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 

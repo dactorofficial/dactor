@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { getAdminPassword, isMasterAdminEmail } from '../lib/adminPassword'
 import { Lock, Mail, Eye, EyeOff } from 'lucide-react'
-import dactorLogo from '../assets/logo.png'
+import dactorLogo from '../assets/logo.svg'
 
 export default function Login() {
   const [email, setEmail] = useState('')

@@ -51,6 +51,19 @@ ALTER TABLE clinics ADD COLUMN IF NOT EXISTS avg_time_mode VARCHAR(20) DEFAULT '
 -- 5. Appointments Selected Lab Tests
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS selected_lab_tests TEXT;
 
--- 6. Reload PostgREST schema cache
+-- 6. FCM Device Tokens Table Extended Columns & Indexes
+ALTER TABLE fcm_tokens ADD COLUMN IF NOT EXISTS tracking_code VARCHAR(50);
+ALTER TABLE fcm_tokens ADD COLUMN IF NOT EXISTS patient_mobile VARCHAR(30);
+ALTER TABLE fcm_tokens ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_user_id ON fcm_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_tracking_code ON fcm_tokens(tracking_code);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_patient_mobile ON fcm_tokens(patient_mobile);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_token ON fcm_tokens(token);
+
+-- 7. Instant Realtime WebSocket Publication for Notifications
+ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+
+-- 8. Reload PostgREST schema cache
 NOTIFY pgrst, 'reload schema';
+
 

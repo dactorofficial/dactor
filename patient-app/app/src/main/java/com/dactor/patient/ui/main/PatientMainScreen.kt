@@ -525,7 +525,7 @@ fun PatientMainScreen(
                 todayAppointment?.let { appt ->
                     Card(
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF00796B)),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0284C7)),
                         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1216,7 +1216,7 @@ fun HomeTab(
                     Icon(
                         imageVector = Icons.Default.Notifications,
                         contentDescription = "Notifications",
-                        tint = Color(0xFF00796B),
+                        tint = Color(0xFF0284C7),
                         modifier = Modifier.size(22.dp)
                     )
                     if (unreadCount > 0) {
@@ -1413,8 +1413,8 @@ fun HomeTab(
                             val isSel = selectedEntityFilter == key
                             Surface(
                                 shape = RoundedCornerShape(18.dp),
-                                color = if (isSel) Color(0xFF00796B) else Color.White,
-                                border = BorderStroke(1.dp, if (isSel) Color(0xFF00796B) else Color(0xFFCBD5E1)),
+                                color = if (isSel) Color(0xFF0284C7) else Color.White,
+                                border = BorderStroke(1.dp, if (isSel) Color(0xFF0284C7) else Color(0xFFCBD5E1)),
                                 modifier = Modifier.clickable { selectedEntityFilter = key }
                             ) {
                                 Text(
@@ -1673,7 +1673,7 @@ fun HomeTab(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
                             ) {
-                                Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
                                 Text(
                                     text = "Matching Doctors (${displayedDoctors.size})",
                                     fontSize = 15.sp,
@@ -1767,7 +1767,7 @@ fun HomeTab(
                                                 text = allDocSpecs.first(),
                                                 fontWeight = FontWeight.SemiBold,
                                                 fontSize = 13.sp,
-                                                color = Color(0xFF00796B)
+                                                color = Color(0xFF0284C7)
                                             )
                                             if (!doctor.education.isNullOrBlank()) {
                                                 Text(
@@ -1952,12 +1952,12 @@ fun HomeTab(
                                                     selectedDoctorForClinicPicker = docItem
                                                 },
                                                 shape = RoundedCornerShape(12.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                                 modifier = Modifier.height(42.dp)
                                             ) {
                                                 Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(16.dp))
                                                 Spacer(Modifier.width(6.dp))
-                                                Text(if (isDocAvailOnDate) "Select Clinic & Book" else "Book on another date", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                Text("Select Clinic & Book", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                             }
                                         }
                                     }
@@ -2022,7 +2022,7 @@ fun HomeTab(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(136.dp)
-                                        .background(Color(0xFFE6F4F1)),
+                                        .background(Color(0xFFE0F2FE)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (!firstPic.isNullOrBlank()) {
@@ -2039,14 +2039,14 @@ fun HomeTab(
                                         ) {
                                             Surface(
                                                 shape = RoundedCornerShape(12.dp),
-                                                color = Color(0xFF00796B).copy(alpha = 0.15f),
+                                                color = Color(0xFF0284C7).copy(alpha = 0.15f),
                                                 modifier = Modifier.size(54.dp)
                                             ) {
                                                 Box(contentAlignment = Alignment.Center) {
                                                     Icon(
                                                         Icons.Default.LocalHospital,
                                                         contentDescription = null,
-                                                        tint = Color(0xFF00796B),
+                                                        tint = Color(0xFF0284C7),
                                                         modifier = Modifier.size(32.dp)
                                                     )
                                                 }
@@ -2328,7 +2328,7 @@ fun HomeTab(
                                                 .weight(1f)
                                                 .height(44.dp)
                                         ) {
-                                            Text(if (hasSlotOnDate) "Book" else "Book on another date", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text("Book", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                             Spacer(Modifier.width(6.dp))
                                             Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                                         }
@@ -2356,7 +2356,7 @@ fun HomeTab(
                             clinicListState.animateScrollToItem(0)
                         }
                     },
-                    containerColor = Color(0xFF00796B),
+                    containerColor = Color(0xFF0284C7),
                     contentColor = Color.White,
                     shape = CircleShape,
                     elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp)
@@ -2394,7 +2394,7 @@ fun HomeTab(
                         text = "Dr. ${doctor.fullName} • ${doctor.specialty ?: "Specialist"}",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF00796B)
+                        color = Color(0xFF0284C7)
                     )
                 }
             },
@@ -2511,7 +2511,7 @@ fun HomeTab(
                                             text = "Fee: ${CurrencyFormatter.formatNPR(doctor.consultationFee ?: 500.0)}",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF00796B)
+                                            color = Color(0xFF0284C7)
                                         )
                                     }
 
@@ -2547,11 +2547,11 @@ fun HomeTab(
                                             }
                                         },
                                         shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                         modifier = Modifier.height(36.dp)
                                     ) {
-                                        Text(if (hasSlotForDoc) "Book" else "Book on another date", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("Book", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -2935,7 +2935,7 @@ fun RecordsTab(
                 .fillMaxWidth()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(Color(0xFF00796B), Color(0xFF004D40))
+                        colors = listOf(Color(0xFF0284C7), Color(0xFF0369A1))
                     )
                 )
                 .padding(horizontal = 20.dp, vertical = 16.dp)
@@ -2982,7 +2982,7 @@ fun RecordsTab(
                         )
                     },
                     leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
                     },
                     trailingIcon = {
                         if (searchQuery.isNotBlank()) {
@@ -3025,7 +3025,7 @@ fun RecordsTab(
                     label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = Color(0xFFE0F2F1),
-                        selectedLabelColor = Color(0xFF00796B)
+                        selectedLabelColor = Color(0xFF0284C7)
                     )
                 )
             }
@@ -3058,7 +3058,7 @@ fun RecordsTab(
                             Icon(
                                 Icons.AutoMirrored.Filled.Article,
                                 contentDescription = null,
-                                tint = Color(0xFF00796B),
+                                tint = Color(0xFF0284C7),
                                 modifier = Modifier.size(36.dp)
                             )
                         }
@@ -3150,7 +3150,7 @@ fun RecordsTab(
                                     ) {
                                         Surface(
                                             shape = RoundedCornerShape(10.dp),
-                                            color = Color(0xFF00796B),
+                                            color = Color(0xFF0284C7),
                                             modifier = Modifier.size(36.dp)
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
@@ -3221,7 +3221,7 @@ fun RecordsTab(
                                     Surface(
                                         shape = CircleShape,
                                         color = Color(0xFFE0F2FE),
-                                        border = BorderStroke(2.dp, Color(0xFF00796B)),
+                                        border = BorderStroke(2.dp, Color(0xFF0284C7)),
                                         modifier = Modifier.size(56.dp)
                                     ) {
                                         if (!doctorAvatar.isNullOrBlank()) {
@@ -3244,7 +3244,7 @@ fun RecordsTab(
                                                     text = initials,
                                                     fontWeight = FontWeight.ExtraBold,
                                                     fontSize = 18.sp,
-                                                    color = Color(0xFF00796B)
+                                                    color = Color(0xFF0284C7)
                                                 )
                                             }
                                         }
@@ -3261,7 +3261,7 @@ fun RecordsTab(
                                             text = doctorSpec,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 12.sp,
-                                            color = Color(0xFF00796B)
+                                            color = Color(0xFF0284C7)
                                         )
                                         if (!doctor?.education.isNullOrBlank()) {
                                             Text(
@@ -3291,7 +3291,7 @@ fun RecordsTab(
                                                 Icon(
                                                     Icons.Default.Event,
                                                     contentDescription = null,
-                                                    tint = Color(0xFF00796B),
+                                                    tint = Color(0xFF0284C7),
                                                     modifier = Modifier.size(12.dp)
                                                 )
                                                 Text(
@@ -3370,7 +3370,7 @@ fun RecordsTab(
                                                     text = "#${appt.trackingCode10Digit}",
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.ExtraBold,
-                                                    color = Color(0xFF00796B),
+                                                    color = Color(0xFF0284C7),
                                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                                 )
                                             }
@@ -3385,7 +3385,7 @@ fun RecordsTab(
                                                 Icon(
                                                     Icons.Default.ContentCopy,
                                                     contentDescription = "Copy Code",
-                                                    tint = Color(0xFF00796B),
+                                                    tint = Color(0xFF0284C7),
                                                     modifier = Modifier.size(15.dp)
                                                 )
                                             }
@@ -3411,14 +3411,14 @@ fun RecordsTab(
                                             Icon(
                                                 Icons.Default.RateReview,
                                                 contentDescription = null,
-                                                tint = Color(0xFF00796B),
+                                                tint = Color(0xFF0284C7),
                                                 modifier = Modifier.size(14.dp)
                                             )
                                             Text(
                                                 "Doctor's Clinical Remarks & Notes",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 11.sp,
-                                                color = Color(0xFF00796B)
+                                                color = Color(0xFF0284C7)
                                             )
                                         }
                                         Text(
@@ -3741,7 +3741,7 @@ fun RecordsTab(
                                                 )
                                             },
                                             shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -3761,7 +3761,7 @@ fun RecordsTab(
                                             navController.navigate(NavRoutes.QueueStatus.createRoute(appt.trackingCode10Digit))
                                         },
                                         shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(42.dp)
@@ -4062,7 +4062,7 @@ fun RecordsTab(
                         }
                     },
                     enabled = !isAddingDirectoryRecord,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
                 ) {
                     Text(if (isAddingDirectoryRecord) "Saving..." else "Save to Directory")
                 }
@@ -4110,15 +4110,10 @@ fun AppointmentsTab(
     val queueCache = remember { mutableStateMapOf<String, QueueEntry>() }
     val clinicQueueCache = remember { mutableStateMapOf<String, List<QueueEntry>>() }
 
-    // Reschedule Dialog State
-    var reschedulingAppt by remember { mutableStateOf<Appointment?>(null) }
-    var rescheduleDate by remember { mutableStateOf(LocalDate.now().plusDays(1).toString()) }
-    var rescheduleTime by remember { mutableStateOf("10:00") }
-    var isRescheduling by remember { mutableStateOf(false) }
-    var isVerifiedToReschedule by remember { mutableStateOf(false) }
-    var rescheduleVerifyInput by remember { mutableStateOf("") }
-    var rescheduleVerifyMethod by remember { mutableStateOf("name") }
-    var rescheduleVerifyError by remember { mutableStateOf<String?>(null) }
+    // Confirmation Dialog States
+    var apptToRescheduleConfirm by remember { mutableStateOf<Appointment?>(null) }
+    var apptToCancelConfirm by remember { mutableStateOf<Appointment?>(null) }
+    var isCancelling by remember { mutableStateOf(false) }
 
     suspend fun loadActiveAppointments() {
         isLoading = true
@@ -4189,6 +4184,11 @@ fun AppointmentsTab(
         loadActiveAppointments()
     }
 
+    val todayDateStr = remember {
+        try { LocalDate.now().toString() } catch (e: Exception) { "" }
+    }
+    val todayInQueueCount = activeAppts.count { it.appointmentDate.trim().take(10) == todayDateStr }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -4200,7 +4200,7 @@ fun AppointmentsTab(
                 .fillMaxWidth()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(Color(0xFF00796B), Color(0xFF005B52))
+                        colors = listOf(Color(0xFF0284C7), Color(0xFF0369A1))
                     )
                 )
                 .padding(horizontal = 20.dp, vertical = 18.dp)
@@ -4224,7 +4224,7 @@ fun AppointmentsTab(
                     )
                 }
 
-                // Top Right: "2 in queue" Pill Badge
+                // Top Right Pill Badge (Reflects live queue vs scheduled)
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = Color.White.copy(alpha = 0.18f),
@@ -4242,7 +4242,7 @@ fun AppointmentsTab(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "${activeAppts.size} in queue",
+                            text = if (todayInQueueCount > 0) "$todayInQueueCount in queue" else "${activeAppts.size} scheduled",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -4278,7 +4278,7 @@ fun AppointmentsTab(
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFF00796B),
+                                color = Color(0xFF0284C7),
                                 modifier = Modifier.size(42.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
@@ -4321,7 +4321,7 @@ fun AppointmentsTab(
                                     Icon(
                                         Icons.Default.ConfirmationNumber,
                                         contentDescription = null,
-                                        tint = Color(0xFF00796B),
+                                        tint = Color(0xFF0284C7),
                                         modifier = Modifier.size(18.dp)
                                     )
                                 },
@@ -4346,7 +4346,7 @@ fun AppointmentsTab(
                                 ),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color(0xFF00796B),
+                                    focusedBorderColor = Color(0xFF0284C7),
                                     unfocusedBorderColor = Color(0xFFCBD5E1),
                                     focusedContainerColor = Color(0xFFF8FAFC),
                                     unfocusedContainerColor = Color(0xFFF8FAFC)
@@ -4377,7 +4377,7 @@ fun AppointmentsTab(
                                     }
                                 },
                                 shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                 enabled = trackingInput.length == 10 && !isAddingCode,
                                 modifier = Modifier.height(52.dp)
                             ) {
@@ -4403,7 +4403,7 @@ fun AppointmentsTab(
             if (isLoading) {
                 item {
                     Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color(0xFF00796B))
+                        CircularProgressIndicator(color = Color(0xFF0284C7))
                     }
                 }
             } else if (activeAppts.isEmpty()) {
@@ -4421,7 +4421,7 @@ fun AppointmentsTab(
                             Icon(
                                 Icons.Default.EventAvailable,
                                 contentDescription = null,
-                                tint = Color(0xFF00796B).copy(alpha = 0.5f),
+                                tint = Color(0xFF0284C7).copy(alpha = 0.5f),
                                 modifier = Modifier.size(54.dp)
                             )
                             Text("No Active Appointments", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -4443,12 +4443,34 @@ fun AppointmentsTab(
                     val clinicName = clinic?.name ?: "Himalayan Health Clinic"
                     val clinicAddress = clinic?.addressText ?: "Thamel, Kathmandu"
                     val doctorName = doctor?.fullName ?: "Ramesh Shrestha"
-                    val myPos = qEntry?.queuePosition ?: 1
+                    val apptDateStr = appt.appointmentDate.trim().take(10)
+
+                    val isToday = apptDateStr == todayDateStr
+                    val isTomorrow = try {
+                        val aDate = LocalDate.parse(apptDateStr)
+                        val tDate = LocalDate.now()
+                        aDate.isEqual(tDate.plusDays(1))
+                    } catch (_: Exception) { false }
+
                     val clinicEntries = appt.clinicId?.let { clinicQueueCache[it] } ?: emptyList()
-                    val liveAhead = if (clinicEntries.isNotEmpty()) {
-                        clinicEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
-                    } else {
+                    val myPos = qEntry?.queuePosition ?: 1
+                    val liveAhead = if (isToday && clinicEntries.isNotEmpty()) {
+                        val sortedActive = clinicEntries
+                            .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
+                            .sortedWith(
+                                compareBy<com.dactor.patient.data.model.QueueEntry> { if (it.status == "inside" || it.status == "in_consultation") 0 else 1 }
+                                    .thenBy { it.queuePosition }
+                            )
+                        val myIdx = sortedActive.indexOfFirst { it.appointmentId == appt.id || it.id == qEntry?.id }
+                        when {
+                            qEntry?.status in listOf("inside", "in_consultation") -> 0
+                            myIdx >= 0 -> myIdx
+                            else -> clinicEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
+                        }
+                    } else if (isToday) {
                         (myPos - 1).coerceAtLeast(0)
+                    } else {
+                        0
                     }
                     val totalWaiting = if (clinicEntries.isNotEmpty()) {
                         clinicEntries.count { it.status == "waiting" || it.status == "inside" }
@@ -4456,23 +4478,66 @@ fun AppointmentsTab(
                         liveAhead + 1
                     }
                     val isInClinic = doctor?.isInClinic == true
-                    val isWithDoctor = qEntry?.status == "inside"
-                    val avgMinutes = clinic?.getEffectiveAvgMinutes() ?: 10
+                    val isWithDoctor = isToday && qEntry?.status == "inside"
                     val isClinicOnBreak = clinic?.isOnBreak == true
-                    val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, clinicEntries) {
-                        QueueRepository.calculateLiveQueueTimingEstimate(
-                            clinic = clinic,
-                            isDoctorInClinic = isInClinic,
-                            allClinicQueueEntries = clinicEntries,
-                            targetEntry = qEntry,
-                            fallbackPatientsAhead = liveAhead
-                        )
+
+                    // Calculate live queue timing estimate ONLY for today's appointment
+                    val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, clinicEntries, isToday) {
+                        if (isToday) {
+                            QueueRepository.calculateLiveQueueTimingEstimate(
+                                clinic = clinic,
+                                isDoctorInClinic = isInClinic,
+                                allClinicQueueEntries = clinicEntries,
+                                targetEntry = qEntry,
+                                fallbackPatientsAhead = liveAhead
+                            )
+                        } else {
+                            com.dactor.patient.data.repository.LiveQueueTimingEstimate(
+                                estimatedTimeLeftText = "Scheduled",
+                                expectedExactTimeText = appt.appointmentTime ?: "10:00 AM",
+                                doctorStatusBanner = null,
+                                isDoctorNotInside = !isInClinic,
+                                isSoonBeReady = false
+                            )
+                        }
                     }
-                    val estWaitMinutes = if (liveAhead > 0) liveAhead * avgMinutes else 0
-                    val estTimeStr = try {
-                        java.time.LocalTime.now().plusMinutes(estWaitMinutes.toLong())
-                            .format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
-                    } catch (e: Exception) { "" }
+
+                    // Calculate early arrival time (15 mins early) for scheduled slots
+                    val earlyArrivalText = remember(appt.appointmentTime) {
+                        try {
+                            val rawTime = (appt.appointmentTime ?: "10:00 AM").split("-").first().trim()
+                            val parsedTime = java.time.LocalTime.parse(rawTime, java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US))
+                            parsedTime.minusMinutes(15).format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US))
+                        } catch (_: Exception) {
+                            try {
+                                val rawTime = (appt.appointmentTime ?: "10:00 AM").split("-").first().trim()
+                                val parsedTime = java.time.LocalTime.parse(rawTime, java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.US))
+                                parsedTime.minusMinutes(15).format(java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.US))
+                            } catch (_: Exception) {
+                                "15 mins early"
+                            }
+                        }
+                    }
+
+                    val clinicImgUrl = clinic?.resolvedLogoUrl ?: clinic?.resolvedCoverPictureUrl
+                    val clinicInitials = remember(clinicName) {
+                        clinicName.split(" ")
+                            .filter { it.isNotBlank() }
+                            .take(2)
+                            .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                            .joinToString("")
+                            .ifBlank { "CL" }
+                    }
+
+                    val doctorImgUrl = doctor?.resolvedProfilePictureUrl
+                    val doctorInitials = remember(doctorName) {
+                        doctorName.split(" ")
+                            .filter { it.isNotBlank() }
+                            .take(2)
+                            .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                            .joinToString("")
+                            .ifBlank { "DR" }
+                    }
 
                     Card(
                         shape = RoundedCornerShape(20.dp),
@@ -4496,19 +4561,29 @@ fun AppointmentsTab(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Clinic Logo / Icon
+                                    // Real Clinic Picture / Logo with Fallback Initials
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
-                                        color = Color(0xFFE6F4F1),
+                                        color = Color(0xFFE0F2FE),
+                                        border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
                                         modifier = Modifier.size(48.dp)
                                     ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                Icons.Default.LocalHospital,
-                                                contentDescription = null,
-                                                tint = Color(0xFF00796B),
-                                                modifier = Modifier.size(26.dp)
+                                        if (!clinicImgUrl.isNullOrBlank()) {
+                                            coil.compose.AsyncImage(
+                                                model = clinicImgUrl,
+                                                contentDescription = clinicName,
+                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
                                             )
+                                        } else {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    text = clinicInitials,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 16.sp,
+                                                    color = Color(0xFF0284C7)
+                                                )
+                                            }
                                         }
                                     }
 
@@ -4523,7 +4598,7 @@ fun AppointmentsTab(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(3.dp)
                                         ) {
-                                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(13.dp))
+                                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(13.dp))
                                             Text(
                                                 text = clinicAddress,
                                                 fontSize = 11.sp,
@@ -4533,38 +4608,90 @@ fun AppointmentsTab(
                                     }
                                 }
 
-                                // Status Pill: In OPD queue
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (isWithDoctor) Color(0xFFDCFCE7) else Color(0xFFE6F4F1)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                // Status Pill: In OPD queue (Today) or Scheduled for Tomorrow/Date
+                                if (isToday) {
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = if (isWithDoctor) Color(0xFFDCFCE7) else Color(0xFFE0F2FE),
+                                        border = BorderStroke(1.dp, if (isWithDoctor) Color(0xFF86EFAC) else Color(0xFFBAE6FD))
                                     ) {
-                                        Icon(
-                                            Icons.Default.Schedule,
-                                            contentDescription = null,
-                                            tint = if (isWithDoctor) Color(0xFF15803D) else Color(0xFF00796B),
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Text(
-                                            text = if (isWithDoctor) "With Doctor" else "In OPD queue",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isWithDoctor) Color(0xFF15803D) else Color(0xFF00796B)
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .background(if (isWithDoctor) Color(0xFF15803D) else Color(0xFF0284C7), CircleShape)
+                                            )
+                                            Text(
+                                                text = if (isWithDoctor) "With Doctor" else "In OPD queue",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isWithDoctor) Color(0xFF15803D) else Color(0xFF0284C7)
+                                            )
+                                        }
+                                    }
+                                } else if (isTomorrow) {
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = Color(0xFFE0F2FE),
+                                        border = BorderStroke(1.dp, Color(0xFFBAE6FD))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.CalendarToday,
+                                                contentDescription = null,
+                                                tint = Color(0xFF0284C7),
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Text(
+                                                text = "Scheduled for Tomorrow",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF0284C7)
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = Color(0xFFF1F5F9),
+                                        border = BorderStroke(1.dp, Color(0xFFCBD5E1))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.CalendarToday,
+                                                contentDescription = null,
+                                                tint = Color(0xFF475569),
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Text(
+                                                text = "Scheduled: $apptDateStr",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF475569)
+                                            )
+                                        }
                                     }
                                 }
                             }
 
-                            // ── B. Progress Stepper Bar (Booked -> In queue -> With doctor) ──
+                            // ── B. Progress Stepper Bar ──
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -4573,7 +4700,7 @@ fun AppointmentsTab(
                                     // 1. Booked (Completed Checkmark)
                                     Surface(
                                         shape = CircleShape,
-                                        color = Color(0xFF00796B),
+                                        color = Color(0xFF0284C7),
                                         modifier = Modifier.size(18.dp)
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
@@ -4586,29 +4713,35 @@ fun AppointmentsTab(
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(3.dp)
-                                            .background(Color(0xFF00796B))
+                                            .background(if (isToday) Color(0xFF0284C7) else Color(0xFFCBD5E1))
                                     )
 
-                                    // 2. In Queue (Active Dot)
+                                    // 2. In Queue (Active only if Today)
                                     Surface(
                                         shape = CircleShape,
-                                        color = Color(0xFF00796B),
+                                        color = if (isToday) Color(0xFF0284C7) else Color(0xFFCBD5E1),
                                         border = BorderStroke(2.dp, Color.White),
                                         modifier = Modifier.size(18.dp)
-                                    ) {}
+                                    ) {
+                                        if (isToday && isWithDoctor) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                                            }
+                                        }
+                                    }
 
                                     // Line 2
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(3.dp)
-                                            .background(if (isWithDoctor) Color(0xFF00796B) else Color(0xFFCBD5E1))
+                                            .background(if (isWithDoctor) Color(0xFF0284C7) else Color(0xFFCBD5E1))
                                     )
 
                                     // 3. With Doctor
                                     Surface(
                                         shape = CircleShape,
-                                        color = if (isWithDoctor) Color(0xFF00796B) else Color(0xFFCBD5E1),
+                                        color = if (isWithDoctor) Color(0xFF0284C7) else Color(0xFFCBD5E1),
                                         modifier = Modifier.size(18.dp)
                                     ) {
                                         if (isWithDoctor) {
@@ -4624,91 +4757,230 @@ fun AppointmentsTab(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Booked", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium)
-                                    Text("In queue", fontSize = 11.sp, color = Color(0xFF00796B), fontWeight = FontWeight.Bold)
-                                    Text("With doctor", fontSize = 11.sp, color = if (isWithDoctor) Color(0xFF00796B) else Color(0xFF94A3B8), fontWeight = if (isWithDoctor) FontWeight.Bold else FontWeight.Medium)
+                                    Text("Booked", fontSize = 11.sp, color = Color(0xFF0284C7), fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = when {
+                                            isToday -> "In queue"
+                                            isTomorrow -> "Queue Opens Tomorrow"
+                                            else -> "Queue Opens Visit Day"
+                                        },
+                                        fontSize = 11.sp,
+                                        color = if (isToday) Color(0xFF0284C7) else Color(0xFF64748B),
+                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "With doctor",
+                                        fontSize = 11.sp,
+                                        color = if (isWithDoctor) Color(0xFF0284C7) else Color(0xFF94A3B8),
+                                        fontWeight = if (isWithDoctor) FontWeight.Bold else FontWeight.Medium
+                                    )
                                 }
                             }
 
-                            // ── C. Position in Queue Highlight Box ───────────
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color(0xFFE6F4F1),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            // ── C. HERO CENTER BOX: Today (Live Queue) vs Tomorrow/Future (Scheduled Window) ─
+                            if (isToday) {
+                                // ── TODAY: LIVE QUEUE POSITION BOX ──
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFFE0F2FE),
+                                    border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = if (isWithDoctor) Color(0xFF15803D) else Color(0xFF00796B),
-                                        modifier = Modifier.size(46.dp)
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                                     ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = if (isWithDoctor) "NOW" else "$liveAhead",
-                                                fontWeight = FontWeight.ExtraBold,
-                                                fontSize = if (isWithDoctor) 13.sp else 18.sp,
-                                                color = Color.White
-                                            )
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (isWithDoctor) Color(0xFF15803D) else Color(0xFF0284C7),
+                                            modifier = Modifier.size(46.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    text = if (isWithDoctor) "NOW" else "$liveAhead",
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = if (isWithDoctor) 13.sp else 18.sp,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
-                                    }
 
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        Text(
-                                            text = "Live Queue Position",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = Color(0xFF0F172A)
-                                        )
-                                        Text(
-                                            text = if (isWithDoctor) {
-                                                "With doctor in consultation room • Token #$myPos"
-                                            } else if (liveAhead == 0) {
-                                                "Next in line (0 ahead) • Token #$myPos • $totalWaiting in queue"
-                                            } else {
-                                                "$liveAhead ahead of you in line • Token #$myPos • $totalWaiting in queue"
-                                            },
-                                            fontSize = 12.sp,
-                                            color = Color(0xFF64748B)
-                                        )
-                                    }
-
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = Color.White,
-                                        border = BorderStroke(1.dp, Color(0xFFB2DFDB))
-                                    ) {
                                         Column(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                            horizontalAlignment = Alignment.End
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
                                             Text(
-                                                text = when {
-                                                    isWithDoctor -> "In consultation"
-                                                    isClinicOnBreak -> "Clinic on break"
-                                                    timingEstimate.isSoonBeReady || timingEstimate.expectedExactTimeText == "Soon, be ready" -> "Soon, be ready"
-                                                    timingEstimate.doctorStatusBanner != null -> timingEstimate.estimatedTimeLeftText
-                                                    liveAhead == 0 -> "Soon, be ready"
-                                                    else -> timingEstimate.estimatedTimeLeftText
-                                                },
-                                                fontSize = 11.sp,
+                                                text = "Live Queue Position",
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (isClinicOnBreak) Color(0xFFDC2626) else Color(0xFF00796B)
+                                                fontSize = 14.sp,
+                                                color = Color(0xFF0F172A)
                                             )
-                                            if (!isWithDoctor && !isClinicOnBreak && timingEstimate.expectedExactTimeText.isNotBlank() && timingEstimate.expectedExactTimeText != "Soon, be ready" && timingEstimate.expectedExactTimeText != "Wait a few moments") {
+                                            Text(
+                                                text = if (isWithDoctor) {
+                                                    "With doctor in consultation room • Token #$myPos"
+                                                } else if (liveAhead == 0) {
+                                                    "Next in line (0 ahead) • Token #$myPos • $totalWaiting in queue"
+                                                } else if (liveAhead == 1 && clinicEntries.any { it.status == "inside" || it.status == "in_consultation" }) {
+                                                    "Doctor consulting • You're up next (1 ahead) • Token #$myPos"
+                                                } else {
+                                                    "$liveAhead ahead of you in line • Token #$myPos • $totalWaiting in queue"
+                                                },
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF64748B)
+                                            )
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = Color.White,
+                                            border = BorderStroke(1.dp, Color(0xFFBAE6FD))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                horizontalAlignment = Alignment.End
+                                            ) {
                                                 Text(
-                                                    text = "Exp: ${timingEstimate.expectedExactTimeText}",
-                                                    fontSize = 10.sp,
+                                                    text = when {
+                                                        isWithDoctor -> "In consultation"
+                                                        isClinicOnBreak -> "Clinic on break"
+                                                        timingEstimate.isSoonBeReady || timingEstimate.expectedExactTimeText == "Soon, be ready" -> "Soon, be ready"
+                                                        timingEstimate.doctorStatusBanner != null -> timingEstimate.estimatedTimeLeftText
+                                                        liveAhead == 0 -> "Soon, be ready"
+                                                        else -> timingEstimate.estimatedTimeLeftText
+                                                    },
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isClinicOnBreak) Color(0xFFDC2626) else Color(0xFF0284C7)
+                                                )
+                                                if (!isWithDoctor && !isClinicOnBreak && timingEstimate.expectedExactTimeText.isNotBlank() && timingEstimate.expectedExactTimeText != "Soon, be ready" && timingEstimate.expectedExactTimeText != "Wait a few moments") {
+                                                    Text(
+                                                        text = "Exp: ${timingEstimate.expectedExactTimeText}",
+                                                        fontSize = 10.sp,
+                                                        color = Color(0xFF64748B)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // ── TOMORROW / FUTURE: SCHEDULED CONSULTATION WINDOW BOX ──
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFFF0F9FF),
+                                    border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = Color(0xFF0284C7),
+                                                    modifier = Modifier.size(46.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            Icons.Default.Event,
+                                                            contentDescription = null,
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Text(
+                                                        text = "Scheduled Consultation Window",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp,
+                                                        color = Color(0xFF0F172A)
+                                                    )
+                                                    Text(
+                                                        text = appt.appointmentTime ?: "10:00 AM – 11:00 AM",
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        color = Color(0xFF0284C7)
+                                                    )
+                                                }
+                                            }
+
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = Color(0xFFE0F2FE),
+                                                border = BorderStroke(1.dp, Color(0xFFBAE6FD))
+                                            ) {
+                                                Text(
+                                                    text = "Token #$myPos",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF0284C7),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+
+                                        // Arrival Guidance Box
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color.White,
+                                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.AccessTime,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFFF59E0B),
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Please arrive 15 min early:",
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFF0F172A)
+                                                    )
+                                                    Text(
+                                                        text = "by $earlyArrivalText",
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFF0284C7)
+                                                    )
+                                                }
+
+                                                Text(
+                                                    text = "Exp: ±15 min",
+                                                    fontSize = 10.5.sp,
                                                     color = Color(0xFF64748B)
                                                 )
                                             }
                                         }
+
+                                        Text(
+                                            text = "• Live OPD queue tracking will activate on ${if (isTomorrow) "tomorrow morning" else apptDateStr} when the clinic opens.",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF64748B),
+                                            lineHeight = 15.sp
+                                        )
                                     }
                                 }
                             }
@@ -4741,13 +5013,37 @@ fun AppointmentsTab(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    // Doctor
+                                    // Doctor with Real Photo / Avatar
                                     Row(
                                         modifier = Modifier.weight(1f),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color(0xFFE0F2FE),
+                                            border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            if (!doctorImgUrl.isNullOrBlank()) {
+                                                coil.compose.AsyncImage(
+                                                    model = doctorImgUrl,
+                                                    contentDescription = doctorName,
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Text(
+                                                        text = doctorInitials,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp,
+                                                        color = Color(0xFF0284C7)
+                                                    )
+                                                }
+                                            }
+                                        }
+
                                         Column {
                                             Text("Doctor", fontSize = 10.sp, color = Color(0xFF94A3B8))
                                             Text("Dr. $doctorName", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -4760,7 +5056,16 @@ fun AppointmentsTab(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color(0xFFF1F5F9),
+                                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
+                                            }
+                                        }
                                         Column {
                                             Text("Patient", fontSize = 10.sp, color = Color(0xFF94A3B8))
                                             Text(appt.patientName, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -4773,10 +5078,10 @@ fun AppointmentsTab(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
                                     Column {
-                                        Text("Scheduled", fontSize = 10.sp, color = Color(0xFF94A3B8))
-                                        Text("${appt.appointmentDate}  ·  ${appt.appointmentTime ?: "09:30 AM"}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                        Text("Scheduled Date & Time", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                                        Text("${appt.appointmentDate}  ·  ${appt.appointmentTime ?: "10:00 AM"}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
                                     }
                                 }
                             }
@@ -4797,7 +5102,7 @@ fun AppointmentsTab(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Icon(Icons.Default.Assignment, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(20.dp))
+                                        Icon(Icons.Default.Assignment, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(20.dp))
                                         Column {
                                             Text("Appointment ID", fontSize = 10.sp, color = Color(0xFF64748B))
                                             val formattedCode = appt.trackingCode10Digit.chunked(3).joinToString(" ")
@@ -4852,7 +5157,7 @@ fun AppointmentsTab(
                                 }
                             }
 
-                            // ── F2. Clinic Break Hours (Allowed for appointment status check) ─
+                            // ── F2. Clinic Break Hours ─────────────────────────
                             val todaySched = clinic?.getTodaySchedule()
                             if (todaySched?.hasBreak == true && !todaySched.breakStart.isNullOrBlank() && !todaySched.breakEnd.isNullOrBlank()) {
                                 Surface(
@@ -4888,89 +5193,121 @@ fun AppointmentsTab(
                                 }
                             }
 
-                            // ── F3. Doctor Physical Presence Banner ───────────
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isInClinic) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            // ── F3. Doctor Physical Presence Banner (ONLY for today's appointment) ──
+                            if (isToday) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isInClinic) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .background(if (isInClinic) Color(0xFF16A34A) else Color(0xFFD97706), CircleShape)
-                                    )
-                                    Text(
-                                        text = if (isInClinic) "Doctor is inside the clinic" else "Doctor is not inside the clinic (He/She is not in)",
-                                        color = if (isInClinic) Color(0xFF15803D) else Color(0xFFB45309),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .background(if (isInClinic) Color(0xFF16A34A) else Color(0xFFD97706), CircleShape)
+                                        )
+                                        Text(
+                                            text = if (isInClinic) "Doctor is inside the clinic" else "Doctor is not inside the clinic (He/She is not in)",
+                                            color = if (isInClinic) Color(0xFF15803D) else Color(0xFFB45309),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
 
-                            // ── G. Action Buttons (Live Tracker + Reschedule) ─
-                            Row(
+                            // ── G. ACTION BUTTONS: 2-TIER DESIGN ──────────────
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Button(
-                                    onClick = {
-                                        navController.navigate(NavRoutes.QueueStatus.createRoute(appt.trackingCode10Digit))
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(44.dp)
-                                ) {
-                                    Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Live tracker", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                    Spacer(Modifier.width(4.dp))
-                                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
+                                // Tier 1: Hero Primary Action Button
+                                if (isToday) {
+                                    Button(
+                                        onClick = {
+                                            navController.navigate(NavRoutes.QueueStatus.createRoute(appt.trackingCode10Digit))
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(44.dp)
+                                    ) {
+                                        Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Live Queue Tracker", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(Modifier.width(4.dp))
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = {
+                                            try {
+                                                val mapUri = android.net.Uri.parse("geo:0,0?q=" + android.net.Uri.encode("$clinicName, $clinicAddress"))
+                                                val mapIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, mapUri)
+                                                context.startActivity(mapIntent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Clinic location: $clinicAddress", Toast.LENGTH_LONG).show()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(44.dp)
+                                    ) {
+                                        Icon(Icons.Default.Directions, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Get Clinic Directions", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(Modifier.width(4.dp))
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    }
                                 }
 
-                                OutlinedButton(
-                                    onClick = {
-                                        sessionManager?.savePendingReschedule(
-                                            com.dactor.patient.data.local.UserSessionManager.PendingRescheduleData(
-                                                appointmentId = appt.id,
-                                                trackingCode = appt.trackingCode10Digit,
-                                                clinicId = appt.clinicId,
-                                                doctorId = appt.doctorId,
-                                                patientName = appt.patientName,
-                                                patientMobile = appt.patientMobile,
-                                                patientAge = appt.patientAge.toString(),
-                                                patientGender = appt.patientGender ?: "Male",
-                                                patientEmail = appt.patientEmail,
-                                                originalDate = appt.appointmentDate,
-                                                originalTime = appt.appointmentTime
-                                            )
-                                        )
-                                        navController.navigate(
-                                            NavRoutes.Booking.createRoute(
-                                                clinicId = appt.clinicId,
-                                                doctorId = appt.doctorId,
-                                                rescheduleApptId = appt.id
-                                            )
-                                        )
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF00796B)),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00796B)),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(44.dp)
+                                // Tier 2: Reschedule & Cancel Action Buttons
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Reschedule", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    OutlinedButton(
+                                        onClick = {
+                                            apptToRescheduleConfirm = appt
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF0284C7)),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0284C7)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(42.dp)
+                                    ) {
+                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(15.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Reschedule Slot", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            apptToCancelConfirm = appt
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = Color(0xFFFFF1F2),
+                                            contentColor = Color(0xFFE11D48)
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(42.dp)
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(15.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Cancel Booking", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
@@ -4979,7 +5316,174 @@ fun AppointmentsTab(
             }
         }
     }
-}
+
+    // ── CONFIRMATION DIALOG: RESCHEDULE ──
+    apptToRescheduleConfirm?.let { targetAppt ->
+        val targetClinic = targetAppt.clinicId?.let { clinicCache[it] }
+        val targetDoctor = targetAppt.doctorId?.let { doctorCache[it] }
+        AlertDialog(
+            onDismissRequest = { apptToRescheduleConfirm = null },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF0284C7))
+                    Text("Reschedule Appointment?", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "You will be redirected to choose a new available date and time slot from the calendar.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF475569)
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFF8FAFC),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                "Doctor: Dr. ${targetDoctor?.fullName ?: targetAppt.patientName}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF0F172A)
+                            )
+                            Text(
+                                "Clinic: ${targetClinic?.name ?: "Clinic"}",
+                                fontSize = 12.sp,
+                                color = Color(0xFF64748B)
+                            )
+                            Text(
+                                "Current Slot: ${targetAppt.appointmentDate} • ${targetAppt.appointmentTime ?: "10:00 AM"}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0284C7)
+                            )
+                            Text(
+                                "Fee: Retained (Rs. 0 / Zero Payment)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF16A34A)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val appt = targetAppt
+                        apptToRescheduleConfirm = null
+                        sessionManager?.savePendingReschedule(
+                            com.dactor.patient.data.local.UserSessionManager.PendingRescheduleData(
+                                appointmentId = appt.id,
+                                trackingCode = appt.trackingCode10Digit,
+                                clinicId = appt.clinicId,
+                                doctorId = appt.doctorId,
+                                patientName = appt.patientName,
+                                patientMobile = appt.patientMobile,
+                                patientAge = appt.patientAge.toString(),
+                                patientGender = appt.patientGender ?: "Male",
+                                patientEmail = appt.patientEmail,
+                                originalDate = appt.appointmentDate,
+                                originalTime = appt.appointmentTime
+                            )
+                        )
+                        navController.navigate(
+                            NavRoutes.Booking.createRoute(
+                                clinicId = appt.clinicId,
+                                doctorId = appt.doctorId,
+                                rescheduleApptId = appt.id
+                            )
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Pick New Slot →", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { apptToRescheduleConfirm = null },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Keep Current")
+                }
+            }
+        )
+    }
+
+    // ── CONFIRMATION DIALOG: CANCEL ──
+    apptToCancelConfirm?.let { targetAppt ->
+        val targetDoctor = targetAppt.doctorId?.let { doctorCache[it] }
+        AlertDialog(
+            onDismissRequest = { if (!isCancelling) apptToCancelConfirm = null },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE11D48))
+                    Text("Cancel Appointment?", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Are you sure you want to cancel your appointment with Dr. ${targetDoctor?.fullName ?: ""} on ${targetAppt.appointmentDate}?",
+                        fontSize = 13.sp,
+                        color = Color(0xFF475569)
+                    )
+                    Text(
+                        "Your reserved slot will be released back for other patients to book.",
+                        fontSize = 12.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val apptId = targetAppt.id
+                        isCancelling = true
+                        coroutineScope.launch {
+                            val success = appointmentRepository?.cancelAppointment(apptId) ?: false
+                            isCancelling = false
+                            apptToCancelConfirm = null
+                            if (success) {
+                                Toast.makeText(context, "Appointment cancelled successfully", Toast.LENGTH_SHORT).show()
+                                loadActiveAppointments()
+                            } else {
+                                Toast.makeText(context, "Failed to cancel appointment. Please retry.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                    enabled = !isCancelling,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(if (isCancelling) "Cancelling..." else "Yes, Cancel Slot", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { apptToCancelConfirm = null },
+                    enabled = !isCancelling,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("No, Keep Booking")
+                }
+            }
+        )
+    }
 }
 
 // =========================================================================
@@ -5235,7 +5739,7 @@ fun ProfileTab(
                                     Icon(
                                         Icons.Default.Person,
                                         contentDescription = null,
-                                        tint = Color(0xFF00796B),
+                                        tint = Color(0xFF0284C7),
                                         modifier = Modifier.size(34.dp)
                                     )
                                 }
@@ -5256,7 +5760,7 @@ fun ProfileTab(
                                     Icon(
                                         Icons.Default.Email,
                                         contentDescription = null,
-                                        tint = Color(0xFF00796B),
+                                        tint = Color(0xFF0284C7),
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Text(
@@ -5278,14 +5782,14 @@ fun ProfileTab(
                                     showEditProfileDialog = true
                                 },
                                 shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, Color(0xFF00796B)),
+                                border = BorderStroke(1.dp, Color(0xFF0284C7)),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                                 modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                             ) {
                                 Icon(
                                     Icons.Default.Edit,
                                     contentDescription = null,
-                                    tint = Color(0xFF00796B),
+                                    tint = Color(0xFF0284C7),
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(Modifier.width(6.dp))
@@ -5293,7 +5797,7 @@ fun ProfileTab(
                                     "Edit",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF00796B)
+                                    color = Color(0xFF0284C7)
                                 )
                             }
                         }
@@ -5315,7 +5819,7 @@ fun ProfileTab(
                                     Icon(
                                         Icons.Default.Wc,
                                         contentDescription = null,
-                                        tint = Color(0xFF00796B),
+                                        tint = Color(0xFF0284C7),
                                         modifier = Modifier.size(15.dp)
                                     )
                                     Text("Gender", fontSize = 11.sp, color = Color(0xFF64748B))
@@ -5349,7 +5853,7 @@ fun ProfileTab(
                                     Icon(
                                         Icons.Default.CalendarToday,
                                         contentDescription = null,
-                                        tint = Color(0xFF00796B),
+                                        tint = Color(0xFF0284C7),
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Text("Age", fontSize = 11.sp, color = Color(0xFF64748B))
@@ -5383,7 +5887,7 @@ fun ProfileTab(
                                     Icon(
                                         Icons.Default.PersonOutline,
                                         contentDescription = null,
-                                        tint = Color(0xFF00796B),
+                                        tint = Color(0xFF0284C7),
                                         modifier = Modifier.size(15.dp)
                                     )
                                     Text("Account Type", fontSize = 11.sp, color = Color(0xFF64748B))
@@ -5392,7 +5896,7 @@ fun ProfileTab(
                                     text = "Nepal Account",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = Color(0xFF00796B)
+                                    color = Color(0xFF0284C7)
                                 )
                             }
                         }
@@ -5495,7 +5999,7 @@ fun ProfileTab(
                                         Icon(
                                             Icons.Default.ReceiptLong,
                                             contentDescription = null,
-                                            tint = Color(0xFF00796B),
+                                            tint = Color(0xFF0284C7),
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
@@ -5519,7 +6023,7 @@ fun ProfileTab(
                                 onClick = { coroutineScope.launch { loadProfileBillsAndHistory() } },
                                 modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF00796B), modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
                             }
                         }
 
@@ -5568,7 +6072,7 @@ fun ProfileTab(
 
                         if (isLoadingBills) {
                             Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = Color(0xFF00796B))
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = Color(0xFF0284C7))
                             }
                         } else if (billableAppts.isEmpty()) {
                             Text(
@@ -5635,7 +6139,7 @@ fun ProfileTab(
                                                     text = "#${appt.trackingCode10Digit}",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 10.sp,
-                                                    color = Color(0xFF00796B),
+                                                    color = Color(0xFF0284C7),
                                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                                 )
                                             }
@@ -5679,7 +6183,7 @@ fun ProfileTab(
                                                 )
                                             },
                                             shape = RoundedCornerShape(8.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -5728,7 +6232,7 @@ fun ProfileTab(
                                         Icon(
                                             Icons.Default.QrCode2,
                                             contentDescription = null,
-                                            tint = Color(0xFF00796B),
+                                            tint = Color(0xFF0284C7),
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
@@ -5756,7 +6260,7 @@ fun ProfileTab(
                                     "+ Link",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF00796B)
+                                    color = Color(0xFF0284C7)
                                 )
                             }
                         }
@@ -5796,7 +6300,7 @@ fun ProfileTab(
                                                 text = code,
                                                 fontWeight = FontWeight.ExtraBold,
                                                 fontSize = 16.sp,
-                                                color = Color(0xFF00796B)
+                                                color = Color(0xFF0284C7)
                                             )
                                             Spacer(Modifier.height(2.dp))
                                             Text(
@@ -5850,7 +6354,7 @@ fun ProfileTab(
                                                 Icon(
                                                     Icons.Default.ChevronRight,
                                                     contentDescription = "Open Appointment",
-                                                    tint = Color(0xFF00796B),
+                                                    tint = Color(0xFF0284C7),
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
@@ -5888,7 +6392,7 @@ fun ProfileTab(
                                 Icon(
                                     Icons.Default.Notifications,
                                     contentDescription = null,
-                                    tint = Color(0xFF00796B),
+                                    tint = Color(0xFF0284C7),
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -5910,7 +6414,7 @@ fun ProfileTab(
                         Icon(
                             Icons.Default.ChevronRight,
                             contentDescription = null,
-                            tint = Color(0xFF00796B),
+                            tint = Color(0xFF0284C7),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -5945,7 +6449,7 @@ fun ProfileTab(
                                 Icon(
                                     Icons.Default.ReceiptLong,
                                     contentDescription = null,
-                                    tint = Color(0xFF00796B),
+                                    tint = Color(0xFF0284C7),
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -5967,7 +6471,7 @@ fun ProfileTab(
                         Icon(
                             Icons.Default.ChevronRight,
                             contentDescription = null,
-                            tint = Color(0xFF00796B),
+                            tint = Color(0xFF0284C7),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -5999,7 +6503,7 @@ fun ProfileTab(
                                 Icon(
                                     Icons.Default.Gavel,
                                     contentDescription = null,
-                                    tint = Color(0xFF00796B),
+                                    tint = Color(0xFF0284C7),
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -6021,7 +6525,7 @@ fun ProfileTab(
                         Icon(
                             Icons.Default.ChevronRight,
                             contentDescription = null,
-                            tint = Color(0xFF00796B),
+                            tint = Color(0xFF0284C7),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -6037,7 +6541,7 @@ fun ProfileTab(
                     OutlinedButton(
                         onClick = { showSignOutDialog = true },
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFF00796B)),
+                        border = BorderStroke(1.dp, Color(0xFF0284C7)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp)
@@ -6045,7 +6549,7 @@ fun ProfileTab(
                         Icon(
                             Icons.AutoMirrored.Filled.ExitToApp,
                             contentDescription = null,
-                            tint = Color(0xFF00796B),
+                            tint = Color(0xFF0284C7),
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(8.dp))
@@ -6053,7 +6557,7 @@ fun ProfileTab(
                             "Sign Out / Switch Account",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = Color(0xFF00796B)
+                            color = Color(0xFF0284C7)
                         )
                     }
 

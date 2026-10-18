@@ -247,7 +247,7 @@ fun ClinicDetailScreen(
                     ) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(if (hasAvailableSlotsToday) "Book Appointment" else "Book on another date", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text("Book Appointment", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Spacer(Modifier.width(6.dp))
                         Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
                     }

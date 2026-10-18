@@ -1,20 +1,27 @@
 package com.dactor.clinic.data.repository
 
+import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.ClinicInvitation
 import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.model.MedicalSpecialty
 import com.dactor.clinic.data.model.MedicalQualification
+import com.dactor.clinic.data.model.NotificationTemplate
+import com.dactor.clinic.data.model.NotificationType
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.time.LocalDate
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -271,13 +278,123 @@ class DoctorRepository @Inject constructor(
         null
     }
 
+    private val lastPresenceBroadcastMap = java.util.concurrent.ConcurrentHashMap<String, Pair<Boolean, Long>>()
+
+    suspend fun notifyWaitingPatientsDoctorPresence(
+        doctorId: String,
+        isInClinic: Boolean,
+        clinicId: String? = null
+    ): Int = withContext(Dispatchers.IO) {
+        try {
+            // Anti-spam cooldown: suppress repeated toggles for the same doctor with the same state within 60 seconds
+            val now = System.currentTimeMillis()
+            val lastState = lastPresenceBroadcastMap[doctorId]
+            if (lastState != null && lastState.first == isInClinic && (now - lastState.second) < 60_000L) {
+                return@withContext 0
+            }
+            lastPresenceBroadcastMap[doctorId] = Pair(isInClinic, now)
+
+            val doctor = getDoctorById(doctorId)
+            val doctorName = doctor?.fullName?.trim() ?: "Doctor"
+            val cid = clinicId?.takeIf { it.isNotBlank() } ?: doctor?.activeClinicId ?: doctor?.clinicId
+            val clinicName = if (!cid.isNullOrBlank()) {
+                try {
+                    supabaseClient.postgrest["clinics"]
+                        .select { filter { eq("id", cid) } }
+                        .decodeSingleOrNull<Clinic>()?.name?.trim() ?: "the clinic"
+                } catch (_: Exception) { "the clinic" }
+            } else "the clinic"
+
+            val todayStr = LocalDate.now().toString()
+            val allAppts = try {
+                supabaseClient.postgrest["appointments"]
+                    .select {
+                        filter {
+                            eq("doctor_id", doctorId)
+                            eq("appointment_date", todayStr)
+                        }
+                    }
+                    .decodeList<Appointment>()
+            } catch (e: Exception) {
+                emptyList()
+            }
+
+            val waitingAppts = allAppts.filter { appt ->
+                val status = appt.checkinStatus?.lowercase() ?: ""
+                status in listOf("waiting", "checked_in", "booked", "inside", "pending")
+            }
+
+            if (waitingAppts.isEmpty()) return@withContext 0
+
+            val title = if (isInClinic) {
+                NotificationTemplate.DoctorArrived.buildTitle(doctorName)
+            } else {
+                NotificationTemplate.DoctorSteppedOut.buildTitle(doctorName)
+            }
+
+            val notifType = if (isInClinic) NotificationType.DOCTOR_ARRIVAL.key else NotificationType.DOCTOR_STATUS.key
+
+            var sentCount = 0
+            for (appt in waitingAppts) {
+                val tagged = if (isInClinic) {
+                    NotificationTemplate.DoctorArrived.buildMessage(
+                        patientName = appt.patientName,
+                        doctorName = doctorName,
+                        clinicName = clinicName,
+                        code = appt.trackingCode10Digit
+                    )
+                } else {
+                    NotificationTemplate.DoctorSteppedOut.buildMessage(
+                        patientName = appt.patientName,
+                        doctorName = doctorName,
+                        clinicName = clinicName,
+                        code = appt.trackingCode10Digit
+                    )
+                }
+
+                val dto = mapOf(
+                    "id" to UUID.randomUUID().toString(),
+                    "user_id" to appt.userId?.takeIf { it.isNotBlank() },
+                    "appointment_id" to appt.id.takeIf { it.length == 36 },
+                    "title" to title,
+                    "message" to tagged,
+                    "type" to notifType,
+                    "target_audience" to "specific",
+                    "is_read" to false
+                )
+
+                try {
+                    supabaseClient.postgrest["notifications"].insert(dto)
+                    sentCount++
+                } catch (eInsert: Exception) {
+                    try {
+                        val fallbackDto = mapOf(
+                            "id" to UUID.randomUUID().toString(),
+                            "title" to title,
+                            "message" to tagged,
+                            "type" to notifType,
+                            "target_audience" to "all_users",
+                            "is_read" to false
+                        )
+                        supabaseClient.postgrest["notifications"].insert(fallbackDto)
+                        sentCount++
+                    } catch (_: Exception) {}
+                }
+            }
+            sentCount
+        } catch (e: Exception) {
+            e.printStackTrace()
+            0
+        }
+    }
+
     suspend fun toggleDoctorPresence(
         doctorId: String,
         isInClinic: Boolean,
         clinicId: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val cid = clinicId?.takeIf { it.isNotBlank() }
-        try {
+        val ok = try {
             // Update native is_in_clinic and active_clinic_id columns directly in PostgreSQL
             supabaseClient.postgrest["doctors"]
                 .update({
@@ -341,6 +458,16 @@ class DoctorRepository @Inject constructor(
                 false
             }
         }
+
+        if (ok) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    notifyWaitingPatientsDoctorPresence(doctorId, isInClinic, cid)
+                } catch (_: Exception) {}
+            }
+        }
+
+        ok
     }
 
     suspend fun submitDoctorKyc(
@@ -656,7 +783,7 @@ class DoctorRepository @Inject constructor(
     }
 
     suspend fun switchActiveClinic(doctorId: String, clinicId: String, setInClinic: Boolean): Boolean = withContext(Dispatchers.IO) {
-        try {
+        val ok = try {
             // First attempt updating clinic_id, is_in_clinic, and active_clinic_id
             try {
                 supabaseClient.postgrest["doctors"]
@@ -667,23 +794,32 @@ class DoctorRepository @Inject constructor(
                     }) {
                         filter { eq("id", doctorId) }
                     }
-                return@withContext true
+                true
             } catch (eActive: Exception) {
                 // Column active_clinic_id may not exist, fallback to clinic_id + is_in_clinic
+                supabaseClient.postgrest["doctors"]
+                    .update({
+                        set("clinic_id", clinicId)
+                        set("is_in_clinic", setInClinic)
+                    }) {
+                        filter { eq("id", doctorId) }
+                    }
+                true
             }
-
-            supabaseClient.postgrest["doctors"]
-                .update({
-                    set("clinic_id", clinicId)
-                    set("is_in_clinic", setInClinic)
-                }) {
-                    filter { eq("id", doctorId) }
-                }
-            true
         } catch (e: Exception) {
             e.printStackTrace()
             false
         }
+
+        if (ok) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    notifyWaitingPatientsDoctorPresence(doctorId, setInClinic, clinicId)
+                } catch (_: Exception) {}
+            }
+        }
+
+        ok
     }
 
     suspend fun getSpecialties(): List<MedicalSpecialty> = withContext(Dispatchers.IO) {

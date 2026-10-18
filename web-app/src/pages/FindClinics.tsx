@@ -18,7 +18,7 @@ import {
   History,
 } from 'lucide-react'
 import { Clinic, Doctor } from '../types'
-import { getClinics, getDoctors } from '../services/db'
+import { getClinics, getDoctors, resolveClinicCoverUrl } from '../services/db'
 import {
   matchClinic,
   QUICK_SPECIALTY_SUGGESTIONS,
@@ -332,7 +332,9 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
             }
 
             const coverPhoto =
-              (clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures[0] : null) || clinic.logoUrl
+              resolveClinicCoverUrl(clinic) ||
+              (clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures[0] : null) ||
+              clinic.logoUrl
 
             return (
               <div

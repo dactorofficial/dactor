@@ -94,6 +94,12 @@ object NotificationHelper {
             setTextViewText(R.id.notif_body, displayBody)
         }
 
+        val formattedRightVal = if (rightLabel.contains("Appointment", ignoreCase = true) || rightLabel.contains("Slot", ignoreCase = true)) {
+            NotificationTemplateData.calculateApproximateSlotWindow(rightVal, 10, includeTolerance = true)
+        } else {
+            rightVal
+        }
+
         val expandedView = RemoteViews(context.packageName, R.layout.notification_dactor_expanded).apply {
             setTextViewText(R.id.notif_title, displayTitle)
             setTextViewText(R.id.notif_body, displayBody)
@@ -104,7 +110,7 @@ object NotificationHelper {
                 setTextViewText(R.id.notif_left_label, leftLabel)
                 setTextViewText(R.id.notif_left_value, leftVal)
                 setTextViewText(R.id.notif_right_label, rightLabel)
-                setTextViewText(R.id.notif_right_value, rightVal)
+                setTextViewText(R.id.notif_right_value, formattedRightVal)
             } else {
                 setViewVisibility(R.id.notif_metrics_container, android.view.View.GONE)
             }
@@ -127,6 +133,75 @@ object NotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+
+        // Add contextual 1-tap action buttons directly in Android Notification Tray
+        val notifType = com.dactor.patient.data.model.NotificationType.from(type)
+        when (notifType) {
+            com.dactor.patient.data.model.NotificationType.QUEUE_ALERT,
+            com.dactor.patient.data.model.NotificationType.ARRIVE_SOON,
+            com.dactor.patient.data.model.NotificationType.WAIT_FEW_MINUTES,
+            com.dactor.patient.data.model.NotificationType.WAIT_FEW_MINS,
+            com.dactor.patient.data.model.NotificationType.DOCTOR_ARRIVAL -> {
+                val trackIntent = Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+                    putExtra("appointment_id", appointmentId ?: parsed.trackingCode)
+                    putExtra("navigate_to", "tracker")
+                }
+                val trackPending = PendingIntent.getActivity(
+                    context,
+                    id * 10 + 1,
+                    trackIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.addAction(R.drawable.ic_notif_people, "Track Live Queue", trackPending)
+            }
+            com.dactor.patient.data.model.NotificationType.EARLY_ARRIVAL -> {
+                val acceptIntent = Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+                    putExtra("appointment_id", appointmentId ?: parsed.trackingCode)
+                    putExtra("navigate_to", "tracker")
+                }
+                val acceptPending = PendingIntent.getActivity(
+                    context,
+                    id * 10 + 2,
+                    acceptIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.addAction(R.drawable.ic_notif_calendar_clock, "Coming Now", acceptPending)
+            }
+            com.dactor.patient.data.model.NotificationType.LAB_REPORT -> {
+                val labIntent = Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+                    putExtra("appointment_id", appointmentId ?: parsed.trackingCode)
+                    putExtra("navigate_to", "notifications")
+                }
+                val labPending = PendingIntent.getActivity(
+                    context,
+                    id * 10 + 3,
+                    labIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.addAction(R.drawable.ic_notif_calendar_clock, "View Report", labPending)
+            }
+            com.dactor.patient.data.model.NotificationType.DOCTOR_NOT_ARRIVED,
+            com.dactor.patient.data.model.NotificationType.DOCTOR_DELAYED,
+            com.dactor.patient.data.model.NotificationType.CLINIC_BREAK,
+            com.dactor.patient.data.model.NotificationType.DOCTOR_STATUS -> {
+                val statusIntent = Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+                    putExtra("appointment_id", appointmentId ?: parsed.trackingCode)
+                    putExtra("navigate_to", "tracker")
+                }
+                val statusPending = PendingIntent.getActivity(
+                    context,
+                    id * 10 + 4,
+                    statusIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.addAction(R.drawable.ic_notif_people, "Check Status", statusPending)
+            }
+            else -> {}
+        }
 
         try {
             NotificationManagerCompat.from(context).notify(id, builder.build())

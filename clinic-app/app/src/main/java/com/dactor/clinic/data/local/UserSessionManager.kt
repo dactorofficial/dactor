@@ -172,6 +172,12 @@ class UserSessionManager @Inject constructor(
         }
         return !getSavedClinicId().isNullOrBlank() || !getSavedDoctorId().isNullOrBlank() || !getSavedEmail().isNullOrBlank()
     }
+
+    fun isNotificationSeen(id: String): Boolean = prefs.getBoolean("seen_notif_$id", false)
+
+    fun markNotificationSeen(id: String) {
+        prefs.edit().putBoolean("seen_notif_$id", true).apply()
+    }
 }
 
 typealias ClinicSessionManager = UserSessionManager

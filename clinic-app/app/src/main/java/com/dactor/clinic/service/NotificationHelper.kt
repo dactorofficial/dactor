@@ -31,12 +31,16 @@ object NotificationHelper {
         context: Context,
         id: Int,
         title: String,
-        message: String
+        message: String,
+        appointmentId: String? = null
     ) {
         createNotificationChannel(context)
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (!appointmentId.isNullOrBlank()) {
+                putExtra("appointment_id", appointmentId)
+            }
         }
 
         val pendingIntent = PendingIntent.getActivity(

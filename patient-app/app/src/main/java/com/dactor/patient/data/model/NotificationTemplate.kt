@@ -6,14 +6,23 @@ sealed class NotificationTemplate {
     object AppointmentReminder : NotificationTemplate() {
         override val type = NotificationType.QUEUE_ALERT
         fun buildTitle(code: String) = "Appointment Reminder • #$code"
-        fun buildMessage(patientName: String, code: String, slotTime: String, estWait: String): String {
+        fun buildMessage(
+            patientName: String,
+            code: String,
+            slotTime: String,
+            estWait: String,
+            avgMinutes: Int = 10
+        ): String {
+            val slotWindow = NotificationTemplateData.formatSlotWindow(slotTime, avgMinutes)
+            val windowDisplay = if (slotWindow.isNotBlank()) slotWindow else slotTime
             return NotificationTemplateData.buildMessageWithMeta(
-                cleanMessage = "Hi $patientName, your appointment (#$code) is scheduled for today at $slotTime. Track your live queue turn anytime.",
+                cleanMessage = "Hi $patientName, your appointment (#$code) is scheduled for today around $windowDisplay. Track your live queue turn anytime.",
                 leftLabel = "Estimated Wait",
                 leftValue = estWait,
-                rightLabel = "Appointment Time",
-                rightValue = slotTime,
-                trackingCode = code
+                rightLabel = "Appointment Window",
+                rightValue = windowDisplay,
+                trackingCode = code,
+                statusBadge = "APPOINTMENT REMINDER"
             )
         }
     }
@@ -28,7 +37,8 @@ sealed class NotificationTemplate {
                 leftValue = waitLabel,
                 rightLabel = "Queue Position",
                 rightValue = "#$queuePosition (Queue Position #$queuePosition)",
-                trackingCode = code
+                trackingCode = code,
+                statusBadge = "TURN APPROACHING"
             )
         }
     }
@@ -43,7 +53,8 @@ sealed class NotificationTemplate {
                 leftValue = "Now (0 mins)",
                 rightLabel = "Your Token",
                 rightValue = "Token #$queuePosition",
-                trackingCode = code
+                trackingCode = code,
+                statusBadge = "CALLING INSIDE"
             )
         }
     }
@@ -58,7 +69,8 @@ sealed class NotificationTemplate {
                 leftValue = "Processing",
                 rightLabel = "Tracking Code",
                 rightValue = "#$code",
-                trackingCode = code
+                trackingCode = code,
+                statusBadge = "IN TESTING"
             )
         }
     }
@@ -73,7 +85,8 @@ sealed class NotificationTemplate {
                 leftValue = "Prepared & Ready",
                 rightLabel = "Verification",
                 rightValue = "Name / Mobile",
-                trackingCode = code
+                trackingCode = code,
+                statusBadge = "REPORT READY"
             )
         }
     }
@@ -90,7 +103,8 @@ sealed class NotificationTemplate {
                 leftValue = "Clinic on Break",
                 rightLabel = "Your Appointment Time",
                 rightValue = breakWindowText?.takeIf { it.isNotBlank() } ?: (appointmentTime ?: "Paused Briefly"),
-                trackingCode = trackingCode
+                trackingCode = trackingCode,
+                statusBadge = "CLINIC BREAK"
             )
         }
     }
@@ -109,7 +123,8 @@ sealed class NotificationTemplate {
                 leftLabel = leftLabel,
                 leftValue = leftVal,
                 rightLabel = rightLabel,
-                rightValue = rightVal
+                rightValue = rightVal,
+                statusBadge = "ANNOUNCEMENT"
             )
         }
     }
@@ -121,7 +136,7 @@ sealed class NotificationTemplate {
             leftLabel: String = "Estimated Time Left",
             leftVal: String = "Soon, be ready",
             rightLabel: String = "Your Appointment Time",
-            rightVal: String = "Active Queue",
+            rightValue: String = "Active Queue",
             trackingCode: String? = null
         ): String {
             return NotificationTemplateData.buildMessageWithMeta(
@@ -129,8 +144,9 @@ sealed class NotificationTemplate {
                 leftLabel = leftLabel,
                 leftValue = leftVal,
                 rightLabel = rightLabel,
-                rightValue = rightVal,
-                trackingCode = trackingCode
+                rightValue = rightValue,
+                trackingCode = trackingCode,
+                statusBadge = "QUEUE ALERT"
             )
         }
     }
@@ -138,16 +154,222 @@ sealed class NotificationTemplate {
     object EarlyArrivalInvite : NotificationTemplate() {
         override val type = NotificationType.EARLY_ARRIVAL
         fun buildTitle() = "⚡ Doctor is Free Now! Come in Early?"
-        fun buildMessage(patientName: String, code: String, originalSlot: String): String {
+        fun buildMessage(patientName: String, code: String, originalSlot: String, avgMinutes: Int = 10): String {
+            val slotWindow = NotificationTemplateData.formatSlotWindow(originalSlot, avgMinutes)
+            val windowDisplay = if (slotWindow.isNotBlank()) slotWindow else originalSlot
             return NotificationTemplateData.buildMessageWithMeta(
-                cleanMessage = "Hi $patientName, the doctor is free now ahead of schedule! Since you opted into early calls, you can come in right now instead of waiting for your $originalSlot slot.",
+                cleanMessage = "Hi $patientName, the doctor is free now ahead of schedule! Since you opted into early calls, you can come in right now instead of waiting for your $windowDisplay slot.",
                 leftLabel = "Doctor Status",
                 leftValue = "Free Now",
-                rightLabel = "Original Slot",
-                rightValue = originalSlot,
-                trackingCode = code
+                rightLabel = "Original Window",
+                rightValue = windowDisplay,
+                trackingCode = code,
+                statusBadge = "DOCTOR FREE NOW"
+            )
+        }
+    }
+
+    object DoctorNotArrived : NotificationTemplate() {
+        override val type = NotificationType.DOCTOR_NOT_ARRIVED
+        fun buildTitle(doctorName: String? = null) = if (!doctorName.isNullOrBlank()) {
+            "$doctorName Has Not Arrived Yet"
+        } else {
+            "Doctor Not Arrived • Delayed"
+        }
+        fun buildMessage(
+            patientName: String,
+            doctorName: String = "Doctor",
+            expectedArrival: String = "Expected shortly",
+            clinicName: String? = null,
+            code: String? = null,
+            slotTime: String? = null,
+            avgMinutes: Int = 10
+        ): String {
+            val clinicPart = if (!clinicName.isNullOrBlank()) " at $clinicName" else ""
+            val slotWindow = slotTime?.takeIf { it.isNotBlank() }?.let { NotificationTemplateData.formatSlotWindow(it, avgMinutes) }
+            val arrivalInfo = if (!slotWindow.isNullOrBlank()) "$expectedArrival (Slot: $slotWindow)" else expectedArrival
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = "Hi $patientName, $doctorName has not arrived yet$clinicPart. Queue consultation is currently paused and will start as soon as the doctor reaches.",
+                leftLabel = "Doctor Status",
+                leftValue = "Not Arrived / Delayed",
+                rightLabel = "Est. Arrival",
+                rightValue = arrivalInfo,
+                trackingCode = code,
+                statusBadge = "DOCTOR DELAYED"
+            )
+        }
+    }
+
+    object DoctorDelayed : NotificationTemplate() {
+        override val type = NotificationType.DOCTOR_DELAYED
+        fun buildTitle(doctorName: String? = null) = if (!doctorName.isNullOrBlank()) {
+            "$doctorName Has Not Arrived Yet • Delay Notice"
+        } else {
+            "Doctor Not Arrived Yet / Delay Notice"
+        }
+        fun buildMessage(
+            patientName: String,
+            doctorName: String = "Doctor",
+            expectedDelay: String = "~ 15-20 mins",
+            clinicName: String? = null,
+            code: String? = null,
+            slotTime: String? = null,
+            avgMinutes: Int = 10
+        ): String {
+            val clinicPart = if (!clinicName.isNullOrBlank()) " at $clinicName" else ""
+            val slotWindow = slotTime?.takeIf { it.isNotBlank() }?.let { NotificationTemplateData.calculateApproximateSlotWindow(it, avgMinutes) }
+            val slotInfo = if (!slotWindow.isNullOrBlank()) " (Slot: $slotWindow)" else ""
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = "Hi $patientName, $doctorName has not arrived yet$clinicPart. The queue is delayed by $expectedDelay$slotInfo. Consultations will begin once the doctor arrives.",
+                leftLabel = "Doctor Status",
+                leftValue = "Not Arrived / Delayed",
+                rightLabel = "Est. Delay",
+                rightValue = expectedDelay,
+                trackingCode = code,
+                statusBadge = "DOCTOR DELAYED"
+            )
+        }
+    }
+
+    object WaitForFewMinutes : NotificationTemplate() {
+        override val type = NotificationType.WAIT_FEW_MINUTES
+        fun buildTitle(reason: String? = null) = if (!reason.isNullOrBlank()) {
+            "Brief Pause ($reason) • Please Wait"
+        } else {
+            "Brief Pause • Please Wait Few Minutes"
+        }
+        fun buildMessage(
+            patientName: String,
+            waitMins: String = "5-10 mins",
+            reason: String? = null,
+            code: String? = null
+        ): String {
+            val reasonPart = if (!reason.isNullOrBlank()) " ($reason)" else ""
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = "Hi $patientName, please wait for a few minutes$reasonPart. The queue is briefly paused and your turn will resume shortly.",
+                leftLabel = "Queue Status",
+                leftValue = "Brief Pause",
+                rightLabel = "Estimated Wait",
+                rightValue = if (waitMins.startsWith("~")) waitMins else "~ $waitMins",
+                trackingCode = code,
+                statusBadge = "WAIT A FEW MINS"
+            )
+        }
+    }
+
+    object WaitFewMins : NotificationTemplate() {
+        override val type = NotificationType.WAIT_FEW_MINS
+        fun buildTitle(reason: String? = null) = if (!reason.isNullOrBlank()) {
+            "Please Wait a Few Minutes ($reason)"
+        } else {
+            "Please Wait a Few Minutes"
+        }
+        fun buildMessage(
+            patientName: String,
+            reason: String = "reviewing records / brief procedure",
+            resumeWait: String = "~ 5-10 mins",
+            code: String? = null
+        ): String {
+            val formattedWait = if (resumeWait.startsWith("~")) resumeWait else "~ $resumeWait"
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = "Hi $patientName, please wait a few minutes. The doctor is $reason. Consultations will resume in $formattedWait.",
+                leftLabel = "Queue Status",
+                leftValue = "Brief Pause",
+                rightLabel = "Estimated Wait",
+                rightValue = formattedWait,
+                trackingCode = code,
+                statusBadge = "WAIT A FEW MINS"
+            )
+        }
+    }
+
+    object ArriveSoon : NotificationTemplate() {
+        override val type = NotificationType.ARRIVE_SOON
+        fun buildTitle(queuePosition: Int? = null) = if (queuePosition != null && queuePosition > 0) {
+            "Arrive Soon • Turn Approaching (#$queuePosition)"
+        } else {
+            "Arrive Soon! Turn Approaching"
+        }
+        fun buildMessage(
+            patientName: String,
+            code: String,
+            queuePosition: Int = 2,
+            estTime: String = "~ 10-15 mins"
+        ): String {
+            val aheadPart = when {
+                queuePosition <= 1 -> "You are next in line."
+                queuePosition == 2 -> "Only 1 patient is ahead of you."
+                else -> "Only ${queuePosition - 1} patients are ahead of you."
+            }
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = "Hi $patientName, your turn is approaching! You are position #$queuePosition in the queue (#$code). $aheadPart Please arrive at the clinic soon to avoid missing your turn.",
+                leftLabel = "Turn Status",
+                leftValue = "Arrive Soon",
+                rightLabel = "Queue Position",
+                rightValue = "Position #$queuePosition",
+                trackingCode = code,
+                statusBadge = "ARRIVE SOON • #$queuePosition"
+            )
+        }
+    }
+
+    object DoctorArrived : NotificationTemplate() {
+        override val type = NotificationType.DOCTOR_ARRIVAL
+        fun buildTitle(doctorName: String? = null) = if (!doctorName.isNullOrBlank()) {
+            "🩺 $doctorName Has Arrived!"
+        } else {
+            "🩺 Doctor Has Arrived!"
+        }
+        fun buildMessage(
+            patientName: String,
+            doctorName: String = "Doctor",
+            clinicName: String? = null,
+            code: String? = null
+        ): String {
+            val clinicPart = if (!clinicName.isNullOrBlank()) " at $clinicName" else ""
+            val cleanBody = "Hi $patientName, $doctorName has arrived$clinicPart! OPD consultations are starting now. Please check your live queue position and be near the clinic."
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = cleanBody,
+                leftLabel = "Doctor Status",
+                leftValue = "In Clinic • Active",
+                rightLabel = "Live Queue",
+                rightValue = "Consultations Started",
+                trackingCode = code,
+                statusBadge = "DOCTOR ARRIVED"
+            )
+        }
+    }
+
+    object DoctorSteppedOut : NotificationTemplate() {
+        override val type = NotificationType.DOCTOR_STATUS
+        fun buildTitle(doctorName: String? = null) = if (!doctorName.isNullOrBlank()) {
+            "⏳ $doctorName Temporarily Stepped Out"
+        } else {
+            "⏳ Doctor Temporarily Away"
+        }
+        fun buildMessage(
+            patientName: String,
+            doctorName: String = "Doctor",
+            clinicName: String? = null,
+            code: String? = null
+        ): String {
+            val clinicPart = if (!clinicName.isNullOrBlank()) " from $clinicName" else ""
+            val cleanBody = "Hi $patientName, $doctorName has temporarily stepped out$clinicPart. Consultations are briefly paused and will resume shortly."
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = cleanBody,
+                leftLabel = "Doctor Status",
+                leftValue = "Temporarily Away",
+                rightLabel = "Queue Status",
+                rightValue = "Briefly Paused",
+                trackingCode = code,
+                statusBadge = "DOCTOR AWAY"
             )
         }
     }
 }
 
+fun calculateApproximateSlotWindow(
+    slotTime: String?,
+    avgConsultationMinutes: Int = 10,
+    includeTolerance: Boolean = true
+): String = NotificationTemplateData.calculateApproximateSlotWindow(slotTime, avgConsultationMinutes, includeTolerance)

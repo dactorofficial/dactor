@@ -581,6 +581,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // ==========================================
   const [notifications, setNotifications] = useState<DactorNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
+  const [guestCodesVersion, setGuestCodesVersion] = useState(0)
 
   // Memoized records lists for Directory & Records Tab
   const filteredCompletedAppointments = useMemo(() => {
@@ -980,6 +981,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       if (!existing.includes(code)) {
         const updated = [code, ...existing]
         localStorage.setItem('dactor_patient_tracking_codes', JSON.stringify(updated))
+        setGuestCodesVersion((v) => v + 1)
       }
     } catch {}
   }
@@ -1036,13 +1038,19 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   }
 
   // ==========================================
-  // REAL-TIME SUPABASE SUBSCRIPTION
+  // REAL-TIME SUPABASE SUBSCRIPTION (Users & Guest Tracking Codes)
   // ==========================================
   useEffect(() => {
-    if (!patientUser) return
+    const storedCodes = getStoredTrackingCodes()
+    // Allow both registered patients and guest tracking code holders to subscribe
+    if (!patientUser && storedCodes.length === 0) return
+
+    const channelTopic = patientUser?.id
+      ? `patient_portal_${patientUser.id}`
+      : `patient_portal_guest_${storedCodes.slice(0, 3).join('_')}`
 
     const channel = supabase
-      .channel('patient_portal_realtime')
+      .channel(channelTopic)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'appointments' },
@@ -1070,7 +1078,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [patientUser])
+  }, [patientUser, guestCodesVersion])
 
   // ==========================================
   // PERSISTENT 5-MINUTE PAYMENT TIMER LOGIC

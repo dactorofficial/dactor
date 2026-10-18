@@ -321,8 +321,8 @@ fun FutureAppointmentsScreen(
                     } catch (ignored: Exception) {}
                     showAddSlotDialog = true
                 },
-                icon = { Icon(Icons.Default.Add, contentDescription = "Add Slot", tint = Color.White) },
-                text = { Text("Add Slot ($selectedDate)", fontWeight = FontWeight.Bold, color = Color.White) },
+                icon = { Icon(Icons.Default.Add, contentDescription = "Add slot", tint = Color.White) },
+                text = { Text("Add slot", fontWeight = FontWeight.Bold, color = Color.White) },
                 containerColor = Color(0xFF0097A7),
                 shape = RoundedCornerShape(16.dp)
             )
@@ -643,7 +643,7 @@ fun FutureAppointmentsScreen(
 
                     if (slots.isEmpty()) {
                         Text(
-                            text = "No OPD slots configured for this date. Tap '+ Add Slot ($selectedDate)' below to publish patient booking slots.",
+                            text = "No OPD slots configured for this date. Tap '+ Add slot' below to add patient booking slots.",
                             fontSize = 11.5.sp,
                             color = Color(0xFF64748B)
                         )
@@ -1009,9 +1009,8 @@ fun FutureAppointmentsScreen(
 
             val isDateToday = selectedDate == todayStr
             val isDateInPast = selectedDate < todayStr
-            val isTimeInPast = isDateToday && (startMinutes <= currentMinutesToday)
             val isInvalidInterval = endMinutes <= startMinutes
-            val hasTimeError = isDateInPast || isTimeInPast || isInvalidInterval
+            val hasTimeError = isDateInPast || isInvalidInterval
 
             AlertDialog(
                 onDismissRequest = { showAddSlotDialog = false },
@@ -1063,7 +1062,7 @@ fun FutureAppointmentsScreen(
                             )
                         }
 
-                        Text("Slot Schedule Time:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Slot Schedule Time Window:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1084,7 +1083,8 @@ fun FutureAppointmentsScreen(
 
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                color = if (isInvalidInterval) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(1.dp, if (isInvalidInterval) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant),
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable { showSlotEndTimePicker = true }
@@ -1100,7 +1100,7 @@ fun FutureAppointmentsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            listOf(15, 30, 45, 60).forEach { mins ->
+                            listOf(15, 30, 45, 60, 180).forEach { mins ->
                                 SuggestionChip(
                                     onClick = {
                                         slotEndTime = DateTimePickers.addMinutesToTime(slotStartTime, mins)
@@ -1114,12 +1114,18 @@ fun FutureAppointmentsScreen(
                             Text(
                                 text = when {
                                     isDateInPast -> "⚠️ Cannot schedule a slot in the past ($selectedDate)."
-                                    isTimeInPast -> "⚠️ Start time ($slotStartTime) has already passed for today."
                                     isInvalidInterval -> "⚠️ End time ($slotEndTime) must be later than start time ($slotStartTime)."
                                     else -> "⚠️ Please verify the selected schedule time."
                                 },
                                 fontSize = 11.5.sp,
                                 color = Color(0xFFDC2626),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else {
+                            Text(
+                                text = "✓ Slot Time Window: ${format12h(slotStartTime)} to ${format12h(slotEndTime)} — Can be published anytime, even on closed days or outside regular hours.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF16A34A),
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -1179,7 +1185,7 @@ fun FutureAppointmentsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
                         enabled = !hasTimeError && (selectedDoctor != null || doctors.isNotEmpty())
                     ) {
-                        Text("Publish Slot", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Add slot", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {

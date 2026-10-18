@@ -15,6 +15,10 @@ import com.dactor.patient.service.NotificationHelper
 import com.dactor.patient.ui.navigation.DactorNavHost
 import com.google.firebase.messaging.FirebaseMessaging
 import dagger.hilt.android.AndroidEntryPoint
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -34,6 +38,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var notificationRepository: NotificationRepository
     @Inject lateinit var draftManager: RegistrationDraftManager
     @Inject lateinit var sessionManager: UserSessionManager
+    @Inject lateinit var supabaseClient: SupabaseClient
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,12 +54,29 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 3. Register Firebase Cloud Messaging and subscribe to topics
+        // 3. Register Firebase Cloud Messaging, subscribe to topics, and upload token to Supabase fcm_tokens
         try {
             FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                 if (task.isSuccessful) {
                     val token = task.result
-                    sessionManager.saveFcmToken(token)
+                    if (!token.isNullOrBlank()) {
+                        sessionManager.saveFcmToken(token)
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            try {
+                                val userId = authRepository.getCurrentUser() ?: sessionManager.getSavedPatientId()
+                                val phone = sessionManager.getSavedPhone()
+                                val trackingCodes = sessionManager.getSavedTrackingCodes().map { it.first }
+                                notificationRepository.uploadFcmToken(
+                                    token = token,
+                                    userId = userId,
+                                    trackingCodes = trackingCodes,
+                                    patientMobile = phone
+                                )
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
                 }
             }
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
@@ -73,105 +95,52 @@ class MainActivity : ComponentActivity() {
             }
         } catch (ignored: Exception) {}
 
+        // 5. Initial Cold-Start Check & Live Supabase Realtime WebSocket Subscription (<300ms)
         lifecycleScope.launch(Dispatchers.IO) {
-            var isFirstPoll = true
+            try {
+                // Immediate check for cold start
+                checkAndDispatchNotifications(isColdStart = true)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
             while (isActive) {
+                var channel: io.github.jan.supabase.realtime.RealtimeChannel? = null
                 try {
-                    val userId = authRepository.getCurrentUser() ?: sessionManager.getSavedPatientId()
-                    val email = sessionManager.getSavedEmail()?.takeIf { it.isNotBlank() }
-                        ?: authRepository.getCurrentUserEmail()?.takeIf { it.isNotBlank() }
-                    val phone = sessionManager.getSavedPhone()?.takeIf { it.isNotBlank() }
-                    val savedCodes = sessionManager.getSavedTrackingCodes().map { it.first }
-                    val allIds = savedCodes.toMutableSet()
+                    // WebSocket subscription to postgres changes on public.notifications
+                    channel = supabaseClient.channel("patient_realtime_notifications")
+                    val changeFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                        table = "notifications"
+                    }
+                    channel.subscribe()
 
-                    var patientAppointments = emptyList<com.dactor.patient.data.model.Appointment>()
-                    try {
-                        patientAppointments = appointmentRepository.getAllPatientAppointments(
-                            userId = userId,
-                            email = email,
-                            phone = phone,
-                            trackingCodes = savedCodes
-                        )
-                        for (appt in patientAppointments) {
-                            if (appt.id.isNotBlank()) allIds.add(appt.id)
-                            if (appt.trackingCode10Digit.isNotBlank()) allIds.add(appt.trackingCode10Digit)
-                        }
-                    } catch (_: Exception) {}
-
-                    val notifs = notificationRepository.getNotifications(
-                        userId = userId,
-                        appointmentIds = allIds.toList()
-                    )
-
-                    if (isFirstPoll) {
-                        // Mark existing historical notifications as seen so they don't spam the user on app launch
-                        for (notif in notifs) {
-                            sessionManager.markNotificationSeen(notif.id)
-                        }
-                        isFirstPoll = false
-                    } else {
-                        // Only notify for truly new incoming notifications
-                        for (notif in notifs) {
-                            if (!sessionManager.isNotificationSeen(notif.id)) {
-                                sessionManager.markNotificationSeen(notif.id)
-
-                                // Check whether the notification targets a completed/finished appointment
-                                val matchedAppt = patientAppointments.find { appt ->
-                                    (notif.appointmentId != null && (appt.id == notif.appointmentId || appt.trackingCode10Digit == notif.appointmentId)) ||
-                                    (notif.toTemplateData().trackingCode?.isNotBlank() == true && (appt.id == notif.toTemplateData().trackingCode || appt.trackingCode10Digit == notif.toTemplateData().trackingCode))
-                                }
-                                val isMatchedFinished = matchedAppt != null && matchedAppt.checkinStatus.lowercase() in listOf("done", "completed", "cancelled", "finished")
-
-                                // Lab reports and invoices/bills can still be delivered even if appointment is completed
-                                val isReportOrBill = notif.type in listOf("lab_report", "report_prepared", "billing_invoice", "payment_receipt") ||
-                                    notif.title.contains("report", ignoreCase = true) ||
-                                    notif.title.contains("bill", ignoreCase = true) ||
-                                    notif.title.contains("receipt", ignoreCase = true)
-
-                                // If the appointment is already finished and this is not a report/bill, suppress it!
-                                if (isMatchedFinished && !isReportOrBill) {
-                                    continue
-                                }
-
-                                // Queue alerts, arrival calls, doctor presence, clinic breaks, and "come to clinic" calls require an active queue appointment
-                                val isQueueOrArrivalAlert = notif.type in listOf(
-                                    "doctor_arrival", "doctor_presence", "clinic_break", "doctor_status",
-                                    "manual_alert", "queue_alert", "early_arrival", "turn_call", "urgent_call"
-                                ) || notif.title.contains("doctor", ignoreCase = true)
-                                  || notif.title.contains("clinic", ignoreCase = true)
-                                  || notif.title.contains("queue", ignoreCase = true)
-                                  || notif.title.contains("turn", ignoreCase = true)
-                                  || notif.title.contains("come", ignoreCase = true)
-                                  || notif.title.contains("arrive", ignoreCase = true)
-                                  || notif.message.contains("come to", ignoreCase = true)
-                                  || notif.message.contains("arrive", ignoreCase = true)
-                                  || notif.message.contains("turn", ignoreCase = true)
-
-                                if (isQueueOrArrivalAlert && !isReportOrBill) {
-                                    val hasActiveQueueAppt = patientAppointments.any {
-                                        it.checkinStatus.lowercase() in listOf("waiting", "checked_in", "booked", "inside", "pending")
-                                    }
-                                    if (!hasActiveQueueAppt) {
-                                        continue
-                                    }
-                                }
-
-                                val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
-                                NotificationHelper.showSystemNotification(
-                                    context = this@MainActivity,
-                                    id = notifId,
-                                    title = notif.title.ifBlank { "Dactor Health Alert" },
-                                    message = notif.message,
-                                    appointmentId = notif.appointmentId,
-                                    type = notif.type
-                                )
-                            }
+                    changeFlow.collect { action ->
+                        if (action is PostgresAction.Insert || action is PostgresAction.Update) {
+                            checkAndDispatchNotifications(isColdStart = false)
                         }
                     }
                 } catch (e: Exception) {
+                    if (!isActive) break
+                    delay(5000L)
+                } finally {
+                    try {
+                        channel?.unsubscribe()
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+
+        // 6. Lightweight Fallback Polling (Every 12s to ensure reliability even if WebSocket disconnects)
+        lifecycleScope.launch(Dispatchers.IO) {
+            // Give cold-start a brief head start before fallback polling begins
+            delay(5000L)
+            while (isActive) {
+                try {
+                    checkAndDispatchNotifications(isColdStart = false)
+                } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(4000L) // Poll every 4 seconds for instant alerts
+                delay(12000L)
             }
         }
 
@@ -200,6 +169,124 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private suspend fun checkAndDispatchNotifications(isColdStart: Boolean = false) {
+        val userId = authRepository.getCurrentUser() ?: sessionManager.getSavedPatientId()
+        val email = sessionManager.getSavedEmail()?.takeIf { it.isNotBlank() }
+            ?: authRepository.getCurrentUserEmail()?.takeIf { it.isNotBlank() }
+        val phone = sessionManager.getSavedPhone()?.takeIf { it.isNotBlank() }
+        val savedCodes = sessionManager.getSavedTrackingCodes().map { it.first }
+        val allIds = savedCodes.toMutableSet()
+
+        var patientAppointments = emptyList<com.dactor.patient.data.model.Appointment>()
+        try {
+            patientAppointments = appointmentRepository.getAllPatientAppointments(
+                userId = userId,
+                email = email,
+                phone = phone,
+                trackingCodes = savedCodes
+            )
+            for (appt in patientAppointments) {
+                if (appt.id.isNotBlank()) allIds.add(appt.id)
+                if (appt.trackingCode10Digit.isNotBlank()) allIds.add(appt.trackingCode10Digit)
+            }
+        } catch (_: Exception) {}
+
+        val notifs = notificationRepository.getNotifications(
+            userId = userId,
+            appointmentIds = allIds.toList()
+        )
+
+        val fifteenMinutesAgoMs = System.currentTimeMillis() - (15 * 60 * 1000L)
+
+        for (notif in notifs) {
+            val isSeen = sessionManager.isNotificationSeen(notif.id)
+            if (isSeen) continue
+
+            // Parse created timestamp to check if recent (< 15 mins)
+            val createdEpochMs = try {
+                if (notif.createdAt.isNotBlank()) {
+                    java.time.Instant.parse(notif.createdAt).toEpochMilli()
+                } else 0L
+            } catch (_: Exception) {
+                0L
+            }
+            val isCreatedRecently = createdEpochMs >= fifteenMinutesAgoMs
+
+            // Cold-start handling: if unseen notification is older than 15 mins, silently mark seen
+            if (isColdStart && !isCreatedRecently) {
+                sessionManager.markNotificationSeen(notif.id)
+                continue
+            }
+
+            // Check whether the notification targets a completed/finished appointment
+            val templateData = notif.toTemplateData()
+            val matchedAppt = patientAppointments.find { appt ->
+                (notif.appointmentId != null && (appt.id == notif.appointmentId || appt.trackingCode10Digit == notif.appointmentId)) ||
+                (templateData.trackingCode?.isNotBlank() == true && (appt.id == templateData.trackingCode || appt.trackingCode10Digit == templateData.trackingCode))
+            }
+            val isMatchedFinished = matchedAppt != null && matchedAppt.checkinStatus.lowercase() in listOf("done", "completed", "cancelled", "finished")
+
+            // Lab reports and invoices/bills can still be delivered even if appointment is completed
+            val isReportOrBill = notif.type in listOf("lab_report", "report_prepared", "billing_invoice", "payment_receipt") ||
+                notif.title.contains("report", ignoreCase = true) ||
+                notif.title.contains("bill", ignoreCase = true) ||
+                notif.title.contains("receipt", ignoreCase = true)
+
+            // If the appointment is already finished and this is not a report/bill, suppress it
+            if (isMatchedFinished && !isReportOrBill) {
+                sessionManager.markNotificationSeen(notif.id)
+                continue
+            }
+
+            // Queue alerts, arrival calls, doctor presence, clinic breaks, and "come to clinic" calls require an active queue appointment
+            val isQueueOrArrivalAlert = notif.type in listOf(
+                "doctor_arrival", "doctor_presence", "clinic_break", "doctor_status",
+                "manual_alert", "queue_alert", "early_arrival", "turn_call", "urgent_call"
+            ) || notif.title.contains("doctor", ignoreCase = true)
+              || notif.title.contains("clinic", ignoreCase = true)
+              || notif.title.contains("queue", ignoreCase = true)
+              || notif.title.contains("turn", ignoreCase = true)
+              || notif.title.contains("come", ignoreCase = true)
+              || notif.title.contains("arrive", ignoreCase = true)
+              || notif.message.contains("come to", ignoreCase = true)
+              || notif.message.contains("arrive", ignoreCase = true)
+              || notif.message.contains("turn", ignoreCase = true)
+
+            if (isQueueOrArrivalAlert && !isReportOrBill) {
+                val isSavedTrackingMatch = savedCodes.isNotEmpty() && (
+                    (notif.appointmentId != null && savedCodes.contains(notif.appointmentId)) ||
+                    (templateData.trackingCode?.isNotBlank() == true && savedCodes.contains(templateData.trackingCode)) ||
+                    savedCodes.any { c -> c.length == 10 && (notif.message.contains(c) || notif.title.contains(c)) }
+                )
+
+                val hasActiveQueueAppt = patientAppointments.any {
+                    it.checkinStatus.lowercase() in listOf("waiting", "checked_in", "booked", "inside", "pending")
+                }
+
+                if (!hasActiveQueueAppt && !isSavedTrackingMatch) {
+                    if (allIds.isEmpty()) {
+                        sessionManager.markNotificationSeen(notif.id)
+                    }
+                    continue
+                }
+            }
+
+            // All patient verification checks passed! Display heads-up system alert
+            val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
+            NotificationHelper.showSystemNotification(
+                context = this@MainActivity,
+                id = notifId,
+                title = notif.title.ifBlank { "Dactor Health Alert" },
+                message = notif.message,
+                appointmentId = notif.appointmentId ?: templateData.trackingCode,
+                type = notif.type
+            )
+
+            // Fix premature "seen" marking bug: mark seen ONLY AFTER successful match and display
+            sessionManager.markNotificationSeen(notif.id)
         }
     }
 

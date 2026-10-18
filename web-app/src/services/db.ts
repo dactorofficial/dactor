@@ -16,6 +16,8 @@ import {
   PatientTransactionRecord,
   SupportTicket,
   PaymentGatewaysConfig,
+  MultiSlotPositionResult,
+  DoctorHomeItem,
 } from '../types'
 import {
   parsePaymentRecords,
@@ -301,6 +303,17 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
   try {
     const clean = identifier.trim()
     if (!clean) return null
+
+    // 0. Try UUID directly if format matches
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (uuidRegex.test(clean)) {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .eq('id', clean)
+        .maybeSingle()
+      if (!error && data) return mapAppointment(data)
+    }
 
     // 1. Try 10-digit code directly
     if (/^\d{10}$/.test(clean)) {
@@ -751,7 +764,7 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
     try {
       const { data: targetAppt } = await supabase
         .from('appointments')
-        .select('id, user_id, clinic_id, tracking_code_10_digit, patient_name, clinics(name)')
+        .select('id, user_id, clinic_id, doctor_id, tracking_code_10_digit, patient_name, clinics(name)')
         .eq('id', id)
         .maybeSingle()
 
@@ -790,6 +803,11 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
             meta_json: JSON.stringify({ tracking_code: code10, status: qStatus }),
             created_at: nowIso,
           })
+        }
+
+        // Dynamically reindex live queue: person inside becomes Turn 1, waiting patients align behind
+        if (targetAppt.clinic_id) {
+          await reindexActiveQueue(targetAppt.clinic_id, (targetAppt as any).doctor_id)
         }
 
         // When a patient enters cabin or completes, notify approaching patients in queue
@@ -1005,11 +1023,76 @@ export async function reorderQueuePosition(
   }
 }
 
+export async function reindexActiveQueue(
+  clinicId: string,
+  doctorId?: string | null
+): Promise<boolean> {
+  try {
+    let query = supabase
+      .from('queue_entries')
+      .select('id, appointment_id, clinic_id, doctor_id, queue_position, status, appointments(appointment_time)')
+      .eq('clinic_id', clinicId)
+      .in('status', ['waiting', 'inside'])
+
+    if (doctorId) {
+      query = query.eq('doctor_id', doctorId)
+    }
+
+    const { data: entries, error } = await query
+    if (error || !entries || entries.length === 0) return true
+
+    // Group by doctorId if doctorId was not explicitly provided to partition per doctor's cabin
+    const groups: Record<string, typeof entries> = {}
+    for (const entry of entries) {
+      const key = entry.doctor_id || '__clinic__'
+      if (!groups[key]) groups[key] = []
+      groups[key].push(entry)
+    }
+
+    for (const key of Object.keys(groups)) {
+      const group = groups[key]
+      // Sort: inside (0) vs waiting (1), then chronological appointment_time, then existing queue_position
+      group.sort((a, b) => {
+        const aInside = a.status === 'inside' ? 0 : 1
+        const bInside = b.status === 'inside' ? 0 : 1
+        if (aInside !== bInside) return aInside - bInside
+
+        const aTime = (a.appointments as any)?.appointment_time || ''
+        const bTime = (b.appointments as any)?.appointment_time || ''
+        if (aTime && bTime && aTime !== bTime) {
+          return aTime.localeCompare(bTime)
+        }
+        return (a.queue_position || 0) - (b.queue_position || 0)
+      })
+
+      // Two-pass update with negative offsets to avoid unique constraint collisions
+      for (let i = 0; i < group.length; i++) {
+        await supabase
+          .from('queue_entries')
+          .update({ queue_position: -((group[i].queue_position || 0) + 10000), updated_at: new Date().toISOString() })
+          .eq('id', group[i].id)
+      }
+
+      for (let i = 0; i < group.length; i++) {
+        await supabase
+          .from('queue_entries')
+          .update({ queue_position: i + 1, updated_at: new Date().toISOString() })
+          .eq('id', group[i].id)
+      }
+    }
+    return true
+  } catch (err) {
+    console.error('Error reindexing active queue:', err)
+    return false
+  }
+}
+
 export async function shiftAppointmentDate(
   appointmentId: string,
   newDate: string,
   newTime?: string,
-  reason?: string
+  reason?: string,
+  newSlotId?: string
 ): Promise<boolean> {
   try {
     const updatePayload: any = {
@@ -1019,6 +1102,12 @@ export async function shiftAppointmentDate(
     }
     if (newTime) {
       updatePayload.appointment_time = newTime
+    }
+    if (newSlotId) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (uuidRegex.test(newSlotId.trim())) {
+        updatePayload.slot_id = newSlotId.trim()
+      }
     }
 
     const { data: updatedAppt, error } = await supabase
@@ -1659,29 +1748,230 @@ export async function uploadReceiptFile(fileName: string, fileBlob: Blob): Promi
   }
 }
 
-export async function updateDoctorPresence(doctorId: string, isInClinic: boolean): Promise<boolean> {
+const lastPresenceBroadcastMap = new Map<string, { isInClinic: boolean; timestamp: number }>()
+
+export async function notifyDoctorPresenceToPatients(
+  doctorId: string,
+  isInClinic: boolean,
+  clinicId?: string
+): Promise<number> {
   try {
+    // 60-second cooldown per doctor per presence state
+    const now = Date.now()
+    const last = lastPresenceBroadcastMap.get(doctorId)
+    if (last && last.isInClinic === isInClinic && now - last.timestamp < 60_000) {
+      return 0
+    }
+    lastPresenceBroadcastMap.set(doctorId, { isInClinic, timestamp: now })
+
+    const { data: doc } = await supabase
+      .from('doctors')
+      .select('full_name, active_clinic_id, clinic_id')
+      .eq('id', doctorId)
+      .single()
+
+    const doctorName = doc?.full_name?.trim() || 'Doctor'
+    const targetClinicId = clinicId || doc?.active_clinic_id || doc?.clinic_id
+
+    let clinicName = 'the clinic'
+    if (targetClinicId) {
+      const { data: clinic } = await supabase.from('clinics').select('name').eq('id', targetClinicId).single()
+      if (clinic?.name) {
+        clinicName = clinic.name.trim()
+      }
+    }
+
+    const today = new Date().toISOString().split('T')[0]
+    const { data: appts, error } = await supabase
+      .from('appointments')
+      .select('id, user_id, patient_name, tracking_code_10_digit, checkin_status')
+      .eq('doctor_id', doctorId)
+      .eq('appointment_date', today)
+
+    if (error || !appts || appts.length === 0) return 0
+
+    const waitingAppts = appts.filter(a => {
+      const st = (a.checkin_status || '').toLowerCase()
+      return ['waiting', 'checked_in', 'booked', 'inside', 'pending'].includes(st)
+    })
+
+    if (waitingAppts.length === 0) return 0
+
+    const title = isInClinic
+      ? `🩺 Dr. ${doctorName} Has Arrived!`
+      : `⏳ Dr. ${doctorName} Temporarily Stepped Out`
+
+    const notifType = isInClinic ? 'doctor_arrival' : 'doctor_status'
+    let sentCount = 0
+
+    for (const appt of waitingAppts) {
+      const pName = appt.patient_name || 'Patient'
+      const code = appt.tracking_code_10_digit || ''
+      const cleanBody = isInClinic
+        ? `Hi ${pName}, Dr. ${doctorName} has arrived at ${clinicName}! OPD consultations are starting now. Please check your live queue position and be near the clinic.`
+        : `Hi ${pName}, Dr. ${doctorName} has temporarily stepped out from ${clinicName}. Consultations are briefly paused and will resume shortly.`
+
+      const leftLabel = 'Doctor Status'
+      const leftVal = isInClinic ? 'In Clinic • Active' : 'Briefly Away'
+      const rightLabel = isInClinic ? 'Live Queue' : 'Queue Status'
+      const rightVal = isInClinic ? 'Consultations Started' : 'Briefly Paused'
+      const codePart = code ? `|code=${code}|trackingCode=${code}` : ''
+
+      const taggedMessage = `${cleanBody}\n[[META:leftLabel=${leftLabel}|leftVal=${leftVal}|rightLabel=${rightLabel}|rightVal=${rightVal}${codePart}]]`
+
+      const { error: insertErr } = await supabase.from('notifications').insert({
+        id: crypto.randomUUID(),
+        appointment_id: appt.id && appt.id.length === 36 ? appt.id : null,
+        user_id: appt.user_id && appt.user_id.length === 36 ? appt.user_id : null,
+        title,
+        message: taggedMessage,
+        type: notifType,
+        target_audience: 'specific',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      })
+
+      if (!insertErr) {
+        sentCount++
+        try {
+          supabase.functions.invoke('send-fcm-alert', {
+            body: {
+              title: title.trim(),
+              message: cleanBody,
+              appointmentId: appt.id || undefined,
+              trackingCode: code || undefined,
+              userId: appt.user_id || undefined,
+              type: notifType,
+            },
+          }).catch(() => {})
+        } catch {}
+      }
+    }
+
+    return sentCount
+  } catch (err) {
+    console.error('Error broadcasting doctor presence:', err)
+    return 0
+  }
+}
+
+export async function updateDoctorPresence(doctorId: string, isInClinic: boolean, clinicId?: string): Promise<boolean> {
+  try {
+    const updatePayload: Record<string, any> = { is_in_clinic: isInClinic }
+    if (isInClinic && clinicId) {
+      updatePayload.active_clinic_id = clinicId
+      updatePayload.clinic_id = clinicId
+    } else if (!isInClinic) {
+      updatePayload.active_clinic_id = null
+    }
+
     const { error } = await supabase
       .from('doctors')
-      .update({ is_in_clinic: isInClinic })
+      .update(updatePayload)
       .eq('id', doctorId)
+
+    if (!error) {
+      notifyDoctorPresenceToPatients(doctorId, isInClinic, clinicId).catch(console.error)
+    }
+
     return !error
   } catch {
     return false
   }
 }
 
-export async function updateClinicBreak(clinicId: string, isOnBreak: boolean): Promise<boolean> {
+export async function sendClinicBreakToLiveQueue(
+  clinicId: string,
+  breakWindowText?: string
+): Promise<number> {
+  try {
+    const { data: clinic } = await supabase
+      .from('clinics')
+      .select('name')
+      .eq('id', clinicId)
+      .single()
+
+    const clinicName = clinic?.name?.trim() || 'the clinic'
+    const today = new Date().toISOString().split('T')[0]
+
+    // Query appointments for this clinic on today's date ONLY
+    const { data: appts, error } = await supabase
+      .from('appointments')
+      .select('id, user_id, patient_name, tracking_code_10_digit, checkin_status, appointment_time')
+      .eq('clinic_id', clinicId)
+      .eq('appointment_date', today)
+
+    if (error || !appts || appts.length === 0) return 0
+
+    // Filter strictly to live queue patients (waiting, checked_in, inside)
+    // Completed, done, finished, cancelled, no_show are strictly excluded!
+    const liveQueueAppts = appts.filter(a => {
+      const st = (a.checkin_status || '').toLowerCase()
+      return ['waiting', 'checked_in', 'inside'].includes(st)
+    })
+
+    if (liveQueueAppts.length === 0) return 0
+
+    const title = `${clinicName} is Currently on Break`
+    const breakInfo = breakWindowText ? ` (${breakWindowText})` : ''
+    let sentCount = 0
+
+    for (const appt of liveQueueAppts) {
+      const pName = appt.patient_name || 'Patient'
+      const code = appt.tracking_code_10_digit || ''
+      const cleanBody = `Hi ${pName}, ${clinicName} is currently on a short break${breakInfo}. Queue movement is paused and your consultation will resume shortly.`
+
+      const leftLabel = 'Estimated Time Left'
+      const leftVal = 'Clinic on Break'
+      const rightLabel = 'Your Appointment Time'
+      const rightVal = breakWindowText || appt.appointment_time || 'Paused Briefly'
+      const codePart = code ? `|code=${code}|trackingCode=${code}` : ''
+
+      const taggedMessage = `${cleanBody}\n[[META:leftLabel=${leftLabel}|leftVal=${leftVal}|rightLabel=${rightLabel}|rightVal=${rightVal}${codePart}]]`
+
+      const { error: insertErr } = await supabase.from('notifications').insert({
+        id: crypto.randomUUID(),
+        appointment_id: appt.id && appt.id.length === 36 ? appt.id : null,
+        user_id: appt.user_id && appt.user_id.length === 36 ? appt.user_id : null,
+        title,
+        message: taggedMessage,
+        type: 'clinic_break',
+        target_audience: 'specific',
+        is_read: false,
+        created_at: new Date().toISOString(),
+      })
+
+      if (!insertErr) {
+        sentCount++
+        try {
+          supabase.functions.invoke('send-fcm-alert', {
+            body: {
+              title: title.trim(),
+              message: cleanBody,
+              appointmentId: appt.id || undefined,
+              trackingCode: code || undefined,
+              userId: appt.user_id || undefined,
+              type: 'clinic_break',
+            },
+          }).catch(() => {})
+        } catch {}
+      }
+    }
+
+    return sentCount
+  } catch (err) {
+    console.error('Error sending clinic break to live queue:', err)
+    return 0
+  }
+}
+
+export async function updateClinicBreak(clinicId: string, isOnBreak: boolean, breakWindowText?: string): Promise<boolean> {
   const ok = await updateClinic(clinicId, {
     isOnBreak,
     breakUpdatedAt: new Date().toISOString(),
   })
   if (ok && isOnBreak) {
-    await sendBroadcastNotification(
-      clinicId,
-      'Clinic is Currently on a Break',
-      'The clinic is temporarily on break. Queue consultations are paused and will resume shortly.'
-    )
+    sendClinicBreakToLiveQueue(clinicId, breakWindowText).catch(console.error)
   }
   return ok
 }
@@ -1813,6 +2103,9 @@ export async function updateDoctor(doctorId: string, updates: Partial<Doctor>): 
     if (updates.profilePictureUrl !== undefined) payload.profile_picture_url = updates.profilePictureUrl
 
     const { error } = await supabase.from('doctors').update(payload).eq('id', doctorId)
+    if (!error && updates.isInClinic !== undefined) {
+      notifyDoctorPresenceToPatients(doctorId, updates.isInClinic, updates.clinicId || updates.activeClinicId).catch(console.error)
+    }
     return !error
   } catch {
     return false
@@ -1823,29 +2116,56 @@ export async function sendManualNotification(
   appointmentId: string,
   title: string,
   message: string,
-  _estimatedTimeLeft?: string,
-  _expectedTime?: string,
-  _trackingCode?: string,
+  estimatedTimeLeft?: string,
+  expectedTime?: string,
+  trackingCode?: string,
   userId?: string,
   _clinicId?: string
 ): Promise<boolean> {
   try {
+    const cleanBody = message.replace(/\[\[META:.*?\]\]/g, '').trim()
+    const pos = (estimatedTimeLeft || '').replace(/[|\]]/g, '').trim()
+    const expected = (expectedTime || '').replace(/[|\]]/g, '').trim()
+    const code = (trackingCode || '').replace(/[|\]]/g, '').trim()
+
+    let taggedMessage = cleanBody
+    if (code || pos || expected) {
+      taggedMessage = `${cleanBody}\n[[META:trackingCode=${code}|pos=${pos}|expected=${expected}|code=${code}|leftLabel=Est. Time|leftVal=${pos || 'Soon'}|rightLabel=Expected|rightVal=${expected || 'Queue Active'}]]`
+    }
+
     const { error } = await supabase.from('notifications').insert({
       id: crypto.randomUUID(),
       appointment_id: appointmentId && appointmentId.length === 36 ? appointmentId : null,
       user_id: userId && userId.length === 36 ? userId : null,
       title: title.trim(),
-      message: message.trim(),
+      message: taggedMessage,
       type: 'queue_alert',
       target_audience: 'specific',
       is_read: false,
       created_at: new Date().toISOString(),
     })
+
+    if (!error) {
+      try {
+        supabase.functions.invoke('send-fcm-alert', {
+          body: {
+            title: title.trim(),
+            message: cleanBody,
+            appointmentId: appointmentId || undefined,
+            trackingCode: code || undefined,
+            userId: userId || undefined,
+            type: 'queue_alert',
+          },
+        }).catch(() => {})
+      } catch {}
+    }
+
     return !error
   } catch {
     return false
   }
 }
+
 
 export async function sendEarlyArrivalInviteNotification(
   appointmentId: string,
@@ -1873,18 +2193,39 @@ export async function sendEarlyArrivalInvite(params: {
   try {
     const title = '⚡ Doctor is Free Now! Come in early?'
     const slotText = params.originalSlot ? ` (Booked slot: ${params.originalSlot})` : ''
-    const message = `Dear ${params.patientName}, the doctor has finished consultations earlier than scheduled. Since you opted in for early calls, you are welcome to come in early now!${slotText}`
+    const cleanBody = `Dear ${params.patientName}, the doctor has finished consultations earlier than scheduled. Since you opted in for early calls, you are welcome to come in early now!${slotText}`
+    const code = params.trackingCode ? params.trackingCode.replace(/[|\]]/g, '').trim() : ''
+    const taggedMessage = code
+      ? `${cleanBody}\n[[META:trackingCode=${code}|code=${code}|leftLabel=Early Call|leftVal=Doctor Free|rightLabel=Slot|rightVal=${params.originalSlot || 'Now'}]]`
+      : cleanBody
+
     const { error } = await supabase.from('notifications').insert({
       id: crypto.randomUUID(),
       appointment_id: params.appointmentId && params.appointmentId.length === 36 ? params.appointmentId : null,
       user_id: params.userId && params.userId.length === 36 ? params.userId : null,
       title,
-      message,
+      message: taggedMessage,
       type: 'early_arrival',
       target_audience: 'specific',
       is_read: false,
       created_at: new Date().toISOString(),
     })
+
+    if (!error) {
+      try {
+        supabase.functions.invoke('send-fcm-alert', {
+          body: {
+            title: title.trim(),
+            message: cleanBody,
+            appointmentId: params.appointmentId || undefined,
+            trackingCode: code || undefined,
+            userId: params.userId || undefined,
+            type: 'early_arrival',
+          },
+        }).catch(() => {})
+      } catch {}
+    }
+
     return !error
   } catch (err) {
     console.error('Error sending early arrival invite:', err)
@@ -1964,6 +2305,70 @@ export async function getMedicalQualifications(): Promise<MedicalQualification[]
 }
 
 // ==========================================
+// SUPABASE STORAGE CDN IMAGE RESOLUTION
+// ==========================================
+export const SUPABASE_STORAGE_PUBLIC_URL = 'https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public'
+
+export function resolveStorageUrl(
+  pathOrUrl?: string | null,
+  defaultBucket: 'clinic_logos' | 'clinic_photos' | 'doctor_photos' | 'clinic_pictures' = 'clinic_logos'
+): string | undefined {
+  if (!pathOrUrl) return undefined
+  const raw = pathOrUrl.trim()
+  if (!raw) return undefined
+  if (
+    raw.startsWith('http://') ||
+    raw.startsWith('https://') ||
+    raw.startsWith('data:') ||
+    raw.startsWith('blob:')
+  ) {
+    return raw
+  }
+
+  const cleanPath = raw.replace(/^\/+/, '')
+  const knownBuckets = [
+    'clinic_logos',
+    'clinic-logos',
+    'clinic_photos',
+    'clinic-photos',
+    'clinic_pictures',
+    'clinic-pictures',
+    'clinics',
+    'doctor_photos',
+    'doctor-photos',
+    'doctors',
+    'avatars',
+    'pictures',
+    'logos',
+    'lab_reports',
+    'reports',
+  ]
+
+  const hasKnownBucket = knownBuckets.some((b) => cleanPath.startsWith(`${b}/`))
+  if (hasKnownBucket) {
+    return `${SUPABASE_STORAGE_PUBLIC_URL}/${cleanPath}`
+  }
+
+  return `${SUPABASE_STORAGE_PUBLIC_URL}/${defaultBucket}/${cleanPath}`
+}
+
+export function resolveClinicLogoUrl(clinic?: Clinic | null): string | undefined {
+  if (!clinic) return undefined
+  return resolveStorageUrl(clinic.logoUrl || clinic.photoUrl, 'clinic_logos')
+}
+
+export function resolveClinicCoverUrl(clinic?: Clinic | null): string | undefined {
+  if (!clinic) return undefined
+  const pic = clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures[0] : (clinic.logoUrl || clinic.photoUrl)
+  return resolveStorageUrl(pic, 'clinic_photos')
+}
+
+export function resolveDoctorPhotoUrl(doctor?: Doctor | null): string | undefined {
+  if (!doctor) return undefined
+  return resolveStorageUrl(doctor.profilePictureUrl, 'doctor_photos')
+}
+
+// ==========================================
 // HELPER MAPPERS
 // ==========================================
 function mapClinic(c: any): Clinic {
@@ -1991,6 +2396,8 @@ function mapClinic(c: any): Clinic {
   }
 
   const defaultExpiry = new Date(Date.now() + 30 * 86400000).toISOString()
+  const rawLogo = c.logo_url || meta.logo_url || (pics.length > 0 ? pics[0] : null)
+  const rawPhoto = c.photo_url || meta.photo_url || c.logo_url || meta.logo_url || (pics.length > 0 ? pics[0] : null)
 
   return {
     id: c.id,
@@ -2007,15 +2414,15 @@ function mapClinic(c: any): Clinic {
     panNumber: c.pan_number || meta.pan_number,
     managerPhone: c.manager_phone || meta.manager_phone,
     registrationDocUrl: c.registration_doc_url || meta.registration_doc_url,
-    pictures: pics,
+    pictures: pics.map((p) => resolveStorageUrl(p, 'clinic_photos') || p),
     specialties: c.specialties || meta.specialties || [],
     createdAt: c.created_at,
     updatedAt: c.updated_at,
     isArchived: c.is_archived ?? meta.is_archived ?? false,
     archivedAt: c.archived_at || meta.archived_at,
     deletionScheduledAt: c.deletion_scheduled_at || meta.deletion_scheduled_at,
-    logoUrl: c.logo_url || meta.logo_url || (pics.length > 0 ? pics[0] : null),
-    photoUrl: c.photo_url || meta.photo_url || c.logo_url || meta.logo_url || (pics.length > 0 ? pics[0] : null),
+    logoUrl: resolveStorageUrl(rawLogo, 'clinic_logos'),
+    photoUrl: resolveStorageUrl(rawPhoto, 'clinic_photos'),
     isOnBreak: c.is_on_break ?? meta.is_on_break ?? false,
     breakUpdatedAt: c.break_updated_at || meta.break_updated_at,
     weeklyScheduleJson: c.weekly_schedule_json || meta.weekly_schedule_json,
@@ -2048,6 +2455,7 @@ function mapDoctor(d: any): Doctor {
 
   const startYear = d.starting_practicing_year || certMeta.starting_practicing_year || 2018
   const role = d.practitioner_role || certMeta.practitioner_role || 'doctor'
+  const rawPic = d.profile_picture_url || certMeta.profile_picture_url
 
   return {
     id: d.id,
@@ -2067,9 +2475,13 @@ function mapDoctor(d: any): Doctor {
     isInClinic: d.is_in_clinic ?? true,
     clinicId: d.clinic_id,
     activeClinicId: d.active_clinic_id || d.clinic_id,
+    primaryClinicId: d.primary_clinic_id || d.clinic_id,
     kycStatus: d.kyc_status,
-    profilePictureUrl: d.profile_picture_url || certMeta.profile_picture_url,
+    profilePictureUrl: resolveStorageUrl(rawPic, 'doctor_photos'),
+    licenseDocUrl: d.license_doc_url,
+    certificatesDocUrl: d.certificates_doc_url,
     description: d.description || certMeta.description,
+    bio: d.bio || d.description || certMeta.description || certMeta.bio,
     practitionerRole: role,
     isLabTechnician: role === 'lab_technician' || (d.specialty && d.specialty.toLowerCase().includes('lab')),
   }
@@ -2106,6 +2518,7 @@ function mapAppointment(a: any): Appointment {
     userId: a.user_id,
     clinicId: a.clinic_id,
     doctorId: a.doctor_id,
+    slotId: a.slot_id || null,
     patientName: a.patient_name,
     patientAge: a.patient_age,
     patientGender: a.patient_gender,
@@ -2116,12 +2529,15 @@ function mapAppointment(a: any): Appointment {
     checkinStatus: derivedStatus as any,
     paymentStatus: a.payment_status === 'pending' ? 'unpaid' : (a.payment_status || 'unpaid'),
     feeAmount: Number(a.fee_amount || 0),
-    queueNumber: qe?.queue_position || a.queue_number || 1,
+    queueNumber: qe?.queue_position || a.queue_position || a.queue_number || 1,
+    queuePosition: qe?.queue_position || a.queue_position || a.queue_number || 1,
     notes: a.notes || (a.is_walkin ? 'Walk-In Reception Registration' : ''),
+    isWalkin: Boolean(a.is_walkin),
     optInEarlyCall: Boolean(a.opt_in_early_call),
     createdAt: a.created_at,
     updatedAt: qe?.updated_at || a.updated_at,
     selectedTests: parsedTests,
+    selectedLabTests: a.selected_lab_tests,
     clinic: a.clinic ? mapClinic(a.clinic) : undefined,
     doctor: a.doctor ? mapDoctor(a.doctor) : undefined,
   }
@@ -2369,6 +2785,231 @@ export function isSlotTimeExpired(slotDate: string, endTimeStr?: string, startTi
   // If slot is today, check if slot end time has passed
   const currentMinutes = now.getHours() * 60 + now.getMinutes()
   return currentMinutes >= endMins
+}
+
+export function formatMinutesTo12Hour(totalMinutes: number): string {
+  let normalized = totalMinutes % (24 * 60)
+  if (normalized < 0) normalized += 24 * 60
+  let h = Math.floor(normalized / 60)
+  const m = normalized % 60
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  h = h % 12
+  if (h === 0) h = 12
+  const mStr = String(m).padStart(2, '0')
+  return `${h}:${mStr} ${ampm}`
+}
+
+export function computeMultiSlotDailyPosition(params: {
+  targetAppointmentId: string
+  targetSlotId?: string | null
+  targetAppointmentTime?: string | null
+  appointmentDate: string
+  allSlotsForDate: Slot[]
+  allAppointmentsForDate: Appointment[]
+  doctorId?: string | null
+  avgConsultationMinutes?: number
+  nowDate?: Date
+}): MultiSlotPositionResult {
+  const {
+    targetAppointmentId,
+    targetSlotId,
+    targetAppointmentTime,
+    appointmentDate,
+    allSlotsForDate = [],
+    allAppointmentsForDate = [],
+    doctorId,
+    avgConsultationMinutes = 10,
+    nowDate = new Date(),
+  } = params
+
+  const targetDateStr = (appointmentDate || '').trim().slice(0, 10)
+
+  // Compare calendar days
+  const now = new Date(nowDate.getTime())
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  const todayStr = `${year}-${month}-${day}`
+
+  const tomorrowObj = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+  const tomYear = tomorrowObj.getFullYear()
+  const tomMonth = String(tomorrowObj.getMonth() + 1).padStart(2, '0')
+  const tomDay = String(tomorrowObj.getDate()).padStart(2, '0')
+  const tomorrowStr = `${tomYear}-${tomMonth}-${tomDay}`
+
+  const isToday = targetDateStr === todayStr
+  const isTomorrow = targetDateStr === tomorrowStr
+  const isFutureDate = targetDateStr > todayStr
+
+  let dateLabel = ''
+  if (isToday) {
+    dateLabel = 'Today'
+  } else if (isTomorrow) {
+    dateLabel = 'Tomorrow'
+  } else {
+    const parts = targetDateStr.split('-')
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10)
+      const m = parseInt(parts[1], 10) - 1
+      const d = parseInt(parts[2], 10)
+      const targetObj = new Date(y, m, d)
+      const monthShort = targetObj.toLocaleDateString('en-US', { month: 'short' })
+      dateLabel = `${d} ${monthShort}`
+    } else {
+      dateLabel = targetDateStr || 'Upcoming'
+    }
+  }
+
+  // Filter relevant published slots and non-cancelled appointments
+  const relevantSlots = (allSlotsForDate || []).filter((slot) => {
+    const isPub = slot.isPublished !== false
+    const matchesDoc = !doctorId || !slot.doctorId || slot.doctorId === doctorId
+    return isPub && matchesDoc
+  })
+
+  const relevantAppointments = (allAppointmentsForDate || []).filter((appt) => {
+    const notCancelled = appt.checkinStatus !== 'cancelled'
+    const matchesDoc = !doctorId || !appt.doctorId || appt.doctorId === doctorId
+    return notCancelled && matchesDoc
+  })
+
+  // Sort slots chronologically
+  const sortedSlots = [...relevantSlots].sort((a, b) => {
+    const aStart = parseTimeToMinutes(a.startTime)
+    const bStart = parseTimeToMinutes(b.startTime)
+    if (aStart !== bStart) return aStart - bStart
+
+    const aEnd = parseTimeToMinutes(a.endTime)
+    const bEnd = parseTimeToMinutes(b.endTime)
+    if (aEnd !== bEnd) return aEnd - bEnd
+
+    return a.id.localeCompare(b.id)
+  })
+
+  // Match target slot
+  let targetSlot = sortedSlots.find((s) => s.id === targetSlotId)
+  if (!targetSlot && targetAppointmentTime) {
+    const targetTimeMins = parseTimeToMinutes(targetAppointmentTime)
+    targetSlot = sortedSlots.find((slot) => {
+      const sMins = parseTimeToMinutes(slot.startTime)
+      const eMins = parseTimeToMinutes(slot.endTime)
+      return (targetTimeMins >= sMins && targetTimeMins < eMins) || targetTimeMins === sMins
+    })
+  }
+
+  let priorAppointmentsCount = 0
+  let positionInSlot = 1
+  let cumulativePos = 1
+
+  if (targetSlot && sortedSlots.length > 0) {
+    const targetSlotIndex = sortedSlots.findIndex((s) => s.id === targetSlot!.id)
+    const priorSlotIds = new Set(
+      targetSlotIndex > 0 ? sortedSlots.slice(0, targetSlotIndex).map((s) => s.id) : []
+    )
+    const targetSlotStartMins = parseTimeToMinutes(targetSlot.startTime)
+
+    const priorAppointments = relevantAppointments.filter((appt) => {
+      if (appt.id === targetAppointmentId) return false
+      if (appt.slotId && priorSlotIds.has(appt.slotId)) return true
+      if (!appt.slotId && appt.appointmentTime) {
+        const apptMins = parseTimeToMinutes(appt.appointmentTime)
+        return apptMins < targetSlotStartMins
+      }
+      return false
+    })
+    priorAppointmentsCount = priorAppointments.length
+
+    const inSlotAppointments = relevantAppointments.filter((appt) => {
+      if (appt.slotId === targetSlot!.id) return true
+      if (!appt.slotId && appt.appointmentTime) {
+        return parseTimeToMinutes(appt.appointmentTime) === targetSlotStartMins
+      }
+      return appt.id === targetAppointmentId
+    })
+
+    const uniqueInSlot = Array.from(new Map(inSlotAppointments.map((a) => [a.id, a])).values())
+    uniqueInSlot.sort((a, b) => {
+      const aMins = parseTimeToMinutes(a.appointmentTime)
+      const bMins = parseTimeToMinutes(b.appointmentTime)
+      if (aMins !== bMins) return aMins - bMins
+      return a.id.localeCompare(b.id)
+    })
+
+    const inSlotIndex = uniqueInSlot.findIndex((a) => a.id === targetAppointmentId)
+    positionInSlot = inSlotIndex >= 0 ? inSlotIndex + 1 : 1
+    cumulativePos = priorAppointmentsCount + positionInSlot
+  } else {
+    const sortedAppts = [...relevantAppointments].sort((a, b) => {
+      const aMins = parseTimeToMinutes(a.appointmentTime)
+      const bMins = parseTimeToMinutes(b.appointmentTime)
+      if (aMins !== bMins) return aMins - bMins
+      return a.id.localeCompare(b.id)
+    })
+    const myIdx = sortedAppts.findIndex((a) => a.id === targetAppointmentId)
+    cumulativePos = myIdx >= 0 ? myIdx + 1 : 1
+    priorAppointmentsCount = Math.max(0, cumulativePos - 1)
+    positionInSlot = 1
+  }
+
+  const effectiveSlotStartStr =
+    targetSlot?.startTime?.trim() || targetAppointmentTime?.trim() || '09:00 AM'
+  const effectiveSlotEndStr = targetSlot?.endTime?.trim() || ''
+
+  const slotStartMins = parseTimeToMinutes(effectiveSlotStartStr)
+  const formattedSlotStart = formatMinutesTo12Hour(slotStartMins)
+
+  const avgMins = Math.max(1, avgConsultationMinutes || 10)
+  const staggerMinutes = Math.max(0, positionInSlot - 1) * avgMins
+  const approxAppointmentTimeMins = slotStartMins + staggerMinutes
+  const approxTimeFormatted = formatMinutesTo12Hour(approxAppointmentTimeMins)
+
+  const approxAppointmentTimeText = `${approxTimeFormatted} (±15 min)`
+  const windowStart = formatMinutesTo12Hour(approxAppointmentTimeMins - 15)
+  const windowEnd = formatMinutesTo12Hour(approxAppointmentTimeMins + 15)
+  const timeWindowText = `${windowStart} – ${windowEnd}`
+
+  return {
+    cumulativePosition: cumulativePos,
+    patientsAheadInDay: Math.max(0, cumulativePos - 1),
+    positionInSlot,
+    slotStartTimeText: formattedSlotStart,
+    slotEndTimeText: effectiveSlotEndStr,
+    approxAppointmentTimeText,
+    timeWindowText,
+    dateLabel,
+    isToday,
+    isTomorrow,
+    isFutureDate,
+  }
+}
+
+export async function calculateMultiSlotDailyPosition(
+  clinicId: string,
+  doctorId: string | null | undefined,
+  appointmentDate: string,
+  targetAppointmentId: string,
+  targetSlotId: string | null | undefined,
+  targetAppointmentTime: string | null | undefined,
+  avgConsultationMinutes: number = 10,
+  nowDate?: Date
+): Promise<MultiSlotPositionResult> {
+  const targetDateStr = (appointmentDate || '').trim().slice(0, 10)
+  const [slots, appointments] = await Promise.all([
+    clinicId && targetDateStr ? getSlots(clinicId, targetDateStr) : Promise.resolve([]),
+    clinicId && targetDateStr ? getAppointmentsByClinic(clinicId, targetDateStr) : Promise.resolve([]),
+  ])
+
+  return computeMultiSlotDailyPosition({
+    targetAppointmentId,
+    targetSlotId,
+    targetAppointmentTime,
+    appointmentDate: targetDateStr,
+    allSlotsForDate: slots,
+    allAppointmentsForDate: appointments,
+    doctorId,
+    avgConsultationMinutes,
+    nowDate,
+  })
 }
 
 export async function getPatientProfileByEmail(email: string): Promise<PatientProfile | null> {
@@ -2846,7 +3487,7 @@ export async function getPatientTransactions(criteria: {
 // DOCTOR AFFILIATED CLINICS & DIRECTORY HELPERS
 // ==========================================
 export async function getAffiliatedClinicsForDoctor(
-  doctorId: string,
+  doctorId?: string,
   doctorEmail?: string
 ): Promise<Clinic[]> {
   try {
@@ -2857,14 +3498,16 @@ export async function getAffiliatedClinicsForDoctor(
       const doc = await getDoctorById(doctorId)
       if (doc?.clinicId) clinicIdSet.add(doc.clinicId)
       if (doc?.activeClinicId) clinicIdSet.add(doc.activeClinicId)
+      if (doc?.primaryClinicId) clinicIdSet.add(doc.primaryClinicId)
     }
 
-    // Check clinic invitations for this doctor email or doctorId
+    // Check clinic invitations for this doctor email (schema column is 'email')
     if (doctorEmail) {
+      const cleanEmail = doctorEmail.trim().toLowerCase()
       const { data: invites } = await supabase
         .from('clinic_invitations')
         .select('clinic_id, status')
-        .or(`doctor_email.ilike.${doctorEmail.trim().toLowerCase()},doctor_id.eq.${doctorId}`)
+        .ilike('email', cleanEmail)
         .eq('status', 'accepted')
 
       if (invites) {
@@ -2874,9 +3517,23 @@ export async function getAffiliatedClinicsForDoctor(
       }
     }
 
+    // Check slots table for clinics where this doctor has slots
+    if (doctorId) {
+      const { data: docSlots } = await supabase
+        .from('slots')
+        .select('clinic_id')
+        .eq('doctor_id', doctorId)
+        .limit(50)
+
+      if (docSlots) {
+        docSlots.forEach((s) => {
+          if (s.clinic_id) clinicIdSet.add(s.clinic_id)
+        })
+      }
+    }
+
     if (clinicIdSet.size === 0) {
-      // Fallback: return all approved clinics
-      return await getClinics()
+      return []
     }
 
     const clinicIds = Array.from(clinicIdSet)
@@ -2886,14 +3543,45 @@ export async function getAffiliatedClinicsForDoctor(
       .in('id', clinicIds)
 
     if (error || !clinicsData || clinicsData.length === 0) {
-      return await getClinics()
+      return []
     }
 
-    return clinicsData.map(mapClinic)
+    return clinicsData.map(mapClinic).filter((c) => !c.isArchived)
   } catch (err) {
     console.error('Error fetching affiliated clinics for doctor:', err)
-    return await getClinics()
+    return []
   }
+}
+
+export function linkDoctorsWithClinics(doctors: Doctor[], clinics: Clinic[]): DoctorHomeItem[] {
+  const clinicMap = new Map<string, Clinic>()
+  clinics.forEach((c) => {
+    if (!c.isArchived) clinicMap.set(c.id, c)
+  })
+
+  return doctors.map((doc) => {
+    const linkedClinicIds = new Set<string>()
+    if (doc.clinicId) linkedClinicIds.add(doc.clinicId)
+    if (doc.activeClinicId) linkedClinicIds.add(doc.activeClinicId)
+    if (doc.primaryClinicId) linkedClinicIds.add(doc.primaryClinicId)
+
+    const practicingClinics: Clinic[] = []
+    linkedClinicIds.forEach((id) => {
+      const c = clinicMap.get(id)
+      if (c && !practicingClinics.some((existing) => existing.id === c.id)) {
+        practicingClinics.push(c)
+      }
+    })
+
+    return {
+      doctor: {
+        ...doc,
+        practicingClinics,
+      },
+      practicingClinics,
+      hasDocInClinic: Boolean(doc.isInClinic),
+    }
+  })
 }
 
 export async function getDoctorAppointments(

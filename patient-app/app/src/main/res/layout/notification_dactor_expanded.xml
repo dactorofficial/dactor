@@ -35,7 +35,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
-        android:background="@drawable/bg_notif_metrics_box"
+        android:background="@drawable/bg_notif_card_surface"
         android:orientation="horizontal"
         android:paddingTop="8dp"
         android:paddingBottom="8dp"
@@ -99,7 +99,7 @@
             android:layout_height="30dp"
             android:layout_marginStart="6dp"
             android:layout_marginEnd="8dp"
-            android:background="#33CBD5E1" />
+            android:background="@color/notif_divider" />
 
         <!-- Right Metric: Your Appointment Time -->
         <LinearLayout

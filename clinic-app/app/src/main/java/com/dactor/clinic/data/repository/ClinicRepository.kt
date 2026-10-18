@@ -1,19 +1,26 @@
 package com.dactor.clinic.data.repository
 
+import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.ClinicService
 import com.dactor.clinic.data.model.MedicalSpecialty
 import com.dactor.clinic.data.model.MedicalQualification
+import com.dactor.clinic.data.model.NotificationTemplate
+import com.dactor.clinic.data.model.NotificationType
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.time.Instant
+import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -364,6 +371,65 @@ class ClinicRepository @Inject constructor(
         }
     }
 
+    suspend fun sendClinicBreakNotificationsToLiveQueue(
+        clinicId: String,
+        clinicName: String,
+        breakWindowText: String? = null
+    ): Int = withContext(Dispatchers.IO) {
+        try {
+            val todayStr = LocalDate.now().toString()
+            val allAppts = try {
+                supabaseClient.postgrest["appointments"]
+                    .select {
+                        filter {
+                            eq("clinic_id", clinicId)
+                            eq("appointment_date", todayStr)
+                        }
+                    }.decodeList<Appointment>()
+            } catch (e: Exception) {
+                emptyList()
+            }
+
+            val liveAppts = allAppts.filter {
+                val status = it.checkinStatus?.lowercase() ?: ""
+                status !in listOf("completed", "done", "finished", "cancelled", "no_show", "report_prepared") &&
+                    status in listOf("waiting", "checked_in", "inside")
+            }
+
+            if (liveAppts.isEmpty()) return@withContext 0
+
+            var sentCount = 0
+            val title = NotificationTemplate.ClinicBreak.buildTitle(clinicName)
+
+            for (appt in liveAppts) {
+                val tagged = NotificationTemplate.ClinicBreak.buildMessage(
+                    clinicName = clinicName,
+                    breakWindowText = breakWindowText,
+                    appointmentTime = appt.appointmentTime,
+                    trackingCode = appt.trackingCode10Digit
+                )
+                val dto = mapOf(
+                    "id" to UUID.randomUUID().toString(),
+                    "user_id" to appt.userId?.takeIf { it.isNotBlank() },
+                    "appointment_id" to appt.id.takeIf { it.length == 36 },
+                    "title" to title,
+                    "message" to tagged,
+                    "type" to NotificationType.CLINIC_BREAK.key,
+                    "target_audience" to "specific",
+                    "is_read" to false
+                )
+                try {
+                    supabaseClient.postgrest["notifications"].insert(dto)
+                    sentCount++
+                } catch (_: Exception) {}
+            }
+            sentCount
+        } catch (e: Exception) {
+            e.printStackTrace()
+            0
+        }
+    }
+
     suspend fun toggleClinicBreak(clinicId: String, isOnBreak: Boolean): Clinic? = withContext(Dispatchers.IO) {
         val current = getCachedClinicById(clinicId) ?: getClinicById(clinicId) ?: return@withContext null
         val updated = current.copy(
@@ -372,7 +438,16 @@ class ClinicRepository @Inject constructor(
         )
         cachedClinicsById[clinicId] = updated
         val ok = updateClinic(clinicId, updated)
-        if (ok) updated else null
+        if (ok) {
+            if (isOnBreak) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        sendClinicBreakNotificationsToLiveQueue(clinicId, current.name)
+                    } catch (_: Exception) {}
+                }
+            }
+            updated
+        } else null
     }
 
     suspend fun saveWeeklySchedule(
@@ -389,7 +464,16 @@ class ClinicRepository @Inject constructor(
         )
         cachedClinicsById[clinicId] = updated
         val ok = updateClinic(clinicId, updated)
-        if (ok) updated else null
+        if (ok) {
+            if (isOnBreak == true) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        sendClinicBreakNotificationsToLiveQueue(clinicId, current.name)
+                    } catch (_: Exception) {}
+                }
+            }
+            updated
+        } else null
     }
 
     suspend fun toggleClinicHoliday(clinicId: String, dateStr: String, isHoliday: Boolean): Clinic? = withContext(Dispatchers.IO) {

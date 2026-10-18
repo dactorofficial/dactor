@@ -95,14 +95,34 @@ function Bump-App {
     Push-Location $AppDir
     try {
         Write-Host "Running Gradle assemble${BuildType} in $AppDir..." -ForegroundColor Yellow
-        if (Test-Path "C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot") {
+        if (Test-Path "C:\Program Files\Android\Android Studio\jbr") {
+            $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+            $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+        } elseif (Test-Path "C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot") {
             $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot"
             $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
         } elseif (Test-Path "D:\jdk17") {
             $env:JAVA_HOME = "D:\jdk17"
             $env:PATH = "D:\jdk17\bin;$env:PATH"
         }
-        & .\gradlew.bat "assemble$BuildType" --console=plain
+
+        $sdkCandidates = @(
+            "C:\Users\nitup\AppData\Local\Android\Sdk",
+            "$env:LOCALAPPDATA\Android\Sdk",
+            "C:\Android\sdk"
+        )
+        foreach ($cand in $sdkCandidates) {
+            if (Test-Path $cand) {
+                $env:ANDROID_HOME = $cand
+                $env:ANDROID_SDK_ROOT = $cand
+                break
+            }
+        }
+        if ($env:ANDROID_HOME) {
+            Set-Content -Path (Join-Path $AppDir "local.properties") -Value "sdk.dir=$($env:ANDROID_HOME -replace '\\', '/')" -Force
+        }
+        $gradleArgs = @("assemble$BuildType", "--console=plain")
+        & .\gradlew.bat @gradleArgs
         if ($LASTEXITCODE -ne 0) {
             throw "Gradle build failed with exit code $LASTEXITCODE"
         }
@@ -112,6 +132,8 @@ function Bump-App {
 
     $btLower = $BuildType.ToLower()
     $searchLocations = @(
+        (Join-Path $AppDir "app\build6\outputs\apk\$btLower"),
+        (Join-Path $AppDir "app\build6\outputs\apk\debug"),
         (Join-Path $AppDir "app\build5\outputs\apk\$btLower"),
         (Join-Path $AppDir "app\build4\outputs\apk\$btLower"),
         (Join-Path $AppDir "app\build2\outputs\apk\$btLower"),

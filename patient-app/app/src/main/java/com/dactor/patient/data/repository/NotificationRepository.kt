@@ -1,10 +1,16 @@
 package com.dactor.patient.data.repository
 
+import android.os.Build
+import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.DactorNotification
+import com.dactor.patient.data.model.LabReport
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -12,42 +18,199 @@ import javax.inject.Singleton
 class NotificationRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
+    @Serializable
+    data class FcmDeviceTokenDto(
+        @SerialName("token") val token: String,
+        @SerialName("user_id") val userId: String? = null,
+        @SerialName("tracking_code") val trackingCode: String? = null,
+        @SerialName("patient_mobile") val patientMobile: String? = null,
+        @SerialName("device_info") val deviceInfo: String? = null,
+        @SerialName("updated_at") val updatedAt: String? = null
+    )
+
+    suspend fun uploadFcmToken(
+        token: String,
+        userId: String? = null,
+        trackingCodes: List<String> = emptyList(),
+        patientMobile: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val cleanToken = token.trim()
+            if (cleanToken.isBlank()) return@withContext false
+
+            val deviceInfo = "Android ${Build.VERSION.RELEASE} (${Build.MANUFACTURER} ${Build.MODEL})"
+            val now = java.time.Instant.now().toString()
+            val cleanMobile = patientMobile?.trim()?.takeIf { it.isNotBlank() }
+            val cleanUid = userId?.trim()?.takeIf { it.isNotBlank() }
+
+            val validCodes = trackingCodes.map { it.trim() }.filter { it.isNotBlank() }
+            if (validCodes.isEmpty()) {
+                val dto = FcmDeviceTokenDto(
+                    token = cleanToken,
+                    userId = cleanUid,
+                    trackingCode = null,
+                    patientMobile = cleanMobile,
+                    deviceInfo = deviceInfo,
+                    updatedAt = now
+                )
+                supabaseClient.postgrest["fcm_tokens"].upsert(dto)
+            } else {
+                for (code in validCodes) {
+                    val dto = FcmDeviceTokenDto(
+                        token = cleanToken,
+                        userId = cleanUid,
+                        trackingCode = code,
+                        patientMobile = cleanMobile,
+                        deviceInfo = deviceInfo,
+                        updatedAt = now
+                    )
+                    supabaseClient.postgrest["fcm_tokens"].upsert(dto)
+                }
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     suspend fun getNotifications(userId: String? = null, appointmentIds: List<String> = emptyList()): List<DactorNotification> = withContext(Dispatchers.IO) {
         try {
             val resolvedIds = appointmentIds.map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
-            val patientAppts = mutableListOf<com.dactor.patient.data.model.Appointment>()
+            val patientAppts = mutableListOf<Appointment>()
+
+            // 1. Targeted Server-Side Query: Fetch only relevant appointments (replaces full-table scan)
             try {
-                if (!userId.isNullOrBlank() || resolvedIds.isNotEmpty()) {
-                    val allAppts = supabaseClient.postgrest["appointments"]
-                        .select()
-                        .decodeList<com.dactor.patient.data.model.Appointment>()
-                    for (appt in allAppts) {
-                        val matchesUser = !userId.isNullOrBlank() && appt.userId == userId
-                        val matchesTracked = appt.id in resolvedIds || appt.trackingCode10Digit in resolvedIds
-                        if (matchesUser || matchesTracked) {
-                            patientAppts.add(appt)
-                            if (appt.id.isNotBlank()) resolvedIds.add(appt.id)
-                            if (appt.trackingCode10Digit.isNotBlank()) resolvedIds.add(appt.trackingCode10Digit)
+                if (!userId.isNullOrBlank()) {
+                    val byUser = supabaseClient.postgrest["appointments"]
+                        .select {
+                            filter {
+                                eq("user_id", userId)
+                            }
                         }
+                        .decodeList<Appointment>()
+                    patientAppts.addAll(byUser)
+                    for (appt in byUser) {
+                        if (appt.id.isNotBlank()) resolvedIds.add(appt.id)
+                        if (appt.trackingCode10Digit.isNotBlank()) resolvedIds.add(appt.trackingCode10Digit)
+                    }
+                }
+
+                val codesToFetch = resolvedIds.filter { it.length == 10 && patientAppts.none { a -> a.trackingCode10Digit == it } }
+                if (codesToFetch.isNotEmpty()) {
+                    val byCodes = supabaseClient.postgrest["appointments"]
+                        .select {
+                            filter {
+                                isIn("tracking_code_10_digit", codesToFetch)
+                            }
+                        }
+                        .decodeList<Appointment>()
+                    for (appt in byCodes) {
+                        if (patientAppts.none { it.id == appt.id }) patientAppts.add(appt)
+                        if (appt.id.isNotBlank()) resolvedIds.add(appt.id)
+                        if (appt.trackingCode10Digit.isNotBlank()) resolvedIds.add(appt.trackingCode10Digit)
+                    }
+                }
+
+                val uuidIdsToFetch = resolvedIds.filter { it.length == 36 && patientAppts.none { a -> a.id == it } }
+                if (uuidIdsToFetch.isNotEmpty()) {
+                    val byIds = supabaseClient.postgrest["appointments"]
+                        .select {
+                            filter {
+                                isIn("id", uuidIdsToFetch)
+                            }
+                        }
+                        .decodeList<Appointment>()
+                    for (appt in byIds) {
+                        if (patientAppts.none { it.id == appt.id }) patientAppts.add(appt)
+                        if (appt.id.isNotBlank()) resolvedIds.add(appt.id)
+                        if (appt.trackingCode10Digit.isNotBlank()) resolvedIds.add(appt.trackingCode10Digit)
                     }
                 }
             } catch (ignored: Exception) {}
 
-            val list = supabaseClient.postgrest["notifications"]
-                .select()
-                .decodeList<DactorNotification>()
-                .sortedByDescending { it.createdAt }
+            // 2. Targeted Server-Side Queries: Fetch only relevant notifications with limits (replaces full-table scan)
+            val fetchedNotifs = mutableListOf<DactorNotification>()
 
-            val filtered = list.filter { notif ->
+            // 2a. User-specific notifications
+            if (!userId.isNullOrBlank()) {
+                try {
+                    val userNotifs = supabaseClient.postgrest["notifications"]
+                        .select {
+                            filter {
+                                eq("user_id", userId)
+                            }
+                            order("created_at", Order.DESCENDING)
+                            limit(50)
+                        }
+                        .decodeList<DactorNotification>()
+                    fetchedNotifs.addAll(userNotifs)
+                } catch (ignored: Exception) {}
+            }
+
+            // 2b. Appointment-specific notifications for tracked IDs
+            val apptUuids = resolvedIds.filter { it.length == 36 }
+            if (apptUuids.isNotEmpty()) {
+                try {
+                    for (chunk in apptUuids.chunked(25)) {
+                        val apptNotifs = supabaseClient.postgrest["notifications"]
+                            .select {
+                                filter {
+                                    isIn("appointment_id", chunk)
+                                }
+                                order("created_at", Order.DESCENDING)
+                                limit(50)
+                            }
+                            .decodeList<DactorNotification>()
+                        fetchedNotifs.addAll(apptNotifs)
+                    }
+                } catch (ignored: Exception) {}
+            }
+
+            // 2c. Broadcast notifications for all patients
+            try {
+                val broadcastNotifs = supabaseClient.postgrest["notifications"]
+                    .select {
+                        filter {
+                            isIn("target_audience", listOf("all_users", "patients"))
+                        }
+                        order("created_at", Order.DESCENDING)
+                        limit(25)
+                    }
+                    .decodeList<DactorNotification>()
+                fetchedNotifs.addAll(broadcastNotifs)
+            } catch (ignored: Exception) {}
+
+            // 2d. Recent queue / doctor alerts (allows matching metadata tags for guest tracking codes)
+            try {
+                val recentAlerts = supabaseClient.postgrest["notifications"]
+                    .select {
+                        filter {
+                            isIn("type", listOf("queue_alert", "manual_alert", "doctor_arrival", "doctor_presence", "clinic_break", "early_arrival"))
+                        }
+                        order("created_at", Order.DESCENDING)
+                        limit(50)
+                    }
+                    .decodeList<DactorNotification>()
+                fetchedNotifs.addAll(recentAlerts)
+            } catch (ignored: Exception) {}
+
+            val distinctNotifs = fetchedNotifs.distinctBy { it.id }.sortedByDescending { it.createdAt }
+
+            val filtered = distinctNotifs.filter { notif ->
                 val audience = notif.targetAudience?.lowercase()
-                val isTargetedType = notif.type in listOf("manual_alert", "queue_alert", "lab_report", "clinic_break")
+                val isTargetedType = notif.type in listOf(
+                    "manual_alert", "queue_alert", "lab_report", "clinic_break",
+                    "doctor_arrival", "doctor_presence", "doctor_status", "early_arrival",
+                    "turn_call", "urgent_call"
+                )
                 val isBroadcastForPatients = (audience == "all_users" || audience == "patients" || audience == null || notif.type == "broadcast") &&
                     !isTargetedType
                 val isUserSpecific = (!userId.isNullOrBlank() && notif.userId == userId)
                 val metaCode = notif.toTemplateData().trackingCode
                 val isAppointmentSpecific = (notif.appointmentId != null && resolvedIds.contains(notif.appointmentId)) ||
                     (!metaCode.isNullOrBlank() && resolvedIds.contains(metaCode)) ||
-                    resolvedIds.any { code -> code.length == 10 && notif.message.contains(code) }
+                    resolvedIds.any { code -> code.length == 10 && (notif.message.contains(code) || notif.title.contains(code)) }
                 val isTargetedAlert = isTargetedType && (isUserSpecific || isAppointmentSpecific)
 
                 if (!isBroadcastForPatients && !isUserSpecific && !isAppointmentSpecific && !isTargetedAlert) {
@@ -79,13 +242,17 @@ class NotificationRepository @Inject constructor(
                 true
             }.toMutableList()
 
-            // Also surface any prepared lab reports for this patient's appointments/tracking codes
-            if (resolvedIds.isNotEmpty()) {
+            // 3. Targeted Server-Side Query: Fetch only prepared lab reports for this patient's appointments (replaces full-table scan)
+            if (apptUuids.isNotEmpty()) {
                 try {
                     val labReports = supabaseClient.postgrest["lab_reports"]
-                        .select()
-                        .decodeList<com.dactor.patient.data.model.LabReport>()
-                        .filter { it.appointmentId in resolvedIds && it.stage == "prepared" }
+                        .select {
+                            filter {
+                                isIn("appointment_id", apptUuids)
+                                eq("stage", "prepared")
+                            }
+                        }
+                        .decodeList<LabReport>()
 
                     for (rep in labReports) {
                         val alreadyNotified = filtered.any {
@@ -103,7 +270,7 @@ class NotificationRepository @Inject constructor(
                                     type = "lab_report",
                                     targetAudience = "patients",
                                     isRead = false,
-                                    createdAt = rep.preparedAt ?: rep.sampleCollectedAt
+                                    createdAt = rep.preparedAt ?: rep.sampleCollectedAt ?: ""
                                 )
                             )
                         }
@@ -111,7 +278,7 @@ class NotificationRepository @Inject constructor(
                 } catch (ignored: Exception) {}
             }
 
-            filtered.sortedByDescending { it.createdAt ?: "" }
+            filtered.sortedByDescending { it.createdAt }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()

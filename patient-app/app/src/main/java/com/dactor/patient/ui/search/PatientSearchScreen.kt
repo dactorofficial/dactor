@@ -2093,7 +2093,7 @@ fun PatientSearchScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B))
                     ) {
-                        Text(if (isAvailOnDate) "Select Clinic & Book" else "Book on another date", fontWeight = FontWeight.Bold)
+                        Text("Select Clinic & Book", fontWeight = FontWeight.Bold)
                     }
                 }
             },
@@ -2518,9 +2518,9 @@ private fun SearchDoctorResultCard(
                             Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                text = if (isAvailableOnSelectedDate) "Select Clinic & Book" else "Book on another date",
+                                text = "Select Clinic & Book",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = if (isAvailableOnSelectedDate) 13.sp else 12.sp
+                                fontSize = 13.sp
                             )
                         }
                     }
@@ -2731,11 +2731,9 @@ private fun SearchClinicResultCard(
                             .height(42.dp)
                     ) {
                         Text(
-                            text = if (hasAvailableSlotsOnDate) "Book" else "Book on another date",
+                            text = "Book",
                             fontWeight = FontWeight.Bold,
-                            fontSize = if (hasAvailableSlotsOnDate) 13.sp else 11.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            fontSize = 13.sp
                         )
                         Spacer(Modifier.width(4.dp))
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(15.dp))

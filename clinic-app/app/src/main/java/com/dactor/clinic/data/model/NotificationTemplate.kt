@@ -149,5 +149,57 @@ sealed class NotificationTemplate {
             )
         }
     }
+
+    object DoctorArrived : NotificationTemplate() {
+        override val type = NotificationType.DOCTOR_ARRIVAL
+        fun buildTitle(doctorName: String? = null) = if (!doctorName.isNullOrBlank()) {
+            "🩺 $doctorName Has Arrived!"
+        } else {
+            "🩺 Doctor Has Arrived!"
+        }
+        fun buildMessage(
+            patientName: String,
+            doctorName: String = "Doctor",
+            clinicName: String? = null,
+            code: String? = null
+        ): String {
+            val clinicPart = if (!clinicName.isNullOrBlank()) " at $clinicName" else ""
+            val cleanBody = "Hi $patientName, $doctorName has arrived$clinicPart! OPD consultations are starting now. Please check your live queue position and be near the clinic."
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = cleanBody,
+                leftLabel = "Doctor Status",
+                leftValue = "In Clinic • Active",
+                rightLabel = "Live Queue",
+                rightValue = "Consultations Started",
+                trackingCode = code
+            )
+        }
+    }
+
+    object DoctorSteppedOut : NotificationTemplate() {
+        override val type = NotificationType.DOCTOR_STATUS
+        fun buildTitle(doctorName: String? = null) = if (!doctorName.isNullOrBlank()) {
+            "⏳ $doctorName Temporarily Stepped Out"
+        } else {
+            "⏳ Doctor Temporarily Away"
+        }
+        fun buildMessage(
+            patientName: String,
+            doctorName: String = "Doctor",
+            clinicName: String? = null,
+            code: String? = null
+        ): String {
+            val clinicPart = if (!clinicName.isNullOrBlank()) " from $clinicName" else ""
+            val cleanBody = "Hi $patientName, $doctorName has temporarily stepped out$clinicPart. Consultations are briefly paused and will resume shortly."
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = cleanBody,
+                leftLabel = "Doctor Status",
+                leftValue = "Temporarily Away",
+                rightLabel = "Queue Status",
+                rightValue = "Briefly Paused",
+                trackingCode = code
+            )
+        }
+    }
 }
 

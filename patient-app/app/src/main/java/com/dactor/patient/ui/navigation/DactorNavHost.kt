@@ -374,6 +374,9 @@ fun DactorNavHost(
             AppointmentConfirmedScreen(
                 navController = navController,
                 appointmentId = appointmentId,
+                clinicRepository = clinicRepository,
+                doctorRepository = doctorRepository,
+                slotRepository = slotRepository,
                 appointmentRepository = appointmentRepository,
                 sessionManager = sessionManager
             )

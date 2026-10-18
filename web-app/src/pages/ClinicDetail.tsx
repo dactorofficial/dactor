@@ -41,6 +41,7 @@ import {
   recordPaymentTransaction,
   getPatientProfileByEmail,
   getAppointmentByTrackingCode,
+  getAppointmentByTrackingCodeOrContact,
   shiftAppointmentDate,
 } from '../services/db'
 import { supabase } from '../lib/supabase'
@@ -270,7 +271,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       } catch {}
 
       if (autoOpenBooking) {
-        if (isReschedule) {
+        if (isReschedule || initialDoctorId || !selectedSlotId) {
           setTimeout(() => {
             const el = document.getElementById('booking-schedule')
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -395,14 +396,16 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     }
   }, [initialTrackingCode])
 
-  // Lookup 10-digit Appointment ID for Follow-up or Reschedule
+  // Lookup 10-digit Appointment ID or UUID for Follow-up or Reschedule
   useEffect(() => {
     let active = true
     const clean = followupCodeInput.trim()
-    if (isReturningPatient && clean.length === 10 && /^\d{10}$/.test(clean)) {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const isCodeValid = /^\d{10}$/.test(clean) || uuidRegex.test(clean)
+    if ((isReturningPatient || isReschedule) && isCodeValid) {
       setIsLookingUpCode(true)
       setFollowupLookupError(null)
-      getAppointmentByTrackingCode(clean)
+      getAppointmentByTrackingCodeOrContact(clean)
         .then((found) => {
           if (!active) return
           setIsLookingUpCode(false)
@@ -421,7 +424,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             }
           } else {
             setRetainedAppointment(null)
-            setFollowupLookupError(`No appointment record found for 10-digit code #${clean}.`)
+            setFollowupLookupError(`No appointment record found for code #${clean}.`)
           }
         })
         .catch(() => {
@@ -432,8 +435,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         })
     } else {
       setRetainedAppointment(null)
-      if (clean.length > 0 && clean.length !== 10) {
-        setFollowupLookupError('Code must be exactly 10 digits.')
+      if (clean.length > 0 && !isCodeValid) {
+        setFollowupLookupError('Code must be a 10-digit number or valid appointment ID.')
       } else {
         setFollowupLookupError(null)
       }
@@ -441,7 +444,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     return () => {
       active = false
     }
-  }, [isReturningPatient, followupCodeInput])
+  }, [isReturningPatient, isReschedule, followupCodeInput])
 
   // Auto-match doctor from retained appointment once doctors list loads
   useEffect(() => {
@@ -573,7 +576,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     return () => {
       active = false
     }
-  }, [clinicId, viewedYearMonth.year, viewedYearMonth.month])
+  }, [clinicId, viewedYearMonth.year, viewedYearMonth.month, selectedDoctor?.id])
 
   // Helper to compute calendar date state (1. Available, 2. Fully booked, 3. Closed, 4. Past)
   const computeCalendarDateState = (dateStr: string): 'available' | 'fully_booked' | 'closed' | 'past' => {
@@ -656,7 +659,9 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     const todayState = computeCalendarDateState(todayIso)
     if (todayState === 'available') {
       setSelectedDate(todayIso)
-    } else if (nextAvailableDate && selectedDate === todayIso) {
+    } else if (nextAvailableDate && (selectedDate === todayIso || computeCalendarDateState(selectedDate) !== 'available')) {
+      const targetD = new Date(nextAvailableDate + 'T00:00:00')
+      setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
       setSelectedDate(nextAvailableDate)
     }
   }, [monthSlotsMap, todayIso, nextAvailableDate])
@@ -855,7 +860,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
   const handleProceedToPaymentStep = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!validateDetailsForm()) return
+    if (isLookingUpCode) return
+    if (!isReschedule && !validateDetailsForm()) return
     // Directly book for free follow-up or reschedule without any payment step
     if (totalBookingFee === 0 || isLockedDetails || isReschedule) {
       handleConfirmBookingAndPayment()
@@ -867,7 +873,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
   // Handle final appointment + payment submission to Supabase
   const handleConfirmBookingAndPayment = async () => {
-    if (!validateDetailsForm()) {
+    if (isLookingUpCode) return
+    if (!isReschedule && !validateDetailsForm()) {
       setBookingStep('details')
       return
     }
@@ -886,13 +893,15 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           retainedAppointment.id,
           selectedDate,
           selectedSlotTime || '10:00 AM',
-          'Patient rescheduled via clinic booking portal'
+          'Patient rescheduled via clinic booking portal',
+          selectedSlotId
         )
         if (ok) {
           const updatedAppt: Appointment = {
             ...retainedAppointment,
             appointmentDate: selectedDate,
             appointmentTime: selectedSlotTime || '10:00 AM',
+            slotId: selectedSlotId,
           }
           setConfirmedAppt(updatedAppt)
           setConfirmedTxnId(`RESCHEDULED-${retainedAppointment.trackingCode10Digit}`)
@@ -1027,7 +1036,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 <h2 style="margin:0;font-size:22px;">${clinic.name}</h2>
                 <p style="margin:4px 0 0;font-size:12px;color:#64748b;">${clinic.addressText || 'Nepal'} • ${clinic.contactPhone || ''}</p>
               </div>
-              <span class="badge">${confirmedAppt.paymentStatus === 'paid' ? 'PAID RECEIPT' : 'PAY AT CLINIC'}</span>
+              <span class="badge">${isReschedule ? 'RESCHEDULED CONFIRMATION' : confirmedAppt.paymentStatus === 'paid' ? 'PAID RECEIPT' : 'PAY AT CLINIC'}</span>
             </div>
             <div>
               <div style="font-size:11px;text-transform:uppercase;color:#64748b;font-weight:700;">10-Digit Universal Queue & Report Tracking Code</div>
@@ -1043,8 +1052,10 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   ? `Diagnostic Lab: ${confirmedAppt.selectedTests.join(', ')}`
                   : selectedDoctor?.fullName || 'OPD Doctor Consultation'
               }</td></tr>
+              ${!isReschedule ? `
               <tr><th>Payment Method & Txn ID</th><td>${confirmedPayMethod || 'Direct'} (${confirmedTxnId || 'N/A'})</td></tr>
               <tr><th>Total Amount</th><td class="total">Rs. ${confirmedAppt.feeAmount}</td></tr>
+              ` : ''}
             </table>
             <p style="margin-top:24px;font-size:11px;color:#64748b;text-align:center;">
               Generated by Dactor Healthcare Platform • Present this 10-digit code at reception or track your live queue online.
@@ -1130,16 +1141,20 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 {confirmedAppt.appointmentDate} • {confirmedAppt.appointmentTime}
               </p>
             </div>
-            <div>
-              <span className="text-slate-400 dark:text-slate-500 font-medium text-[11px]">Payment Status</span>
-              <p className="font-bold text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm uppercase">
-                {confirmedAppt.paymentStatus} ({confirmedPayMethod})
-              </p>
-            </div>
-            <div>
-              <span className="text-slate-400 dark:text-slate-500 font-medium text-[11px]">Total Fee</span>
-              <p className="font-bold text-teal-600 dark:text-teal-400 text-xs sm:text-sm">Rs. {confirmedAppt.feeAmount}</p>
-            </div>
+            {!isReschedule && (
+              <>
+                <div>
+                  <span className="text-slate-400 dark:text-slate-500 font-medium text-[11px]">Payment Status</span>
+                  <p className="font-bold text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm uppercase">
+                    {confirmedAppt.paymentStatus} ({confirmedPayMethod})
+                  </p>
+                </div>
+                <div>
+                  <span className="text-slate-400 dark:text-slate-500 font-medium text-[11px]">Total Fee</span>
+                  <p className="font-bold text-teal-600 dark:text-teal-400 text-xs sm:text-sm">Rs. {confirmedAppt.feeAmount}</p>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 pt-2">
@@ -1214,7 +1229,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   Rescheduling Consultation
                 </span>
                 <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-cyan-600 text-white">
-                  Fee Retained (Rs. 0)
+                  Fee Retained
                 </span>
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
@@ -1764,12 +1779,21 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         </div>
                       </div>
 
-                      <div className="text-left sm:text-right">
-                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Consultation Fee</span>
-                        <span className="text-lg font-black text-slate-900 dark:text-white">
-                          Rs. {selectedDoctor.consultationFee || 500}
-                        </span>
-                      </div>
+                      {!isReschedule ? (
+                        <div className="text-left sm:text-right">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Consultation Fee</span>
+                          <span className="text-lg font-black text-slate-900 dark:text-white">
+                            Rs. {selectedDoctor.consultationFee || 500}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-left sm:text-right">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Fee Status</span>
+                          <span className="text-xs font-black text-cyan-600 dark:text-cyan-400 uppercase px-2 py-1 rounded-md bg-cyan-50 dark:bg-cyan-900/40">
+                            Fee Retained
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {selectedDoctor.description && (
@@ -1867,12 +1891,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                           </div>
 
                           <div className="flex items-center sm:flex-col items-end justify-between w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-slate-200/50 dark:border-white/10">
-                            <div className="text-left sm:text-right">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Consultation Fee</span>
-                              <span className="text-base font-black text-slate-900 dark:text-white">
-                                Rs. {doc.consultationFee || 500}
-                              </span>
-                            </div>
+                            {!isReschedule && (
+                              <div className="text-left sm:text-right">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Consultation Fee</span>
+                                <span className="text-base font-black text-slate-900 dark:text-white">
+                                  Rs. {doc.consultationFee || 500}
+                                </span>
+                              </div>
+                            )}
                             <span
                               className={`mt-1 text-xs font-bold px-3 py-1 rounded-xl transition-all ${
                                 isSelected
@@ -1916,7 +1942,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       <span>Patient Details Locked</span>
                     </div>
                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-cyan-600 text-white">
-                      Fee Retained (Rs. 0)
+                      Fee Retained
                     </span>
                   </div>
 
@@ -2075,7 +2101,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                           }
                         } catch {}
                       }
-                      const isSelectable = dateStr >= todayIso && !isHoliday && !isWeeklyOff
+                      const isSelectable = dateState === 'available'
                       const isSelected = selectedDate === dateStr
 
                       return (
@@ -2230,24 +2256,31 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     {selectedDate} {selectedSlotTime ? `at ${selectedSlotTime}` : ''}
                   </span>
                 </div>
-                <div className="flex justify-between pt-1 border-t border-slate-200/50 font-bold">
-                  <span className="text-slate-700">Total Fee:</span>
-                  <span className={isReschedule || (isReturningPatient && retainedAppointment) ? 'text-emerald-600 font-black text-sm' : 'text-teal-700 text-sm'}>
-                    {isReschedule
-                      ? 'Rs. 0 (Retained Fee)'
-                      : isReturningPatient && retainedAppointment
-                      ? 'Rs. 0 (Free Follow-Up)'
-                      : `Rs. ${selectedDoctor?.consultationFee || 500}`}
-                  </span>
-                </div>
+                {!isReschedule && (
+                  <div className="flex justify-between pt-1 border-t border-slate-200/50 font-bold">
+                    <span className="text-slate-700">Total Fee:</span>
+                    <span className={isReturningPatient && retainedAppointment ? 'text-emerald-600 font-black text-sm' : 'text-teal-700 text-sm'}>
+                      {isReturningPatient && retainedAppointment
+                        ? 'Rs. 0 (Free Follow-Up)'
+                        : `Rs. ${selectedDoctor?.consultationFee || 500}`}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Action Button: Book for selected date or switch to next available date */}
               <button
                 type="button"
-                disabled={isReschedule ? (!selectedSlotTime || isSelectedDateHoliday || submitting) : ((!selectedSlotTime || isSelectedDateHoliday) && !nextAvailableDate)}
+                disabled={isReschedule ? (!selectedSlotTime || isSelectedDateHoliday || submitting || isLookingUpCode) : ((!selectedSlotTime || isSelectedDateHoliday) && !nextAvailableDate)}
                 onClick={() => {
-                  if (isReschedule && retainedAppointment) {
+                  if (isLookingUpCode) return
+
+                  if (isReschedule) {
+                    if (isLookingUpCode) return
+                    if (!retainedAppointment) {
+                      alert('Could not verify existing appointment details for rescheduling. Please check your tracking code.')
+                      return
+                    }
                     if (!selectedSlotTime) {
                       alert('Please select an available time slot to reschedule.')
                       return
@@ -2305,9 +2338,11 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 <span>
                   {submitting
                     ? 'Shifting Appointment...'
+                    : isLookingUpCode
+                    ? 'Verifying Appointment...'
                     : selectedSlotTime
                     ? isReschedule
-                      ? `Confirm Reschedule to ${selectedDate} (${selectedSlotTime}) • Free`
+                      ? `Confirm Reschedule to ${selectedDate} (${selectedSlotTime})`
                       : isReturningPatient && retainedAppointment
                       ? 'Confirm Follow-Up'
                       : 'Book Appointment'
@@ -2943,16 +2978,16 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       </span>
                     </div>
                   )}
-                  <div className="flex justify-between pt-1.5 border-t border-slate-200/50 dark:border-white/10 text-sm font-black">
-                    <span className="text-slate-800 dark:text-white">Amount Payable:</span>
-                    <span className={totalBookingFee === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-teal-700 dark:text-teal-300'}>
-                      {totalBookingFee === 0
-                        ? isReschedule
-                          ? 'FREE (Rescheduled)'
-                          : 'FREE (Follow-Up)'
-                        : `Rs. ${totalBookingFee}`}
-                    </span>
-                  </div>
+                  {!isReschedule && (
+                    <div className="flex justify-between pt-1.5 border-t border-slate-200/50 dark:border-white/10 text-sm font-black">
+                      <span className="text-slate-800 dark:text-white">Amount Payable:</span>
+                      <span className={totalBookingFee === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-teal-700 dark:text-teal-300'}>
+                        {totalBookingFee === 0
+                          ? 'FREE (Follow-Up)'
+                          : `Rs. ${totalBookingFee}`}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {totalBookingFee === 0 ? (
@@ -2964,7 +2999,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         isReschedule ? 'text-cyan-900 dark:text-cyan-300' : 'text-emerald-900 dark:text-emerald-300'
                       }`}>
                         <CheckCircle2 className={`w-4 h-4 shrink-0 ${isReschedule ? 'text-cyan-600 dark:text-cyan-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
-                        <span>{isReschedule ? 'Reschedule Appointment (Fee Retained)' : '100% Free Follow-Up Visit'}</span>
+                        <span>{isReschedule ? 'Reschedule Appointment' : '100% Free Follow-Up Visit'}</span>
                       </div>
                       <p className={`leading-relaxed ${isReschedule ? 'text-cyan-800 dark:text-cyan-300/90' : 'text-emerald-700 dark:text-emerald-400/90'}`}>
                         {isReschedule
@@ -2983,7 +3018,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       </button>
                       <button
                         type="button"
-                        disabled={submitting}
+                        disabled={submitting || isLookingUpCode}
                         onClick={handleConfirmBookingAndPayment}
                         className={`flex-1 py-3 text-white font-black rounded-xl text-xs transition-all shadow-glass-base cursor-pointer active:scale-95 border-t border-white/20 disabled:opacity-50 ${
                           isReschedule

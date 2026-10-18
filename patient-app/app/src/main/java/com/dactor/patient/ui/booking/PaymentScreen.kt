@@ -218,6 +218,21 @@ fun PaymentScreen(
                             "${activeSession!!.patientName.ifBlank { "Patient" }} • ${activeSession!!.appointmentDate}"
                         )
                     }
+                    val cName = clinic?.name?.ifBlank { null } ?: "Patan Clinic"
+                    val pName = appt?.patientName?.ifBlank { null } ?: activeSession?.patientName?.ifBlank { null } ?: "Patient"
+                    val aDate = appt?.appointmentDate?.ifBlank { null } ?: activeSession?.appointmentDate ?: ""
+                    val aTime = appt?.appointmentTime?.ifBlank { null } ?: "09:00 AM - 12:00 PM"
+                    val formattedSlotWindow = if (aTime.contains(" - ")) aTime else if (aTime.contains("09:30") || aTime.contains("09:00")) "09:00 AM - 12:00 PM" else aTime
+                    sessionManager?.saveLastConfirmedAppointment(
+                        appointmentId = appointmentId,
+                        trackingCode = targetCode,
+                        clinicName = cName,
+                        doctorName = "Dr. Kshitiz",
+                        doctorSpecialty = "Ophthalmology",
+                        patientName = pName,
+                        appointmentDate = aDate,
+                        timeWindow = formattedSlotWindow
+                    )
                     sessionManager?.clearActivePaymentSession()
                     Toast.makeText(context, "Payment Bypassed (Testing)! Appointment Confirmed.", Toast.LENGTH_LONG).show()
                     navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(targetCode)) {
@@ -283,6 +298,21 @@ fun PaymentScreen(
                             "${activeSession!!.patientName.ifBlank { "Patient" }} • ${activeSession!!.appointmentDate}"
                         )
                     }
+                    val cName = clinic?.name?.ifBlank { null } ?: "Patan Clinic"
+                    val pName = appt?.patientName?.ifBlank { null } ?: activeSession?.patientName?.ifBlank { null } ?: "Patient"
+                    val aDate = appt?.appointmentDate?.ifBlank { null } ?: activeSession?.appointmentDate ?: ""
+                    val aTime = appt?.appointmentTime?.ifBlank { null } ?: "09:00 AM - 12:00 PM"
+                    val formattedSlotWindow = if (aTime.contains(" - ")) aTime else if (aTime.contains("09:30") || aTime.contains("09:00")) "09:00 AM - 12:00 PM" else aTime
+                    sessionManager?.saveLastConfirmedAppointment(
+                        appointmentId = appointmentId,
+                        trackingCode = targetCode,
+                        clinicName = cName,
+                        doctorName = "Dr. Kshitiz",
+                        doctorSpecialty = "Ophthalmology",
+                        patientName = pName,
+                        appointmentDate = aDate,
+                        timeWindow = formattedSlotWindow
+                    )
                     sessionManager?.clearActivePaymentSession()
                     Toast.makeText(context, "Payment Confirmed! Your appointment is reserved.", Toast.LENGTH_LONG).show()
                     navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(targetCode)) {

@@ -33,7 +33,14 @@ import {
   ArrowLeft,
   Zap,
 } from 'lucide-react'
-import { Appointment, Clinic, Doctor, LabReport, BillingInvoice } from '../types'
+import {
+  Appointment,
+  Clinic,
+  Doctor,
+  LabReport,
+  BillingInvoice,
+  MultiSlotPositionResult,
+} from '../types'
 import {
   getAppointmentByTrackingCode,
   getAppointmentByTrackingCodeOrContact,
@@ -43,7 +50,14 @@ import {
   getLabReportsByTrackingCode,
   shiftAppointmentDate,
   cancelAppointment,
+  calculateMultiSlotDailyPosition,
+  resolveStorageUrl,
+  resolveClinicLogoUrl,
+  resolveClinicCoverUrl,
+  resolveDoctorPhotoUrl,
 } from '../services/db'
+import { supabase } from '../lib/supabase'
+import { playChimeSound } from '../utils/audioChime'
 import { updatePageSEO } from '../utils/seo'
 
 interface LiveQueueProps {
@@ -67,9 +81,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const [doctor, setDoctor] = useState<Doctor | null>(null)
   const [clinicQueue, setClinicQueue] = useState<Appointment[]>([])
   const [labReports, setLabReports] = useState<LabReport[]>([])
+  const [multiSlotResult, setMultiSlotResult] = useState<MultiSlotPositionResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [copyFeedback, setCopyFeedback] = useState(false)
+
+  // Real-time Visual Notification Alert Banner State
+  const [activeAlert, setActiveAlert] = useState<{
+    id: string
+    title: string
+    message: string
+  } | null>(null)
 
   // Live Consultation Timer
   const [currentEpochSecond, setCurrentEpochSecond] = useState<number>(() =>
@@ -133,6 +155,23 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           setClinicQueue(queueList)
           setLabReports(reportsData)
 
+          const avgMins = clinicData?.avgConsultationTimeMinutes || 10
+          try {
+            const multiSlot = await calculateMultiSlotDailyPosition(
+              appt.clinicId,
+              appt.doctorId,
+              appt.appointmentDate,
+              appt.id,
+              appt.slotId,
+              appt.appointmentTime,
+              avgMins
+            )
+            setMultiSlotResult(multiSlot)
+          } catch (e) {
+            console.error('Error calculating multi-slot position:', e)
+            setMultiSlotResult(null)
+          }
+
           // Fetch attending doctor if linked
           if (appt.doctorId) {
             const doc = await getDoctorById(appt.doctorId)
@@ -142,6 +181,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           }
         }
       } else {
+        setMultiSlotResult(null)
         if (!silent) setErrorMsg(`No booking record found for '${clean}'.`)
       }
     } catch {
@@ -176,6 +216,97 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     return () => clearInterval(interval)
   }, [activeCode])
 
+  // Active Supabase Realtime WebSocket subscription for instant alerts & queue changes
+  useEffect(() => {
+    if (!activeCode && !appointment) return
+
+    const apptId = appointment?.id
+    const trackingCode = appointment?.trackingCode10Digit || activeCode
+    const channelTopic = `live_queue_channel_${trackingCode || apptId || 'guest'}`
+
+    const channel = supabase
+      .channel(channelTopic)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications' },
+        (payload) => {
+          const newNotif = (payload.new || payload.old) as any
+          if (!newNotif) return
+
+          const msg = newNotif.message || ''
+          const title = newNotif.title || ''
+          const targetAudience = newNotif.target_audience
+          const notifType = newNotif.type
+
+          const matchesTracking = Boolean(
+            trackingCode && (
+              newNotif.appointment_id === trackingCode ||
+              msg.includes(trackingCode) ||
+              title.includes(trackingCode)
+            )
+          )
+          const matchesAppt = Boolean(
+            apptId && (
+              newNotif.appointment_id === apptId ||
+              msg.includes(apptId)
+            )
+          )
+          const matchesUser = Boolean(
+            appointment?.userId && newNotif.user_id === appointment.userId
+          )
+          const isBroadcast = targetAudience === 'all_users' || notifType === 'clinic_broadcast'
+
+          if (matchesTracking || matchesAppt || matchesUser || isBroadcast) {
+            playChimeSound()
+            const cleanMsg = msg.replace(/\[\[META:.*?\]\]/g, '').trim()
+            setActiveAlert({
+              id: newNotif.id || String(Date.now()),
+              title: title || 'Queue Alert',
+              message: cleanMsg,
+            })
+            if (activeCode) {
+              fetchQueueData(activeCode, true)
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments' },
+        (payload) => {
+          const appt = payload.new as any
+          if (appt && (appt.id === apptId || appt.tracking_code_10_digit === trackingCode)) {
+            if (activeCode) {
+              fetchQueueData(activeCode, true)
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'queue_entries' },
+        () => {
+          if (activeCode) {
+            fetchQueueData(activeCode, true)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [activeCode, appointment?.id, appointment?.trackingCode10Digit, appointment?.userId])
+
+  // Auto-dismiss visual alert banner after 12 seconds
+  useEffect(() => {
+    if (!activeAlert) return
+    const timer = setTimeout(() => {
+      setActiveAlert(null)
+    }, 12000)
+    return () => clearTimeout(timer)
+  }, [activeAlert])
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const clean = inputCode.trim()
@@ -203,13 +334,72 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     [clinicQueue]
   )
 
-  let patientsAhead = 0
-  if (appointment && appointment.checkinStatus === 'waiting') {
-    const myIndex = waitingPatients.findIndex((a) => a.id === appointment.id)
-    patientsAhead = myIndex >= 0 ? myIndex : 0
-    if (inConsultationPatient && inConsultationPatient.id !== appointment.id) {
-      patientsAhead += 1
+  // Check if the appointment is tomorrow or a future date
+  const isFutureOrTomorrow = useMemo(() => {
+    if (multiSlotResult) {
+      return multiSlotResult.isTomorrow || multiSlotResult.isFutureDate
     }
+    if (!appointment?.appointmentDate) return false
+    const apptDate = appointment.appointmentDate.trim().slice(0, 10)
+    const now = new Date()
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    return apptDate > todayStr
+  }, [multiSlotResult, appointment?.appointmentDate])
+
+  const dateLabel = useMemo(() => {
+    if (multiSlotResult?.dateLabel) return multiSlotResult.dateLabel
+    if (!appointment?.appointmentDate) return 'visit'
+    const apptDate = appointment.appointmentDate.trim().slice(0, 10)
+    const now = new Date()
+    const tom = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    const tomStr = `${tom.getFullYear()}-${String(tom.getMonth() + 1).padStart(2, '0')}-${String(tom.getDate()).padStart(2, '0')}`
+    if (apptDate === tomStr) return 'Tomorrow'
+    try {
+      const parts = apptDate.split('-')
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10)
+        const m = parseInt(parts[1], 10) - 1
+        const d = parseInt(parts[2], 10)
+        const dt = new Date(y, m, d)
+        return `${d} ${dt.toLocaleDateString('en-US', { month: 'short' })}`
+      }
+    } catch {}
+    return apptDate
+  }, [multiSlotResult?.dateLabel, appointment?.appointmentDate])
+
+  const slotStartTimeStr = useMemo(() => {
+    if (multiSlotResult?.slotStartTimeText) return multiSlotResult.slotStartTimeText
+    if (!appointment?.appointmentTime) return '09:00 AM'
+    const token = appointment.appointmentTime.split(/[-–]|to/)[0]?.trim()
+    return token || '09:00 AM'
+  }, [multiSlotResult?.slotStartTimeText, appointment?.appointmentTime])
+
+  let patientsAhead = 0
+  let displayTokenNumber = appointment?.queueNumber || 1
+
+  if (isFutureOrTomorrow) {
+    patientsAhead = multiSlotResult ? Math.max(0, multiSlotResult.patientsAheadInDay) : 0
+    displayTokenNumber = multiSlotResult?.cumulativePosition || appointment?.queueNumber || 1
+  } else if (appointment) {
+    // For today: count active queue patients ahead
+    const activeWaiting = clinicQueue.filter(
+      (a) =>
+        a.id !== inConsultationPatient?.id &&
+        !['completed', 'done', 'cancelled', 'no_show'].includes(a.checkinStatus?.toLowerCase() || '')
+    )
+    const myPos = appointment.queuePosition || appointment.queueNumber || 0
+    let aheadCount = 0
+    if (myPos > 0) {
+      aheadCount = activeWaiting.filter((a) => (a.queuePosition || a.queueNumber || 0) < myPos).length
+    } else {
+      const idx = activeWaiting.findIndex((a) => a.id === appointment.id)
+      aheadCount = idx >= 0 ? idx : 0
+    }
+    if (inConsultationPatient && inConsultationPatient.id !== appointment.id) {
+      aheadCount += 1
+    }
+    patientsAhead = Math.max(0, aheadCount)
+    displayTokenNumber = appointment.queueNumber || (myPos > 0 ? myPos : 1)
   }
 
   const clinicAvgMinutes = clinic?.avgConsultationTimeMinutes || 10
@@ -417,6 +607,30 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     const now = new Date()
     const isDoctorFree = isDoctorInClinic && !inConsultationPatient && clinic?.isOnBreak !== true
 
+    // When appointment is tomorrow or on a future date, use multi-slot calculations directly
+    if (isFutureOrTomorrow) {
+      if (multiSlotResult) {
+        return {
+          effectiveExpectedTime: now,
+          timeWindowText: `${multiSlotResult.timeWindowText} (±15 min)`,
+          approxTimeText: multiSlotResult.approxAppointmentTimeText,
+          suggestedArrivalText: `Scheduled slot for ${multiSlotResult.dateLabel}`,
+          slotNoticeText: `Scheduled for ${multiSlotResult.dateLabel} • Approx. ${multiSlotResult.approxAppointmentTimeText}`,
+          canOfferEarlyArrival: false,
+          displayWaitText: multiSlotResult.approxAppointmentTimeText,
+        }
+      }
+      return {
+        effectiveExpectedTime: now,
+        timeWindowText: `${slotStartTimeStr} (±15 min)`,
+        approxTimeText: `Scheduled for ${dateLabel}`,
+        suggestedArrivalText: `Scheduled slot for ${dateLabel}`,
+        slotNoticeText: `Scheduled for ${dateLabel} • Syncing queue line position...`,
+        canOfferEarlyArrival: false,
+        displayWaitText: `Scheduled for ${dateLabel}`,
+      }
+    }
+
     let arrivalStr = ''
     let slotStartFmt = ''
     if (slotStartDate) {
@@ -445,7 +659,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       if (isSlotInFuture && !canEarly) {
         finalExpected = slotStartDate || now
         const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
-        waitText = diffMins > 60 ? `Starts at ${slotStartFmt}` : `~${diffMins} min`
+        waitText = diffMins > 60 ? `Starts at ${slotStartFmt}` : `~${Math.max(0, diffMins)} min`
       } else {
         // Position 1 and current time is within slot, doctor free early, or slot is over:
         finalExpected = now
@@ -458,7 +672,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         const slotStaggered = new Date(slotStartDate.getTime() + patientsAhead * clinicAvgMinutes * 60000)
         finalExpected = dynamicTime.getTime() > slotStaggered.getTime() ? dynamicTime : slotStaggered
         const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
-        waitText = diffMins > 60 ? `~${Math.round(diffMins / 60)} hr` : `~${diffMins} min`
+        waitText = diffMins > 60 ? `~${Math.round(diffMins / 60)} hr` : `~${Math.max(0, diffMins)} min`
       } else {
         // Current time is within slot or slot is over: calculate dynamically based on active queue
         finalExpected = dynamicTime
@@ -481,7 +695,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       canOfferEarlyArrival: canEarly,
       displayWaitText: waitText
     }
-  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, appointment?.optInEarlyCall, patientsAhead, estimatedWaitMinutes])
+  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, appointment?.optInEarlyCall, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr])
 
   // Formatted expected call time
   const formattedExpectedTime = approxTimeText
@@ -535,6 +749,39 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       {/* 2. OVERLAPPING CONTENT CONTAINER (Negative offset over Teal Header)        */}
       {/* ========================================================================= */}
       <div className="max-w-4xl mx-auto px-3 sm:px-6 lg:px-8 -mt-6 sm:-mt-8 space-y-4 sm:space-y-5">
+        {/* Real-Time Live Notification Alert Banner */}
+        {activeAlert && (
+          <div className="liquid-glass-elevated bg-gradient-to-r from-amber-500/20 via-teal-500/20 to-cyan-500/20 border-2 border-amber-400/60 dark:border-amber-400/80 rounded-3xl p-4 sm:p-5 shadow-glass-elevated animate-in zoom-in-95 duration-300 relative overflow-hidden">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-500 dark:text-amber-300 flex items-center justify-center shrink-0 border border-amber-500/30 animate-bounce">
+                  <BellRing className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-900 dark:text-amber-200 text-[10px] font-black uppercase tracking-wider">
+                      Live Alert
+                    </span>
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                      {activeAlert.title}
+                    </h3>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-200 font-medium leading-relaxed">
+                    {activeAlert.message}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveAlert(null)}
+                className="w-7 h-7 rounded-full bg-slate-500/10 hover:bg-slate-500/20 text-slate-500 dark:text-slate-400 flex items-center justify-center shrink-0 transition cursor-pointer"
+                title="Dismiss alert"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Search Input Bar (If not loaded or searching another code) */}
         <div className="liquid-glass-elevated rounded-3xl p-2 sm:p-2.5 border-teal-500/30 shadow-glass-elevated">
           <form onSubmit={handleSearchSubmit} className="flex items-center gap-1.5 sm:gap-2">
@@ -626,19 +873,29 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             {!isConsultancyCompleted && !isLabClinic && (
               <div
                 className={`p-3.5 rounded-2xl border text-xs flex items-center space-x-2.5 backdrop-blur-sm ${
-                  isDoctorInClinic
+                  isFutureOrTomorrow
+                    ? 'bg-sky-500/10 border-sky-500/20 text-sky-900 dark:text-sky-300'
+                    : isDoctorInClinic
                     ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-900 dark:text-emerald-300'
                     : 'bg-amber-500/10 border-amber-500/20 text-amber-900 dark:text-amber-300'
                 }`}
               >
                 <span
                   className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                    isDoctorInClinic ? 'bg-emerald-500 animate-ping' : 'bg-amber-500'
+                    isFutureOrTomorrow
+                      ? 'bg-sky-500'
+                      : isDoctorInClinic
+                      ? 'bg-emerald-500 animate-ping'
+                      : 'bg-amber-500'
                   }`}
                 />
                 <span className="font-bold">
-                  {isDoctorInClinic
-                    ? `Doctor is inside the clinic cabin • Attending active OPD tokens`
+                  {isFutureOrTomorrow
+                    ? `Doctor session scheduled for ${dateLabel} • Starts at ${slotStartTimeStr} (±15 min)`
+                    : isDoctorInClinic
+                    ? inConsultationPatient
+                      ? `Doctor is inside the clinic cabin • Attending active OPD tokens`
+                      : `Doctor is inside and available • Consultations proceeding smoothly`
                     : `Doctor Temporarily Away • Will resume consultations shortly`}
                 </span>
               </div>
@@ -677,6 +934,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? 'CURRENT'
                           : isConsultancyCompleted
                           ? 'VISIT'
+                          : isFutureOrTomorrow
+                          ? 'LINE NO.'
                           : patientsAhead === 0
                           ? 'UP NEXT'
                           : 'POSITION'}
@@ -686,9 +945,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? 'NOW'
                           : isConsultancyCompleted
                           ? '✓'
-                          : patientsAhead >= 0
-                          ? patientsAhead
-                          : '—'}
+                          : isFutureOrTomorrow
+                          ? `${multiSlotResult?.cumulativePosition || displayTokenNumber}`
+                          : `${Math.max(0, patientsAhead)}`}
                       </span>
                     </div>
                   </div>
@@ -722,13 +981,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       ? 'You are in OPD session'
                       : isConsultancyCompleted
                       ? 'Consultation completed'
+                      : isFutureOrTomorrow && patientsAhead === 0
+                      ? `1st in line for ${dateLabel}`
+                      : isFutureOrTomorrow
+                      ? `${patientsAhead} patients ahead for ${dateLabel}`
                       : patientsAhead === 0
                       ? "You're next in line!"
                       : `${patientsAhead} patients ahead`}
                     </h3>
 
                     <span className="px-2 sm:px-2.5 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[11px] sm:text-xs font-bold">
-                      Token #{appointment.queueNumber || 1}
+                      Token #{displayTokenNumber}
                     </span>
                   </div>
 
@@ -743,6 +1006,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       ? 'Currently with specialist in consultation cabin'
                       : isConsultancyCompleted
                       ? 'Thank you for visiting • Prescription & bill available below'
+                      : isFutureOrTomorrow
+                      ? `Scheduled for ${dateLabel} • Approx. ${multiSlotResult?.approxAppointmentTimeText || `${slotStartTimeStr} (±15 min)`}`
                       : slotNoticeText || (patientsAhead === 0
                       ? '0 patients ahead • Please stay close to the consultation cabin'
                       : `${patientsAhead} ahead in line • Est. wait: ~${estimatedWaitMinutes} mins`)}
@@ -812,25 +1077,43 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        Your Booked Window
+                        {isFutureOrTomorrow ? 'Your Slot' : 'Your Booked Window'}
                       </span>
                       <div className="text-base font-black text-slate-900 dark:text-white">
-                        {appointment.appointmentTime || 'Real-time queue'}
+                        {isFutureOrTomorrow
+                          ? `${dateLabel}, ${slotStartTimeStr} (±15 min)`
+                          : appointment.appointmentTime
+                          ? `${appointment.appointmentTime} (±15 min)`
+                          : '09:00 AM (±15 min)'}
                       </div>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {suggestedArrivalText || `Date: ${appointment.appointmentDate}`}
+                        {isFutureOrTomorrow
+                          ? 'Scheduled slot'
+                          : suggestedArrivalText || `Date: ${appointment.appointmentDate}`}
                       </span>
                     </div>
 
-                    <div className={`p-4 rounded-2xl liquid-glass-subtle space-y-0.5 ${canOfferEarlyArrival ? 'border border-emerald-500/40 bg-emerald-500/10' : 'border-teal-500/30'}`}>
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${canOfferEarlyArrival ? 'text-emerald-700 dark:text-emerald-300' : 'text-teal-700 dark:text-teal-300'}`}>
-                        {canOfferEarlyArrival ? '⚡ Doctor Free Early' : 'Expected Window'}
+                    <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5 border border-teal-500/30">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
+                        {canOfferEarlyArrival
+                          ? '⚡ Doctor Free Early'
+                          : isFutureOrTomorrow
+                          ? 'Scheduled Window'
+                          : 'Expected Window'}
                       </span>
-                      <div className={`text-base font-black ${canOfferEarlyArrival ? 'text-emerald-900 dark:text-emerald-200' : 'text-teal-900 dark:text-teal-200'}`}>
-                        {displayWaitText}
+                      <div className="text-base font-black text-teal-900 dark:text-teal-200">
+                        {isFutureOrTomorrow && multiSlotResult
+                          ? multiSlotResult.approxAppointmentTimeText
+                          : isFutureOrTomorrow
+                          ? `${slotStartTimeStr} (±15 min)`
+                          : displayWaitText}
                       </div>
-                      <span className={`text-[11px] ${canOfferEarlyArrival ? 'text-emerald-700 dark:text-emerald-400 font-semibold' : 'text-teal-700 dark:text-teal-400'}`}>
-                        {timeWindowText} ({approxTimeText})
+                      <span className="text-[11px] text-teal-700 dark:text-teal-400">
+                        {isFutureOrTomorrow && multiSlotResult
+                          ? `${multiSlotResult.timeWindowText} (±15 min)`
+                          : isFutureOrTomorrow
+                          ? 'Staggered arrival window'
+                          : `${timeWindowText} (${approxTimeText})`}
                       </span>
                     </div>
                   </div>
@@ -856,10 +1139,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               {/* Clinic Information */}
               <div className="space-y-3">
                 <div className="flex items-center space-x-3">
-                  {clinic?.photoUrl || clinic?.logoUrl || (clinic?.pictures && clinic.pictures[0]) ? (
+                  {resolveClinicLogoUrl(clinic) || clinic?.photoUrl || clinic?.logoUrl || (clinic?.pictures && clinic.pictures[0]) ? (
                     <img
-                      src={clinic.photoUrl || clinic.logoUrl || clinic.pictures[0]}
-                      alt={clinic.name || 'Clinic'}
+                      src={resolveClinicLogoUrl(clinic) || resolveStorageUrl(clinic?.photoUrl || clinic?.logoUrl || clinic?.pictures?.[0], 'clinic_logos')}
+                      alt={clinic?.name || 'Clinic'}
                       className="w-10 h-10 rounded-xl object-cover shrink-0 border border-teal-500/20 shadow-sm"
                     />
                   ) : (
@@ -916,7 +1199,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <div className="w-12 h-12 rounded-2xl bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 flex items-center justify-center font-black text-lg shrink-0 overflow-hidden">
                     {doctor.profilePictureUrl ? (
                       <img
-                        src={doctor.profilePictureUrl}
+                        src={resolveDoctorPhotoUrl(doctor) || resolveStorageUrl(doctor.profilePictureUrl, 'doctor_photos')}
                         alt={doctor.fullName}
                         className="w-full h-full object-cover"
                       />

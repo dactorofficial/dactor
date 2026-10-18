@@ -623,6 +623,104 @@ export function matchClinic(
   }
 }
 
+/**
+ * Matches an individual doctor and their practicing clinics against a user search query.
+ * Strict Parity with Android MedicalSearchEngine.kt
+ */
+export function matchDoctor(
+  doctor: Doctor,
+  clinics: Clinic[] = [],
+  query: string
+): SearchMatchResult {
+  const q = query.trim().toLowerCase()
+  if (!q) {
+    return { isMatch: true, score: 50, matchedDoctors: [doctor] }
+  }
+
+  const expandedStems = expandQuery(q)
+  const stemsArray = Array.from(expandedStems)
+  const suggestedSpecs = getSuggestedSpecialties(q)
+
+  const docNameLower = (doctor.fullName || '').toLowerCase()
+  const docSpecLower = (doctor.specialty || '').toLowerCase()
+  const docSpecsJoined = (doctor.specialties || []).join(' ').toLowerCase()
+  const allDocSpecs = `${docSpecLower} ${docSpecsJoined}`
+  const docBioLower = (doctor.bio || doctor.description || '').toLowerCase()
+  const docEduLower = (doctor.education || '').toLowerCase()
+
+  let score = 0
+  let highlightReason: string | undefined = undefined
+
+  // 1. Specialty or symptom keywords ("skin", "heart", "child")
+  if (allDocSpecs.includes(q)) {
+    score += 150
+    highlightReason = `Specialist: ${doctor.specialty || doctor.specialties?.[0] || 'Specialist'}`
+  } else {
+    for (const stem of stemsArray) {
+      if (allDocSpecs.includes(stem)) {
+        score += 140
+        const matchedSug = suggestedSpecs[0] || doctor.specialty || 'Specialist'
+        highlightReason = `Suggested for '${query}': ${matchedSug}`
+        break
+      }
+      if (docBioLower.includes(stem) || docEduLower.includes(stem)) {
+        score += 125
+        highlightReason = `Recommended ${doctor.specialty || 'Specialist'} for '${query}'`
+        break
+      }
+    }
+  }
+
+  // 2. Doctor Name
+  if (docNameLower.includes(q) || `dr. ${docNameLower}`.includes(q)) {
+    score += 120
+    if (!highlightReason) highlightReason = `Matched Doctor: Dr. ${doctor.fullName}`
+  } else {
+    for (const stem of stemsArray) {
+      if (docNameLower.includes(stem)) {
+        score += 110
+        if (!highlightReason) highlightReason = `Matched Doctor: Dr. ${doctor.fullName}`
+        break
+      }
+    }
+  }
+
+  // 3. Practicing Clinics & Area
+  for (const clinic of clinics) {
+    const cName = (clinic.name || '').toLowerCase()
+    const cAddr = (clinic.addressText || '').toLowerCase()
+    if (cName.includes(q)) {
+      score += 95
+      if (!highlightReason) highlightReason = `Practices at ${clinic.name}`
+      break
+    }
+    if (cAddr.includes(q)) {
+      score += 75
+      if (!highlightReason) highlightReason = `Area: ${clinic.addressText || clinic.name}`
+      break
+    }
+    for (const stem of stemsArray) {
+      if (cName.includes(stem)) {
+        score += 85
+        if (!highlightReason) highlightReason = `Practices at ${clinic.name}`
+        break
+      }
+      if (cAddr.includes(stem)) {
+        score += 65
+        if (!highlightReason) highlightReason = `Area: ${clinic.addressText || clinic.name}`
+        break
+      }
+    }
+  }
+
+  return {
+    isMatch: score > 0,
+    score,
+    matchedDoctors: score > 0 ? [doctor] : [],
+    matchHighlightReason: highlightReason,
+  }
+}
+
 // -------------------------------------------------------------
 // RECENT SEARCHES MANAGER (Stored in localStorage)
 // -------------------------------------------------------------

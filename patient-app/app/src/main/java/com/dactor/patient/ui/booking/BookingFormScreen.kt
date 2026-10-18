@@ -566,6 +566,16 @@ fun BookingFormScreen(
                                             bookedFollowUp.trackingCode10Digit,
                                             "${bookedFollowUp.patientName} • $resolvedDate"
                                         )
+                                        sessionManager?.saveLastConfirmedAppointment(
+                                            appointmentId = bookedFollowUp.id,
+                                            trackingCode = bookedFollowUp.trackingCode10Digit,
+                                            clinicName = clinicDisplayName ?: "Patan Clinic",
+                                            doctorName = slotDoctorName ?: "Dr. Kshitiz",
+                                            doctorSpecialty = slotDoctorSpecialty ?: "Ophthalmology",
+                                            patientName = bookedFollowUp.patientName,
+                                            appointmentDate = resolvedDate,
+                                            timeWindow = if (resolvedTime.contains(" - ")) resolvedTime else if (resolvedTime.contains("09:30") || resolvedTime.contains("09:00")) "09:00 AM - 12:00 PM" else resolvedTime
+                                        )
                                         navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(bookedFollowUp.id))
                                     } else {
                                         val generatedCode = TrackingCodeGenerator.generate()

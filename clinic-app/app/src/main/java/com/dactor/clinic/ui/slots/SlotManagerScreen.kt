@@ -657,7 +657,7 @@ fun SlotManagerScreen(
                                 }
                                 Text("No Booking Slots Published for $selectedDate", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 Text(
-                                    "Working hours are informational only and do not auto-publish slots. Tap 'Publish Slot' below to open booking capacity for $selectedDate.",
+                                    "Working hours are informational only and do not auto-publish slots. Tap 'Add slot' below to open booking capacity for $selectedDate.",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -682,7 +682,7 @@ fun SlotManagerScreen(
                                         },
                                         shape = RoundedCornerShape(10.dp)
                                     ) {
-                                        Text("Publish Slot for $selectedDate", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("Add slot", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -1106,46 +1106,9 @@ fun SlotManagerScreen(
                             ClinicScheduleStorage.saveWeeklySchedule(context, effectiveClinicId, draftSchedule)
                             weeklySchedule = draftSchedule
                             hasSavedWeekly = true
-
-                            coroutineScope.launch {
-                                try {
-                                    val doc = selectedDoctor ?: doctors.firstOrNull()
-                                    if (doc != null && slotRepository != null) {
-                                        // Sync next 7 days of generalized weekly slots to Supabase
-                                        for (offset in 0..6) {
-                                            val d = todayDate.plusDays(offset.toLong())
-                                            val dStr = d.toString()
-                                            val dayCfg = draftSchedule[d.dayOfWeek]
-                                            val existingForDate = slotRepository.getSlots(effectiveClinicId, dStr)
-                                            if (dayCfg != null && dayCfg.isWorking && existingForDate.isEmpty()) {
-                                                for (r in dayCfg.ranges) {
-                                                    slotRepository.createSlot(
-                                                        Slot(
-                                                            id = UUID.randomUUID().toString(),
-                                                            clinicId = effectiveClinicId,
-                                                            doctorId = doc.id,
-                                                            slotDate = dStr,
-                                                            startTime = r.startTime,
-                                                            endTime = r.endTime,
-                                                            maxCapacity = r.capacity,
-                                                            bookedCount = 0,
-                                                            isPublished = true
-                                                        )
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        slots = slotRepository.getSlots(effectiveClinicId, selectedDate)
-                                        allClinicSlots = slotRepository.getSlotsForClinic(effectiveClinicId)
-                                    }
-                                    actionMessage = "✓ Weekly working days & hours saved and generalized for every week!"
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                } finally {
-                                    isSyncingSchedule = false
-                                    showWeeklyScheduleModal = false
-                                }
-                            }
+                            actionMessage = "✓ Weekly working days & hours saved (informational only; slots are added manually)."
+                            isSyncingSchedule = false
+                            showWeeklyScheduleModal = false
                         },
                         enabled = !isSyncingSchedule,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B))
@@ -1382,22 +1345,21 @@ fun SlotManagerScreen(
                     } catch (e: Exception) { timeStr }
                 }
 
-                // Rule: Can publish up to 2 hours before current time today, and any time in the future
-                val localNow = java.time.LocalTime.now()
-                val currentMinutesToday = localNow.hour * 60 + localNow.minute
-                val minAllowedMinutesToday = (currentMinutesToday - 120).coerceAtLeast(0)
                 val startMinutes = parseTimeMins(startTime)
                 val endMinutes = parseTimeMins(endTime)
 
                 val isDateToday = selectedDate == today
+                val minAllowedMinutesToday = if (isDateToday) {
+                    val localNow = java.time.LocalTime.now()
+                    (localNow.hour * 60 + localNow.minute - 120).coerceAtLeast(0)
+                } else null
                 val isDateInPast = selectedDate < today
-                val isTimeInPast = isDateToday && (startMinutes < minAllowedMinutesToday)
                 val isInvalidInterval = endMinutes <= startMinutes
-                val hasTimeError = isDateInPast || isTimeInPast || isInvalidInterval
+                val hasTimeError = isDateInPast || isInvalidInterval
 
                 AlertDialog(
                     onDismissRequest = { showAddDialog = false },
-                    title = { Text("Publish Working Hour / Slot ($selectedDate)", fontWeight = FontWeight.Bold) },
+                    title = { Text("Add Slot ($selectedDate)", fontWeight = FontWeight.Bold) },
                     text = {
                         Column(
                             modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -1419,7 +1381,7 @@ fun SlotManagerScreen(
                                 }
                             }
 
-                            Text("Working Hour Window (e.g. 06:00 to 08:00):", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Slot Time Window (e.g. 09:00 to 12:00 or after-hours):", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1427,8 +1389,8 @@ fun SlotManagerScreen(
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = if (isTimeInPast) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                                    border = BorderStroke(1.dp, if (isTimeInPast) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable { showStartTimePicker = true }
@@ -1464,8 +1426,7 @@ fun SlotManagerScreen(
                                 }
                             }
 
-                            if (isTimeInPast) {
-                                val minAllowedStr = formatMinsToTime(minAllowedMinutesToday)
+                            if (isInvalidInterval) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.errorContainer,
                                     shape = RoundedCornerShape(8.dp),
@@ -1478,7 +1439,7 @@ fun SlotManagerScreen(
                                     ) {
                                         Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                                         Text(
-                                            text = "Cannot publish more than 2 hours before current time (earliest allowed today: $minAllowedStr).",
+                                            text = "End time (${format12h(endTime)}) must be later than start time (${format12h(startTime)}).",
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onErrorContainer
                                         )
@@ -1486,7 +1447,7 @@ fun SlotManagerScreen(
                                 }
                             } else if (!hasTimeError) {
                                 Text(
-                                    text = "✓ Valid working hour: ${format12h(startTime)} to ${format12h(endTime)} (${endMinutes - startMinutes} mins)",
+                                    text = "✓ Slot Time Window: ${format12h(startTime)} to ${format12h(endTime)} (${endMinutes - startMinutes} mins) — Can be published anytime, even on closed days or outside regular hours.",
                                     fontSize = 11.sp,
                                     color = Color(0xFF047857),
                                     fontWeight = FontWeight.SemiBold
@@ -1548,13 +1509,13 @@ fun SlotManagerScreen(
                                         ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "Added ${newSlot.startTime}-${newSlot.endTime}")
                                         dateOverrideNote = "Added ${newSlot.startTime}-${newSlot.endTime}"
                                         showAddDialog = false
-                                        actionMessage = "✓ Working hour published for $selectedDate (${newSlot.startTime} - ${newSlot.endTime})!"
+                                        actionMessage = "✓ Slot added for $selectedDate (${newSlot.startTime} - ${newSlot.endTime})!"
                                     }
                                 }
                             },
                             enabled = !hasTimeError
                         ) {
-                            Text("Save & Publish")
+                            Text("Add slot")
                         }
                     },
                     dismissButton = {

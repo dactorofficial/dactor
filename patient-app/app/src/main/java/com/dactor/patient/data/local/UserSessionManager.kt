@@ -60,6 +60,7 @@ class UserSessionManager @Inject constructor(
     fun getSavedPatientId(): String? = prefs.getString("patient_id", null)
     fun getSavedEmail(): String? = prefs.getString("user_email", null)
     fun getSavedName(): String? = prefs.getString("user_name", null)
+    fun getSavedPatientName(): String? = getSavedName()
     fun getSavedPhone(): String? = prefs.getString("user_phone", null)
     fun isLoggedIn(): Boolean {
         val prefLoggedIn = prefs.getBoolean("is_logged_in", false)
@@ -140,6 +141,20 @@ class UserSessionManager @Inject constructor(
 
     fun markOneHourReminderTriggered(appointmentId: String) {
         prefs.edit().putBoolean("one_hour_reminder_triggered_$appointmentId", true).apply()
+    }
+
+    fun isTwoAheadAlertTriggered(appointmentId: String): Boolean =
+        prefs.getBoolean("two_ahead_alert_triggered_$appointmentId", false)
+
+    fun markTwoAheadAlertTriggered(appointmentId: String) {
+        prefs.edit().putBoolean("two_ahead_alert_triggered_$appointmentId", true).apply()
+    }
+
+    fun isDoctorPresenceAlertSeen(doctorId: String, date: String, isInClinic: Boolean): Boolean =
+        prefs.getBoolean("doc_presence_seen_${doctorId}_${date}_$isInClinic", false)
+
+    fun markDoctorPresenceAlertSeen(doctorId: String, date: String, isInClinic: Boolean) {
+        prefs.edit().putBoolean("doc_presence_seen_${doctorId}_${date}_$isInClinic", true).apply()
     }
 
     fun saveFcmToken(token: String) {
@@ -367,6 +382,53 @@ class UserSessionManager @Inject constructor(
             prefs.edit().putBoolean("show_transaction_failed_banner", false).apply()
         }
         return show
+    }
+
+    data class ConfirmedAppointmentSummary(
+        val appointmentId: String,
+        val trackingCode: String,
+        val clinicName: String,
+        val doctorName: String,
+        val doctorSpecialty: String = "",
+        val patientName: String,
+        val appointmentDate: String,
+        val timeWindow: String
+    )
+
+    fun saveLastConfirmedAppointment(
+        appointmentId: String,
+        trackingCode: String,
+        clinicName: String,
+        doctorName: String,
+        doctorSpecialty: String = "",
+        patientName: String,
+        appointmentDate: String,
+        timeWindow: String
+    ) {
+        prefs.edit()
+            .putString("last_confirmed_appointment_id", appointmentId)
+            .putString("last_confirmed_tracking_code", trackingCode)
+            .putString("last_confirmed_clinic_name", clinicName)
+            .putString("last_confirmed_doctor_name", doctorName)
+            .putString("last_confirmed_doctor_specialty", doctorSpecialty)
+            .putString("last_confirmed_patient_name", patientName)
+            .putString("last_confirmed_appointment_date", appointmentDate)
+            .putString("last_confirmed_time_window", timeWindow)
+            .apply()
+    }
+
+    fun getLastConfirmedAppointment(): ConfirmedAppointmentSummary? {
+        val apptId = prefs.getString("last_confirmed_appointment_id", null) ?: return null
+        return ConfirmedAppointmentSummary(
+            appointmentId = apptId,
+            trackingCode = prefs.getString("last_confirmed_tracking_code", "") ?: "",
+            clinicName = prefs.getString("last_confirmed_clinic_name", "") ?: "",
+            doctorName = prefs.getString("last_confirmed_doctor_name", "") ?: "",
+            doctorSpecialty = prefs.getString("last_confirmed_doctor_specialty", "") ?: "",
+            patientName = prefs.getString("last_confirmed_patient_name", "") ?: "",
+            appointmentDate = prefs.getString("last_confirmed_appointment_date", "") ?: "",
+            timeWindow = prefs.getString("last_confirmed_time_window", "") ?: ""
+        )
     }
 
     fun saveLocalTransactionRecord(record: com.dactor.patient.data.model.PatientTransactionRecord) {

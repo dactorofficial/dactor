@@ -88,6 +88,7 @@ export interface Doctor {
   isInClinic?: boolean
   clinicId?: string
   activeClinicId?: string
+  primaryClinicId?: string
   kycStatus?: string // approved, pending, rejected
   profilePictureUrl?: string
   licenseDocUrl?: string
@@ -96,6 +97,13 @@ export interface Doctor {
   bio?: string
   practitionerRole?: string // doctor or lab_technician
   isLabTechnician?: boolean
+  practicingClinics?: Clinic[]
+}
+
+export interface DoctorHomeItem {
+  doctor: Doctor
+  practicingClinics: Clinic[]
+  hasDocInClinic: boolean
 }
 
 export interface Slot {
@@ -110,6 +118,20 @@ export interface Slot {
   isAvailable?: boolean
   isBreak?: boolean
   isPublished?: boolean
+}
+
+export interface MultiSlotPositionResult {
+  cumulativePosition: number
+  patientsAheadInDay: number
+  positionInSlot: number
+  slotStartTimeText: string
+  slotEndTimeText: string
+  approxAppointmentTimeText: string
+  timeWindowText: string
+  dateLabel: string
+  isToday: boolean
+  isTomorrow: boolean
+  isFutureDate: boolean
 }
 
 export interface ClinicService {

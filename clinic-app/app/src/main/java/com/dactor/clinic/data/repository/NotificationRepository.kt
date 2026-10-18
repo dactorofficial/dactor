@@ -3,6 +3,7 @@ package com.dactor.clinic.data.repository
 import com.dactor.clinic.data.model.DactorNotification
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -15,9 +16,11 @@ class NotificationRepository @Inject constructor(
     suspend fun getNotifications(userId: String? = null): List<DactorNotification> = withContext(Dispatchers.IO) {
         try {
             val list = supabaseClient.postgrest["notifications"]
-                .select()
+                .select {
+                    order("created_at", Order.DESCENDING)
+                    limit(50)
+                }
                 .decodeList<DactorNotification>()
-                .sortedByDescending { it.createdAt }
 
             list.filter { notif ->
                 val audience = notif.targetAudience?.lowercase()

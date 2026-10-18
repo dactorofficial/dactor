@@ -10,7 +10,7 @@ import {
   LifeBuoy,
   Headphones,
 } from 'lucide-react'
-import dactorLogo from '../assets/logo.png'
+import dactorLogo from '../assets/logo.svg'
 
 interface FooterProps {
   onNavigate: (tab: string) => void

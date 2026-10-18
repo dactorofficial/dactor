@@ -273,14 +273,28 @@ CREATE TABLE IF NOT EXISTS lab_reports (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 13. FCM Device Tokens Table
+-- 13. FCM Device Tokens Table (Supports Registered Users & Guest Tracking Codes)
 CREATE TABLE IF NOT EXISTS fcm_tokens (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
     token TEXT NOT NULL,
+    tracking_code VARCHAR(50),
+    patient_mobile VARCHAR(30),
     device_info TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration alters to ensure columns exist on existing databases
+ALTER TABLE fcm_tokens ADD COLUMN IF NOT EXISTS tracking_code VARCHAR(50);
+ALTER TABLE fcm_tokens ADD COLUMN IF NOT EXISTS patient_mobile VARCHAR(30);
+ALTER TABLE fcm_tokens ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- Indexes for ultra-fast token lookups by user, tracking code, or mobile
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_user_id ON fcm_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_tracking_code ON fcm_tokens(tracking_code);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_patient_mobile ON fcm_tokens(patient_mobile);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_token ON fcm_tokens(token);
 
 -- 14. Notifications Table (Supports Super Admin Broadcasts)
 CREATE TABLE IF NOT EXISTS notifications (
@@ -294,6 +308,26 @@ CREATE TABLE IF NOT EXISTS notifications (
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- --------------------------------------------------------
+-- FCM DEVICE TOKENS TABLE (Supports users, guest tracking codes, and mobile)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS fcm_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    token TEXT NOT NULL,
+    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    tracking_code VARCHAR(50),
+    patient_mobile VARCHAR(30),
+    device_info TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT fcm_tokens_token_tracking_unique UNIQUE (token, tracking_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_user_id ON fcm_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_tracking_code ON fcm_tokens(tracking_code);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_patient_mobile ON fcm_tokens(patient_mobile);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_token ON fcm_tokens(token);
 
 -- --------------------------------------------------------
 -- STORED FUNCTIONS: 5-MINUTE ATOMIC SLOT LOCK & RETROACTIVE SYNC
@@ -435,4 +469,8 @@ BEGIN
     RETURN v_deleted_count;
 END;
 $$;
+
+-- Enable Realtime publication for instant notifications delivery
+ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+
 

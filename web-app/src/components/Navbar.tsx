@@ -17,7 +17,7 @@ import {
   Headphones,
   Home,
 } from 'lucide-react'
-import dactorLogo from '../assets/logo.png'
+import dactorLogo from '../assets/logo.svg'
 
 interface NavbarProps {
   activeTab: string

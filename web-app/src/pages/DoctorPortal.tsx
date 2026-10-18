@@ -830,10 +830,15 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
   // Queue Analytics
   const todayDateStr = new Date().toISOString().split('T')[0]
-  const todayAppointments = useMemo(
-    () => appointments.filter((a) => a.appointmentDate === todayDateStr),
-    [appointments, todayDateStr]
-  )
+  const todayAppointments = useMemo(() => {
+    const list = appointments.filter((a) => a.appointmentDate === todayDateStr)
+    return [...list].sort((a, b) => {
+      const aInside = a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside' ? 0 : 1
+      const bInside = b.checkinStatus === 'in_consultation' || b.checkinStatus === 'inside' ? 0 : 1
+      if (aInside !== bInside) return aInside - bInside
+      return (a.appointmentTime || '').localeCompare(b.appointmentTime || '')
+    })
+  }, [appointments, todayDateStr])
   const waitingPatients = useMemo(
     () => todayAppointments.filter((a) => a.checkinStatus === 'waiting'),
     [todayAppointments]

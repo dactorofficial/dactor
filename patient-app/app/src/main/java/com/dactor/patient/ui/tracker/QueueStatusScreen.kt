@@ -83,6 +83,7 @@ fun QueueStatusScreen(
     var clinicType by remember { mutableStateOf("single_visit") }
     var clinicObj by remember { mutableStateOf<Clinic?>(null) }
     var liveTimingEstimate by remember { mutableStateOf<LiveQueueTimingEstimate?>(null) }
+    var multiSlotResult by remember { mutableStateOf<com.dactor.patient.data.repository.MultiSlotPositionResult?>(null) }
 
     var doctorName by remember { mutableStateOf("") }
     var doctorSpecialty by remember { mutableStateOf("") }
@@ -96,6 +97,7 @@ fun QueueStatusScreen(
     var insideAt by remember { mutableStateOf<String?>(null) }
     var currentEpochSecond by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     var isDataLoaded by remember { mutableStateOf(false) }
+    var isAnyoneInsideDoctorCabin by remember { mutableStateOf(false) }
 
     // Automatic alert state: fires once when ≤2 people are ahead in live queue
     var hasTriggeredTwoAheadAlert by remember(appointmentIdOrCode) { mutableStateOf(false) }
@@ -113,7 +115,6 @@ fun QueueStatusScreen(
     var isReportIdentityVerified by remember { mutableStateOf(false) }
     var pendingVerificationAction by remember { mutableStateOf("reschedule") } // "reschedule", "view_report", "download_report"
     var showVerificationDialog by remember { mutableStateOf(false) }
-    var showRescheduleDialog by remember { mutableStateOf(false) }
     var showPrescriptionDialog by remember { mutableStateOf(false) }
     var showLabReportDialog by remember { mutableStateOf(false) }
 
@@ -125,11 +126,7 @@ fun QueueStatusScreen(
     var unlockError by remember { mutableStateOf<String?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
 
-    // Reschedule states
     val today = remember { LocalDate.now().toString() }
-    var rescheduleDate by remember { mutableStateOf(today) }
-    var rescheduleTime by remember { mutableStateOf("10:00") }
-    var rescheduleMessage by remember { mutableStateOf<String?>(null) }
 
     // Confidential data states
     var billingInvoice by remember { mutableStateOf<BillingInvoice?>(null) }
@@ -214,8 +211,6 @@ fun QueueStatusScreen(
                 rawPhone = appt.patientMobile
                 rawEmail = appt.patientEmail ?: ""
                 displayTrackingCode = appt.trackingCode10Digit
-                rescheduleDate = appt.appointmentDate
-                rescheduleTime = appt.appointmentTime
                 isNotFound = false
 
                 // Automatically save tracking code so this device receives alerts even when app is not open
@@ -258,7 +253,7 @@ fun QueueStatusScreen(
                     if (doctor != null) {
                         doctorName = doctor.fullName
                         doctorSpecialty = doctor.specialty ?: "General Physician"
-                        doctorPhotoUrl = doctor.profilePictureUrl
+                        doctorPhotoUrl = doctor.resolvedProfilePictureUrl ?: doctor.profilePictureUrl
                         isDoctorInClinic = doctor.isInClinic ?: true
                     }
                 }
@@ -293,7 +288,7 @@ fun QueueStatusScreen(
 
                 // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
                 var qEntry = queueRepository?.getQueueStatus(appt.id)
-                if (qEntry == null && appt.checkinStatus != "completed" && appt.checkinStatus != "cancelled" && appt.clinicId.isNotBlank()) {
+                if (qEntry == null && appt.checkinStatus != "completed" && appt.checkinStatus != "cancelled" && appt.clinicId.isNotBlank() && appt.appointmentDate == today) {
                     qEntry = queueRepository?.ensureQueueEntryForAppointment(appt.id, appt.clinicId, appt.doctorId)
                 }
                 if (qEntry != null) {
@@ -317,14 +312,44 @@ fun QueueStatusScreen(
                     else -> "waiting"
                 }
 
-                // Count LIVE queue patients ahead (both "waiting" AND "inside" count as ahead)
-                if (appt.clinicId.isNotBlank()) {
+                // Multi-slot cumulative position across the appointment's date
+                val slotResult = queueRepository?.calculateMultiSlotDailyPosition(
+                    clinicId = appt.clinicId,
+                    doctorId = appt.doctorId,
+                    appointmentDate = appt.appointmentDate,
+                    targetAppointmentId = appt.id,
+                    targetSlotId = appt.slotId,
+                    targetAppointmentTime = appt.appointmentTime,
+                    avgConsultationMinutes = clinicAvgTimeMinutes
+                )
+                multiSlotResult = slotResult
+
+                val isFutureOrTomorrow = slotResult?.isFutureDate == true || slotResult?.isTomorrow == true
+
+                // Count queue patients ahead:
+                // For future dates/tomorrow, use multi-slot cumulative day position.
+                // For today, count LIVE queue patients ahead (waiting + inside).
+                if (isFutureOrTomorrow) {
+                    patientsAhead = slotResult?.patientsAheadInDay ?: 0
+                    tokenNumber = slotResult?.cumulativePosition ?: (if (tokenNumber > 0) tokenNumber else 1)
+                } else if (appt.clinicId.isNotBlank()) {
                     val clinicEntries = queueRepository?.getQueueEntriesForClinic(appt.clinicId) ?: emptyList()
                     val myPos = qEntry?.queuePosition ?: tokenNumber
-                    val liveAhead = clinicEntries.count {
-                        (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos
+                    val sortedActive = clinicEntries
+                        .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
+                        .sortedWith(
+                            compareBy<com.dactor.patient.data.model.QueueEntry> { if (it.status == "inside" || it.status == "in_consultation") 0 else 1 }
+                                .thenBy { it.queuePosition }
+                        )
+                    val myIdx = sortedActive.indexOfFirst { it.appointmentId == appt.id || it.id == qEntry?.id }
+                    val liveAhead = when {
+                        qEntry?.status in listOf("inside", "in_consultation") -> 0
+                        myIdx >= 0 -> myIdx
+                        else -> clinicEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
                     }
-                    patientsAhead = liveAhead
+                    patientsAhead = liveAhead.coerceAtLeast(0)
+                    tokenNumber = if (myPos > 0) myPos else (slotResult?.cumulativePosition ?: 1)
+                    isAnyoneInsideDoctorCabin = clinicEntries.any { it.status == "inside" || it.status == "in_consultation" }
 
                     // Real estimated timing calculation using QueueRepository engine
                     val timing = QueueRepository.calculateLiveQueueTimingEstimate(
@@ -372,8 +397,10 @@ fun QueueStatusScreen(
                     }
 
                     // ── Automatic Alert: fire once when ≤2 people ahead in live queue ──
-                    if (liveAhead in 0..2 && queueStatus == "waiting" && !hasTriggeredTwoAheadAlert) {
+                    val alreadyTriggeredTwoAhead = sessionManager?.isTwoAheadAlertTriggered(appt.id) == true || hasTriggeredTwoAheadAlert
+                    if (liveAhead in 0..2 && queueStatus == "waiting" && !alreadyTriggeredTwoAhead) {
                         hasTriggeredTwoAheadAlert = true
+                        sessionManager?.markTwoAheadAlertTriggered(appt.id)
                         try {
                             val alertTitle = if (liveAhead == 0) "You're Next!" else "Almost Your Turn!"
                             val alertMsg = if (liveAhead == 0) {
@@ -381,6 +408,14 @@ fun QueueStatusScreen(
                             } else {
                                 "Dear ${appt.patientName}, only $liveAhead patient${if (liveAhead > 1) "s" else ""} ahead of you at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please be ready."
                             }
+                            com.dactor.patient.service.NotificationHelper.showSystemNotification(
+                                context = context,
+                                id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
+                                title = alertTitle,
+                                message = alertMsg,
+                                appointmentId = appt.id,
+                                type = com.dactor.patient.data.model.NotificationType.ARRIVE_SOON.key
+                            )
                             queueRepository?.insertAutoAlert(
                                 appointmentId = appt.id,
                                 userId = appt.userId,
@@ -479,21 +514,54 @@ fun QueueStatusScreen(
 
     val isSingleVisitClinic = !isMultiVisitClinic && !isLabClinic
 
-    // Hide reschedule option if appointment is completed, or if it is a single-type clinic or diagnostic lab
-    val canReschedule = !isConsultancyCompleted && !isSingleVisitClinic && !isLabClinic
+    // Reschedule option available for single-visit and multi-visit clinics as long as not completed/inside/cancelled/lab
+    val canReschedule = !isConsultancyCompleted &&
+        queueStatus != "inside" &&
+        appointment?.checkinStatus?.lowercase() !in listOf("inside", "in_consultation", "cancelled") &&
+        !isLabClinic
 
-    // Reschedule flow handler: verifies patient before showing date picker
-    fun handleRescheduleClick() {
-        if (!canReschedule) {
-            Toast.makeText(context, "Consultation is completed. Completed appointments cannot be rescheduled.", Toast.LENGTH_SHORT).show()
+    // Reschedule flow handler: saves PendingRescheduleData and navigates directly to interactive calendar
+    fun handleRescheduleClick(targetAppt: Appointment? = null) {
+        val target = targetAppt ?: appointment ?: return
+        val targetStatus = target.checkinStatus.lowercase()
+        val isTargetActive = targetStatus !in listOf("done", "completed", "inside", "in_consultation", "cancelled")
+        val isAllowed = if (targetAppt != null) {
+            isTargetActive && !isLabClinic
+        } else {
+            canReschedule
+        }
+        if (!isAllowed) {
+            Toast.makeText(context, "Consultation is completed or in progress. Cannot be rescheduled.", Toast.LENGTH_SHORT).show()
             return
         }
-        if (!isUnlocked) {
-            pendingVerificationAction = "reschedule"
-            showVerificationDialog = true
-        } else {
-            showRescheduleDialog = true
+        val apptClinicId = target.clinicId.ifBlank { appointment?.clinicId ?: "" }
+        if (apptClinicId.isBlank()) {
+            Toast.makeText(context, "Clinic information not found.", Toast.LENGTH_SHORT).show()
+            return
         }
+        val tCode = target.trackingCode10Digit.ifBlank { appointmentIdOrCode }
+        sessionManager?.savePendingReschedule(
+            com.dactor.patient.data.local.UserSessionManager.PendingRescheduleData(
+                appointmentId = target.id,
+                trackingCode = tCode,
+                clinicId = apptClinicId,
+                doctorId = target.doctorId,
+                patientName = target.patientName,
+                patientMobile = target.patientMobile,
+                patientAge = target.patientAge?.toString() ?: "",
+                patientGender = target.patientGender ?: "Male",
+                patientEmail = target.patientEmail,
+                originalDate = target.appointmentDate,
+                originalTime = target.appointmentTime
+            )
+        )
+        navController.navigate(
+            NavRoutes.Booking.createRoute(
+                clinicId = apptClinicId,
+                doctorId = target.doctorId,
+                rescheduleApptId = target.id
+            )
+        )
     }
     val isSampleProcessing = queueStatus == "processing" ||
         queueStatus == "sample_collected" ||
@@ -871,6 +939,8 @@ fun QueueStatusScreen(
                         modifier = Modifier.padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        val isFutureOrTomorrow = multiSlotResult?.isFutureDate == true || multiSlotResult?.isTomorrow == true
+
                         // Top Token Row: Token Circle + Status Title
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -908,12 +978,14 @@ fun QueueStatusScreen(
                                         val topBadgeLabel = when {
                                             queueStatus == "inside" -> "CURRENT"
                                             queueStatus == "done" -> "VISIT"
+                                            isFutureOrTomorrow -> "LINE NO."
                                             patientsAhead == 0 -> "UP NEXT"
                                             else -> "POSITION"
                                         }
                                         val mainBadgeText = when {
                                             queueStatus == "inside" -> "NOW"
                                             queueStatus == "done" -> "✓"
+                                            isFutureOrTomorrow -> "${multiSlotResult?.cumulativePosition ?: (if (tokenNumber > 0) tokenNumber else 1)}"
                                             patientsAhead >= 0 -> "$patientsAhead"
                                             else -> "—"
                                         }
@@ -946,6 +1018,7 @@ fun QueueStatusScreen(
                                 ) {
                                     Text(
                                         text = when {
+                                            !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow) -> "Loading queue status..."
                                             isLabClinic && isReportReady -> "Status: Prepared"
                                             isLabClinic && isSampleProcessing -> "Status: Processing"
                                             isLabClinic && patientsAhead == 0 -> "Next for Sample Collection!"
@@ -953,7 +1026,10 @@ fun QueueStatusScreen(
                                             isLabClinic -> "Waiting for Sample Collection"
                                             queueStatus == "inside" -> "You are in OPD session"
                                             queueStatus == "done" -> "Consultation completed"
+                                            isFutureOrTomorrow && patientsAhead == 0 -> "1st in line for ${multiSlotResult?.dateLabel ?: "visit"}"
+                                            isFutureOrTomorrow -> "$patientsAhead patients ahead for ${multiSlotResult?.dateLabel ?: "visit"}"
                                             patientsAhead == 0 -> "You're next in line"
+                                            patientsAhead == 1 && isAnyoneInsideDoctorCabin -> "Doctor is consulting with a patient • You are up next"
                                             else -> "$patientsAhead patients ahead"
                                         },
                                         fontSize = 17.sp,
@@ -990,14 +1066,16 @@ fun QueueStatusScreen(
                                 }
                                 Text(
                                     text = when {
+                                        !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow) -> "Syncing queue details with clinic..."
                                         isLabClinic && isReportReady -> "Report Prepared • Verify Name/Phone to View"
                                         isLabClinic && isSampleProcessing -> "Sample Collected • Processing in Lab"
                                         isLabClinic && patientsAhead == 0 -> "Proceed for sample collection"
                                         queueStatus == "inside" -> "With doctor in consultation room"
                                         queueStatus == "done" -> "Thank you for visiting"
+                                        isFutureOrTomorrow -> "Scheduled for ${multiSlotResult?.dateLabel ?: "visit"} • Approx. ${multiSlotResult?.approxAppointmentTimeText ?: ""}"
                                         !liveTimingEstimate?.slotNoticeText.isNullOrBlank() -> liveTimingEstimate!!.slotNoticeText
                                         patientsAhead == 0 -> "0 patients ahead in line • Stay close to the clinic"
-                                        else -> "$patientsAhead ahead in line • Est. wait: ~${patientsAhead * clinicAvgTimeMinutes} mins"
+                                        else -> "$patientsAhead ahead in line • Est. wait: ~${(patientsAhead * clinicAvgTimeMinutes).coerceAtLeast(0)} mins (±15 min)"
                                     },
                                     fontSize = 13.sp,
                                     color = Color(0xFF64748B)
@@ -1203,14 +1281,39 @@ fun QueueStatusScreen(
                                                 fontWeight = FontWeight.Medium
                                             )
                                         }
+                                        val resolvedSlotTime = when {
+                                            !multiSlotResult?.slotStartTimeText.isNullOrBlank() -> {
+                                                val sTime = multiSlotResult!!.slotStartTimeText
+                                                if (isFutureOrTomorrow) {
+                                                    "${multiSlotResult!!.dateLabel}, $sTime (±15 min)"
+                                                } else {
+                                                    "$sTime (±15 min)"
+                                                }
+                                            }
+                                            !appointment?.appointmentTime.isNullOrBlank() -> {
+                                                val rawTime = appointment!!.appointmentTime
+                                                if (isFutureOrTomorrow) {
+                                                    "${multiSlotResult?.dateLabel ?: "Scheduled"}, $rawTime (±15 min)"
+                                                } else {
+                                                    "$rawTime (±15 min)"
+                                                }
+                                            }
+                                            isDataLoaded && appointment?.isWalkin == true -> "Live Turn"
+                                            isDataLoaded -> if (isFutureOrTomorrow) "${multiSlotResult?.dateLabel ?: "Tomorrow"}, 9:00 AM (±15 min)" else "09:00 AM (±15 min)"
+                                            else -> "Loading..."
+                                        }
+
                                         Text(
-                                            text = appointment?.appointmentTime?.takeIf { it.isNotBlank() } ?: if (isDataLoaded) "Live Turn" else "Loading...",
-                                            fontSize = 17.sp,
+                                            text = resolvedSlotTime,
+                                            fontSize = if (resolvedSlotTime.length > 20) 13.5.sp else 15.5.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF0F172A)
+                                            color = Color(0xFF0F172A),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            lineHeight = 17.sp
                                         )
                                         Text(
-                                            text = if (appointment?.appointmentTime.isNullOrBlank()) "Real-time queue" else "Booked window",
+                                            text = if (appointment?.isWalkin == true) "Real-time queue" else if (isFutureOrTomorrow) "Scheduled slot" else "Booked window",
                                             fontSize = 11.5.sp,
                                             color = Color(0xFF64748B)
                                         )
@@ -1225,16 +1328,22 @@ fun QueueStatusScreen(
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     val timing = liveTimingEstimate
-                                    val displayWait = timing?.estimatedTimeLeftText?.takeIf { it.isNotBlank() }
-                                        ?: (if (patientsAhead > 0) "~${patientsAhead * clinicAvgTimeMinutes} min" else "< 5 min")
-                                    val isArriveFast = displayWait.contains("Arrive Fast", ignoreCase = true) ||
+                                    val displayWait = when {
+                                        isFutureOrTomorrow && !multiSlotResult?.approxAppointmentTimeText.isNullOrBlank() -> {
+                                            multiSlotResult!!.approxAppointmentTimeText
+                                        }
+                                        else -> timing?.estimatedTimeLeftText?.takeIf { it.isNotBlank() }
+                                            ?: (if (patientsAhead > 0) "~${patientsAhead * clinicAvgTimeMinutes} min" else "< 5 min")
+                                    }
+                                    val isArriveFast = !isFutureOrTomorrow && (displayWait.contains("Arrive Fast", ignoreCase = true) ||
                                         timing?.expectedExactTimeText?.contains("arrive fast", ignoreCase = true) == true ||
-                                        (patientsAhead == 0 && timing?.estimatedTimeLeftText?.contains("Arrive Fast", ignoreCase = true) == true)
+                                        (patientsAhead == 0 && timing?.estimatedTimeLeftText?.contains("Arrive Fast", ignoreCase = true) == true))
                                     val displayWindow = when {
+                                        isFutureOrTomorrow && !multiSlotResult?.timeWindowText.isNullOrBlank() -> multiSlotResult!!.timeWindowText
                                         isArriveFast -> "Your turn, arrive fast"
                                         !timing?.timeWindowText.isNullOrBlank() -> timing!!.timeWindowText
                                         !timing?.approxTimeText.isNullOrBlank() -> timing!!.approxTimeText
-                                        !timing?.expectedExactTimeText.isNullOrBlank() && timing.expectedExactTimeText != "Soon, be ready" -> "Approx. ${timing.expectedExactTimeText}"
+                                        !timing?.expectedExactTimeText.isNullOrBlank() && timing.expectedExactTimeText != "Soon, be ready" -> "Approx. ${timing.expectedExactTimeText} (±15 min)"
                                         patientsAhead == 0 -> "You're next in line"
                                         else -> "In active queue"
                                     }
@@ -1254,7 +1363,7 @@ fun QueueStatusScreen(
                                                 modifier = Modifier.size(15.dp)
                                             )
                                             Text(
-                                                text = if (timing?.canOfferEarlyArrival == true) "Doctor Free Early" else "Expected window",
+                                                text = if (timing?.canOfferEarlyArrival == true) "Doctor Free Early" else if (isFutureOrTomorrow) "Scheduled window" else "Expected window",
                                                 fontSize = 12.sp,
                                                 color = if (timing?.canOfferEarlyArrival == true) Color(0xFF16A34A) else Color(0xFF0284C7),
                                                 fontWeight = FontWeight.Bold
@@ -1262,14 +1371,20 @@ fun QueueStatusScreen(
                                         }
                                         Text(
                                             text = displayWait,
-                                            fontSize = 17.sp,
+                                            fontSize = if (displayWait.length > 20) 13.5.sp else 15.5.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (timing?.canOfferEarlyArrival == true) Color(0xFF15803D) else Color(0xFF0284C7)
+                                            color = if (timing?.canOfferEarlyArrival == true) Color(0xFF15803D) else Color(0xFF0284C7),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            lineHeight = 17.sp
                                         )
                                         Text(
                                             text = displayWindow,
                                             fontSize = 11.5.sp,
-                                            color = Color(0xFF64748B)
+                                            color = Color(0xFF64748B),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            lineHeight = 14.sp
                                         )
                                     }
                                 }
@@ -1885,18 +2000,30 @@ fun QueueStatusScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF0D9488),
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.Add,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(22.dp)
-                                    )
+                            val clinicPhoto = clinicObj?.resolvedLogoUrl ?: clinicObj?.resolvedCoverPictureUrl
+                            if (!clinicPhoto.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = clinicPhoto,
+                                    contentDescription = clinicName,
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(10.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF0D9488),
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.Add,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
                                 }
                             }
 
@@ -2831,9 +2958,7 @@ fun QueueStatusScreen(
                                                     } else if (!isItemCompleted && itemStatus != "cancelled") {
                                                         OutlinedButton(
                                                             onClick = {
-                                                                rescheduleDate = apptItem.appointmentDate
-                                                                rescheduleTime = apptItem.appointmentTime
-                                                                handleRescheduleClick()
+                                                                handleRescheduleClick(apptItem)
                                                             },
                                                             shape = RoundedCornerShape(10.dp),
                                                             border = BorderStroke(1.dp, Color(0xFF0284C7)),
@@ -3198,7 +3323,7 @@ fun QueueStatusScreen(
                             when (pendingVerificationAction) {
                                 "view_report" -> showLabReportDialog = true
                                 "download_report" -> triggerDirectReportDownload()
-                                else -> showRescheduleDialog = true
+                                else -> handleRescheduleClick()
                             }
                         } else {
                             failedAttempts++
@@ -3228,124 +3353,6 @@ fun QueueStatusScreen(
         )
     }
 
-    // =========================================================================
-    // MODAL DIALOG 2: RESCHEDULE DATE & TIME PICKER ("HIDE FROM EVERYWHERE")
-    // =========================================================================
-    if (showRescheduleDialog) {
-        AlertDialog(
-            onDismissRequest = { showRescheduleDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.EditCalendar, contentDescription = null, tint = Color(0xFF0D5C4D))
-                    Text("Reschedule Appointment", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Choose a new appointment date and time slot. Your current token will be released from today's live queue immediately.",
-                        fontSize = 12.sp,
-                        color = Color(0xFF475569)
-                    )
-
-                    if (rescheduleMessage != null) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFD1FAE5),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = rescheduleMessage ?: "",
-                                fontSize = 11.sp,
-                                color = Color(0xFF065F46),
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                    }
-
-                    // Date selector field
-                    OutlinedTextField(
-                        value = rescheduleDate,
-                        onValueChange = { rescheduleDate = it },
-                        label = { Text("New Date (YYYY-MM-DD)") },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    DateTimePickers.showDatePicker(context, rescheduleDate) { picked ->
-                                        rescheduleDate = picked
-                                    }
-                                }
-                            ) {
-                                Icon(Icons.Default.CalendarMonth, contentDescription = "Pick Date", tint = Color(0xFF0D5C4D))
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    // Time selector field
-                    OutlinedTextField(
-                        value = rescheduleTime,
-                        onValueChange = { rescheduleTime = it },
-                        label = { Text("Slot Time (HH:MM)") },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    DateTimePickers.showClockTimePicker(context, rescheduleTime) { picked ->
-                                        rescheduleTime = picked
-                                    }
-                                }
-                            ) {
-                                Icon(Icons.Default.Schedule, contentDescription = "Pick Time", tint = Color(0xFF0D5C4D))
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val appt = appointment ?: return@Button
-                        coroutineScope.launch {
-                            isProcessing = true
-                            // 1. Update appointment in Supabase
-                            val ok = appointmentRepository?.rescheduleAppointment(appt.id, rescheduleDate.trim(), rescheduleTime.trim()) ?: false
-                            // 2. Hide / delete from today's live queue so token no longer appears in current line
-                            queueRepository?.removeOrCancelQueueEntry(appt.id)
-
-                            if (ok) {
-                                rescheduleMessage = "✓ Successfully rescheduled to $rescheduleDate at $rescheduleTime."
-                                refreshData()
-                                Toast.makeText(context, "Rescheduled to $rescheduleDate at $rescheduleTime. Removed from today's queue.", Toast.LENGTH_LONG).show()
-                                delay(1200)
-                                showRescheduleDialog = false
-                            } else {
-                                rescheduleMessage = "Error updating appointment. Please try again."
-                            }
-                            isProcessing = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D5C4D)),
-                    shape = RoundedCornerShape(10.dp),
-                    enabled = !isProcessing
-                ) {
-                    if (isProcessing) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Text("Confirm Reschedule", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRescheduleDialog = false }) {
-                    Text("Cancel", fontSize = 12.sp)
-                }
-            }
-        )
-    }
 
     // =========================================================================
     // MODAL DIALOG 3: IN-APP DIGITAL LAB REPORT VIEWER (PDF & PICTURE SUPPORT)

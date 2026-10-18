@@ -136,7 +136,6 @@ object BillPdfDownloader {
                 (appointment.feeAmount ?: 0.0) > 0.0 -> appointment.feeAmount ?: 0.0
                 else -> 0.0
             }
-            val balanceLeft = (effectiveTotal - effectivePaid).coerceAtLeast(0.0)
 
             val logSource = when {
                 invoice?.remarks?.contains("<!--PAYMENT_LOG_START-->") == true -> invoice.remarks

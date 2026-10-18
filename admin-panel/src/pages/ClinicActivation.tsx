@@ -385,15 +385,53 @@ export default function ClinicActivation() {
     if (!activeModalClinic || !notifyTitle.trim() || !notifyMessage.trim()) return
     setSendingNotification(true)
     try {
-      await supabase.from('notifications').insert([{
-        title: notifyTitle.trim(),
-        message: notifyMessage.trim(),
+      const clinicId = activeModalClinic.id
+      const cleanTitle = notifyTitle.trim()
+      const cleanMessage = notifyMessage.trim()
+      const notifsToInsert: any[] = [{
+        title: cleanTitle,
+        message: cleanMessage,
         type: 'activation_alert',
         target_audience: 'specific',
-        user_id: activeModalClinic.id,
+        user_id: clinicId,
         is_read: false,
         created_at: new Date().toISOString()
-      }])
+      }]
+
+      // Also lookup any associated profiles by clinic contact email / phone so mobile sessions signed in via personal profile also receive it
+      const email = activeModalClinic.contact_email?.trim()
+      const phone = activeModalClinic.contact_phone?.trim()
+      if (email || phone) {
+        try {
+          const conditions: string[] = []
+          if (email) conditions.push(`email.eq.${email}`)
+          if (phone) conditions.push(`phone.eq.${phone}`)
+          const { data: matchedProfiles } = await supabase
+            .from('profiles')
+            .select('id')
+            .or(conditions.join(','))
+
+          if (matchedProfiles && matchedProfiles.length > 0) {
+            for (const prof of matchedProfiles) {
+              if (prof.id && prof.id !== clinicId) {
+                notifsToInsert.push({
+                  title: cleanTitle,
+                  message: cleanMessage,
+                  type: 'activation_alert',
+                  target_audience: 'specific',
+                  user_id: prof.id,
+                  is_read: false,
+                  created_at: new Date().toISOString()
+                })
+              }
+            }
+          }
+        } catch (profileErr) {
+          console.warn('Profile lookup for clinic notification:', profileErr)
+        }
+      }
+
+      await supabase.from('notifications').insert(notifsToInsert)
       setNotifySuccess(true)
       setTimeout(() => {
         setModalType(null)
