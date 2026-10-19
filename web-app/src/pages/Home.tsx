@@ -31,7 +31,16 @@ import {
   Zap,
 } from 'lucide-react'
 import { Clinic, Doctor, DoctorHomeItem } from '../types'
-import { getClinics, getDoctors, resolveClinicCoverUrl, linkDoctorsWithClinics } from '../services/db'
+import {
+  getClinics,
+  getDoctors,
+  resolveClinicCoverUrl,
+  linkDoctorsWithClinics,
+  getCityLocations,
+  DEFAULT_NEPAL_CITIES,
+  getLoggedInUserSession,
+} from '../services/db'
+import { supabase } from '../lib/supabase'
 import { matchClinic, matchDoctor } from '../utils/searchEngine'
 import { updatePageSEO } from '../utils/seo'
 import dactorLogo from '../assets/logo.svg'
@@ -42,23 +51,6 @@ interface HomeProps {
   onOpenReportModal: (code?: string) => void
 }
 
-// Major Nepal cities & districts matching real Android app
-const NEPAL_MAJOR_LOCATIONS = [
-  'All Nepal',
-  'Kathmandu',
-  'Lalitpur',
-  'Bhaktapur',
-  'Pokhara',
-  'Janakpur',
-  'Biratnagar',
-  'Birgunj',
-  'Dharan',
-  'Chitwan',
-  'Butwal',
-  'Nepalgunj',
-  'Hetauda',
-  'Dhangadhi',
-]
 
 // Common department / symptom chips from real app
 const SPECIALTY_CHIPS = [
@@ -87,7 +79,8 @@ export const Home: React.FC<HomeProps> = ({
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Location selector state
+  // Location selector state (synced with Supabase database & Admin Panel)
+  const [locationOptions, setLocationOptions] = useState<string[]>(DEFAULT_NEPAL_CITIES)
   const [selectedLocation, setSelectedLocation] = useState('All Nepal')
   const [showLocationDropdown, setShowLocationDropdown] = useState(false)
 
@@ -130,12 +123,35 @@ export const Home: React.FC<HomeProps> = ({
     return list
   }, [today])
 
+  // Auto-redirect logged-in users to their respective portal unless intentionally viewing landing page
+  useEffect(() => {
+    try {
+      if (
+        sessionStorage.getItem('dactor_explicit_home') === 'true' ||
+        sessionStorage.getItem('dactor_allow_home') === 'true'
+      ) {
+        return
+      }
+      const session = getLoggedInUserSession()
+      if (session) {
+        onNavigate(session.portalTab)
+      }
+    } catch {}
+  }, [onNavigate])
+
   useEffect(() => {
     async function loadData() {
       try {
-        const [cList, dList] = await Promise.all([getClinics(), getDoctors()])
+        const [cList, dList, cityList] = await Promise.all([
+          getClinics(),
+          getDoctors(),
+          getCityLocations(),
+        ])
         setClinics(cList.filter((c) => !c.isArchived))
         setDoctors(dList)
+        if (cityList && cityList.length > 0) {
+          setLocationOptions(cityList)
+        }
       } catch (err) {
         console.error('Failed to load clinics & doctors', err)
       } finally {
@@ -148,6 +164,42 @@ export const Home: React.FC<HomeProps> = ({
       description: "Search verified specialist doctors, polyclinics, and diagnostic pathology labs in Nepal. Book doctor appointments online, track live token queue status in real time, and download certified medical test reports.",
     })
   }, [])
+
+  // Live real-time listener: when admin panel adds or deletes cities in medical_qualifications, update dropdown immediately
+  useEffect(() => {
+    const channel = supabase
+      .channel('home_realtime_cities')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'medical_qualifications',
+        },
+        async () => {
+          try {
+            const freshCities = await getCityLocations()
+            if (freshCities && freshCities.length > 0) {
+              setLocationOptions(freshCities)
+            }
+          } catch (e) {
+            console.warn('Realtime location update error:', e)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  // Auto-fallback to 'All Nepal' if currently selected city was deleted by admin
+  useEffect(() => {
+    if (selectedLocation !== 'All Nepal' && !locationOptions.includes(selectedLocation)) {
+      setSelectedLocation('All Nepal')
+    }
+  }, [locationOptions, selectedLocation])
 
   const handleTrackSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -351,7 +403,7 @@ export const Home: React.FC<HomeProps> = ({
                     Select City / Region
                   </div>
                   <div className="max-h-60 overflow-y-auto">
-                    {NEPAL_MAJOR_LOCATIONS.map((loc) => (
+                    {locationOptions.map((loc) => (
                       <button
                         key={loc}
                         type="button"
@@ -504,7 +556,7 @@ export const Home: React.FC<HomeProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onNavigate('clinic-portal')}
+                  onClick={() => onNavigate('portal')}
                   className="px-4 py-2.5 liquid-glass-subtle hover:bg-white/90 text-indigo-700 border border-indigo-200 font-bold rounded-2xl text-xs sm:text-sm shadow-glass-sm flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
                 >
                   <Building2 className="w-4 h-4 text-indigo-600" />

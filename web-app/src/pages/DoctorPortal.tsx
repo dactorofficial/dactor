@@ -365,6 +365,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       localStorage.setItem('dactor_doctor_session', JSON.stringify(doctor))
       localStorage.setItem('dactor_doctor_email', doctor.email || '')
       localStorage.setItem('dactor_doctor_logged_in', 'true')
+      try {
+        sessionStorage.removeItem('dactor_explicit_home')
+        sessionStorage.removeItem('dactor_allow_home')
+      } catch {}
       window.dispatchEvent(new Event('storage'))
     } catch {}
   }
@@ -552,7 +556,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         isInClinic: true,
       }
 
-      setRegStatusMsg('Saving verified practitioner KYC to Supabase...')
+      setRegStatusMsg('Saving verified practitioner KYC...')
       const created = await createDoctor(payload)
       if (!created) throw new Error('Failed to create doctor profile.')
 
@@ -1456,7 +1460,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               {submittingReg ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Submitting KYC to Supabase...</span>
+                  <span>Submitting KYC...</span>
                 </>
               ) : (
                 <>
@@ -2336,7 +2340,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             {profileSaveSuccess && (
               <div className="p-3 liquid-glass-subtle text-emerald-800 dark:text-emerald-200 font-bold text-xs rounded-xl flex items-center space-x-2 border border-emerald-500/30">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Profile updated successfully in Supabase!</span>
+                <span>Profile updated successfully!</span>
               </div>
             )}
 
@@ -2348,7 +2352,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               {savingProfile ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Saving to Supabase...</span>
+                  <span>Saving changes...</span>
                 </>
               ) : (
                 <>

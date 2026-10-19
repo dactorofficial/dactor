@@ -1003,7 +1003,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         setConfirmedAppt({ ...created, paymentStatus: payStatus })
         setShowBookingModal(false)
       } else {
-        alert('Could not create appointment in Supabase. Please check your internet connection.')
+        alert('Could not create appointment. Please check your internet connection.')
       }
     } catch (err) {
       console.error('Error creating booking:', err)
@@ -1077,7 +1077,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
         <div className="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-slate-600 font-bold">Loading live clinic profile from Supabase...</p>
+        <p className="text-slate-600 font-bold">Loading live clinic profile...</p>
       </div>
     )
   }
@@ -1693,7 +1693,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       {isLookingUpCode && (
                         <div className="flex items-center space-x-2 text-xs text-emerald-700 dark:text-emerald-400">
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Looking up previous appointment details in Supabase...</span>
+                          <span>Looking up previous appointment details...</span>
                         </div>
                       )}
 
@@ -2389,7 +2389,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
               <div>
                 <h2 className="text-xl font-black text-slate-900 dark:text-white">Select Diagnostic Tests</h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                  Check individual tests to assemble your test profile. All prices are synced live from Supabase.
+                  Check individual tests to assemble your test profile. All prices are synced live.
                 </p>
               </div>
               <span className="text-xs font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 border border-teal-500/20 px-3 py-1 rounded-full">
@@ -3018,7 +3018,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                       >
                         {submitting
                           ? isReschedule
-                            ? 'Shifting Appointment in Supabase...'
+                            ? 'Shifting Appointment...'
                             : 'Issuing Free Follow-Up Token...'
                           : isReschedule
                           ? 'Confirm Rescheduled Appointment'

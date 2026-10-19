@@ -17,9 +17,40 @@ import { NotFound } from './pages/NotFound'
 import { LiveTrackerModal } from './components/LiveTrackerModal'
 import { LabReportModal } from './components/LabReportModal'
 import { NotificationModal } from './components/NotificationModal'
-import { getPatientNotifications, getDoctorById } from './services/db'
+import { getPatientNotifications, getDoctorById, getLoggedInUserSession } from './services/db'
 import { supabase } from './lib/supabase'
 import { LiquidAuroraBackground } from './components/glass'
+
+// Helper to normalize tab aliases to canonical router views
+export const normalizeTab = (tab: string): string => {
+  const clean = (tab || '').toLowerCase().trim()
+  if (
+    clean === 'portal' ||
+    clean === 'clinic-portal' ||
+    clean === 'admin-portal' ||
+    clean === 'clinic' ||
+    clean === 'tickets' ||
+    clean === 'admin-tickets' ||
+    clean === 'helpdesk-admin' ||
+    clean === 'admin'
+  ) {
+    return 'portal'
+  }
+  if (clean === 'doctor' || clean === 'doctor-portal' || clean === 'practitioner') {
+    return 'doctor-portal'
+  }
+  if (
+    clean === 'patient' ||
+    clean === 'patient-portal' ||
+    clean === 'my-health' ||
+    clean === 'book' ||
+    clean === 'booking' ||
+    clean === 'book-appointment'
+  ) {
+    return 'patient-portal'
+  }
+  return clean
+}
 
 // Helper to determine initial tab from URL hash, path, or query
 const getTabFromUrl = (): string => {
@@ -136,8 +167,37 @@ const getTabFromUrl = (): string => {
   return '404'
 }
 
+// Helper to determine active starting tab, auto-redirecting logged-in users to their respective portal
+export const getInitialTab = (): string => {
+  const tab = getTabFromUrl()
+  if (tab !== 'home') {
+    return normalizeTab(tab)
+  }
+
+  // Check if user explicitly requested to view the landing page in this tab session
+  try {
+    const params = new URLSearchParams(window.location.search)
+    if (
+      params.get('stay') === 'home' ||
+      params.get('view') === 'home' ||
+      sessionStorage.getItem('dactor_explicit_home') === 'true' ||
+      sessionStorage.getItem('dactor_allow_home') === 'true'
+    ) {
+      return 'home'
+    }
+  } catch {}
+
+  // Auto-redirect logged-in users upon initial load to their respective portal
+  const session = getLoggedInUserSession()
+  if (session) {
+    return session.portalTab
+  }
+
+  return 'home'
+}
+
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<string>(() => getTabFromUrl())
+  const [activeTab, setActiveTab] = useState<string>(() => getInitialTab())
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(() => {
     try {
       const p = new URLSearchParams(window.location.search)
@@ -210,46 +270,73 @@ export const App: React.FC = () => {
   // Isolated Authentication State per Active Portal Tab
   const getTabAuthState = (tab: string) => {
     try {
-      if (tab === 'portal') {
-        const isClinic = localStorage.getItem('dactor_clinic_logged_in') === 'true'
-        const email = localStorage.getItem('dactor_clinic_email') || null
+      const normalized = normalizeTab(tab)
+      if (normalized === 'portal') {
+        const hasClinicPending = Boolean(localStorage.getItem('dactor_pending_verification'))
+        const isClinic = localStorage.getItem('dactor_clinic_logged_in') === 'true' || hasClinicPending
+        let email = localStorage.getItem('dactor_clinic_email') || null
+        if (!email && hasClinicPending) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem('dactor_pending_verification')!)
+            email = parsed?.email || null
+          } catch {}
+        }
         return {
           isLoggedIn: isClinic,
           currentUserEmail: isClinic ? email : null,
           authRole: isClinic ? ('clinic_manager' as const) : null,
         }
       }
-      if (tab === 'doctor-portal') {
+      if (normalized === 'doctor-portal') {
+        const hasDocPending = Boolean(localStorage.getItem('dactor_doctor_pending_kyc'))
         const isDoc =
-          localStorage.getItem('dactor_doctor_logged_in') === 'true' &&
-          Boolean(localStorage.getItem('dactor_doctor_session'))
-        const email = localStorage.getItem('dactor_doctor_email') || null
+          (localStorage.getItem('dactor_doctor_logged_in') === 'true' &&
+            (Boolean(localStorage.getItem('dactor_doctor_session')) || Boolean(localStorage.getItem('dactor_doctor_email')))) ||
+          hasDocPending
+        let email = localStorage.getItem('dactor_doctor_email') || null
+        if (!email && hasDocPending) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem('dactor_doctor_pending_kyc')!)
+            email = parsed?.email || null
+          } catch {}
+        }
+        if (!email && localStorage.getItem('dactor_doctor_session')) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem('dactor_doctor_session')!)
+            email = parsed?.email || null
+          } catch {}
+        }
         return {
           isLoggedIn: isDoc,
           currentUserEmail: isDoc ? email : null,
           authRole: isDoc ? ('doctor' as const) : null,
         }
       }
-      if (tab === 'patient-portal' || tab === 'records' || tab === 'account') {
+      if (normalized === 'patient-portal' || normalized === 'records' || normalized === 'account') {
         const isPat =
           localStorage.getItem('dactor_patient_logged_in') === 'true' ||
-          Boolean(localStorage.getItem('dactor_patient_session'))
-        const email = localStorage.getItem('dactor_patient_email') || null
+          Boolean(localStorage.getItem('dactor_patient_session')) ||
+          Boolean(localStorage.getItem('dactor_patient_email'))
+        let email = localStorage.getItem('dactor_patient_email') || null
+        if (!email && localStorage.getItem('dactor_patient_session')) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem('dactor_patient_session')!)
+            email = parsed?.email || null
+          } catch {}
+        }
         return {
           isLoggedIn: isPat,
           currentUserEmail: isPat ? email : null,
           authRole: isPat ? ('patient' as const) : null,
         }
       }
-      // Public browsing tabs: associate with patient session if active
-      const isPat =
-        localStorage.getItem('dactor_patient_logged_in') === 'true' ||
-        Boolean(localStorage.getItem('dactor_patient_session'))
-      if (isPat) {
+      // Public browsing tabs (home, clinics, support, etc.): check active session across all roles
+      const session = getLoggedInUserSession()
+      if (session) {
         return {
           isLoggedIn: true,
-          currentUserEmail: localStorage.getItem('dactor_patient_email') || null,
-          authRole: 'patient' as const,
+          currentUserEmail: session.email,
+          authRole: session.role,
         }
       }
       return { isLoggedIn: false, currentUserEmail: null, authRole: null }
@@ -258,7 +345,7 @@ export const App: React.FC = () => {
     }
   }
 
-  const initialTabAuth = getTabAuthState(getTabFromUrl())
+  const initialTabAuth = getTabAuthState(getInitialTab())
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(initialTabAuth.isLoggedIn)
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(initialTabAuth.currentUserEmail)
   const [authRole, setAuthRole] = useState<'clinic_manager' | 'doctor' | 'patient' | null>(initialTabAuth.authRole)
@@ -290,10 +377,37 @@ export const App: React.FC = () => {
     } catch {}
   }
 
+  // Initial URL hash synchronization for auto-redirected portal tabs
+  useEffect(() => {
+    if (activeTab !== 'home' && (!window.location.hash || window.location.hash === '#home' || window.location.hash === '#/')) {
+      const session = getLoggedInUserSession()
+      if (session && activeTab === session.portalTab) {
+        try {
+          const url = new URL(window.location.href)
+          url.searchParams.delete('tab')
+          url.searchParams.delete('page')
+          window.history.replaceState({}, '', url.toString())
+        } catch {}
+        window.location.hash = `#${activeTab}`
+      }
+    }
+  }, [])
+
   // Sync with browser URL hash & Supabase realtime notifications
   useEffect(() => {
     const handleHashChange = () => {
-      const tab = getTabFromUrl()
+      const rawTab = getTabFromUrl()
+      if (rawTab === 'home') {
+        const allowHome =
+          sessionStorage.getItem('dactor_explicit_home') === 'true' ||
+          sessionStorage.getItem('dactor_allow_home') === 'true'
+        const session = getLoggedInUserSession()
+        if (session && !allowHome) {
+          handleNavigate(session.portalTab)
+          return
+        }
+      }
+      const tab = normalizeTab(rawTab)
       setActiveTab(tab)
       const st = getTabAuthState(tab)
       setIsLoggedIn(st.isLoggedIn)
@@ -304,6 +418,17 @@ export const App: React.FC = () => {
     const syncAuth = () => {
       try {
         const currentTab = getTabFromUrl()
+        const allowHome =
+          sessionStorage.getItem('dactor_explicit_home') === 'true' ||
+          sessionStorage.getItem('dactor_allow_home') === 'true'
+        const session = getLoggedInUserSession()
+
+        // Auto-redirect to respective portal if on landing page without explicit override
+        if (session && currentTab === 'home' && !allowHome) {
+          handleNavigate(session.portalTab)
+          return
+        }
+
         const st = getTabAuthState(currentTab)
         setIsLoggedIn(st.isLoggedIn)
         setCurrentUserEmail(st.currentUserEmail)
@@ -348,7 +473,23 @@ export const App: React.FC = () => {
 
   // Navigation handler with deep link support
   const handleNavigate = (tab: string, params?: any) => {
-    if (tab === 'clinic-detail' && (params?.clinicId || selectedClinicId)) {
+    const targetTab = normalizeTab(tab)
+
+    if (targetTab === 'home') {
+      if (params?.intentionalHome) {
+        try {
+          sessionStorage.setItem('dactor_explicit_home', 'true')
+          sessionStorage.setItem('dactor_allow_home', 'true')
+        } catch {}
+      }
+    } else {
+      try {
+        sessionStorage.removeItem('dactor_explicit_home')
+        sessionStorage.removeItem('dactor_allow_home')
+      } catch {}
+    }
+
+    if (targetTab === 'clinic-detail' && (params?.clinicId || selectedClinicId)) {
       const cId = params?.clinicId || selectedClinicId
       setSelectedClinicId(cId)
       if (params?.doctorId !== undefined) {
@@ -391,31 +532,31 @@ export const App: React.FC = () => {
       return
     }
 
-    if (tab === 'clinics' && params?.filter) {
+    if (targetTab === 'clinics' && params?.filter) {
       setClinicFilter(params.filter)
     }
 
-    setActiveTab(tab)
-    const nextAuth = getTabAuthState(tab)
+    setActiveTab(targetTab)
+    const nextAuth = getTabAuthState(targetTab)
     setIsLoggedIn(nextAuth.isLoggedIn)
     setCurrentUserEmail(nextAuth.currentUserEmail)
     setAuthRole(nextAuth.authRole)
 
     try {
       const url = new URL(window.location.href)
-      if (tab === 'home') {
+      if (targetTab === 'home') {
         url.search = ''
       } else {
         url.searchParams.delete('clinic')
         url.searchParams.delete('doctor')
         url.searchParams.delete('action')
-        url.searchParams.set('tab', tab)
+        url.searchParams.set('tab', targetTab)
       }
       window.history.pushState({}, '', url.toString())
     } catch {}
 
-    if (window.location.hash !== `#${tab}`) {
-      window.location.hash = `#${tab}`
+    if (window.location.hash !== `#${targetTab}`) {
+      window.location.hash = `#${targetTab}`
     }
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -423,11 +564,15 @@ export const App: React.FC = () => {
   // Handle logout
   const handleLogout = () => {
     try {
-      if (activeTab === 'portal') {
+      const activeSession = getLoggedInUserSession()
+      const roleToLogout = authRole || activeSession?.role
+
+      if (roleToLogout === 'clinic_manager' || activeTab === 'portal') {
         localStorage.removeItem('dactor_clinic_logged_in')
         localStorage.removeItem('dactor_clinic_email')
         localStorage.removeItem('dactor_clinic_role')
-      } else if (activeTab === 'doctor-portal') {
+        localStorage.removeItem('dactor_pending_verification')
+      } else if (roleToLogout === 'doctor' || activeTab === 'doctor-portal') {
         localStorage.removeItem('dactor_doctor_session')
         localStorage.removeItem('dactor_doctor_email')
         localStorage.removeItem('dactor_doctor_logged_in')
@@ -437,6 +582,11 @@ export const App: React.FC = () => {
         localStorage.removeItem('dactor_patient_email')
         localStorage.removeItem('dactor_patient_logged_in')
       }
+      try {
+        sessionStorage.removeItem('dactor_explicit_home')
+        sessionStorage.removeItem('dactor_allow_home')
+      } catch {}
+
       const st = getTabAuthState(activeTab)
       setIsLoggedIn(st.isLoggedIn)
       setCurrentUserEmail(st.currentUserEmail)
@@ -465,7 +615,7 @@ export const App: React.FC = () => {
     <LiquidAuroraBackground>
       <Navbar
         activeTab={activeTab}
-        setActiveTab={(tab) => handleNavigate(tab)}
+        setActiveTab={(tab, params) => handleNavigate(tab, params)}
         onOpenTrackerModal={() => setTrackerModalOpen(true)}
         onOpenReportModal={() => handleOpenReportModal()}
         onOpenNotificationModal={() => setNotificationModalOpen(true)}
@@ -606,7 +756,7 @@ export const App: React.FC = () => {
       {!['portal', 'clinic-portal', 'admin-portal', 'doctor-portal', 'patient-portal', 'my-health', 'records', 'account', 'book'].includes(activeTab) && (
         <BottomNav
           activeTab={activeTab}
-          setActiveTab={(tab) => handleNavigate(tab)}
+          setActiveTab={(tab, params) => handleNavigate(tab, params)}
           onOpenTrackerModal={() => setTrackerModalOpen(true)}
           authRole={authRole}
         />

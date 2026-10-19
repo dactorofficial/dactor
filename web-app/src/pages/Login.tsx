@@ -25,6 +25,7 @@ import {
   savePatientProfile,
   getClinicById,
   getDoctorById,
+  getLoggedInUserSession,
 } from '../services/db'
 import { Clinic, Doctor, PatientProfile } from '../types'
 
@@ -60,10 +61,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
   // Load pending booking context and check existing session
   useEffect(() => {
     try {
-      const isAlreadyLoggedIn = Boolean(
-        localStorage.getItem('dactor_patient_session') ||
-          localStorage.getItem('dactor_patient_logged_in') === 'true'
-      )
+      const session = getLoggedInUserSession()
 
       const rawPending = localStorage.getItem('dactor_pending_booking_redirect')
       const storedNotice = localStorage.getItem('dactor_booking_login_notice')
@@ -84,8 +82,8 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
           })
         }
 
-        // If already logged in, immediately resume pending booking!
-        if (isAlreadyLoggedIn) {
+        // If already logged in as patient, immediately resume pending booking!
+        if (session && session.role === 'patient') {
           if (parsed.returnRoute === 'clinic-detail' && parsed.clinicId) {
             onNavigate('clinic-detail', {
               clinicId: parsed.clinicId,
@@ -98,8 +96,8 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
             return
           }
         }
-      } else if (isAlreadyLoggedIn) {
-        onNavigate('patient-portal')
+      } else if (session) {
+        onNavigate(session.portalTab)
       }
     } catch (err) {
       console.warn('Error reading pending booking info:', err)
@@ -146,6 +144,10 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
         localStorage.setItem('dactor_patient_email', profile.email)
         localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
         localStorage.setItem('dactor_patient_logged_in', 'true')
+        try {
+          sessionStorage.removeItem('dactor_explicit_home')
+          sessionStorage.removeItem('dactor_allow_home')
+        } catch {}
         window.dispatchEvent(new Event('storage'))
 
         resumeBookingOrNavigate(fullProfile)
@@ -241,6 +243,10 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
       localStorage.setItem('dactor_patient_email', finalProfile.email)
       localStorage.setItem('dactor_patient_session', JSON.stringify(finalProfile))
       localStorage.setItem('dactor_patient_logged_in', 'true')
+      try {
+        sessionStorage.removeItem('dactor_explicit_home')
+        sessionStorage.removeItem('dactor_allow_home')
+      } catch {}
       window.dispatchEvent(new Event('storage'))
 
       resumeBookingOrNavigate(finalProfile)
@@ -262,6 +268,10 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
       localStorage.setItem('dactor_patient_email', fallback.email)
       localStorage.setItem('dactor_patient_session', JSON.stringify(fallback))
       localStorage.setItem('dactor_patient_logged_in', 'true')
+      try {
+        sessionStorage.removeItem('dactor_explicit_home')
+        sessionStorage.removeItem('dactor_allow_home')
+      } catch {}
       window.dispatchEvent(new Event('storage'))
 
       resumeBookingOrNavigate(fallback)

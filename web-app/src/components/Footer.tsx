@@ -13,7 +13,7 @@ import {
 import dactorLogo from '../assets/logo.svg'
 
 interface FooterProps {
-  onNavigate: (tab: string) => void
+  onNavigate: (tab: string, params?: any) => void
 }
 
 export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
@@ -64,7 +64,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               </li>
               <li>
                 <button
-                  onClick={() => onNavigate('home')}
+                  onClick={() => onNavigate('home', { intentionalHome: true })}
                   className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left"
                 >
                   <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />

@@ -146,7 +146,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
         <div className="flex-1 overflow-y-auto py-4 space-y-3.5 pr-1">
           {loading && notifications.length === 0 ? (
             <div className="py-12 text-center text-xs text-slate-500 font-semibold">
-              Loading live notifications from Supabase...
+              Loading live notifications...
             </div>
           ) : notifications.length === 0 ? (
             <div className="py-12 text-center space-y-2">
@@ -222,7 +222,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
         {/* Footer */}
         <div className="pt-3 border-t border-slate-100 text-center">
           <p className="text-[11px] text-slate-400">
-            Powered by Dactor Live Supabase Alert Engine
+            Powered by Dactor Live Real-Time Alert Engine
           </p>
         </div>
       </div>

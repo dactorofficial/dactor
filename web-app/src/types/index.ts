@@ -318,3 +318,13 @@ export interface SupportTicket {
   resolvedAt?: string
   adminNotes?: string
 }
+
+export interface CityLocation {
+  id: string
+  name: string
+  coordinates?: string
+  aliases?: string
+  isActive: boolean
+  createdAt?: string
+  updatedAt?: string
+}

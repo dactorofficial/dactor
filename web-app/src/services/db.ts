@@ -18,6 +18,7 @@ import {
   PaymentGatewaysConfig,
   MultiSlotPositionResult,
   DoctorHomeItem,
+  CityLocation,
 } from '../types'
 import {
   parsePaymentRecords,
@@ -286,16 +287,36 @@ function normalizePaymentStatus(status?: string): 'pending' | 'paid' | 'refunded
 export async function getAppointmentByTrackingCode(code: string): Promise<Appointment | null> {
   try {
     const cleanCode = code.trim()
+    if (!cleanCode) return null
     const { data, error } = await supabase
       .from('appointments')
       .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
       .eq('tracking_code_10_digit', cleanCode)
-      .single()
+      .order('appointment_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
     if (error) return null
     return data ? mapAppointment(data) : null
   } catch {
     return null
+  }
+}
+
+export async function getAllAppointmentsByTrackingCode(code: string): Promise<Appointment[]> {
+  try {
+    const cleanCode = code.trim()
+    if (!cleanCode) return []
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+      .eq('tracking_code_10_digit', cleanCode)
+      .order('appointment_date', { ascending: false })
+
+    if (error || !data) return []
+    return data.map(mapAppointment)
+  } catch {
+    return []
   }
 }
 
@@ -1641,14 +1662,19 @@ export async function getPatientNotifications(criteria?: {
     const hasPersonalFilter = Boolean(userId || apptSet.size > 0 || codeSet.size > 0)
 
     const filtered = rows.filter((n: any) => {
-      if (n.target_audience === 'all_users' || n.type === 'clinic_broadcast') {
+      // 1. General system announcements and broadcasts intended for everyone
+      if (n.target_audience === 'all_users' || n.type === 'broadcast' || n.type === 'system_announcement' || n.type === 'clinic_broadcast') {
         return true
       }
+      // 2. If the user is an anonymous guest with no account or tracked codes, NEVER leak personal notifications
       if (!hasPersonalFilter) {
-        return true
+        return false
       }
+      // 3. Match authenticated user ID
       if (userId && n.user_id === userId) return true
+      // 4. Match specific appointment ID
       if (n.appointment_id && apptSet.has(n.appointment_id)) return true
+      // 5. Match specific 10-digit tracking codes in title, message or meta
       const text = `${n.title || ''} ${n.message || ''} ${n.meta_json || ''}`
       for (const code of codeSet) {
         if (code && text.includes(code)) return true
@@ -2514,6 +2540,170 @@ export async function getMedicalQualifications(): Promise<MedicalQualification[]
 }
 
 // ==========================================
+// LOCATIONS & CITIES API (App & Web Dropdown)
+// ==========================================
+
+export const DEFAULT_NEPAL_CITIES = [
+  'All Nepal',
+  'Kathmandu',
+  'Lalitpur',
+  'Bhaktapur',
+  'Pokhara',
+  'Janakpur',
+  'Biratnagar',
+  'Birgunj',
+  'Dharan',
+  'Chitwan',
+  'Butwal',
+  'Nepalgunj',
+  'Hetauda',
+  'Dhangadhi',
+]
+
+/**
+ * Fetch all active city names for the Location selector dropdown
+ * Guarantees 'All Nepal' is at index 0 and unique.
+ */
+export async function getCityLocations(): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from('medical_qualifications')
+      .select('degree_name, is_active')
+      .eq('level', 'LOCATION_OPTION')
+      .eq('is_active', true)
+      .order('degree_name', { ascending: true })
+
+    if (error) throw error
+    if (!data || data.length === 0) {
+      return DEFAULT_NEPAL_CITIES
+    }
+
+    const cityNames = data
+      .map((d: any) => d.degree_name?.trim())
+      .filter((n: string | undefined): n is string => Boolean(n) && n.toLowerCase() !== 'all nepal')
+
+    return ['All Nepal', ...Array.from(new Set(cityNames))]
+  } catch (err) {
+    console.warn('Error fetching cities from database, using defaults:', err)
+    return DEFAULT_NEPAL_CITIES
+  }
+}
+
+/**
+ * Fetch full location details (names, coordinates, aliases, active status)
+ */
+export async function getLocationDetails(): Promise<CityLocation[]> {
+  try {
+    const { data, error } = await supabase
+      .from('medical_qualifications')
+      .select('*')
+      .eq('level', 'LOCATION_OPTION')
+      .order('degree_name', { ascending: true })
+
+    if (error) throw error
+    return (data || []).map((d: any) => ({
+      id: d.id,
+      name: d.degree_name,
+      coordinates: d.field_of_study || '27.7172, 85.3240',
+      aliases: d.description || d.degree_name?.toLowerCase(),
+      isActive: d.is_active ?? true,
+      createdAt: d.created_at,
+      updatedAt: d.updated_at,
+    }))
+  } catch (err) {
+    console.warn('Error fetching location details:', err)
+    return DEFAULT_NEPAL_CITIES.slice(1).map((name, i) => ({
+      id: `default-${i}`,
+      name,
+      coordinates: '27.7172, 85.3240',
+      aliases: name.toLowerCase(),
+      isActive: true,
+    }))
+  }
+}
+
+/**
+ * Add a new city / location option to the database
+ */
+export async function addCityLocation(payload: {
+  name: string
+  coordinates?: string
+  aliases?: string
+  isActive?: boolean
+}): Promise<CityLocation | null> {
+  const cleanName = payload.name.trim()
+  if (!cleanName) throw new Error('City name cannot be empty')
+
+  const cleanCoords = payload.coordinates?.trim() || '27.7172, 85.3240'
+  const cleanAliases = payload.aliases?.trim() || cleanName.toLowerCase()
+  const isActive = payload.isActive ?? true
+
+  const { data, error } = await supabase
+    .from('medical_qualifications')
+    .insert([
+      {
+        degree_name: cleanName,
+        level: 'LOCATION_OPTION',
+        field_of_study: cleanCoords,
+        description: cleanAliases,
+        is_active: isActive,
+      },
+    ])
+    .select()
+
+  if (error) {
+    console.error('Error adding city location:', error)
+    throw error
+  }
+
+  const inserted = data?.[0]
+  if (!inserted) return null
+
+  return {
+    id: inserted.id,
+    name: inserted.degree_name,
+    coordinates: inserted.field_of_study,
+    aliases: inserted.description,
+    isActive: inserted.is_active,
+    createdAt: inserted.created_at,
+    updatedAt: inserted.updated_at,
+  }
+}
+
+/**
+ * Update a city / location option
+ */
+export async function updateCityLocation(
+  id: string,
+  updates: Partial<{ name: string; coordinates?: string; aliases?: string; isActive?: boolean }>
+): Promise<boolean> {
+  const payload: any = { updated_at: new Date().toISOString() }
+  if (updates.name !== undefined) payload.degree_name = updates.name.trim()
+  if (updates.coordinates !== undefined) payload.field_of_study = updates.coordinates.trim()
+  if (updates.aliases !== undefined) payload.description = updates.aliases.trim()
+  if (updates.isActive !== undefined) payload.is_active = updates.isActive
+
+  const { error } = await supabase.from('medical_qualifications').update(payload).eq('id', id)
+  if (error) {
+    console.error('Error updating city location:', error)
+    throw error
+  }
+  return true
+}
+
+/**
+ * Delete a city / location option from the database
+ */
+export async function deleteCityLocation(id: string): Promise<boolean> {
+  const { error } = await supabase.from('medical_qualifications').delete().eq('id', id)
+  if (error) {
+    console.error('Error deleting city location:', error)
+    throw error
+  }
+  return true
+}
+
+// ==========================================
 // SUPABASE STORAGE CDN IMAGE RESOLUTION
 // ==========================================
 export const SUPABASE_STORAGE_PUBLIC_URL = 'https://ojfoofojcpabqegxmsab.supabase.co/storage/v1/object/public'
@@ -3319,6 +3509,85 @@ export async function getPatientProfileById(id: string): Promise<PatientProfile 
   } catch {
     return null
   }
+}
+
+export interface ActiveUserSession {
+  role: 'clinic_manager' | 'doctor' | 'patient'
+  email: string | null
+  portalTab: 'portal' | 'doctor-portal' | 'patient-portal'
+}
+
+export function getLoggedInUserSession(): ActiveUserSession | null {
+  if (typeof window === 'undefined') return null
+  try {
+    // 1. Clinic Manager / Clinic Staff session
+    const hasClinicPending = Boolean(localStorage.getItem('dactor_pending_verification'))
+    const isClinicAuth = localStorage.getItem('dactor_clinic_logged_in') === 'true' || hasClinicPending
+    if (isClinicAuth) {
+      let email = localStorage.getItem('dactor_clinic_email') || null
+      if (!email && hasClinicPending) {
+        try {
+          const parsed = JSON.parse(localStorage.getItem('dactor_pending_verification')!)
+          email = parsed?.email || null
+        } catch {}
+      }
+      return {
+        role: 'clinic_manager',
+        email,
+        portalTab: 'portal',
+      }
+    }
+
+    // 2. Doctor session
+    const hasDocPending = Boolean(localStorage.getItem('dactor_doctor_pending_kyc'))
+    const isDocAuth =
+      (localStorage.getItem('dactor_doctor_logged_in') === 'true' &&
+        (Boolean(localStorage.getItem('dactor_doctor_session')) || Boolean(localStorage.getItem('dactor_doctor_email')))) ||
+      hasDocPending
+    if (isDocAuth) {
+      let email = localStorage.getItem('dactor_doctor_email') || null
+      if (!email && hasDocPending) {
+        try {
+          const parsed = JSON.parse(localStorage.getItem('dactor_doctor_pending_kyc')!)
+          email = parsed?.email || null
+        } catch {}
+      }
+      if (!email && localStorage.getItem('dactor_doctor_session')) {
+        try {
+          const parsed = JSON.parse(localStorage.getItem('dactor_doctor_session')!)
+          email = parsed?.email || null
+        } catch {}
+      }
+      return {
+        role: 'doctor',
+        email,
+        portalTab: 'doctor-portal',
+      }
+    }
+
+    // 3. Patient session
+    const isPatAuth =
+      localStorage.getItem('dactor_patient_logged_in') === 'true' ||
+      Boolean(localStorage.getItem('dactor_patient_session')) ||
+      Boolean(localStorage.getItem('dactor_patient_email'))
+    if (isPatAuth) {
+      let email = localStorage.getItem('dactor_patient_email') || null
+      if (!email && localStorage.getItem('dactor_patient_session')) {
+        try {
+          const parsed = JSON.parse(localStorage.getItem('dactor_patient_session')!)
+          email = parsed?.email || null
+        } catch {}
+      }
+      return {
+        role: 'patient',
+        email,
+        portalTab: 'patient-portal',
+      }
+    }
+  } catch {
+    return null
+  }
+  return null
 }
 
 export interface EmailPortalAssociation {

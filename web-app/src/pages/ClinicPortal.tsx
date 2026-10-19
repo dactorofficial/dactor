@@ -72,6 +72,7 @@ import {
   DayScheduleInfo,
   MedicalSpecialty,
   MedicalQualification,
+  CityLocation,
 } from '../types'
 import {
   getClinics,
@@ -133,6 +134,10 @@ import {
   cancelClinicInvitation,
   deleteClinicPermanently,
   purgeExpiredClinicData,
+  getLocationDetails,
+  addCityLocation,
+  deleteCityLocation,
+  updateCityLocation,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { playClinicChime } from '../utils/audioChime'
@@ -871,6 +876,82 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [isDeletingPermanently, setIsDeletingPermanently] = useState(false)
   const [copiedLink, setCopiedLink] = useState<string | null>(null)
 
+  // Admin Cities & Locations Dropdown Manager State
+  const [adminCities, setAdminCities] = useState<CityLocation[]>([])
+  const [loadingAdminCities, setLoadingAdminCities] = useState(false)
+  const [showAddCityModal, setShowAddCityModal] = useState(false)
+  const [newCityName, setNewCityName] = useState('')
+  const [newCityCoords, setNewCityCoords] = useState('27.7172, 85.3240')
+  const [newCityAliases, setNewCityAliases] = useState('')
+  const [cityActionMsg, setCityActionMsg] = useState<string | null>(null)
+  const [isSubmittingCity, setIsSubmittingCity] = useState(false)
+
+  const loadAdminCities = async () => {
+    setLoadingAdminCities(true)
+    try {
+      const list = await getLocationDetails()
+      setAdminCities(list)
+    } catch (err) {
+      console.warn('Error loading admin cities:', err)
+    } finally {
+      setLoadingAdminCities(false)
+    }
+  }
+
+  const handleAddNewCity = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newCityName.trim()) return
+    setIsSubmittingCity(true)
+    try {
+      const added = await addCityLocation({
+        name: newCityName.trim(),
+        coordinates: newCityCoords.trim() || '27.7172, 85.3240',
+        aliases: newCityAliases.trim() || newCityName.toLowerCase(),
+        isActive: true,
+      })
+      if (added) {
+        setAdminCities((prev) => [added, ...prev])
+        setCityActionMsg(`✓ Added "${newCityName.trim()}" to location dropdown!`)
+        setNewCityName('')
+        setNewCityAliases('')
+        setShowAddCityModal(false)
+        setTimeout(() => setCityActionMsg(null), 3500)
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to add city')
+    } finally {
+      setIsSubmittingCity(false)
+    }
+  }
+
+  const handleDeleteCity = async (city: CityLocation) => {
+    if (!confirm(`Are you sure you want to delete city "${city.name}" from the location dropdown?`)) return
+    try {
+      setAdminCities((prev) => prev.filter((c) => c.id !== city.id))
+      await deleteCityLocation(city.id)
+      setCityActionMsg(`✓ Deleted "${city.name}" from location dropdown.`)
+      setTimeout(() => setCityActionMsg(null), 3500)
+    } catch (err: any) {
+      alert(err?.message || 'Failed to delete city')
+      loadAdminCities()
+    }
+  }
+
+  const handleToggleCityActive = async (city: CityLocation) => {
+    const nextState = !city.isActive
+    try {
+      setAdminCities((prev) =>
+        prev.map((c) => (c.id === city.id ? { ...c, isActive: nextState } : c))
+      )
+      await updateCityLocation(city.id, { isActive: nextState })
+      setCityActionMsg(`✓ Updated visibility for "${city.name}".`)
+      setTimeout(() => setCityActionMsg(null), 2500)
+    } catch (err: any) {
+      alert(err?.message || 'Failed to update city')
+      loadAdminCities()
+    }
+  }
+
   const handleCopyBookingLink = (url: string) => {
     try {
       navigator.clipboard.writeText(url)
@@ -1036,6 +1117,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }, [billItems])
 
+  // Load cities list when Settings desk tab is active
+  useEffect(() => {
+    if (deskTab === 'settings') {
+      loadAdminCities()
+    }
+  }, [deskTab])
+
   const saveSession = (email: string, role: 'clinic_manager' | 'doctor' | 'lab_tech' = 'clinic_manager') => {
     setIsAuthenticated(true)
     setAuthEmail(email)
@@ -1046,6 +1134,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       localStorage.setItem('dactor_clinic_email', email)
       localStorage.setItem('dactor_clinic_role', role)
       localStorage.removeItem('dactor_pending_verification')
+      try {
+        sessionStorage.removeItem('dactor_explicit_home')
+        sessionStorage.removeItem('dactor_allow_home')
+      } catch {}
       window.dispatchEvent(new Event('storage'))
     } catch {}
   }
@@ -1218,7 +1310,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     if (!verifiedEmail.trim()) setVerifiedEmail(effectiveClinicEmail)
 
     setIsSubmittingRegistration(true)
-    setRegistrationStatusMsg('Compressing documents and uploading to Supabase...')
+    setRegistrationStatusMsg('Compressing documents and uploading securely...')
 
     try {
       let regDocUrl: string | undefined
@@ -1254,7 +1346,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         verificationStatus: 'pending',
       }
 
-      setRegistrationStatusMsg('Creating clinic record in Supabase...')
+      setRegistrationStatusMsg('Creating clinic record on secure network...')
       const created = await createClinic(newClinicPayload)
       if (!created) throw new Error('Failed to create clinic in database.')
 
@@ -2482,11 +2574,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setDoctorPhotoMsg('Compressing photo to <= 300 KB...')
     try {
       const compressed = await compressImage(doctorPhotoFile, 300 * 1024)
-      setDoctorPhotoMsg('Uploading to Supabase doctor_photos storage...')
+      setDoctorPhotoMsg('Uploading doctor photo to secure storage...')
       const publicUrl = await uploadDoctorPhoto(doctorPhotoTarget.id, compressed, doctorPhotoFile.name)
-      if (!publicUrl) throw new Error('Failed to upload doctor photo to Supabase storage.')
+      if (!publicUrl) throw new Error('Failed to upload doctor photo to secure storage.')
 
-      setDoctorPhotoMsg('Updating doctor profile in Supabase...')
+      setDoctorPhotoMsg('Updating doctor profile...')
       const ok = await updateDoctor(doctorPhotoTarget.id, { profilePictureUrl: publicUrl })
       if (!ok) throw new Error('Failed to update doctor profile picture in database.')
 
@@ -2527,12 +2619,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setClinicPhotoStatusMsg('Compressing facility image...')
     try {
       const compressed = await compressImage(file, 300 * 1024)
-      setClinicPhotoStatusMsg('Uploading to Supabase clinic_photos storage...')
+      setClinicPhotoStatusMsg('Uploading photo to secure storage...')
       const publicUrl = await uploadClinicPhoto(selectedClinic.id, compressed, file.name)
-      if (!publicUrl) throw new Error('Failed to upload photo to Supabase storage.')
+      if (!publicUrl) throw new Error('Failed to upload photo to secure storage.')
 
       const updatedPics = [...currentPics, publicUrl]
-      setClinicPhotoStatusMsg('Saving to clinic profile in Supabase...')
+      setClinicPhotoStatusMsg('Saving to clinic profile...')
       const ok = await updateClinic(selectedClinic.id, { pictures: updatedPics })
       if (!ok) throw new Error('Failed to update clinic pictures in database.')
 
@@ -2783,7 +2875,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <RefreshCw className={`w-4 h-4 ${checkingVerification ? 'animate-spin' : ''}`} />
               <span>
                 {checkingVerification
-                  ? 'Querying Live Supabase Verification Status...'
+                  ? 'Querying Live Verification Status...'
                   : 'Check Verification Status Now'}
               </span>
             </button>
@@ -3078,7 +3170,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <span>Government Registration / PAN Certificate</span>
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Auto-compressed to &le;300 KB before uploading to Supabase storage.
+                    Auto-compressed to &le;300 KB before uploading to secure storage.
                   </p>
                   <input
                     type="file"
@@ -7805,7 +7897,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <label className="flex items-center justify-center space-x-2 w-full py-4 px-6 border-2 border-dashed border-brand-300 hover:border-brand-500 rounded-2xl bg-brand-50/50 hover:bg-brand-50/80 backdrop-blur-md transition-all cursor-pointer">
                   <UploadCloud className="w-5 h-5 text-brand-600" />
                   <span className="text-xs font-bold text-brand-800">
-                    {uploadingClinicPhoto ? 'Compressing & Uploading to Supabase...' : `+ Upload Facility Photo (${(selectedClinic?.pictures?.length || 0) + 1} of 4)`}
+                    {uploadingClinicPhoto ? 'Compressing & Uploading...' : `+ Upload Facility Photo (${(selectedClinic?.pictures?.length || 0) + 1} of 4)`}
                   </span>
                   <input
                     type="file"
@@ -7816,7 +7908,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   />
                 </label>
                 <p className="text-[10px] text-slate-400 text-center mt-1.5">
-                  Images are automatically compressed to ≤ 300 KB and uploaded to public Supabase storage.
+                  Images are automatically compressed to ≤ 300 KB and uploaded securely.
                 </p>
               </div>
             )}
@@ -7898,6 +7990,235 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
             </div>
           </GlassCard>
+
+          {/* 6. ADMIN CITIES & LOCATIONS DROPDOWN MANAGER */}
+          <GlassCard variant="base" padding="lg" radius="xl" className="border-emerald-200/80 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-emerald-100 dark:border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-700/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Cities & Locations Dropdown Manager</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">
+                      Live Sync
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Add, delete, or toggle cities and regions shown in the main location dropdown across the website and patient mobile app.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadAdminCities}
+                  disabled={loadingAdminCities}
+                  className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingAdminCities ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAddCityModal(true)}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Add City to Dropdown</span>
+                </button>
+              </div>
+            </div>
+
+            {cityActionMsg && (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{cityActionMsg}</span>
+              </div>
+            )}
+
+            {/* Quick Live Preview Pill */}
+            <div className="p-3 rounded-xl liquid-glass-subtle flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-bold text-slate-500 dark:text-slate-400 text-[11px] uppercase tracking-wider">
+                Active in Dropdown:
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800 text-xs">
+                📍 All Nepal (Universal)
+              </span>
+              {adminCities.filter(c => c.isActive).map(c => (
+                <span
+                  key={c.id}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800 text-xs flex items-center gap-1"
+                >
+                  <span>📍 {c.name}</span>
+                </span>
+              ))}
+            </div>
+
+            {/* Cities Table */}
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px] font-black tracking-wider">
+                    <tr>
+                      <th className="py-2.5 px-3.5">City Name</th>
+                      <th className="py-2.5 px-3.5">District / Area Aliases</th>
+                      <th className="py-2.5 px-3.5">Center Coordinates</th>
+                      <th className="py-2.5 px-3.5">Dropdown Visibility</th>
+                      <th className="py-2.5 px-3.5 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {loadingAdminCities && adminCities.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-slate-400">
+                          <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-emerald-600" />
+                          <span>Loading city options from database...</span>
+                        </td>
+                      </tr>
+                    ) : adminCities.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-slate-400">
+                          No cities found in database. Click &quot;+ Add City to Dropdown&quot; to add one.
+                        </td>
+                      </tr>
+                    ) : (
+                      adminCities.map((city) => (
+                        <tr key={city.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
+                          <td className="py-3 px-3.5 font-bold text-slate-900 dark:text-white">
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span>{city.name}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-3.5 text-slate-600 dark:text-slate-400">
+                            <span className="line-clamp-1 max-w-xs text-[11px]">
+                              {city.aliases || city.name.toLowerCase()}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3.5 font-mono text-[11px] text-slate-500">
+                            {city.coordinates || '27.7172, 85.3240'}
+                          </td>
+                          <td className="py-3 px-3.5">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleCityActive(city)}
+                              className={`text-[10px] font-bold px-2.5 py-1 rounded-full cursor-pointer transition ${
+                                city.isActive
+                                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              {city.isActive ? 'Shown in Dropdown' : 'Hidden'}
+                            </button>
+                          </td>
+                          <td className="py-3 px-3.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCity(city)}
+                              className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                              title={`Delete ${city.name} from dropdown`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </GlassCard>
+
+          {/* Add City Modal */}
+          {showAddCityModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+              <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-white/60">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-600">
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white">
+                      Add New City to Location Dropdown
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCityModal(false)}
+                    className="p-1.5 text-slate-400 hover:text-slate-700 rounded-full"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddNewCity} className="space-y-3.5">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      City / Location Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={newCityName}
+                      onChange={(e) => setNewCityName(e.target.value)}
+                      placeholder="e.g. Butwal, Janakpur, Itahari, Birtamode..."
+                      required
+                      className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      District & Area Keywords (Comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={newCityAliases}
+                      onChange={(e) => setNewCityAliases(e.target.value)}
+                      placeholder="e.g. butwal, rupandehi, bhairahawa, lumbini"
+                      className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Clinics whose address matches any of these keywords will be found when this city is chosen.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Center Coordinates (Latitude, Longitude)
+                    </label>
+                    <input
+                      type="text"
+                      value={newCityCoords}
+                      onChange={(e) => setNewCityCoords(e.target.value)}
+                      placeholder="27.7172, 85.3240"
+                      className="w-full px-3.5 py-2.5 rounded-xl text-xs font-mono font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCityModal(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingCity}
+                      className="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-600/20 transition cursor-pointer disabled:opacity-60"
+                    >
+                      {isSubmittingCity ? 'Adding...' : 'Add City to Dropdown'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
