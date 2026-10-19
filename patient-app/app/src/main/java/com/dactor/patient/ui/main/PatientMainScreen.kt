@@ -46,7 +46,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.model.*
 import com.dactor.patient.data.repository.*
@@ -55,6 +58,7 @@ import com.dactor.patient.ui.components.GuestAccountView
 import com.dactor.patient.ui.legal.TermsAndConditionsDialog
 import com.dactor.patient.ui.navigation.NavRoutes
 import com.dactor.patient.util.BillPdfDownloader
+import com.dactor.patient.service.NotificationHelper
 import com.dactor.patient.util.MedicalSearchEngine
 import com.dactor.patient.util.OpenRouteSpatialEngine
 import com.dactor.patient.util.SearchMatchResult
@@ -385,7 +389,23 @@ fun PatientMainScreen(
         )
     }
 
-    LaunchedEffect(Unit) {
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var refreshCounter by remember { mutableIntStateOf(0) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshCounter++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(selectedTab, currentRoute, refreshCounter) {
         val activePayment = sessionManager?.getActivePaymentSession()
         if (activePayment != null && !activePayment.isExpired()) {
             navController.navigate(NavRoutes.Payment.createRoute(activePayment.appointmentId)) {
@@ -435,12 +455,28 @@ fun PatientMainScreen(
                         "${appt.patientName} • ${appt.appointmentDate}"
                     )
                 }
+                val isDone = appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled")
+                if (isDone) {
+                    NotificationHelper.cancelAppointmentNotifications(context, appt.id)
+                    if (appt.trackingCode10Digit.isNotBlank()) {
+                        NotificationHelper.cancelAppointmentNotifications(context, appt.trackingCode10Digit)
+                    }
+                }
             }
 
             val activeToday = combined.firstOrNull { appt ->
-                appt.appointmentDate == todayStr &&
-                appt.checkinStatus != "completed" &&
-                appt.checkinStatus != "cancelled"
+                if (appt.appointmentDate.trim().take(10) != todayStr) return@firstOrNull false
+                val cStatus = appt.checkinStatus.lowercase()
+                if (cStatus in listOf("completed", "done", "cancelled")) return@firstOrNull false
+
+                if (queueRepository != null) {
+                    try {
+                        val q = queueRepository.getQueueStatus(appt.id)
+                        val qStatus = q?.status?.lowercase()
+                        if (qStatus in listOf("done", "completed", "cancelled")) return@firstOrNull false
+                    } catch (_: Exception) {}
+                }
+                true
             }
 
             if (activeToday != null) {
@@ -453,6 +489,9 @@ fun PatientMainScreen(
                         todayDoctorName = doctorRepository.getDoctorById(activeToday.doctorId)?.fullName
                     }
                 } catch (ignored: Exception) {}
+            } else {
+                todayAppointment = null
+                showTodayPopup = false
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -521,7 +560,8 @@ fun PatientMainScreen(
                 .padding(padding)
         ) {
             // ── TOP POPUP NOTIFICATION FOR TODAY'S APPOINTMENT ─────────────
-            AnimatedVisibility(visible = showTodayPopup && todayAppointment != null) {
+            val isTodayCompleted = todayAppointment?.checkinStatus?.lowercase() in listOf("completed", "done", "cancelled")
+            AnimatedVisibility(visible = showTodayPopup && todayAppointment != null && !isTodayCompleted) {
                 todayAppointment?.let { appt ->
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -2907,7 +2947,7 @@ fun RecordsTab(
     val displayedRecords = remember(allRecords, selectedFilter, searchQuery, clinicMap.size, doctorMap.size, invoiceMap.size) {
         allRecords.filter { appt ->
             val matchesFilter = when (selectedFilter) {
-                "Completed" -> appt.checkinStatus == "completed"
+                "Completed" -> appt.checkinStatus.lowercase() in listOf("completed", "done")
                 "With Bills" -> invoiceMap.containsKey(appt.id) || (appt.feeAmount ?: 0.0) > 0.0
                 else -> true
             }
@@ -3016,7 +3056,7 @@ fun RecordsTab(
         ) {
             listOf(
                 "All" to "All Records (${allRecords.size})",
-                "Completed" to "Completed (${allRecords.count { it.checkinStatus == "completed" }})",
+                "Completed" to "Completed (${allRecords.count { it.checkinStatus.lowercase() in listOf("completed", "done") }})",
                 "With Bills" to "Bills & Receipts (${allRecords.count { invoiceMap.containsKey(it.id) || (it.feeAmount ?: 0.0) > 0.0 }})"
             ).forEach { (key, label) ->
                 FilterChip(
@@ -3192,7 +3232,7 @@ fun RecordsTab(
                                         }
                                     }
 
-                                    val isCompleted = appt.checkinStatus == "completed"
+                                    val isCompleted = appt.checkinStatus.lowercase() in listOf("completed", "done")
                                     Surface(
                                         color = if (isCompleted) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
                                         shape = RoundedCornerShape(8.dp)
@@ -3755,7 +3795,7 @@ fun RecordsTab(
                                 }
 
                                 // ── 7. DIRECT LIVE QUEUE TRACKING BUTTON (IF ACTIVE) ──
-                                if (appt.checkinStatus != "completed" && appt.checkinStatus != "cancelled") {
+                                if (appt.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled")) {
                                     Button(
                                         onClick = {
                                             navController.navigate(NavRoutes.QueueStatus.createRoute(appt.trackingCode10Digit))
@@ -4140,14 +4180,23 @@ fun AppointmentsTab(
                         "${appt.patientName} • ${appt.appointmentDate}"
                     )
                 }
+                val isDone = appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled")
+                if (isDone) {
+                    NotificationHelper.cancelAppointmentNotifications(context, appt.id)
+                    if (appt.trackingCode10Digit.isNotBlank()) {
+                        NotificationHelper.cancelAppointmentNotifications(context, appt.trackingCode10Digit)
+                    }
+                }
             }
 
-            activeAppts = combined.filter {
-                it.checkinStatus != "completed" && it.checkinStatus != "cancelled"
+            val candidateAppts = combined.filter {
+                val s = it.checkinStatus.lowercase()
+                s !in listOf("completed", "done", "cancelled")
             }
 
-            // Populate entity caches
-            for (appt in activeAppts) {
+            // Populate entity caches and check live queue statuses
+            val stillActive = mutableListOf<Appointment>()
+            for (appt in candidateAppts) {
                 if (!appt.clinicId.isNullOrBlank() && !clinicCache.containsKey(appt.clinicId) && clinicRepository != null) {
                     try {
                         val c = clinicRepository.getClinicById(appt.clinicId, forceRefresh = true)
@@ -4160,19 +4209,36 @@ fun AppointmentsTab(
                         if (d != null) doctorCache[appt.doctorId] = d
                     } catch (ignored: Exception) {}
                 }
-                if (!queueCache.containsKey(appt.id) && queueRepository != null) {
+                var q: QueueEntry? = queueCache[appt.id]
+                if (queueRepository != null) {
                     try {
-                        val q = queueRepository.getQueueStatus(appt.id)
-                        if (q != null) queueCache[appt.id] = q
+                        val freshQ = queueRepository.getQueueStatus(appt.id)
+                        if (freshQ != null) {
+                            queueCache[appt.id] = freshQ
+                            q = freshQ
+                        }
                     } catch (ignored: Exception) {}
                 }
-                if (!appt.clinicId.isNullOrBlank() && !clinicQueueCache.containsKey(appt.clinicId) && queueRepository != null) {
+                if (!appt.clinicId.isNullOrBlank() && clinicRepository != null && queueRepository != null) {
                     try {
                         val entries = queueRepository.getQueueEntriesForClinic(appt.clinicId)
                         clinicQueueCache[appt.clinicId] = entries
                     } catch (ignored: Exception) {}
                 }
+
+                // If queue entry is done or completed, it is recognized as completed and excluded from active appointments
+                val qStatus = q?.status?.lowercase()
+                if (qStatus !in listOf("completed", "done", "cancelled")) {
+                    stillActive.add(appt)
+                } else {
+                    NotificationHelper.cancelAppointmentNotifications(context, appt.id)
+                    if (appt.trackingCode10Digit.isNotBlank()) {
+                        NotificationHelper.cancelAppointmentNotifications(context, appt.trackingCode10Digit)
+                    }
+                }
             }
+
+            activeAppts = stillActive
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
@@ -4180,8 +4246,26 @@ fun AppointmentsTab(
         }
     }
 
-    LaunchedEffect(Unit) {
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+
+    LaunchedEffect(currentRoute) {
         loadActiveAppointments()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                coroutineScope.launch {
+                    loadActiveAppointments()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     val todayDateStr = remember {
@@ -4480,6 +4564,8 @@ fun AppointmentsTab(
                     val isInClinic = doctor?.isInClinic == true
                     val isWithDoctor = isToday && qEntry?.status == "inside"
                     val isClinicOnBreak = clinic?.isOnBreak == true
+                    val isConsultationDone = qEntry?.status?.lowercase() in listOf("done", "completed") ||
+                        appt.checkinStatus.lowercase() in listOf("done", "completed")
 
                     // Calculate live queue timing estimate ONLY for today's appointment
                     val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, clinicEntries, isToday) {
@@ -4608,8 +4694,33 @@ fun AppointmentsTab(
                                     }
                                 }
 
-                                // Status Pill: In OPD queue (Today) or Scheduled for Tomorrow/Date
-                                if (isToday) {
+                                // Status Pill: Completed, In OPD queue (Today) or Scheduled for Tomorrow/Date
+                                if (isConsultationDone) {
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = Color(0xFFDCFCE7),
+                                        border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF15803D),
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = "Consultation completed",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF15803D)
+                                            )
+                                        }
+                                    }
+                                } else if (isToday) {
                                     Surface(
                                         shape = RoundedCornerShape(14.dp),
                                         color = if (isWithDoctor) Color(0xFFDCFCE7) else Color(0xFFE0F2FE),
@@ -4713,17 +4824,17 @@ fun AppointmentsTab(
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(3.dp)
-                                            .background(if (isToday) Color(0xFF0284C7) else Color(0xFFCBD5E1))
+                                            .background(if (isToday || isConsultationDone) Color(0xFF0284C7) else Color(0xFFCBD5E1))
                                     )
 
-                                    // 2. In Queue (Active only if Today)
+                                    // 2. In Queue (Active only if Today or Done)
                                     Surface(
                                         shape = CircleShape,
-                                        color = if (isToday) Color(0xFF0284C7) else Color(0xFFCBD5E1),
+                                        color = if (isToday || isConsultationDone) Color(0xFF0284C7) else Color(0xFFCBD5E1),
                                         border = BorderStroke(2.dp, Color.White),
                                         modifier = Modifier.size(18.dp)
                                     ) {
-                                        if (isToday && isWithDoctor) {
+                                        if ((isToday && isWithDoctor) || isConsultationDone) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
                                             }
@@ -4735,16 +4846,16 @@ fun AppointmentsTab(
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(3.dp)
-                                            .background(if (isWithDoctor) Color(0xFF0284C7) else Color(0xFFCBD5E1))
+                                            .background(if (isConsultationDone) Color(0xFF15803D) else if (isWithDoctor) Color(0xFF0284C7) else Color(0xFFCBD5E1))
                                     )
 
-                                    // 3. With Doctor
+                                    // 3. With Doctor / Done
                                     Surface(
                                         shape = CircleShape,
-                                        color = if (isWithDoctor) Color(0xFF0284C7) else Color(0xFFCBD5E1),
+                                        color = if (isConsultationDone) Color(0xFF15803D) else if (isWithDoctor) Color(0xFF0284C7) else Color(0xFFCBD5E1),
                                         modifier = Modifier.size(18.dp)
                                     ) {
-                                        if (isWithDoctor) {
+                                        if (isWithDoctor || isConsultationDone) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
                                             }
@@ -4760,25 +4871,85 @@ fun AppointmentsTab(
                                     Text("Booked", fontSize = 11.sp, color = Color(0xFF0284C7), fontWeight = FontWeight.Bold)
                                     Text(
                                         text = when {
+                                            isConsultationDone -> "In queue"
                                             isToday -> "In queue"
                                             isTomorrow -> "Queue Opens Tomorrow"
                                             else -> "Queue Opens Visit Day"
                                         },
                                         fontSize = 11.sp,
-                                        color = if (isToday) Color(0xFF0284C7) else Color(0xFF64748B),
-                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium
+                                        color = if (isToday || isConsultationDone) Color(0xFF0284C7) else Color(0xFF64748B),
+                                        fontWeight = if (isToday || isConsultationDone) FontWeight.Bold else FontWeight.Medium
                                     )
                                     Text(
-                                        text = "With doctor",
+                                        text = if (isConsultationDone) "Done" else "With doctor",
                                         fontSize = 11.sp,
-                                        color = if (isWithDoctor) Color(0xFF0284C7) else Color(0xFF94A3B8),
-                                        fontWeight = if (isWithDoctor) FontWeight.Bold else FontWeight.Medium
+                                        color = if (isConsultationDone) Color(0xFF15803D) else if (isWithDoctor) Color(0xFF0284C7) else Color(0xFF94A3B8),
+                                        fontWeight = if (isWithDoctor || isConsultationDone) FontWeight.Bold else FontWeight.Medium
                                     )
                                 }
                             }
 
-                            // ── C. HERO CENTER BOX: Today (Live Queue) vs Tomorrow/Future (Scheduled Window) ─
-                            if (isToday) {
+                            // ── C. HERO CENTER BOX: Completed vs Today (Live Queue) vs Tomorrow/Future (Scheduled Window) ─
+                            if (isConsultationDone) {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFFF0FDF4),
+                                    border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = Color(0xFF16A34A),
+                                            modifier = Modifier.size(46.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    Icons.Default.CheckCircle,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = "Consultation Completed",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = Color(0xFF15803D)
+                                            )
+                                            Text(
+                                                text = "Token #$myPos • Completed today at $clinicName",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF166534)
+                                            )
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = Color.White,
+                                            border = BorderStroke(1.dp, Color(0xFFBBF7D0))
+                                        ) {
+                                            Text(
+                                                text = "Finished",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF16A34A),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            } else if (isToday) {
                                 // ── TODAY: LIVE QUEUE POSITION BOX ──
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
@@ -5193,8 +5364,8 @@ fun AppointmentsTab(
                                 }
                             }
 
-                            // ── F3. Doctor Physical Presence Banner (ONLY for today's appointment) ──
-                            if (isToday) {
+                            // ── F3. Doctor Physical Presence Banner (ONLY for today's appointment if not done) ──
+                            if (isToday && !isConsultationDone) {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
                                     color = if (isInClinic) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
@@ -5226,7 +5397,24 @@ fun AppointmentsTab(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 // Tier 1: Hero Primary Action Button
-                                if (isToday) {
+                                if (isConsultationDone) {
+                                    Button(
+                                        onClick = {
+                                            navController.navigate(NavRoutes.QueueStatus.createRoute(appt.trackingCode10Digit))
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(44.dp)
+                                    ) {
+                                        Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("View Consultation & Bills", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(Modifier.width(4.dp))
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    }
+                                } else if (isToday) {
                                     Button(
                                         onClick = {
                                             navController.navigate(NavRoutes.QueueStatus.createRoute(appt.trackingCode10Digit))
@@ -5268,45 +5456,47 @@ fun AppointmentsTab(
                                     }
                                 }
 
-                                // Tier 2: Reschedule & Cancel Action Buttons
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            apptToRescheduleConfirm = appt
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.dp, Color(0xFF0284C7)),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0284C7)),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(42.dp)
+                                // Tier 2: Reschedule & Cancel Action Buttons (ONLY if not completed)
+                                if (!isConsultationDone) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Reschedule Slot", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                                    }
+                                        OutlinedButton(
+                                            onClick = {
+                                                apptToRescheduleConfirm = appt
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, Color(0xFF0284C7)),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0284C7)),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(42.dp)
+                                        ) {
+                                            Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Reschedule Slot", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                        }
 
-                                    OutlinedButton(
-                                        onClick = {
-                                            apptToCancelConfirm = appt
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.dp, Color(0xFFFECACA)),
-                                        colors = ButtonDefaults.outlinedButtonColors(
-                                            containerColor = Color(0xFFFFF1F2),
-                                            contentColor = Color(0xFFE11D48)
-                                        ),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(42.dp)
-                                    ) {
-                                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Cancel Booking", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                        OutlinedButton(
+                                            onClick = {
+                                                apptToCancelConfirm = appt
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                containerColor = Color(0xFFFFF1F2),
+                                                contentColor = Color(0xFFE11D48)
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(42.dp)
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Cancel Booking", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -5947,7 +6137,7 @@ fun ProfileTab(
             // ── 2. My Clinic Bills & Payment Summary Card (Connected to Clinic Billing) ──
             item {
                 val billableAppts = patientAppts.filter { appt ->
-                    profileInvoiceMap.containsKey(appt.id) || (appt.feeAmount ?: 0.0) > 0.0 || appt.checkinStatus == "completed"
+                    profileInvoiceMap.containsKey(appt.id) || (appt.feeAmount ?: 0.0) > 0.0 || appt.checkinStatus.lowercase() in listOf("completed", "done")
                 }
 
                 var grandTotalBilled = 0.0

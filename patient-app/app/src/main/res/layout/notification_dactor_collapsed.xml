@@ -11,10 +11,11 @@
 
     <TextView
         android:id="@+id/notif_title"
+        style="@style/TextAppearance.Compat.Notification.Title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Your Turn is Coming Soon!"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textColor="@color/notif_text_primary"
         android:textSize="15sp"
         android:textStyle="bold"
         android:maxLines="1"
@@ -22,11 +23,12 @@
 
     <TextView
         android:id="@+id/notif_body"
+        style="@style/TextAppearance.Compat.Notification.Line2"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
         android:text="You are at position 3. Only 2 people are ahead of you in the queue."
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="@color/notif_text_secondary"
         android:textSize="13sp"
         android:maxLines="2"
         android:ellipsize="end" />

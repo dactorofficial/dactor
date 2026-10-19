@@ -70,65 +70,94 @@ class NotificationSyncWorker(
                 }
             } catch (_: Exception) {}
 
-            // Automatic today appointment & queue alerts
-            val todayStr = LocalDate.now().toString()
-            val todayActiveAppts = myAppointments.filter { it.appointmentDate == todayStr }
-            if (todayActiveAppts.isNotEmpty()) {
-                val queueEntries = try {
-                    client.postgrest["live_queue"]
-                        .select()
-                        .decodeList<QueueEntry>()
-                } catch (_: Exception) { emptyList() }
-
-                for (appt in todayActiveAppts) {
-                    val code = appt.trackingCode10Digit.ifBlank { appt.id.take(10) }
-                    val slotTime = appt.appointmentTime.take(5).ifBlank { "Today" }
-                    val qEntry = queueEntries.firstOrNull { it.appointmentId == appt.id }
-                    val qPos = qEntry?.queuePosition ?: 1
-                    val estWait = if (qPos <= 1) "Next in Line" else "~${(qPos - 1) * 10} mins"
-
-                        val autoApptKey = "auto_appt_today_${appt.id}"
-                        if (appt.checkinStatus in listOf("waiting", "checked_in") && !sessionManager.isNotificationSeen(autoApptKey)) {
-                            sessionManager.markNotificationSeen(autoApptKey)
-                            val msg = NotificationTemplate.AppointmentReminder.buildMessage(
-                                patientName = appt.patientName,
-                                code = code,
-                                slotTime = slotTime,
-                                estWait = estWait
-                            )
-                            NotificationHelper.showSystemNotification(
-                                context = context,
-                                id = (autoApptKey.hashCode() and 0x7FFFFFFF) % 100000,
-                                title = NotificationTemplate.AppointmentReminder.buildTitle(code),
-                                message = msg,
-                                appointmentId = code,
-                                type = NotificationType.QUEUE_ALERT.key
-                            )
-                        }
-
-                        // Background two-ahead queue alert guarantee
-                        val liveAhead = if (qPos > 0) qPos - 1 else 0
-                        val alreadySentTwoAhead = sessionManager.isTwoAheadAlertTriggered(appt.id)
-                        if (appt.checkinStatus in listOf("waiting", "checked_in") && liveAhead in 0..2 && !alreadySentTwoAhead) {
-                            sessionManager.markTwoAheadAlertTriggered(appt.id)
-                            val alertTitle = if (liveAhead == 0) "You're Next!" else "Almost Your Turn!"
-                            val alertMsg = if (liveAhead == 0) {
-                                "Dear ${appt.patientName}, you are next in line. Please proceed to the consultation area."
-                            } else {
-                                "Dear ${appt.patientName}, only $liveAhead patient${if (liveAhead > 1) "s" else ""} ahead of you. Please be ready."
-                            }
-                            val notifId = (appt.id.hashCode() and 0x7FFFFFFF) % 100000
-                            NotificationHelper.showSystemNotification(
-                                context = context,
-                                id = notifId,
-                                title = alertTitle,
-                                message = alertMsg,
-                                appointmentId = appt.id,
-                                type = NotificationType.ARRIVE_SOON.key
-                            )
-                        }
+            // Cancel any notifications for already completed appointments
+            for (appt in myAppointments) {
+                if (appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled")) {
+                    NotificationHelper.cancelAppointmentNotifications(context, appt.id)
+                    if (appt.trackingCode10Digit.isNotBlank()) {
+                        NotificationHelper.cancelAppointmentNotifications(context, appt.trackingCode10Digit)
                     }
                 }
+            }
+
+            // Automatic today appointment & queue alerts
+            val todayStr = LocalDate.now().toString()
+            val todayCandidateAppts = myAppointments.filter {
+                it.appointmentDate == todayStr &&
+                it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled")
+            }
+            if (todayCandidateAppts.isNotEmpty()) {
+                val apptIds = todayCandidateAppts.map { it.id }
+                val queueEntries = try {
+                    client.postgrest["queue_entries"]
+                        .select { filter { isIn("appointment_id", apptIds) } }
+                        .decodeList<QueueEntry>()
+                } catch (_: Exception) {
+                    try {
+                        client.postgrest["live_queue"]
+                            .select()
+                            .decodeList<QueueEntry>()
+                    } catch (_: Exception) { emptyList() }
+                }
+
+                for (appt in todayCandidateAppts) {
+                    val code = appt.trackingCode10Digit.ifBlank { appt.id.take(10) }
+                    val qEntry = queueEntries.firstOrNull { it.appointmentId == appt.id }
+                    val isDone = qEntry?.status?.lowercase() in listOf("done", "completed", "cancelled")
+                    if (isDone) {
+                        NotificationHelper.cancelAppointmentNotifications(context, appt.id)
+                        NotificationHelper.cancelAppointmentNotifications(context, code)
+                        continue
+                    }
+                    if (qEntry == null || qEntry.status != "waiting") {
+                        continue
+                    }
+                    val slotTime = appt.appointmentTime.take(5).ifBlank { "Today" }
+                    val qPos = qEntry.queuePosition
+                    val estWait = if (qPos <= 1) "Next in Line" else "~${(qPos - 1) * 10} mins"
+
+                    val autoApptKey = "auto_appt_today_${appt.id}"
+                    if (appt.checkinStatus in listOf("waiting", "checked_in") && !sessionManager.isNotificationSeen(autoApptKey)) {
+                        sessionManager.markNotificationSeen(autoApptKey)
+                        val msg = NotificationTemplate.AppointmentReminder.buildMessage(
+                            patientName = appt.patientName,
+                            code = code,
+                            slotTime = slotTime,
+                            estWait = estWait
+                        )
+                        NotificationHelper.showSystemNotification(
+                            context = context,
+                            id = (autoApptKey.hashCode() and 0x7FFFFFFF) % 100000,
+                            title = NotificationTemplate.AppointmentReminder.buildTitle(code),
+                            message = msg,
+                            appointmentId = code,
+                            type = NotificationType.QUEUE_ALERT.key
+                        )
+                    }
+
+                    // Background two-ahead queue alert guarantee
+                    val liveAhead = if (qPos > 0) qPos - 1 else 0
+                    val alreadySentTwoAhead = sessionManager.isTwoAheadAlertTriggered(appt.id)
+                    if (appt.checkinStatus in listOf("waiting", "checked_in") && liveAhead in 0..2 && !alreadySentTwoAhead) {
+                        sessionManager.markTwoAheadAlertTriggered(appt.id)
+                        val alertTitle = if (liveAhead == 0) "You're Next!" else "Almost Your Turn!"
+                        val alertMsg = if (liveAhead == 0) {
+                            "Dear ${appt.patientName}, you are next in line. Please proceed to the consultation area."
+                        } else {
+                            "Dear ${appt.patientName}, only $liveAhead patient${if (liveAhead > 1) "s" else ""} ahead of you. Please be ready."
+                        }
+                        val notifId = (appt.id.hashCode() and 0x7FFFFFFF) % 100000
+                        NotificationHelper.showSystemNotification(
+                            context = context,
+                            id = notifId,
+                            title = alertTitle,
+                            message = alertMsg,
+                            appointmentId = appt.id,
+                            type = NotificationType.ARRIVE_SOON.key
+                        )
+                    }
+                }
+            }
 
                 val list = try {
                     client.postgrest["notifications"]

@@ -102,20 +102,46 @@ class NotificationWatchdogService : Service() {
                         }
                     } catch (_: Exception) {}
 
+                    // Cancel any notifications for already completed appointments
+                    for (appt in myAppointments) {
+                        if (appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled")) {
+                            NotificationHelper.cancelAppointmentNotifications(applicationContext, appt.id)
+                            if (appt.trackingCode10Digit.isNotBlank()) {
+                                NotificationHelper.cancelAppointmentNotifications(applicationContext, appt.trackingCode10Digit)
+                            }
+                        }
+                    }
+
                     // 1. Check Automatic Appointment, Live Queue & Lab Status Alerts (Works when app is closed)
                     val todayStr = LocalDate.now().toString()
-                    val todayActiveAppts = myAppointments.filter { it.appointmentDate == todayStr }
+                    val todayActiveAppts = myAppointments.filter {
+                        it.appointmentDate == todayStr &&
+                        it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled")
+                    }
                     if (todayActiveAppts.isNotEmpty()) {
+                        val apptIds = todayActiveAppts.map { it.id }
                         val queueEntries = try {
-                            client.postgrest["live_queue"]
-                                .select()
+                            client.postgrest["queue_entries"]
+                                .select { filter { isIn("appointment_id", apptIds) } }
                                 .decodeList<QueueEntry>()
-                        } catch (_: Exception) { emptyList() }
+                        } catch (_: Exception) {
+                            try {
+                                client.postgrest["live_queue"]
+                                    .select()
+                                    .decodeList<QueueEntry>()
+                            } catch (_: Exception) { emptyList() }
+                        }
 
                         for (appt in todayActiveAppts) {
                             val code = appt.trackingCode10Digit.ifBlank { appt.id.take(10) }
                             val slotTime = appt.appointmentTime.take(5).ifBlank { "Today" }
                             val qEntry = queueEntries.firstOrNull { it.appointmentId == appt.id }
+                            val isDone = qEntry?.status?.lowercase() in listOf("done", "completed", "cancelled")
+                            if (isDone) {
+                                NotificationHelper.cancelAppointmentNotifications(applicationContext, appt.id)
+                                NotificationHelper.cancelAppointmentNotifications(applicationContext, code)
+                                continue
+                            }
                             val qPos = qEntry?.queuePosition ?: 1
                             val estWait = if (qPos <= 1) "Next in Line" else "~${(qPos - 1) * 10} mins"
 

@@ -131,6 +131,11 @@ fun QueueBoardScreen(
     var selectedQueueDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var viewedYearMonth by remember { mutableStateOf(YearMonth.now()) }
     val dateListState = rememberLazyListState()
+    val queueListState = rememberLazyListState()
+
+    LaunchedEffect(selectedQueueTab) {
+        queueListState.scrollToItem(0)
+    }
     var expandedItemId by remember { mutableStateOf<String?>(null) }
     var notificationSentMessage by remember { mutableStateOf<String?>(null) }
     var currentEpochSecond by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
@@ -444,148 +449,152 @@ fun QueueBoardScreen(
             )
         }
     ) { padding ->
-        Column(
+        LazyColumn(
+            state = queueListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
+                .padding(padding),
+            contentPadding = PaddingValues(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Spacer(modifier = Modifier.height(14.dp))
-
             // 3 Stat Cards (Shown on Live Queue tab)
             if (selectedQueueTab == 0) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // 1. In Consultation Card (Soft Light Blue)
-                    Surface(
-                        color = Color(0xFFE8F1FD),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                item(key = "stat_cards") {
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            // 1. In Consultation Card (Soft Light Blue)
                             Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFD3E4FB),
-                                modifier = Modifier.size(32.dp)
+                                color = Color(0xFFE8F1FD),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.Person,
-                                        contentDescription = null,
-                                        tint = Color(0xFF1E64D4),
-                                        modifier = Modifier.size(18.dp)
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFD3E4FB),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = Color(0xFF1E64D4),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "$insideCount",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 24.sp,
+                                        color = Color(0xFF1351B4)
+                                    )
+                                    Text(
+                                        text = "In Consultation",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF3362A8),
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
-                            Text(
-                                text = "$insideCount",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 24.sp,
-                                color = Color(0xFF1351B4)
-                            )
-                            Text(
-                                text = "In Consultation",
-                                fontSize = 11.sp,
-                                color = Color(0xFF3362A8),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
 
-                    // 2. Waiting in Lobby Card (Soft Light Peach/Orange)
-                    Surface(
-                        color = Color(0xFFFDF2E4),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
+                            // 2. Waiting in Lobby Card (Soft Light Peach/Orange)
                             Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFFAE0C3),
-                                modifier = Modifier.size(32.dp)
+                                color = Color(0xFFFDF2E4),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.AccessTime,
-                                        contentDescription = null,
-                                        tint = Color(0xFFB45B10),
-                                        modifier = Modifier.size(17.dp)
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFFAE0C3),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.AccessTime,
+                                                contentDescription = null,
+                                                tint = Color(0xFFB45B10),
+                                                modifier = Modifier.size(17.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "$waitingCount",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 24.sp,
+                                        color = Color(0xFFB45B10)
+                                    )
+                                    Text(
+                                        text = "Waiting in Lobby",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF9E5417),
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
-                            Text(
-                                text = "$waitingCount",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 24.sp,
-                                color = Color(0xFFB45B10)
-                            )
-                            Text(
-                                text = "Waiting in Lobby",
-                                fontSize = 11.sp,
-                                color = Color(0xFF9E5417),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
 
-                    // 3. Completed Today Card (Soft Light Mint/Green)
-                    Surface(
-                        color = Color(0xFFE5F8EE),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
+                            // 3. Completed Today Card (Soft Light Mint/Green)
                             Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFC7F0DB),
-                                modifier = Modifier.size(32.dp)
+                                color = Color(0xFFE5F8EE),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = Color(0xFF0F8A50),
-                                        modifier = Modifier.size(18.dp)
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFC7F0DB),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF0F8A50),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "$doneCount",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 24.sp,
+                                        color = Color(0xFF0F8A50)
+                                    )
+                                    Text(
+                                        text = "Completed Today",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF137747),
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
-                            Text(
-                                text = "$doneCount",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 24.sp,
-                                color = Color(0xFF0F8A50)
-                            )
-                            Text(
-                                text = "Completed Today",
-                                fontSize = 11.sp,
-                                color = Color(0xFF137747),
-                                fontWeight = FontWeight.Medium
-                            )
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(14.dp))
             }
 
             // ── COMPACT DATE SCROLLER ─────────────────────────────
-            Surface(
-                color = Color.White,
-                shape = RoundedCornerShape(16.dp),
-                shadowElevation = 1.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            item(key = "date_scroller") {
+                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Surface(
+                        color = Color.White,
+                        shape = RoundedCornerShape(16.dp),
+                        shadowElevation = 1.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                 Column(
                     modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -717,17 +726,28 @@ fun QueueBoardScreen(
                     }
                 }
             }
+        }
+    }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Sub-Tab Row: Scrollable, compact buttons strictly named "Live" and "Completed"
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // Sub-Tabs Sticky Header
+            stickyHeader(key = "queue_tabs") {
+                Surface(
+                    color = Color.White,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                 // Live Tab
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -784,10 +804,13 @@ fun QueueBoardScreen(
                     }
                 }
             }
+        }
+    }
+}
 
-            if (selectedQueueTab == 0) {
-                Spacer(modifier = Modifier.height(14.dp))
-
+    if (selectedQueueTab == 0) {
+        item(key = "info_banner") {
+            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                 // Live OPD Queue Info Banner (Matching template in media_1791633639645_ca1532cb.png)
                 Surface(
                     color = Color(0xFFEEF6FF),
@@ -890,9 +913,12 @@ fun QueueBoardScreen(
                     }
                 }
             }
+        }
+    }
 
-            if (notificationSentMessage != null) {
-                Spacer(modifier = Modifier.height(10.dp))
+    if (notificationSentMessage != null) {
+        item(key = "notification_sent_banner") {
+            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                 Surface(
                     color = Color(0xFFDCFCE7),
                     shape = RoundedCornerShape(10.dp),
@@ -908,55 +934,51 @@ fun QueueBoardScreen(
                     }
                 }
             }
+        }
+    }
 
-            Spacer(modifier = Modifier.height(14.dp))
+    val currentQueueList = if (selectedQueueTab == 0) liveQueue else pastQueue
 
-            val currentQueueList = if (selectedQueueTab == 0) liveQueue else pastQueue
-
-            if (currentQueueList.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = 40.dp),
-                    contentAlignment = Alignment.Center
+    if (currentQueueList.isEmpty()) {
+        item(key = "empty_queue_state") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 40.dp, bottom = 40.dp)
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            if (selectedQueueTab == 0) Icons.Default.Schedule else Icons.Default.DoneAll,
-                            contentDescription = null,
-                            tint = Color(0xFF94A3B8),
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Text(
-                            text = if (selectedQueueTab == 0) "No Active Patients in Live Queue" else "No Completed Appointments",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = Color(0xFF0F172A)
-                        )
-                        Text(
-                            text = if (selectedQueueTab == 0)
-                                "Patients will appear here when appointments are checked in."
-                            else
-                                "Completed patient consultations for this date will be listed here.",
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    }
+                    Icon(
+                        if (selectedQueueTab == 0) Icons.Default.Schedule else Icons.Default.DoneAll,
+                        contentDescription = null,
+                        tint = Color(0xFF94A3B8),
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Text(
+                        text = if (selectedQueueTab == 0) "No Active Patients in Live Queue" else "No Completed Appointments",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = Color(0xFF0F172A)
+                    )
+                    Text(
+                        text = if (selectedQueueTab == 0)
+                            "Patients will appear here when appointments are checked in."
+                        else
+                            "Completed patient consultations for this date will be listed here.",
+                        fontSize = 12.sp,
+                        color = Color(0xFF64748B)
+                    )
                 }
-            } else if (selectedQueueTab == 1) {
-                // Past Queue Cards List Matching Template in media_1791634299539_f33ec324.png
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(bottom = 32.dp),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 6.dp)
-                ) {
-                    itemsIndexed(pastQueue, key = { _, item -> item.id }) { index, item ->
-                        Card(
+            }
+        }
+    } else if (selectedQueueTab == 1) {
+        itemsIndexed(pastQueue, key = { _, item -> item.id }) { index, item ->
+            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                Card(
                             shape = RoundedCornerShape(18.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White),
                             border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
@@ -1152,14 +1174,9 @@ fun QueueBoardScreen(
                     }
                 }
             } else {
-                // Patient Cards List Matching Template
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(bottom = 32.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    itemsIndexed(liveQueue, key = { _, item -> item.id }) { index, item ->
-                        val isLongPressed = longPressedItemId == item.id
+                itemsIndexed(liveQueue, key = { _, item -> item.id }) { index, item ->
+                    val isLongPressed = longPressedItemId == item.id
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                         Card(
                             shape = RoundedCornerShape(18.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White),

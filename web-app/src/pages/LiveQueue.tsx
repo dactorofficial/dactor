@@ -31,7 +31,6 @@ import {
   Hourglass,
   Receipt,
   ArrowLeft,
-  Zap,
 } from 'lucide-react'
 import {
   Appointment,
@@ -51,11 +50,14 @@ import {
   shiftAppointmentDate,
   cancelAppointment,
   calculateMultiSlotDailyPosition,
+  getLinkedConsultations,
+  LinkedConsultationsResult,
   resolveStorageUrl,
   resolveClinicLogoUrl,
   resolveClinicCoverUrl,
   resolveDoctorPhotoUrl,
 } from '../services/db'
+import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
 import { supabase } from '../lib/supabase'
 import { playChimeSound } from '../utils/audioChime'
 import { updatePageSEO } from '../utils/seo'
@@ -82,6 +84,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const [clinicQueue, setClinicQueue] = useState<Appointment[]>([])
   const [labReports, setLabReports] = useState<LabReport[]>([])
   const [multiSlotResult, setMultiSlotResult] = useState<MultiSlotPositionResult | null>(null)
+  const [linkedConsultations, setLinkedConsultations] = useState<LinkedConsultationsResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [copyFeedback, setCopyFeedback] = useState(false)
@@ -115,6 +118,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
   // Prescription & Bill Modal
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false)
+  const [selectedPrescriptionApptId, setSelectedPrescriptionApptId] = useState<string | null>(null)
 
   // Reschedule Modal
   const [showRescheduleModal, setShowRescheduleModal] = useState(false)
@@ -139,10 +143,16 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     setErrorMsg('')
 
     try {
-      const appt = await getAppointmentByTrackingCodeOrContact(clean)
-      setAppointment(appt)
+      const [appt, linked] = await Promise.all([
+        getAppointmentByTrackingCodeOrContact(clean),
+        getLinkedConsultations(clean),
+      ])
+      const effectiveAppt = appt || linked?.targetAppointment || null
+      setAppointment(effectiveAppt)
+      setLinkedConsultations(linked)
 
-      if (appt) {
+      if (effectiveAppt) {
+        const appt = effectiveAppt
         const effectiveCode = appt.trackingCode10Digit || clean
         // Fetch clinic details
         if (appt.clinicId) {
@@ -412,10 +422,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     labReports.length > 0
 
   const isConsultancyCompleted =
-    appointment?.checkinStatus === 'completed' ||
-    appointment?.checkinStatus === 'done' ||
-    (appointment as any)?.queueStatus === 'completed' ||
-    (appointment as any)?.queueStatus === 'done'
+    appointment?.checkinStatus !== 'waiting' &&
+    appointment?.checkinStatus !== 'scheduled' &&
+    (
+      appointment?.checkinStatus === 'completed' ||
+      appointment?.checkinStatus === 'done' ||
+      (appointment as any)?.queueStatus === 'completed' ||
+      (appointment as any)?.queueStatus === 'done'
+    )
 
   const isInsideChamber =
     ['inside', 'in_consultation', 'called', 'serving'].includes(
@@ -601,7 +615,6 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     approxTimeText,
     suggestedArrivalText,
     slotNoticeText,
-    canOfferEarlyArrival,
     displayWaitText
   } = useMemo(() => {
     const now = new Date()
@@ -616,7 +629,6 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           approxTimeText: multiSlotResult.approxAppointmentTimeText,
           suggestedArrivalText: `Scheduled slot for ${multiSlotResult.dateLabel}`,
           slotNoticeText: `Scheduled for ${multiSlotResult.dateLabel} • Approx. ${multiSlotResult.approxAppointmentTimeText}`,
-          canOfferEarlyArrival: false,
           displayWaitText: multiSlotResult.approxAppointmentTimeText,
         }
       }
@@ -626,7 +638,6 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         approxTimeText: `Scheduled for ${dateLabel}`,
         suggestedArrivalText: `Scheduled slot for ${dateLabel}`,
         slotNoticeText: `Scheduled for ${dateLabel} • Syncing queue line position...`,
-        canOfferEarlyArrival: false,
         displayWaitText: `Scheduled for ${dateLabel}`,
       }
     }
@@ -650,18 +661,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
     const dynamicTime = new Date(now.getTime() + estimatedWaitMinutes * 60000)
     const isSlotInFuture = slotStartDate ? now.getTime() < slotStartDate.getTime() : false
-    const canEarly = Boolean(isDoctorFree && isSlotInFuture && appointment?.optInEarlyCall && patientsAhead === 0)
 
     let finalExpected: Date
     let waitText: string
 
     if (patientsAhead === 0) {
-      if (isSlotInFuture && !canEarly) {
+      if (isSlotInFuture) {
         finalExpected = slotStartDate || now
         const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
         waitText = diffMins > 60 ? `Starts at ${slotStartFmt}` : `~${Math.max(0, diffMins)} min`
       } else {
-        // Position 1 and current time is within slot, doctor free early, or slot is over:
+        // Position 1 and current time is within slot or slot is over:
         finalExpected = now
         waitText = 'Arrive Fast'
       }
@@ -692,10 +702,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       approxTimeText: isArriveFast ? 'Your turn, arrive fast' : `around ${fmt(finalExpected)}`,
       suggestedArrivalText: arrivalAdvice,
       slotNoticeText: isArriveFast ? 'You are at position 1! You are next in line — arrive fast.' : notice,
-      canOfferEarlyArrival: canEarly,
       displayWaitText: waitText
     }
-  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, appointment?.optInEarlyCall, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr])
+  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr])
 
   // Formatted expected call time
   const formattedExpectedTime = approxTimeText
@@ -851,6 +860,221 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 )}
               </button>
             </div>
+
+            {/* PRESERVED QUICK PATIENT CONTROLS BAR */}
+            <div className="liquid-glass-card rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-2.5 border border-white/40 dark:border-white/10 shadow-glass-sm">
+              <div className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Receipt className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                <span>Patient Actions & Documents:</span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => printAppointmentBill(appointment)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition flex items-center space-x-1 cursor-pointer active:scale-95"
+                  title="Download and print official medical bill"
+                >
+                  <Download className="w-3.5 h-3.5 text-teal-300" />
+                  <span>Download Bill</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => printPrescription(appointment)}
+                  className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs transition flex items-center space-x-1 cursor-pointer active:scale-95"
+                  title="Download official doctor prescription"
+                >
+                  <Stethoscope className="w-3.5 h-3.5 text-white" />
+                  <span>Download Rx</span>
+                </button>
+                {!isCalledInsideOrDone && (
+                  <button
+                    type="button"
+                    onClick={() => handleActionWithAuth('reschedule')}
+                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition flex items-center space-x-1 cursor-pointer active:scale-95"
+                    title="Reschedule appointment date or slot"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Reschedule</span>
+                  </button>
+                )}
+                {clinic?.contactPhone && (
+                  <a
+                    href={`tel:${clinic.contactPhone}`}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 font-bold text-xs border border-emerald-300 dark:border-emerald-700 transition flex items-center space-x-1"
+                    title={`Call Clinic Reception (${clinic.contactPhone})`}
+                  >
+                    <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Call Reception</span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => fetchQueueData(activeCode)}
+                  className="p-1.5 rounded-xl liquid-glass-subtle hover:bg-white/70 dark:hover:bg-slate-800/70 text-slate-700 dark:text-slate-300 transition cursor-pointer active:scale-95"
+                  title="Refresh Queue Status"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* DUAL-CONSULTATION BREAKDOWN: INITIAL & FOLLOW-UP VISITS */}
+            {linkedConsultations && linkedConsultations.isLinked && (
+              <div className="liquid-glass-elevated rounded-3xl p-5 border border-teal-500/30 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-white/20 dark:border-white/10">
+                  <div className="flex items-center space-x-2">
+                    <Stethoscope className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                    <h3 className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-wider">
+                      Dual-Consultation Clinical Breakdown
+                    </h3>
+                  </div>
+                  <span className="text-[11px] font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 px-2.5 py-0.5 rounded-full border border-teal-500/20">
+                    2 Linked Visits Recorded
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Visit 1: Initial Consultation */}
+                  {linkedConsultations.initialAppointment && (
+                    <div className="p-4 rounded-2xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-blue-100 dark:border-blue-900">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-700">
+                          1. Initial Consultation (Paid)
+                        </span>
+                        <span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
+                          #{linkedConsultations.initialAppointment.trackingCode10Digit}
+                        </span>
+                      </div>
+
+                      <div className="text-xs space-y-1.5 text-slate-700 dark:text-slate-300">
+                        <div>
+                          <strong className="text-slate-900 dark:text-white">Doctor:</strong>{' '}
+                          {linkedConsultations.initialAppointment.doctor?.fullName || doctor?.fullName || 'OPD Specialist'}
+                          {linkedConsultations.initialAppointment.doctor?.specialty ? ` (${linkedConsultations.initialAppointment.doctor?.specialty})` : ''}
+                        </div>
+                        <div>
+                          <strong className="text-slate-900 dark:text-white">Date:</strong>{' '}
+                          {linkedConsultations.initialAppointment.appointmentDate} • {linkedConsultations.initialAppointment.appointmentTime || '10:00 AM'}
+                        </div>
+                        <div>
+                          <strong className="text-slate-900 dark:text-white">Total Bill:</strong> NPR{' '}
+                          {linkedConsultations.initialAppointment.feeAmount || 500}{' '}
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                            ({linkedConsultations.initialAppointment.paymentStatus || 'Paid'})
+                          </span>
+                        </div>
+                        {linkedConsultations.initialAppointment.notes && (
+                          <div className="mt-1 p-2 rounded-xl bg-white/70 dark:bg-slate-900/60 border border-blue-100 dark:border-blue-900 text-[11px]">
+                            <strong>Clinical Notes & Rx:</strong> {linkedConsultations.initialAppointment.notes}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-blue-100 dark:border-blue-900 flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => printAppointmentBill(linkedConsultations.initialAppointment!)}
+                          className="flex-1 py-1.5 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-700 text-blue-900 dark:text-blue-200 font-bold text-xs border border-blue-200 dark:border-blue-700 transition flex items-center justify-center space-x-1 cursor-pointer"
+                        >
+                          <Receipt className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Download Initial Bill</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => printPrescription(linkedConsultations.initialAppointment!)}
+                          className="flex-1 py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition flex items-center justify-center space-x-1 cursor-pointer"
+                        >
+                          <Stethoscope className="w-3.5 h-3.5" />
+                          <span>View Initial Rx</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Visit 2: Follow-Up Consultation */}
+                  {linkedConsultations.followupAppointment && (
+                    <div className="p-4 rounded-2xl bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800 space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-teal-100 dark:border-teal-900">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-teal-100 dark:bg-teal-900/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-700">
+                          2. Follow-Up Consultation (Rs. 0 Free)
+                        </span>
+                        <span className="font-mono text-xs font-bold text-teal-700 dark:text-teal-300">
+                          #{linkedConsultations.followupAppointment.trackingCode10Digit}
+                        </span>
+                      </div>
+
+                      <div className="text-xs space-y-1.5 text-slate-700 dark:text-slate-300">
+                        <div>
+                          <strong className="text-slate-900 dark:text-white">Doctor:</strong>{' '}
+                          {linkedConsultations.followupAppointment.doctor?.fullName || doctor?.fullName || 'OPD Specialist'}
+                        </div>
+                        <div>
+                          <strong className="text-slate-900 dark:text-white">Date:</strong>{' '}
+                          {linkedConsultations.followupAppointment.appointmentDate} • {linkedConsultations.followupAppointment.appointmentTime || '11:00 AM'}
+                        </div>
+                        <div>
+                          <strong className="text-slate-900 dark:text-white">Status:</strong>{' '}
+                          <span className="font-bold text-teal-700 dark:text-teal-300 uppercase">
+                            {linkedConsultations.followupAppointment.checkinStatus.replace('_', ' ')}
+                          </span>
+                          {' • '}
+                          <strong className="text-slate-900 dark:text-white">Fee:</strong>{' '}
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold">NPR 0 (Free Follow-Up)</span>
+                        </div>
+                        {linkedConsultations.followupAppointment.notes && (
+                          <div className="mt-1 p-2 rounded-xl bg-white/70 dark:bg-slate-900/60 border border-teal-100 dark:border-teal-900 text-[11px]">
+                            <strong>Remarks:</strong> {linkedConsultations.followupAppointment.notes}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-teal-100 dark:border-teal-900 flex items-center gap-2 flex-wrap">
+                        {linkedConsultations.followupAppointment.checkinStatus === 'completed' ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => printAppointmentBill(linkedConsultations.followupAppointment!)}
+                              className="flex-1 py-1.5 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-teal-50 dark:hover:bg-slate-700 text-teal-900 dark:text-teal-200 font-bold text-xs border border-teal-200 dark:border-teal-700 transition flex items-center justify-center space-x-1 cursor-pointer"
+                            >
+                              <Receipt className="w-3.5 h-3.5 text-teal-600" />
+                              <span>Follow-Up Bill</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => printPrescription(linkedConsultations.followupAppointment!)}
+                              className="flex-1 py-1.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs transition flex items-center justify-center space-x-1 cursor-pointer"
+                            >
+                              <Stethoscope className="w-3.5 h-3.5" />
+                              <span>Follow-Up Rx</span>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleActionWithAuth('reschedule')}
+                              className="flex-1 py-1.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs transition flex items-center justify-center space-x-1 cursor-pointer"
+                            >
+                              <Calendar className="w-3.5 h-3.5" />
+                              <span>Reschedule Follow-Up</span>
+                            </button>
+                            {clinic?.contactPhone && (
+                              <a
+                                href={`tel:${clinic.contactPhone}`}
+                                className="flex-1 py-1.5 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-teal-50 text-teal-900 dark:text-teal-200 font-bold text-xs border border-teal-300 dark:border-teal-700 transition flex items-center justify-center space-x-1"
+                              >
+                                <Phone className="w-3.5 h-3.5 text-teal-600" />
+                                <span>Clinic Help</span>
+                              </a>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* 2. CLINIC ON BREAK ALERT BANNER (If clinic is on break) */}
             {clinic?.isOnBreak && !isConsultancyCompleted && (
@@ -1095,9 +1319,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
                     <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5 border border-teal-500/30">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                        {canOfferEarlyArrival
-                          ? '⚡ Doctor Free Early'
-                          : isFutureOrTomorrow
+                        {isFutureOrTomorrow
                           ? 'Scheduled Window'
                           : 'Expected Window'}
                       </span>
@@ -1117,19 +1339,6 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       </span>
                     </div>
                   </div>
-
-                  {/* ⚡ Early Arrival Invite Banner if doctor is free now */}
-                  {canOfferEarlyArrival && (
-                    <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-900 dark:text-emerald-200 flex items-start space-x-3">
-                      <Zap className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="text-xs font-bold">⚡ Doctor is Free Now! Come in early?</div>
-                        <div className="text-[11px] text-emerald-700 dark:text-emerald-300/90 mt-0.5 leading-relaxed">
-                          The doctor finished earlier consultations ahead of schedule. Since you opted in at booking, you can proceed to the clinic now!
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -1544,67 +1753,134 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       {/* ========================================================================= */}
       {/* PRESCRIPTION & BILL MODAL                                                 */}
       {/* ========================================================================= */}
-      {showPrescriptionModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-4 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-200/50 dark:border-white/10 pb-3">
-              <div className="flex items-center space-x-2">
-                <Receipt className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400" />
-                <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
-                  Prescription & Billing Receipt
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowPrescriptionModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full cursor-pointer transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {showPrescriptionModal && (() => {
+        const hasLinked = linkedConsultations && linkedConsultations.isLinked
+        const activeAppt =
+          (selectedPrescriptionApptId &&
+            linkedConsultations?.allConsultations.find((a) => a.id === selectedPrescriptionApptId)) ||
+          appointment
 
-            <div className="space-y-3 text-xs">
-              <div className="p-3 liquid-glass-subtle rounded-xl space-y-1">
-                <div className="flex justify-between font-bold text-slate-800 dark:text-slate-200">
-                  <span>Patient Name:</span>
-                  <span>{appointment?.patientName}</span>
+        const apptDoctor = activeAppt?.doctor || doctor
+        const apptClinic = activeAppt?.clinic || clinic
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+            <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-4 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-slate-200/50 dark:border-white/10 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Receipt className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400" />
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                    Prescription & Billing Documents
+                  </h3>
                 </div>
-                <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                  <span>Facility:</span>
-                  <span>{clinic?.name || 'OPD Clinic'}</span>
-                </div>
-                <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                  <span>Attending Doctor:</span>
-                  <span>{doctor?.fullName || 'OPD Specialist'}</span>
-                </div>
-                <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                  <span>Visit Date:</span>
-                  <span>{appointment?.appointmentDate}</span>
-                </div>
+                <button
+                  onClick={() => setShowPrescriptionModal(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full cursor-pointer transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              <div className="p-3 liquid-glass-subtle border-emerald-500/30 text-emerald-900 dark:text-emerald-300 rounded-xl space-y-1">
-                <div className="flex justify-between font-bold text-sm">
-                  <span>Total Consultation Fee:</span>
-                  <span>NPR {appointment?.feeAmount || 500}</span>
+              {/* Consultation Tab Switcher if multiple visits exist */}
+              {hasLinked && linkedConsultations.allConsultations.length > 1 && (
+                <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                  {linkedConsultations.allConsultations.map((cAppt, idx) => {
+                    const isSelected = (activeAppt?.id || appointment?.id) === cAppt.id
+                    return (
+                      <button
+                        key={cAppt.id}
+                        type="button"
+                        onClick={() => setSelectedPrescriptionApptId(cAppt.id)}
+                        className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-white dark:bg-slate-700 text-teal-800 dark:text-teal-200 shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                        }`}
+                      >
+                        {idx === 0 ? '1. Initial Visit' : '2. Follow-Up Visit'}
+                      </button>
+                    )
+                  })}
                 </div>
-                <div className="flex justify-between text-[11px] text-emerald-700 dark:text-emerald-400">
-                  <span>Payment Status:</span>
-                  <span className="font-bold uppercase">{appointment?.paymentStatus || 'Paid'}</span>
-                </div>
-              </div>
-            </div>
+              )}
 
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={() => setShowPrescriptionModal(false)}
-                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-xs font-bold shadow-glass-sm cursor-pointer active:scale-95 border-t border-white/20"
-              >
-                Close
-              </button>
+              <div className="space-y-3 text-xs">
+                <div className="p-3 liquid-glass-subtle rounded-xl space-y-1">
+                  <div className="flex justify-between font-bold text-slate-800 dark:text-slate-200">
+                    <span>Patient Name:</span>
+                    <span>{activeAppt?.patientName}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>Facility:</span>
+                    <span>{apptClinic?.name || 'OPD Clinic'}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>Attending Doctor:</span>
+                    <span>{apptDoctor?.fullName || 'OPD Specialist'}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>Visit Date & Time:</span>
+                    <span>{activeAppt?.appointmentDate} • {activeAppt?.appointmentTime || '10:00 AM'}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>Tracking Token:</span>
+                    <span className="font-mono font-bold text-teal-600 dark:text-teal-400">#{activeAppt?.trackingCode10Digit}</span>
+                  </div>
+                </div>
+
+                <div className="p-3 liquid-glass-subtle border-emerald-500/30 text-emerald-900 dark:text-emerald-300 rounded-xl space-y-1">
+                  <div className="flex justify-between font-bold text-sm">
+                    <span>Total Consultation Fee:</span>
+                    <span>NPR {activeAppt?.feeAmount ?? 500}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-emerald-700 dark:text-emerald-400">
+                    <span>Payment Status:</span>
+                    <span className="font-bold uppercase">{activeAppt?.paymentStatus || 'Paid'}</span>
+                  </div>
+                </div>
+
+                {activeAppt?.notes && (
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 text-[11px] space-y-1">
+                    <strong className="text-slate-800 dark:text-slate-200">Clinical Remarks & Instructions:</strong>
+                    <p className="text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{activeAppt.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons: Download Bill, Download Prescription, Close */}
+              <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+                {activeAppt && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => printAppointmentBill(activeAppt)}
+                      className="w-full sm:w-1/2 py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95"
+                    >
+                      <Receipt className="w-4 h-4 text-teal-400" />
+                      <span>Download Bill</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => printPrescription(activeAppt)}
+                      className="w-full sm:w-1/2 py-2.5 px-4 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95"
+                    >
+                      <Stethoscope className="w-4 h-4 text-white" />
+                      <span>Download Rx</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowPrescriptionModal(false)}
+                  className="w-full sm:w-auto px-4 py-2.5 liquid-glass-subtle text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer active:scale-95"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ========================================================================= */}
       {/* RESCHEDULE DATE MODAL                                                     */}

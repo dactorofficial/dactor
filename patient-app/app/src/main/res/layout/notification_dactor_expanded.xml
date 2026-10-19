@@ -12,21 +12,23 @@
     <!-- Bold Title using system primary text color -->
     <TextView
         android:id="@+id/notif_title"
+        style="@style/TextAppearance.Compat.Notification.Title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Your Turn is Coming Soon!"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textColor="@color/notif_text_primary"
         android:textSize="15.5sp"
         android:textStyle="bold" />
 
     <!-- Subtitle / Body using system secondary text color -->
     <TextView
         android:id="@+id/notif_body"
+        style="@style/TextAppearance.Compat.Notification.Line2"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="3dp"
         android:text="You are at position 3. Only 2 people are ahead of you in the queue."
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="@color/notif_text_secondary"
         android:textSize="13.5sp" />
 
     <!-- Bottom 2-Column Pill Container (Only for queue status reminders) -->
@@ -74,7 +76,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Estimated Time"
-                    android:textColor="?android:attr/textColorSecondary"
+                    android:textColor="@color/notif_text_secondary"
                     android:textSize="10.5sp"
                     android:maxLines="1"
                     android:ellipsize="end" />
@@ -85,7 +87,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
                     android:text="~ 15 mins"
-                    android:textColor="?android:attr/textColorPrimary"
+                    android:textColor="@color/notif_text_primary"
                     android:textSize="13sp"
                     android:textStyle="bold"
                     android:maxLines="1"
@@ -132,7 +134,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Appointment Time"
-                    android:textColor="?android:attr/textColorSecondary"
+                    android:textColor="@color/notif_text_secondary"
                     android:textSize="10.5sp"
                     android:maxLines="1"
                     android:ellipsize="end" />
@@ -143,7 +145,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
                     android:text="10:00 AM"
-                    android:textColor="?android:attr/textColorPrimary"
+                    android:textColor="@color/notif_text_primary"
                     android:textSize="13sp"
                     android:textStyle="bold"
                     android:maxLines="1"

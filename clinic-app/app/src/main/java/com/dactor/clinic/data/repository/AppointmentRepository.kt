@@ -42,6 +42,8 @@ data class QueueEntryInsertDto(
     @SerialName("doctor_id") val doctorId: String? = null,
     @SerialName("queue_position") val queuePosition: Int,
     @SerialName("status") val status: String = "waiting",
+    @SerialName("called_at") val calledAt: String? = null,
+    @SerialName("inside_at") val insideAt: String? = null,
     @SerialName("completed_at") val completedAt: String? = null
 )
 
@@ -632,12 +634,22 @@ class AppointmentRepository @Inject constructor(
                 .select { filter { eq("appointment_id", appointmentId) } }
                 .decodeSingleOrNull<QueueEntry>()
 
+            val startTs = existingQueue?.insideAt ?: existingQueue?.calledAt
+            val durationSeconds = if (!startTs.isNullOrBlank()) {
+                try {
+                    val start = java.time.Instant.parse(startTs).epochSecond
+                    val end = java.time.Instant.parse(now).epochSecond
+                    (end - start).coerceAtLeast(0)
+                } catch (e: Exception) { null }
+            } else null
+
             if (existingQueue != null) {
                 supabaseClient.postgrest["queue_entries"]
                     .update({
                         set("status", "done")
                         set("completed_at", now)
                         if (!doctorId.isNullOrBlank()) set("doctor_id", doctorId)
+                        if (durationSeconds != null) set("consultation_duration_seconds", durationSeconds)
                     }) {
                         filter { eq("appointment_id", appointmentId) }
                     }
@@ -666,50 +678,8 @@ class AppointmentRepository @Inject constructor(
                 android.util.Log.w("AppointmentRepo", "Could not set checkin_status='completed' on appointments table: ${enumEx.message}")
             }
 
-            // 4. Update live queue: advance the next waiting patient to "inside" and re-index active positions
+            // 4. Re-index remaining active queue entries strictly 1, 2, 3... without auto-advancing next patient to inside
             if (!clinicId.isNullOrBlank()) {
-                val activeEntries = supabaseClient.postgrest["queue_entries"]
-                    .select {
-                        filter {
-                            eq("clinic_id", clinicId)
-                            or {
-                                eq("status", "waiting")
-                                eq("status", "inside")
-                            }
-                        }
-                    }.decodeList<QueueEntry>()
-                    .filter { it.appointmentId != appointmentId } // Exclude the completed entry
-                    .sortedWith(
-                        compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
-                            .thenBy { it.queuePosition }
-                    )
-
-                val hasInside = activeEntries.any { it.status == "inside" }
-                val nextWaiting = activeEntries.firstOrNull { it.status == "waiting" }
-
-                // Automatically advance next waiting patient to inside consultation room
-                if (!hasInside && nextWaiting != null) {
-                    try {
-                        supabaseClient.postgrest["queue_entries"]
-                            .update({
-                                set("status", "inside")
-                                set("called_at", now)
-                                if (!doctorId.isNullOrBlank()) set("doctor_id", doctorId)
-                            }) {
-                                filter { eq("id", nextWaiting.id) }
-                            }
-                        try {
-                            supabaseClient.postgrest["queue_entries"]
-                                .update({ set("inside_at", now) }) {
-                                    filter { eq("id", nextWaiting.id) }
-                                }
-                        } catch (ignored: Exception) {}
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-
-                // 5. Re-index remaining active queue entries strictly 1, 2, 3...
                 val refreshedActive = supabaseClient.postgrest["queue_entries"]
                     .select {
                         filter {
@@ -720,23 +690,32 @@ class AppointmentRepository @Inject constructor(
                             }
                         }
                     }.decodeList<QueueEntry>()
-                    .sortedWith(
+                    .filter { it.appointmentId != appointmentId } // Exclude the completed entry
+
+                val doctorGroups = if (!doctorId.isNullOrBlank()) {
+                    mapOf(doctorId to refreshedActive.filter { it.doctorId == doctorId })
+                } else {
+                    refreshedActive.groupBy { it.doctorId ?: "" }
+                }
+
+                for ((_, group) in doctorGroups) {
+                    val sortedGroup = group.sortedWith(
                         compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
                             .thenBy { it.queuePosition }
                     )
-
-                refreshedActive.forEachIndexed { index, entry ->
-                    val newPosition = index + 1
-                    if (entry.queuePosition != newPosition) {
-                        try {
-                            supabaseClient.postgrest["queue_entries"]
-                                .update({
-                                    set("queue_position", newPosition)
-                                }) {
-                                    filter { eq("id", entry.id) }
-                                }
-                        } catch (reindexEx: Exception) {
-                            reindexEx.printStackTrace()
+                    sortedGroup.forEachIndexed { index, entry ->
+                        val newPosition = index + 1
+                        if (entry.queuePosition != newPosition) {
+                            try {
+                                supabaseClient.postgrest["queue_entries"]
+                                    .update({
+                                        set("queue_position", newPosition)
+                                    }) {
+                                        filter { eq("id", entry.id) }
+                                    }
+                            } catch (reindexEx: Exception) {
+                                reindexEx.printStackTrace()
+                            }
                         }
                     }
                 }

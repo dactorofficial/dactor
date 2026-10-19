@@ -258,9 +258,10 @@ fun QueueStatusScreen(
                     }
                 }
 
-                // For multi-visit clinics: fetch all appointments for this patient arranged by date and time
+                // For multi-visit clinics & follow-up visits: fetch all appointments for this patient arranged by date and time
                 val currentClinicType = clinicObj?.type ?: clinicType
-                if (currentClinicType.equals("multi_visit", ignoreCase = true) && appt.clinicId.isNotBlank()) {
+                val hasFollowupRef = appt.feeAmount == 0.0
+                if ((currentClinicType.equals("multi_visit", ignoreCase = true) || hasFollowupRef) && appt.clinicId.isNotBlank()) {
                     try {
                         val pMobile = appt.patientMobile.ifBlank { rawPhone }
                         val pEmail = appt.patientEmail ?: rawEmail
@@ -288,12 +289,19 @@ fun QueueStatusScreen(
 
                 // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
                 var qEntry = queueRepository?.getQueueStatus(appt.id)
-                val isUpcomingOrToday = appt.appointmentDate >= today && appt.checkinStatus in listOf("waiting", "checked_in", "in_queue", "confirmed", "booked")
-                if (isUpcomingOrToday && (qEntry == null || qEntry.status in listOf("done", "completed", "cancelled"))) {
+                val isUpcomingOrToday = appt.appointmentDate >= today && appt.checkinStatus.lowercase() in listOf("waiting", "checked_in", "in_queue", "confirmed", "booked")
+                val isAlreadyDone = qEntry?.status?.lowercase() in listOf("done", "completed") || appt.checkinStatus.lowercase() in listOf("done", "completed")
+                if (isUpcomingOrToday && !isAlreadyDone && qEntry == null) {
                     if (appt.appointmentDate == today && appt.clinicId.isNotBlank()) {
                         qEntry = queueRepository?.ensureQueueEntryForAppointment(appt.id, appt.clinicId, appt.doctorId)
                     } else if (appt.appointmentDate > today) {
                         qEntry = null
+                    }
+                }
+                if (isAlreadyDone) {
+                    com.dactor.patient.service.NotificationHelper.cancelAppointmentNotifications(context, appt.id)
+                    if (appt.trackingCode10Digit.isNotBlank()) {
+                        com.dactor.patient.service.NotificationHelper.cancelAppointmentNotifications(context, appt.trackingCode10Digit)
                     }
                 }
                 if (qEntry != null) {
@@ -507,7 +515,8 @@ fun QueueStatusScreen(
         appointment?.checkinStatus?.lowercase() in listOf("done", "completed")
 
     val isMultiVisitClinic = clinicType.equals("multi_visit", ignoreCase = true) ||
-        clinicObj?.type?.equals("multi_visit", ignoreCase = true) == true
+        clinicObj?.type?.equals("multi_visit", ignoreCase = true) == true ||
+        multiClinicAppointments.size > 1
 
     val isLabClinic = clinicType.equals("diagnostic_lab", ignoreCase = true) ||
         clinicObj?.type?.equals("diagnostic_lab", ignoreCase = true) == true ||

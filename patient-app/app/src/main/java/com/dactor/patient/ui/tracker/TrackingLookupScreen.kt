@@ -74,7 +74,8 @@ fun TrackingLookupScreen(
                     }
                 }
                 linkedLiveAppointments = allAppts.filter {
-                    it.checkinStatus != "completed" && it.checkinStatus != "cancelled"
+                    val s = it.checkinStatus.lowercase()
+                    s !in listOf("completed", "done", "cancelled")
                 }
             } catch (ignored: Exception) {}
         }
@@ -134,7 +135,10 @@ fun TrackingLookupScreen(
                             sessionManager?.saveTrackingCode(a.trackingCode10Digit, "${a.patientName} • ${a.appointmentDate}")
                         }
                     }
-                    val targetAppt = foundAppts.find { it.checkinStatus != "completed" && it.checkinStatus != "cancelled" }
+                    val targetAppt = foundAppts.find {
+                        val s = it.checkinStatus.lowercase()
+                        s !in listOf("completed", "done", "cancelled")
+                    }
                         ?: foundAppts.sortedByDescending { it.appointmentDate }.first()
 
                     if (targetAppt.trackingCode10Digit.isNotBlank()) {

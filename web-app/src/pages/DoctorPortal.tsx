@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   FileText,
   Send,
+  MessageSquare,
   X,
   Sliders,
   Edit3,
@@ -871,6 +872,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       lastVisitDate: string
       notes: string[]
       lastStatus: string
+      allVisits: Appointment[]
     }>()
 
     appointments.forEach((a) => {
@@ -878,6 +880,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       const existing = map.get(key)
       if (existing) {
         existing.totalVisits += 1
+        existing.allVisits.push(a)
         if (a.trackingCode10Digit && !existing.trackingCodes.includes(a.trackingCode10Digit)) {
           existing.trackingCodes.push(a.trackingCode10Digit)
         }
@@ -899,6 +902,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           lastVisitDate: a.appointmentDate,
           notes: a.notes ? [a.notes] : [],
           lastStatus: a.checkinStatus || 'completed',
+          allVisits: [a],
         })
       }
     })
@@ -2054,46 +2058,117 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {doctorPatientsList.map((p, idx) => (
-                  <div
-                    key={idx}
-                    className="p-5 rounded-2xl liquid-glass-subtle border border-white/30 dark:border-white/10 space-y-3"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h4 className="text-sm font-black text-slate-900 dark:text-white">{p.patientName}</h4>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                          {p.patientAge ? `${p.patientAge} Yrs` : ''} {p.patientGender ? `• ${p.patientGender}` : ''}{' '}
-                          {p.patientMobile ? `• ${p.patientMobile}` : ''}
-                        </p>
-                      </div>
-                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
-                        {p.totalVisits} {p.totalVisits === 1 ? 'Visit' : 'Visits'}
-                      </span>
-                    </div>
+                {doctorPatientsList.map((p, idx) => {
+                  const cleanMobile = p.patientMobile ? p.patientMobile.replace(/\D/g, '') : ''
+                  const hasFollowup = p.allVisits && p.allVisits.length > 1
 
-                    <div className="text-xs space-y-1 pt-1 border-t border-white/20 dark:border-white/5">
-                      <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                        <span>Last Consulted:</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">{p.lastVisitDate}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                        <span>Active Tracking:</span>
-                        <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">
-                          {p.trackingCodes.slice(-1)[0] || 'N/A'}
-                        </span>
-                      </div>
-                      {p.notes.length > 0 && (
-                        <div className="pt-1">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Clinical Remarks:</span>
-                          <p className="text-[11px] text-teal-800 dark:text-teal-300 font-medium line-clamp-2">
-                            {extractCleanClinicalRemarks(p.notes.slice(-1)[0])}
+                  return (
+                    <div
+                      key={idx}
+                      className="p-5 rounded-2xl liquid-glass-subtle border border-white/30 dark:border-white/10 space-y-3"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <h4 className="text-sm font-black text-slate-900 dark:text-white">{p.patientName}</h4>
+                            {hasFollowup && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/60 text-teal-800 dark:text-teal-200 text-[10px] font-bold border border-teal-200 dark:border-teal-700">
+                                Follow-Up Patient
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            {p.patientAge ? `${p.patientAge} Yrs` : ''} {p.patientGender ? `• ${p.patientGender}` : ''}{' '}
+                            {p.patientMobile ? `• ${p.patientMobile}` : ''}
                           </p>
                         </div>
-                      )}
+                        <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
+                          {p.totalVisits} {p.totalVisits === 1 ? 'Visit' : 'Visits'}
+                        </span>
+                      </div>
+
+                      <div className="text-xs space-y-1.5 pt-1 border-t border-white/20 dark:border-white/5">
+                        <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                          <span>Last Consulted:</span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">{p.lastVisitDate}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                          <span>Active Tracking:</span>
+                          <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                            {p.trackingCodes.slice(-1)[0] || 'N/A'}
+                          </span>
+                        </div>
+
+                        {/* Dual Consultation Breakdown summary */}
+                        {hasFollowup && (
+                          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/60 space-y-1 text-[11px]">
+                            <div className="flex justify-between text-blue-800 dark:text-blue-300">
+                              <span>1. Initial Consultation:</span>
+                              <span className="font-semibold">{p.allVisits[0]?.appointmentDate} (#{p.allVisits[0]?.trackingCode10Digit})</span>
+                            </div>
+                            <div className="flex justify-between text-teal-800 dark:text-teal-300">
+                              <span>2. Follow-Up Consultation:</span>
+                              <span className="font-semibold">{p.allVisits[p.allVisits.length - 1]?.appointmentDate} (#{p.allVisits[p.allVisits.length - 1]?.trackingCode10Digit})</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {p.notes.length > 0 && (
+                          <div className="pt-1">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Clinical Remarks:</span>
+                            <p className="text-[11px] text-teal-800 dark:text-teal-300 font-medium line-clamp-2">
+                              {extractCleanClinicalRemarks(p.notes.slice(-1)[0])}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Doctor Patient Action Buttons */}
+                      <div className="pt-2 border-t border-white/20 dark:border-white/5 flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-1.5">
+                          {p.patientMobile && (
+                            <>
+                              <a
+                                href={`tel:${p.patientMobile}`}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-800 dark:text-emerald-300 font-bold text-[11px] border border-emerald-300 dark:border-emerald-700 transition"
+                                title="Direct Phone Call"
+                              >
+                                <Phone className="w-3 h-3 text-emerald-600" />
+                                <span>Call</span>
+                              </a>
+                              {cleanMobile && (
+                                <a
+                                  href={`https://wa.me/977${cleanMobile}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 dark:bg-teal-950/40 hover:bg-teal-100 text-teal-800 dark:text-teal-300 font-bold text-[11px] border border-teal-300 dark:border-teal-700 transition"
+                                  title="WhatsApp Patient"
+                                >
+                                  <MessageSquare className="w-3 h-3 text-teal-600" />
+                                  <span>WhatsApp</span>
+                                </a>
+                              )}
+                            </>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHistoryPatientName(p.patientName)
+                            setHistoryVisits(p.allVisits)
+                            setHistoryModalOpen(true)
+                          }}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] shadow-xs transition cursor-pointer active:scale-95"
+                          title="View complete medical history & past consultations"
+                        >
+                          <FileText className="w-3 h-3 text-teal-300" />
+                          <span>Past Visits ({p.totalVisits})</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

@@ -121,10 +121,6 @@ object NotificationHelper {
             .setColor(androidx.core.content.ContextCompat.getColor(context, R.color.primary))
             .setContentTitle(displayTitle)
             .setContentText(displayBody)
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            .setCustomContentView(collapsedView)
-            .setCustomBigContentView(expandedView)
-            .setCustomHeadsUpContentView(expandedView)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -133,6 +129,15 @@ object NotificationHelper {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+
+        if (parsed.isQueueReminder || isArriveFast) {
+            builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())
+                .setCustomContentView(collapsedView)
+                .setCustomBigContentView(expandedView)
+                .setCustomHeadsUpContentView(expandedView)
+        } else {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(displayBody))
+        }
 
         // Add contextual 1-tap action buttons directly in Android Notification Tray
         val notifType = com.dactor.patient.data.model.NotificationType.from(type)
@@ -227,6 +232,30 @@ object NotificationHelper {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    fun cancelNotification(context: Context, id: Int) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(id)
+        } catch (_: Exception) {}
+    }
+
+    fun cancelAppointmentNotifications(context: Context, appointmentId: String) {
+        if (appointmentId.isBlank()) return
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val baseId = (appointmentId.hashCode() and 0x7FFFFFFF) % 100000
+            val todayKeyId = ("auto_appt_today_$appointmentId".hashCode() and 0x7FFFFFFF) % 100000
+            val pos1KeyId = ("auto_qpos_${appointmentId}_1".hashCode() and 0x7FFFFFFF) % 100000
+            val pos2KeyId = ("auto_qpos_${appointmentId}_2".hashCode() and 0x7FFFFFFF) % 100000
+            val insideKeyId = ("auto_inside_$appointmentId".hashCode() and 0x7FFFFFFF) % 100000
+            notificationManager.cancel(baseId)
+            notificationManager.cancel(todayKeyId)
+            notificationManager.cancel(pos1KeyId)
+            notificationManager.cancel(pos2KeyId)
+            notificationManager.cancel(insideKeyId)
+        } catch (_: Exception) {}
     }
 }
 

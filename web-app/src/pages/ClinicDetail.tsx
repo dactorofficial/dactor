@@ -132,7 +132,6 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const [patientEmail, setPatientEmail] = useState('')
   const [patientUserId, setPatientUserId] = useState<string | undefined>(undefined)
   const [patientNotes, setPatientNotes] = useState('')
-  const [optInEarlyCall, setOptInEarlyCall] = useState(false)
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<
     'esewa' | 'khalti' | 'fonepay' | 'bypass' | 'pay_at_clinic'
   >('esewa')
@@ -956,7 +955,6 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         paymentStatus: payStatus,
         feeAmount: totalBookingFee,
         selectedTests: testsSelectedNames,
-        optInEarlyCall: optInEarlyCall,
         notes:
           activeTab === 'lab'
             ? `Lab Tests: ${testsSelectedNames.join(', ')}`
@@ -2876,25 +2874,6 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     />
                   </div>
 
-                  {/* Early Consultation Call Opt-In */}
-                  <div
-                    className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 flex items-start space-x-3 cursor-pointer select-none"
-                    onClick={() => setOptInEarlyCall(!optInEarlyCall)}
-                  >
-                    <input
-                      type="checkbox"
-                      id="earlyCallOptIn"
-                      checked={optInEarlyCall}
-                      onChange={(e) => setOptInEarlyCall(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500 cursor-pointer"
-                    />
-                    <label htmlFor="earlyCallOptIn" className="text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-                      <span className="font-bold text-emerald-700 dark:text-emerald-400 block">⚡ Allow Early Consultation Call</span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
-                        If the doctor is free ahead of schedule, receive an instant push notification to come in early. If unchecked, your original slot remains strictly unchanged.
-                      </span>
-                    </label>
-                  </div>
 
                   {/* Action Buttons */}
                   <div className="flex items-center space-x-3 pt-3">

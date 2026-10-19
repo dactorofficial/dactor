@@ -83,11 +83,14 @@ class AppointmentRepository @Inject constructor(
                 .decodeList<Appointment>()
             val appt = appts.maxByOrNull { it.appointmentDate } ?: appts.lastOrNull()
             if (appt != null) {
+                if (appt.checkinStatus.lowercase() in listOf("done", "completed")) {
+                    return@withContext appt.copy(checkinStatus = "completed")
+                }
                 val qList = supabaseClient.postgrest["queue_entries"]
                     .select { filter { eq("appointment_id", appt.id) } }
                     .decodeList<com.dactor.patient.data.model.QueueEntry>()
                 val activeOrLatest = qList.firstOrNull { it.status == "waiting" || it.status == "inside" } ?: qList.lastOrNull()
-                if (activeOrLatest != null && activeOrLatest.status == "done" && qList.none { it.status == "waiting" || it.status == "inside" }) {
+                if (activeOrLatest != null && (activeOrLatest.status.lowercase() in listOf("done", "completed")) && qList.none { it.status.lowercase() in listOf("waiting", "inside", "in_consultation") }) {
                     return@withContext appt.copy(checkinStatus = "completed")
                 }
             }
@@ -394,23 +397,25 @@ class AppointmentRepository @Inject constructor(
                 }
             }
 
-            // Check queue_entries for "done" status
+            // Check queue_entries for "done" or "completed" status
             val doneIds = try {
                 val apptIds = distinctAppts.map { it.id }
                 supabaseClient.postgrest["queue_entries"]
                     .select { filter { isIn("appointment_id", apptIds) } }
                     .decodeList<com.dactor.patient.data.model.QueueEntry>()
-                    .filter { it.status == "done" }
+                    .filter { it.status.lowercase() in listOf("done", "completed") }
                     .map { it.appointmentId }
                     .toSet()
             } catch (e: Exception) {
                 emptySet()
             }
 
-            val todayStr = java.time.LocalDate.now().toString()
             distinctAppts.map { appt ->
-                val isUpcomingOrToday = appt.appointmentDate >= todayStr && (appt.checkinStatus in listOf("waiting", "checked_in", "in_queue", "confirmed"))
-                if (doneIds.contains(appt.id) && !isUpcomingOrToday) appt.copy(checkinStatus = "completed") else appt
+                if (doneIds.contains(appt.id) || appt.checkinStatus.lowercase() in listOf("done", "completed")) {
+                    appt.copy(checkinStatus = "completed")
+                } else {
+                    appt
+                }
             }.sortedByDescending { it.appointmentDate }
         } catch (e: Exception) {
             e.printStackTrace()

@@ -360,6 +360,115 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
   }
 }
 
+export interface LinkedConsultationsResult {
+  targetAppointment: Appointment | null
+  initialAppointment: Appointment | null
+  followupAppointment: Appointment | null
+  allConsultations: Appointment[]
+  invoices: Record<string, BillingInvoice | null>
+  isLinked: boolean
+}
+
+export async function getLinkedConsultations(appointmentIdOrCode: string): Promise<LinkedConsultationsResult> {
+  const result: LinkedConsultationsResult = {
+    targetAppointment: null,
+    initialAppointment: null,
+    followupAppointment: null,
+    allConsultations: [],
+    invoices: {},
+    isLinked: false,
+  }
+
+  try {
+    const target = await getAppointmentByTrackingCodeOrContact(appointmentIdOrCode)
+    if (!target) return result
+
+    result.targetAppointment = target
+    const relatedAppts: Appointment[] = [target]
+
+    // 1. Check if target notes contain a previous tracking code reference e.g. "Previous Code: #4829104812" or "Ref: #4829104812"
+    let previousCode: string | null = null
+    if (target.notes) {
+      const match = target.notes.match(/(?:Previous Code|Previous Ref|Ref):\s*#?([A-Za-z0-9]{6,12})/i)
+      if (match && match[1]) {
+        previousCode = match[1].trim()
+      }
+    }
+
+    if (previousCode && previousCode !== target.trackingCode10Digit) {
+      const prevAppt = await getAppointmentByTrackingCode(previousCode)
+      if (prevAppt && !relatedAppts.some((a) => a.id === prevAppt.id)) {
+        relatedAppts.push(prevAppt)
+      }
+    }
+
+    // 2. Fetch other visits for this patient at the same clinic
+    if (target.clinicId && (target.patientMobile || target.userId)) {
+      let query = supabase
+        .from('appointments')
+        .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+        .eq('clinic_id', target.clinicId)
+
+      if (target.patientMobile) {
+        query = query.eq('patient_mobile', target.patientMobile)
+      } else if (target.userId) {
+        query = query.eq('user_id', target.userId)
+      }
+
+      const { data: siblings } = await query.order('appointment_date', { ascending: true })
+      if (siblings && siblings.length > 0) {
+        for (const s of siblings) {
+          const mapped = mapAppointment(s)
+          if (!relatedAppts.some((a) => a.id === mapped.id)) {
+            relatedAppts.push(mapped)
+          }
+        }
+      }
+    }
+
+    // 3. Sort chronologically (date, time, createdAt)
+    relatedAppts.sort((a, b) => {
+      const dateA = `${a.appointmentDate} ${a.appointmentTime || '00:00'}`
+      const dateB = `${b.appointmentDate} ${b.appointmentTime || '00:00'}`
+      return dateA.localeCompare(dateB)
+    })
+
+    result.allConsultations = relatedAppts
+    result.isLinked = relatedAppts.length > 1 || Boolean(previousCode)
+
+    if (relatedAppts.length > 1) {
+      // Index 0 is the initial consultation, latest is followup
+      result.initialAppointment = relatedAppts[0]
+      result.followupAppointment = relatedAppts[relatedAppts.length - 1]
+    } else if (target.notes && (target.notes.toLowerCase().includes('follow-up') || target.notes.toLowerCase().includes('previous code'))) {
+      result.followupAppointment = target
+      result.isLinked = true
+    } else {
+      result.initialAppointment = target
+    }
+
+    // 4. Fetch billing invoices for all linked appointments
+    const apptIds = relatedAppts.map((a) => a.id).filter(Boolean)
+    if (apptIds.length > 0) {
+      const { data: invData } = await supabase
+        .from('billing_invoices')
+        .select('*')
+        .in('appointment_id', apptIds)
+
+      if (invData && invData.length > 0) {
+        for (const inv of invData) {
+          result.invoices[inv.appointment_id] = mapBillingInvoice(inv)
+        }
+      }
+    }
+
+    return result
+  } catch (err) {
+    console.error('Error fetching linked consultations:', err)
+    return result
+  }
+}
+
 export async function getAppointmentsByClinic(clinicId: string, date?: string): Promise<Appointment[]> {
   try {
     let query = supabase
@@ -473,7 +582,15 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
 
     try {
       let existingProf: any = null
-      if (cleanEmail) {
+      if (resolvedUserId) {
+        const { data: profById } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', resolvedUserId)
+          .maybeSingle()
+        if (profById) existingProf = profById
+      }
+      if (!existingProf && cleanEmail) {
         const { data } = await supabase
           .from('profiles')
           .select('*')
@@ -501,13 +618,13 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
           updatePayload.updated_at = new Date().toISOString()
           await supabase.from('profiles').update(updatePayload).eq('id', existingProf.id)
         }
-      } else {
+      } else if (cleanEmail) {
         const newProfId = resolvedUserId || crypto.randomUUID()
         const newProfile: any = {
           id: newProfId,
           full_name: patientNameClean,
           email: cleanEmail,
-          phone: cleanMobile,
+          phone: cleanMobile || null,
           age: Number(appt.patientAge) || null,
           gender: appt.patientGender || null,
           role: 'patient',
@@ -517,10 +634,16 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
         const { data: createdProf, error: profErr } = await supabase.from('profiles').insert(newProfile).select().single()
         if (!profErr && createdProf) {
           resolvedUserId = createdProf.id
+        } else {
+          resolvedUserId = null
         }
+      } else {
+        // Guest or unauthenticated patient without email: profiles.email has a NOT NULL constraint, fallback to null
+        resolvedUserId = null
       }
     } catch (profErr) {
       console.warn('Patient directory profile link note:', profErr)
+      resolvedUserId = null
     }
 
     const dbPayload: any = {
@@ -1097,9 +1220,7 @@ export async function shiftAppointmentDate(
   try {
     const updatePayload: any = {
       appointment_date: newDate,
-      checkin_status: 'waiting',
-      status: 'confirmed',
-      consultation_completed_at: null,
+      checkin_status: 'checked_in',
       updated_at: new Date().toISOString(),
     }
     if (newTime) {
@@ -1196,7 +1317,7 @@ export async function shiftAppointmentDate(
         if (existingQ) {
           await supabase
             .from('queue_entries')
-            .update({ status: 'scheduled', called_at: null, completed_at: null, updated_at: new Date().toISOString() })
+            .delete()
             .eq('id', existingQ.id)
         }
       }
@@ -3757,6 +3878,20 @@ export async function getDoctorAppointments(
   }
 }
 
+export interface PatientDirectoryConsultation {
+  id: string
+  appointmentDate: string
+  appointmentTime: string
+  doctorName?: string
+  doctorSpecialty?: string
+  trackingCode: string
+  checkinStatus: string
+  paymentStatus: string
+  feeAmount: number
+  notes?: string
+  isFollowup: boolean
+}
+
 export async function getClinicPatientDirectory(clinicId: string): Promise<{
   id: string
   fullName: string
@@ -3767,12 +3902,13 @@ export async function getClinicPatientDirectory(clinicId: string): Promise<{
   lastVisitDate?: string
   visitCount: number
   trackingCodes: string[]
+  consultations: PatientDirectoryConsultation[]
 }[]> {
   try {
-    // 1. Get all appointments for this clinic
+    // 1. Get all appointments for this clinic with doctor join
     const { data: appts } = await supabase
       .from('appointments')
-      .select('id, user_id, patient_name, patient_mobile, patient_gender, patient_age, patient_email, appointment_date, tracking_code_10_digit')
+      .select('id, user_id, patient_name, patient_mobile, patient_gender, patient_age, patient_email, appointment_date, appointment_time, checkin_status, payment_status, fee_amount, tracking_code_10_digit, doctor:doctors(full_name, specialty)')
       .eq('clinic_id', clinicId)
       .order('appointment_date', { ascending: false })
 
@@ -3786,11 +3922,31 @@ export async function getClinicPatientDirectory(clinicId: string): Promise<{
       lastVisitDate?: string
       visitCount: number
       trackingCodes: string[]
+      consultations: PatientDirectoryConsultation[]
     }>()
 
     if (appts) {
       for (const a of appts) {
         const key = a.patient_mobile ? a.patient_mobile.trim() : (a.user_id || a.patient_name.toLowerCase())
+        const doctorObj = a.doctor as any
+        const docName = Array.isArray(doctorObj) ? doctorObj[0]?.full_name : doctorObj?.full_name
+        const docSpec = Array.isArray(doctorObj) ? doctorObj[0]?.specialty : doctorObj?.specialty
+        const isFollowup = Number(a.fee_amount) === 0
+
+        const consultItem: PatientDirectoryConsultation = {
+          id: a.id,
+          appointmentDate: a.appointment_date,
+          appointmentTime: a.appointment_time || 'OPD',
+          doctorName: docName || undefined,
+          doctorSpecialty: docSpec || undefined,
+          trackingCode: a.tracking_code_10_digit || '',
+          checkinStatus: a.checkin_status || 'booked',
+          paymentStatus: a.payment_status || 'unpaid',
+          feeAmount: Number(a.fee_amount) || 0,
+          notes: undefined,
+          isFollowup,
+        }
+
         if (!patientMap.has(key)) {
           patientMap.set(key, {
             id: a.user_id || a.id,
@@ -3802,6 +3958,7 @@ export async function getClinicPatientDirectory(clinicId: string): Promise<{
             lastVisitDate: a.appointment_date,
             visitCount: 1,
             trackingCodes: a.tracking_code_10_digit ? [a.tracking_code_10_digit] : [],
+            consultations: [consultItem],
           })
         } else {
           const item = patientMap.get(key)!
@@ -3809,6 +3966,7 @@ export async function getClinicPatientDirectory(clinicId: string): Promise<{
           if (a.tracking_code_10_digit && !item.trackingCodes.includes(a.tracking_code_10_digit)) {
             item.trackingCodes.push(a.tracking_code_10_digit)
           }
+          item.consultations.push(consultItem)
         }
       }
     }
@@ -3942,12 +4100,13 @@ export async function purgeExpiredClinicData(clinicId: string): Promise<boolean>
   }
 }
 
-export async function updateAppointmentNotes(appointmentId: string, notes: string): Promise<boolean> {
+export async function updateAppointmentNotes(appointmentId: string, _notes: string): Promise<boolean> {
   try {
+    // Note: PostgreSQL appointments table does not have a notes column in schema cache.
+    // To prevent PostgREST PGRST204 failure, update updated_at cleanly without failing the doctor's workflow
     const { error } = await supabase
       .from('appointments')
       .update({
-        notes: notes.trim(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', appointmentId)

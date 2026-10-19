@@ -71,9 +71,12 @@ class QueueRepository @Inject constructor(
     suspend fun getQueueStatus(appointmentId: String): QueueEntry? {
         if (appointmentId.isBlank()) return null
         return try {
-            supabaseClient.postgrest["queue_entries"]
+            val list = supabaseClient.postgrest["queue_entries"]
                 .select { filter { eq("appointment_id", appointmentId) } }
-                .decodeSingleOrNull<QueueEntry>()
+                .decodeList<QueueEntry>()
+            list.firstOrNull { it.status.lowercase() in listOf("waiting", "inside", "in_consultation") }
+                ?: list.firstOrNull { it.status.lowercase() in listOf("done", "completed") }
+                ?: list.lastOrNull()
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -91,8 +94,12 @@ class QueueRepository @Inject constructor(
             val cleanDocId = doctorId?.takeIf { com.dactor.patient.domain.util.PatientIdentitySync.isValidUuid(it) }
 
             if (existing != null) {
-                // If previous queue entry is done, completed, or cancelled, reset it to active waiting for today's OPD
-                if (existing.status.lowercase() in listOf("done", "completed", "cancelled")) {
+                // If previous queue entry is already done or completed, do not reset it
+                if (existing.status.lowercase() in listOf("done", "completed")) {
+                    return@withContext existing
+                }
+                // If previous queue entry was cancelled, reset it to active waiting for today's OPD
+                if (existing.status.lowercase() == "cancelled") {
                     val currentEntries = getQueueEntriesForClinic(clinicId)
                     val nextPos = (currentEntries
                         .filter { it.status == "waiting" || it.status == "inside" }

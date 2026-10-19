@@ -124,9 +124,9 @@ fun DoctorDashboardScreen(
     val today = LocalDate.now().toString()
 
     // Live ticking timer for ongoing doctor consultation
-    LaunchedEffect(appointmentsQueue.firstOrNull()?.id) {
+    LaunchedEffect(appointmentsQueue.firstOrNull { it.checkinStatus == "inside" || it.checkinStatus == "in_consultation" || it.checkinStatus == "inside_opd" }?.id) {
         activeConsultationSeconds = 0
-        while (isActive && appointmentsQueue.isNotEmpty()) {
+        while (isActive && appointmentsQueue.any { it.checkinStatus == "inside" || it.checkinStatus == "in_consultation" || it.checkinStatus == "inside_opd" }) {
             delay(1000L)
             activeConsultationSeconds++
         }
@@ -242,7 +242,8 @@ fun DoctorDashboardScreen(
     val displaySpecialty = doctor?.specialty ?: "Specialist OPD"
     val displayNmc = doctor?.nmcLicenseNumber ?: "NMC Verified"
     val kycStatus = doctor?.kycStatus ?: "approved"
-    val activeAppointment = appointmentsQueue.firstOrNull()
+    val activeAppointment = appointmentsQueue.firstOrNull { it.checkinStatus == "inside" || it.checkinStatus == "in_consultation" || it.checkinStatus == "inside_opd" }
+    val nextWaitingAppt = appointmentsQueue.firstOrNull { it.id != activeAppointment?.id && it.checkinStatus != "completed" && it.checkinStatus != "cancelled" }
     val isAffiliated = doctor?.clinicId != null && clinic != null
 
     val commonSpecialties = listOf(
@@ -705,7 +706,11 @@ fun DoctorDashboardScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Active Patient Consultation", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(
+                            text = if (activeAppointment != null) "Active Patient Consultation" else "Doctor Cabin Free / Ready",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
                         if (activeAppointment != null) {
                             Surface(
                                 color = Color(0xFFDBEAFE),
@@ -714,6 +719,19 @@ fun DoctorDashboardScreen(
                                 Text(
                                     text = "Code: ${activeAppointment.trackingCode10Digit}",
                                     color = Color(0xFF1E40AF),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        } else if (nextWaitingAppt != null) {
+                            Surface(
+                                color = Color(0xFFDCFCE7),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "Ready for Next Patient",
+                                    color = Color(0xFF15803D),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -836,15 +854,14 @@ fun DoctorDashboardScreen(
                         ) {
                             Icon(Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            val nextCount = (appointmentsQueue.size - 1).coerceAtLeast(0)
                             Text(
-                                text = if (isCompleting) "Completing Consultation..." else if (nextCount > 0) "Complete & Call Next Patient ($nextCount waiting)" else "Complete Consultation",
+                                text = if (isCompleting) "Completing Consultation..." else "Complete Consultation",
                                 fontWeight = FontWeight.Bold
                             )
                         }
 
                         // Next Patients in Queue with Time Window
-                        val upcomingWaiting = appointmentsQueue.drop(1)
+                        val upcomingWaiting = appointmentsQueue.filter { it.id != activeAppointment.id }
                         if (upcomingWaiting.isNotEmpty()) {
                             HorizontalDivider()
                             Text("Next Patients in Queue (${upcomingWaiting.size} waiting):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF475569))
@@ -875,6 +892,174 @@ fun DoctorDashboardScreen(
                                                 color = Color(0xFF0284C7),
                                                 fontWeight = FontWeight.Medium
                                             )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (nextWaitingAppt != null) {
+                        // Doctor Cabin Free / Ready card showing next waiting patient with prominent Call Inside button
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Surface(
+                                color = Color(0xFFF0FDF4),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFF16A34A),
+                                        modifier = Modifier.size(38.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.MeetingRoom,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "Doctor Cabin Free / Ready",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = Color(0xFF15803D)
+                                        )
+                                        Text(
+                                            "OPD chamber is open. Patient enters only when called inside.",
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF166534)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Next Waiting Patient Details Card
+                            Surface(
+                                color = Color(0xFFF8FAFC),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = nextWaitingAppt.patientName,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 16.sp,
+                                                color = Color(0xFF0F172A)
+                                            )
+                                            val demo = listOfNotNull(
+                                                "${nextWaitingAppt.patientAge} yrs".takeIf { (nextWaitingAppt.patientAge ?: 0) > 0 },
+                                                nextWaitingAppt.patientGender?.takeIf { it.isNotBlank() && it != "Registered" },
+                                                nextWaitingAppt.patientMobile.takeIf { it.isNotBlank() }
+                                            ).joinToString(" • ")
+                                            if (demo.isNotBlank()) {
+                                                Text(demo, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+
+                                        Surface(
+                                            color = Color(0xFFDBEAFE),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                text = if (nextWaitingAppt.appointmentTime.isNotBlank()) "Slot: ${nextWaitingAppt.appointmentTime}" else "Next in Turn",
+                                                color = Color(0xFF1E40AF),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.5.sp,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Prominent "Call Inside" Button
+                            var isCallingInside by remember { mutableStateOf(false) }
+                            Button(
+                                onClick = {
+                                    if (isCallingInside) return@Button
+                                    isCallingInside = true
+                                    coroutineScope.launch {
+                                        try {
+                                            val targetClinicId = clinic?.id ?: nextWaitingAppt.clinicId
+                                            // Optimistically promote next waiting patient to inside
+                                            appointmentsQueue = appointmentsQueue.map {
+                                                if (it.id == nextWaitingAppt.id) it.copy(checkinStatus = "inside") else it
+                                            }
+                                            queueRepository?.updateQueueStatus(nextWaitingAppt.id, "inside", targetClinicId)
+                                            appointmentRepository?.updateCheckinStatus(nextWaitingAppt.id, "inside")
+                                            loadDoctorData()
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        } finally {
+                                            isCallingInside = false
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                enabled = !isCallingInside
+                            ) {
+                                Icon(Icons.Default.Campaign, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = if (isCallingInside) "Calling Inside..." else "Call Inside (Next Patient)",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+
+                            // Remaining Patients in Queue
+                            val remainingWaiting = appointmentsQueue.filter { it.id != nextWaitingAppt.id && it.checkinStatus != "completed" && it.checkinStatus != "cancelled" }
+                            if (remainingWaiting.isNotEmpty()) {
+                                HorizontalDivider()
+                                Text("Upcoming Patients in Queue (${remainingWaiting.size} more waiting):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF475569))
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    remainingWaiting.take(3).forEachIndexed { idx, waitAppt ->
+                                        Surface(
+                                            color = Color(0xFFF8FAFC),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    Surface(shape = CircleShape, color = Color(0xFF3B82F6), modifier = Modifier.size(20.dp)) {
+                                                        Box(contentAlignment = Alignment.Center) {
+                                                            Text("#${idx + 2}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    }
+                                                    Text(waitAppt.patientName, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                Text(
+                                                    text = if (waitAppt.appointmentTime.isNotBlank()) "Slot: ${waitAppt.appointmentTime}" else "Waiting in Lobby",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF0284C7),
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
                                         }
                                     }
                                 }

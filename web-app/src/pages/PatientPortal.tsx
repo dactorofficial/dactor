@@ -12,6 +12,7 @@ import {
   LogIn,
   LogOut,
   ChevronRight,
+  ChevronLeft,
   ShieldCheck,
   Send,
   Eye,
@@ -138,6 +139,7 @@ import {
   getDoctorsByClinic,
   getClinicServices,
   getSlots,
+  getMonthSlots,
   createAppointment,
   generate10DigitTrackingCode,
   getInvoiceForAppointment,
@@ -487,9 +489,35 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
   }, [isSingleDoctorClinic, clinicDoctors])
 
+  // Local Time ISO Date Anchor (Prevents UTC timezone rollover bugs)
+  const todayIso = useMemo(() => {
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(now.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }, [])
+
+  const currentYearMonth = useMemo(() => {
+    const now = new Date()
+    return { year: now.getFullYear(), month: now.getMonth() }
+  }, [])
+
+  const [viewedYearMonth, setViewedYearMonth] = useState<{ year: number; month: number }>(() => {
+    const now = new Date()
+    return { year: now.getFullYear(), month: now.getMonth() }
+  })
+
+  const [monthSlotsMap, setMonthSlotsMap] = useState<Record<string, Slot[]>>({})
+  const [monthSlotsLoading, setMonthSlotsLoading] = useState(false)
+
   // Date & Slot Selection
   const [bookingDate, setBookingDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(now.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
   })
   const [availableSlots, setAvailableSlots] = useState<Slot[]>([])
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
@@ -546,7 +574,6 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [bookPatientAge, setBookPatientAge] = useState('')
   const [bookPatientGender, setBookPatientGender] = useState('Male')
   const [bookPatientNotes, setBookPatientNotes] = useState('')
-  const [bookOptInEarlyCall, setBookOptInEarlyCall] = useState(false)
 
   // Wizard Step (1: Clinic & Doctor, 2: Slot & Date, 3: Details, 4: Payment, 5: Confirmed)
   const [bookingStep, setBookingStep] = useState<number>(1)
@@ -1254,6 +1281,109 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     loadSlotsForDate()
   }, [selectedClinic, selectedDoctor, bookingDate, bookingStep, isLabClinic])
 
+  // Prefetch slots across viewed month and upcoming 60-day availability window
+  useEffect(() => {
+    if (!selectedClinic?.id || bookingStep !== 2) return
+    let active = true
+
+    async function loadMonthSlots() {
+      setMonthSlotsLoading(true)
+      const yr = viewedYearMonth.year
+      const mo = viewedYearMonth.month + 1
+      const startStr = `${yr}-${String(mo).padStart(2, '0')}-01`
+
+      // Query through end of next month to guarantee 60-day availability coverage
+      const nextMo = mo === 12 ? 1 : mo + 1
+      const nextYr = mo === 12 ? yr + 1 : yr
+      const lastDayNextMo = new Date(nextYr, nextMo, 0).getDate()
+      const endStr = `${nextYr}-${String(nextMo).padStart(2, '0')}-${String(lastDayNextMo).padStart(2, '0')}`
+
+      try {
+        const slotsMap = await getMonthSlots(selectedClinic!.id, startStr, endStr)
+        if (!active) return
+        setMonthSlotsMap((prev) => ({ ...prev, ...slotsMap }))
+      } catch (err) {
+        console.error('Failed to prefetch month slots:', err)
+      } finally {
+        if (active) setMonthSlotsLoading(false)
+      }
+    }
+
+    loadMonthSlots()
+    return () => {
+      active = false
+    }
+  }, [selectedClinic?.id, viewedYearMonth.year, viewedYearMonth.month, selectedDoctor?.id, bookingStep])
+
+  const computeCalendarDateState = (dateStr: string): 'available' | 'fully_booked' | 'closed' | 'past' => {
+    if (dateStr < todayIso) return 'past'
+
+    // 1. Declared Holidays
+    if (selectedClinic?.declaredHolidays && selectedClinic.declaredHolidays.includes(dateStr)) {
+      return 'closed'
+    }
+
+    // 2. Weekly Closed Days
+    if (selectedClinic?.weeklyScheduleJson) {
+      try {
+        const parsed = JSON.parse(selectedClinic.weeklyScheduleJson)
+        if (Array.isArray(parsed)) {
+          const dObj = new Date(dateStr + 'T00:00:00')
+          const dayName = dObj.toLocaleDateString('en-US', { weekday: 'short' }).toLowerCase()
+          const match = parsed.find((p: any) => String(p.day || '').toLowerCase().startsWith(dayName))
+          if (match && match.isOpen === false) return 'closed'
+        }
+      } catch {}
+    }
+
+    // 3. Diagnostic Labs (No OPD doctor slots required)
+    if (isLabClinic) return 'available'
+
+    // 4. OPD Slots
+    const rawSlots = (monthSlotsMap[dateStr] || []).filter((s) => s.isAvailable !== false)
+    const relevantSlots = selectedDoctor
+      ? rawSlots.filter((s) => !s.doctorId || s.doctorId === selectedDoctor.id)
+      : rawSlots
+
+    const activeSlots = dateStr === todayIso
+      ? relevantSlots.filter((s) => !isSlotTimeExpired(dateStr, s.endTime || s.startTime, s.startTime))
+      : relevantSlots
+
+    if (activeSlots.length === 0) return 'closed'
+    const hasCapacity = activeSlots.some((s) => Math.max(0, (s.maxCapacity || 10) - (s.bookedCount || 0)) > 0)
+    return hasCapacity ? 'available' : 'fully_booked'
+  }
+
+  // 60-Day Auto-Scanner
+  const nextAvailableDate = useMemo(() => {
+    const now = new Date()
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(now)
+      d.setDate(d.getDate() + i)
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      const iso = `${y}-${m}-${day}`
+      if (computeCalendarDateState(iso) === 'available') {
+        return iso
+      }
+    }
+    return null
+  }, [todayIso, selectedClinic, selectedDoctor, monthSlotsMap, isLabClinic])
+
+  // Auto-select open date
+  useEffect(() => {
+    if (Object.keys(monthSlotsMap).length === 0 && !isLabClinic) return
+    const todayState = computeCalendarDateState(todayIso)
+    if (todayState === 'available') {
+      setBookingDate(todayIso)
+    } else if (nextAvailableDate && (bookingDate === todayIso || computeCalendarDateState(bookingDate) !== 'available')) {
+      const targetD = new Date(nextAvailableDate + 'T00:00:00')
+      setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
+      setBookingDate(nextAvailableDate)
+    }
+  }, [monthSlotsMap, todayIso, nextAvailableDate])
+
   // Calculate Fee strictly matching rules for all 3 clinic types
   const calculatedFee = useMemo(() => {
     if (isLabClinic) {
@@ -1307,7 +1437,6 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setIsPaymentProcessing(true)
 
     try {
-      const code10 = generate10DigitTrackingCode()
       const slotTimeStr = selectedSlot
         ? `${selectedSlot.startTime} - ${selectedSlot.endTime}`
         : '10:00 AM'
@@ -1318,32 +1447,55 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       const targetPatientGender = isFreeFollowup && retainedAppointment ? (retainedAppointment.patientGender || bookPatientGender) : bookPatientGender
       const targetPatientMobile = isFreeFollowup && retainedAppointment ? (retainedAppointment.patientMobile || bookPatientPhone.trim()) : bookPatientPhone.trim()
 
-      // 1. Create Appointment in Supabase
-      const newAppt = await createAppointment({
-        trackingCode10Digit: code10,
-        userId: patientUser?.id,
-        clinicId: selectedClinic!.id,
-        doctorId: isLabClinic ? undefined : selectedDoctor?.id,
-        slotId: selectedSlot?.id,
-        patientName: targetPatientName,
-        patientAge: targetPatientAge,
-        patientGender: targetPatientGender,
-        patientMobile: targetPatientMobile,
-        patientEmail: patientUser?.email,
-        appointmentDate: bookingDate,
-        appointmentTime: slotTimeStr,
-        checkinStatus: 'waiting',
-        paymentStatus: 'paid',
-        feeAmount: calculatedFee,
-        notes: isFreeFollowup
-          ? `Follow-Up Visit (Previous Code: #${retainedAppointment.trackingCode10Digit})`
-          : (bookPatientNotes.trim() || (isLabClinic ? 'Diagnostic Lab Sample Collection' : undefined)),
-        selectedTests: isLabClinic ? selectedLabTests.map((t) => t.serviceName) : [],
-        optInEarlyCall: bookOptInEarlyCall,
-      })
+      let finalAppt: Appointment
+      let code10: string
 
-      if (!newAppt) {
-        throw new Error('Failed to create appointment in database')
+      // 1. Follow-Up: Update/Shift existing appointment in-place without generating a new ID or token
+      if (isFreeFollowup && retainedAppointment) {
+        code10 = retainedAppointment.trackingCode10Digit
+        const ok = await shiftAppointmentDate(
+          retainedAppointment.id,
+          bookingDate,
+          slotTimeStr,
+          `Follow-Up Consultation (Ref: ${retainedAppointment.trackingCode10Digit})`,
+          selectedSlot?.id
+        )
+        if (!ok) {
+          throw new Error('Could not schedule follow-up appointment for this slot. Please try another slot.')
+        }
+        finalAppt = {
+          ...retainedAppointment,
+          appointmentDate: bookingDate,
+          appointmentTime: slotTimeStr,
+          slotId: selectedSlot?.id,
+          checkinStatus: 'waiting',
+        }
+      } else {
+        code10 = generate10DigitTrackingCode()
+        const newAppt = await createAppointment({
+          trackingCode10Digit: code10,
+          userId: patientUser?.id,
+          clinicId: selectedClinic!.id,
+          doctorId: isLabClinic ? undefined : selectedDoctor?.id,
+          slotId: selectedSlot?.id,
+          patientName: targetPatientName,
+          patientAge: targetPatientAge,
+          patientGender: targetPatientGender,
+          patientMobile: targetPatientMobile,
+          patientEmail: patientUser?.email,
+          appointmentDate: bookingDate,
+          appointmentTime: slotTimeStr,
+          checkinStatus: 'waiting',
+          paymentStatus: 'paid',
+          feeAmount: calculatedFee,
+          notes: isLabClinic ? 'Diagnostic Lab Sample Collection' : (bookPatientNotes.trim() || undefined),
+          selectedTests: isLabClinic ? selectedLabTests.map((t) => t.serviceName) : [],
+        })
+
+        if (!newAppt) {
+          throw new Error('Failed to create appointment in database')
+        }
+        finalAppt = newAppt
       }
 
       // 2. Record Transaction & Billing Invoice in Supabase
@@ -1354,11 +1506,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         : selectedPaymentMethod.toUpperCase()
 
       await recordPaymentTransaction({
-        appointmentId: newAppt.id,
+        appointmentId: finalAppt.id,
         trackingCode: code10,
         clinicId: selectedClinic!.id,
         doctorId: isLabClinic ? undefined : selectedDoctor?.id,
-        patientName: bookPatientName.trim(),
+        patientName: targetPatientName,
         appointmentDate: bookingDate,
         appointmentTime: slotTimeStr,
         amount: calculatedFee,
@@ -1378,7 +1530,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       localStorage.removeItem('dactor_patient_payment_session')
 
       // 5. Trigger Confetti & Success View
-      setConfirmedBooking(newAppt)
+      setConfirmedBooking(finalAppt)
       setBookingStep(5)
       triggerConfettiBurst()
 
@@ -1599,6 +1751,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
     if (!selectedSlot && availableSlots.length > 0) {
       alert('Please select a preferred time slot to continue.')
+      return
+    }
+
+    // STREAMLINED FOLLOW-UP CONFIRMATION (Matches ClinicDetail.tsx)
+    if (isReturningPatient && retainedAppointment) {
+      handleExecutePayment(true)
       return
     }
 
@@ -3716,18 +3874,153 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </div>
                 )}
 
-                {/* Common Date Picker */}
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    {isLabClinic ? 'Select Sample Collection Date *' : 'Select Appointment Date *'}
-                  </label>
-                  <input
-                    type="date"
-                    min={todayStr}
-                    value={bookingDate}
-                    onChange={(e) => setBookingDate(e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-800 text-sm focus:ring-2 focus:ring-brand-500 outline-none"
-                  />
+                {/* Always-Visible 7-Column Month Calendar Grid */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4 text-brand-600" />
+                      <span>{isLabClinic ? 'Select Sample Collection Date (Month View) *' : 'Select Appointment Date (Month View) *'}</span>
+                    </label>
+                    {monthSlotsLoading && (
+                      <span className="text-[10px] text-brand-600 font-semibold animate-pulse flex items-center gap-1">
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        <span>Updating slots...</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-2.5">
+                    {/* Month Navigator Header */}
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        disabled={viewedYearMonth.year === currentYearMonth.year && viewedYearMonth.month === currentYearMonth.month}
+                        onClick={() => {
+                          setViewedYearMonth((prev) => {
+                            const m = prev.month === 0 ? 11 : prev.month - 1
+                            const y = prev.month === 0 ? prev.year - 1 : prev.year
+                            return { year: y, month: m }
+                          })
+                        }}
+                        className="p-1.5 rounded-xl hover:bg-slate-100 disabled:opacity-25 disabled:cursor-not-allowed text-slate-700 cursor-pointer transition"
+                        title="Previous Month"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+
+                      <span className="text-xs font-black text-slate-900 tracking-wide">
+                        {new Date(viewedYearMonth.year, viewedYearMonth.month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setViewedYearMonth((prev) => {
+                            const m = prev.month === 11 ? 0 : prev.month + 1
+                            const y = prev.month === 11 ? prev.year + 1 : prev.year
+                            return { year: y, month: m }
+                          })
+                        }}
+                        className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer transition"
+                        title="Next Month"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Day of Week Headers */}
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                        <span key={d} className="text-[10px] font-bold text-slate-400 uppercase">{d}</span>
+                      ))}
+                    </div>
+
+                    {/* 7-Column Day Grid with 4 States and Status Dots */}
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {Array.from({ length: new Date(viewedYearMonth.year, viewedYearMonth.month, 1).getDay() }).map((_, i) => (
+                        <div key={`empty-${i}`} className="h-8" />
+                      ))}
+                      {Array.from({ length: new Date(viewedYearMonth.year, viewedYearMonth.month + 1, 0).getDate() }).map((_, i) => {
+                        const dayNum = i + 1
+                        const dateStr = `${viewedYearMonth.year}-${String(viewedYearMonth.month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
+                        const dateState = computeCalendarDateState(dateStr)
+                        const isSelectable = dateState === 'available'
+                        const isSelected = bookingDate === dateStr
+
+                        return (
+                          <button
+                            key={dateStr}
+                            type="button"
+                            disabled={!isSelectable}
+                            onClick={() => setBookingDate(dateStr)}
+                            className={`h-8 sm:h-9 rounded-xl flex flex-col items-center justify-center relative transition-all ${
+                              isSelected
+                                ? 'bg-brand-600 text-white font-black shadow-sm ring-2 ring-brand-500/30'
+                                : isSelectable
+                                ? 'hover:bg-brand-50 text-slate-800 font-bold cursor-pointer active:scale-95'
+                                : dateState === 'past'
+                                ? 'text-slate-300 cursor-not-allowed'
+                                : dateState === 'fully_booked'
+                                ? 'text-slate-600 bg-amber-50/50 cursor-not-allowed'
+                                : 'text-slate-400 bg-slate-100/50 cursor-not-allowed'
+                            }`}
+                          >
+                            <span className="text-[11px] leading-none">{dayNum}</span>
+                            {dateState !== 'past' && (
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
+                                  isSelected
+                                    ? 'bg-white'
+                                    : dateState === 'available'
+                                    ? 'bg-emerald-500'
+                                    : dateState === 'fully_booked'
+                                    ? 'bg-amber-500'
+                                    : 'bg-slate-400'
+                                }`}
+                              />
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Legend */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-around text-[10px] text-slate-500 font-semibold">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <span>Available</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        <span>Fully Booked</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-slate-400" />
+                        <span>Closed / Holiday</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Jump Banner */}
+                  {nextAvailableDate && nextAvailableDate !== bookingDate && (
+                    <div className="p-2.5 rounded-xl bg-brand-50/80 border border-brand-200/80 flex items-center justify-between text-xs text-brand-900 font-semibold">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Calendar className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+                        <span className="truncate">Next Open: {new Date(nextAvailableDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetD = new Date(nextAvailableDate + 'T00:00:00')
+                          setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
+                          setBookingDate(nextAvailableDate)
+                        }}
+                        className="text-[11px] font-bold text-brand-700 underline hover:text-brand-900 cursor-pointer shrink-0 ml-2"
+                      >
+                        Book this date
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Common Slots Grid */}
@@ -3777,22 +4070,46 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   )}
                 </div>
 
-                {/* Continue Action */}
+                {/* Continue Action / 1-Click Follow-Up Action */}
                 <div className="space-y-2 pt-2">
                   <button
                     type="button"
                     onClick={handleProceedFromSlotStep}
                     disabled={
+                      isPaymentProcessing ||
                       !selectedSlot ||
                       availableSlots.length === 0 ||
                       (isLabClinic && selectedLabTests.length === 0)
                     }
-                    className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md shadow-brand-600/20 transition flex items-center justify-center space-x-2 cursor-pointer"
+                    className={`w-full py-3.5 font-bold text-sm rounded-xl shadow-md transition flex items-center justify-center space-x-2 cursor-pointer ${
+                      isReturningPatient && retainedAppointment
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                        : 'bg-brand-600 hover:bg-brand-700 text-white shadow-brand-600/20'
+                    }`}
                   >
-                    <span>Continue to Patient Details</span>
-                    <ArrowRight className="w-4 h-4" />
+                    {isPaymentProcessing ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Confirming Follow-Up...</span>
+                      </>
+                    ) : isReturningPatient && retainedAppointment ? (
+                      <>
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Confirm Follow-Up</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    ) : (
+                      <>
+                        <span>Continue to Patient Details</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
                   </button>
-                  {!patientUser && (
+                  {isReturningPatient && retainedAppointment ? (
+                    <p className="text-[11px] text-center text-emerald-700 font-semibold">
+                      ✓ 100% Free Follow-Up • Verified for {retainedAppointment.patientName} (#{retainedAppointment.trackingCode10Digit}) • Instant Booking (No Login or Payment Required)
+                    </p>
+                  ) : !patientUser && (
                     <p className="text-[11px] text-center text-slate-500 font-medium">
                       🔒 Sign-in required on next step. Your selected clinic, services, date, and slot will be saved automatically.
                     </p>
@@ -3966,25 +4283,6 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   />
                 </div>
 
-                {/* Early Consultation Call Opt-In */}
-                <div
-                  className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start space-x-3 cursor-pointer select-none"
-                  onClick={() => setBookOptInEarlyCall(!bookOptInEarlyCall)}
-                >
-                  <input
-                    type="checkbox"
-                    id="portalEarlyCallOptIn"
-                    checked={bookOptInEarlyCall}
-                    onChange={(e) => setBookOptInEarlyCall(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <label htmlFor="portalEarlyCallOptIn" className="text-xs text-slate-700 cursor-pointer">
-                    <span className="font-bold text-emerald-800 block">⚡ Allow Early Consultation Call</span>
-                    <span className="text-[11px] text-slate-500 block mt-0.5">
-                      If the doctor finishes consultations ahead of schedule, receive an instant push notification to come in early. If unchecked, your original slot remains strictly unchanged.
-                    </span>
-                  </label>
-                </div>
 
                 <button
                   type="submit"

@@ -602,18 +602,21 @@ export const App: React.FC = () => {
 
       <Footer onNavigate={handleNavigate} />
 
-      {/* Mobile Bottom Navigation Bar (Visible on mobile/tablet) */}
-      <BottomNav
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onOpenTrackerModal={() => setTrackerModalOpen(true)}
-        authRole={authRole}
-      />
+      {/* Mobile Bottom Navigation Bar (Visible on mobile/tablet when not inside a portal) */}
+      {!['portal', 'doctor-portal', 'patient-portal', 'records', 'account'].includes(activeTab) && (
+        <BottomNav
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onOpenTrackerModal={() => setTrackerModalOpen(true)}
+          authRole={authRole}
+        />
+      )}
 
       <LiveTrackerModal
         isOpen={trackerModalOpen}
         onClose={() => setTrackerModalOpen(false)}
         onOpenFullQueue={handleOpenLiveQueue}
+        onNavigate={handleNavigate}
         onNavigateSupport={(ticketCode) => {
           if (ticketCode) {
             window.location.hash = `#support?track=${encodeURIComponent(ticketCode)}`

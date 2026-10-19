@@ -17,8 +17,18 @@ import {
   Calendar,
   MessageSquare,
   ShieldCheck,
+  Receipt,
+  Stethoscope,
+  Phone,
+  Download,
 } from 'lucide-react'
-import { getAppointmentByTrackingCode, getSupportTicketByCodeOrContact } from '../services/db'
+import {
+  getAppointmentByTrackingCode,
+  getSupportTicketByCodeOrContact,
+  getLinkedConsultations,
+  LinkedConsultationsResult,
+} from '../services/db'
+import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
 import { Appointment, SupportTicket } from '../types'
 import dactorLogo from '../assets/logo.svg'
 
@@ -26,6 +36,7 @@ interface LiveTrackerModalProps {
   isOpen: boolean
   onClose: () => void
   onOpenFullQueue: (trackingCode: string) => void
+  onNavigate?: (tab: string, params?: any) => void
   onNavigateSupport?: (trackingCode?: string) => void
 }
 
@@ -33,12 +44,14 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
   isOpen,
   onClose,
   onOpenFullQueue,
+  onNavigate,
   onNavigateSupport,
 }) => {
   const [tab, setTab] = useState<'opd' | 'ticket'>('opd')
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [appointment, setAppointment] = useState<Appointment | null>(null)
+  const [linkedConsultations, setLinkedConsultations] = useState<LinkedConsultationsResult | null>(null)
   const [ticket, setTicket] = useState<SupportTicket | null>(null)
   const [searched, setSearched] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
@@ -99,9 +112,14 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
       } else {
         const clean = query.replace(/\D/g, '')
         if (clean.length >= 5) {
-          const data = await getAppointmentByTrackingCode(clean)
-          if (data) {
-            setAppointment(data)
+          const [data, linked] = await Promise.all([
+            getAppointmentByTrackingCode(clean),
+            getLinkedConsultations(clean),
+          ])
+          const effective = data || linked?.targetAppointment || null
+          if (effective) {
+            setAppointment(effective)
+            setLinkedConsultations(linked)
             return
           }
         }
@@ -315,8 +333,18 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
               <h4 className="text-xs sm:text-sm font-bold text-amber-800 dark:text-amber-300">
                 You are in Live OPD Queue
               </h4>
-              <div className="inline-block px-3 py-1 rounded-full bg-brand-50/80 dark:bg-slate-800 text-brand-900 dark:text-cyan-300 border border-brand-200/60 dark:border-white/10 font-mono font-bold text-[11px] sm:text-xs backdrop-blur-xs break-all">
-                10-DIGIT CODE: {appointment.trackingCode10Digit}
+              <div className="inline-flex items-center gap-2">
+                <div className="inline-block px-3 py-1 rounded-full bg-brand-50/80 dark:bg-slate-800 text-brand-900 dark:text-cyan-300 border border-brand-200/60 dark:border-white/10 font-mono font-bold text-[11px] sm:text-xs backdrop-blur-xs break-all">
+                  10-DIGIT CODE: #{appointment.trackingCode10Digit}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(appointment.trackingCode10Digit)}
+                  className="p-1.5 rounded-lg liquid-glass-subtle hover:bg-white/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition cursor-pointer"
+                  title="Copy 10-Digit Code"
+                >
+                  {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
               </div>
             </div>
 
@@ -348,6 +376,83 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
                   {appointment.appointmentDate} • {appointment.appointmentTime}
                 </p>
               </div>
+            </div>
+
+            {/* DUAL CONSULTATION BADGES & SUMMARY */}
+            {linkedConsultations && linkedConsultations.isLinked && (
+              <div className="p-3 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-teal-900 dark:text-teal-200 flex items-center gap-1">
+                    <Stethoscope className="w-3.5 h-3.5 text-teal-600" />
+                    Dual-Consultation Journey
+                  </span>
+                  <span className="text-[10px] bg-teal-200/80 dark:bg-teal-900/60 text-teal-900 dark:text-teal-200 font-bold px-2 py-0.5 rounded-full">
+                    2 Visits Linked
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-800/80 border border-teal-200/60 dark:border-teal-800">
+                    <p className="font-bold text-blue-900 dark:text-blue-300">1. Initial Visit</p>
+                    <p className="text-slate-600 dark:text-slate-400">
+                      {linkedConsultations.initialAppointment?.appointmentDate || 'Earlier'} • Rs.{' '}
+                      {linkedConsultations.initialAppointment?.feeAmount || 500}
+                    </p>
+                  </div>
+                  <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-800/80 border border-teal-200/60 dark:border-teal-800">
+                    <p className="font-bold text-teal-900 dark:text-teal-300">2. Follow-Up</p>
+                    <p className="text-slate-600 dark:text-slate-400">
+                      {linkedConsultations.followupAppointment?.appointmentDate || 'Today'} • Rs. 0 Free
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* QUICK PATIENT ACTION BUTTONS */}
+            <div className="pt-2 border-t border-slate-200/60 dark:border-white/10 grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => printAppointmentBill(appointment)}
+                className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs active:scale-95"
+              >
+                <Receipt className="w-3.5 h-3.5 text-teal-400" />
+                <span>Download Bill</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => printPrescription(appointment)}
+                className="py-2 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs active:scale-95"
+              >
+                <Stethoscope className="w-3.5 h-3.5 text-white" />
+                <span>Download Rx</span>
+              </button>
+              {onNavigate && appointment.clinicId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose()
+                    onNavigate('clinic-detail', {
+                      clinicId: appointment.clinicId,
+                      doctorId: appointment.doctorId,
+                      trackingCode: appointment.trackingCode10Digit,
+                      isReschedule: true,
+                    })
+                  }}
+                  className="py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs active:scale-95"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>Reschedule Visit</span>
+                </button>
+              )}
+              {appointment.clinic?.contactPhone && (
+                <a
+                  href={`tel:${appointment.clinic.contactPhone}`}
+                  className="py-2 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700 transition flex items-center justify-center space-x-1.5 text-center active:scale-95"
+                >
+                  <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Call Reception</span>
+                </a>
+              )}
             </div>
 
             <button

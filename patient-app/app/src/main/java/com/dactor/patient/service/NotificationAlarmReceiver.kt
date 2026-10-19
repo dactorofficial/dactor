@@ -74,20 +74,47 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
 
                 // Evaluate background live queue for active appointments today (≤2 ahead alert guarantee)
                 try {
+                    // Cancel any notifications for already completed appointments
+                    for (appt in myAppointments) {
+                        if (appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled")) {
+                            NotificationHelper.cancelAppointmentNotifications(context, appt.id)
+                            if (appt.trackingCode10Digit.isNotBlank()) {
+                                NotificationHelper.cancelAppointmentNotifications(context, appt.trackingCode10Digit)
+                            }
+                        }
+                    }
+
                     val todayStr = LocalDate.now().toString()
                     val todayActiveAppts = myAppointments.filter {
-                        it.appointmentDate == todayStr && it.checkinStatus.lowercase() in listOf("waiting", "checked_in")
+                        it.appointmentDate == todayStr && it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled")
                     }
                     if (todayActiveAppts.isNotEmpty()) {
+                        val apptIds = todayActiveAppts.map { it.id }
                         val queueEntries = try {
-                            client.postgrest["live_queue"]
-                                .select()
+                            client.postgrest["queue_entries"]
+                                .select { filter { isIn("appointment_id", apptIds) } }
                                 .decodeList<QueueEntry>()
-                        } catch (_: Exception) { emptyList() }
+                        } catch (_: Exception) {
+                            try {
+                                client.postgrest["live_queue"]
+                                    .select()
+                                    .decodeList<QueueEntry>()
+                            } catch (_: Exception) { emptyList() }
+                        }
 
                         for (appt in todayActiveAppts) {
+                            val code = appt.trackingCode10Digit.ifBlank { appt.id.take(10) }
                             val qEntry = queueEntries.firstOrNull { it.appointmentId == appt.id }
-                            val qPos = qEntry?.queuePosition ?: 1
+                            val isDone = qEntry?.status?.lowercase() in listOf("done", "completed", "cancelled")
+                            if (isDone) {
+                                NotificationHelper.cancelAppointmentNotifications(context, appt.id)
+                                NotificationHelper.cancelAppointmentNotifications(context, code)
+                                continue
+                            }
+                            if (qEntry == null || qEntry.status != "waiting") {
+                                continue
+                            }
+                            val qPos = qEntry.queuePosition
                             val liveAhead = if (qPos > 0) qPos - 1 else 0
 
                             val alreadySentTwoAhead = sessionManager.isTwoAheadAlertTriggered(appt.id)

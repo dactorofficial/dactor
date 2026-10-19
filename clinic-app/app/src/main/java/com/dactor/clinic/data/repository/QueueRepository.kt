@@ -209,9 +209,18 @@ class QueueRepository @Inject constructor(
             val now = Instant.now().toString()
             val existingEntry = try {
                 supabaseClient.postgrest["queue_entries"]
-                    .select { filter { eq("id", id) } }
+                    .select {
+                        filter {
+                            or {
+                                eq("id", id)
+                                eq("appointment_id", id)
+                            }
+                        }
+                    }
                     .decodeSingleOrNull<QueueEntry>()
             } catch (e: Exception) { null }
+
+            val targetEntryId = existingEntry?.id ?: id
 
             val startTs = existingEntry?.insideAt ?: existingEntry?.calledAt
             val durationSeconds = if ((status == "done" || status == "processing") && !startTs.isNullOrBlank()) {
@@ -222,48 +231,92 @@ class QueueRepository @Inject constructor(
                 } catch (e: Exception) { null }
             } else null
 
-            // Primary update: only guaranteed schema columns so missing optional columns never fail the status transition
-            supabaseClient.postgrest["queue_entries"]
-                .update({
-                    set("status", status)
-                    when (status) {
-                        "inside" -> set("called_at", now)
-                        "done", "processing", "no_show", "sample_collected", "report_prepared" -> {
-                            set("completed_at", now)
+            if (existingEntry == null) {
+                val appt = try {
+                    supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("id", id) } }
+                        .decodeSingleOrNull<com.dactor.clinic.data.model.Appointment>()
+                } catch (e: Exception) { null }
+
+                val targetClinic = clinicId ?: appt?.clinicId
+                if (!targetClinic.isNullOrBlank()) {
+                    val cleanDocId = appt?.doctorId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
+                    val newEntry = QueueEntryInsertDto(
+                        id = java.util.UUID.randomUUID().toString(),
+                        appointmentId = id,
+                        clinicId = targetClinic,
+                        doctorId = cleanDocId,
+                        queuePosition = 1,
+                        status = status,
+                        calledAt = if (status == "inside") now else null,
+                        insideAt = if (status == "inside") now else null,
+                        completedAt = if (status in listOf("done", "processing", "no_show", "sample_collected", "report_prepared")) now else null
+                    )
+                    try {
+                        supabaseClient.postgrest["queue_entries"].insert(newEntry)
+                    } catch (e: Exception) {
+                        try {
+                            supabaseClient.postgrest["queue_entries"].insert(newEntry.copy(doctorId = null))
+                        } catch (e2: Exception) {
+                            e2.printStackTrace()
                         }
-                    }
-                }) {
-                    filter {
-                        eq("id", id)
                     }
                 }
-
-            if (status == "inside") {
-                try {
-                    supabaseClient.postgrest["queue_entries"]
-                        .update({ set("inside_at", now) }) {
-                            filter { eq("id", id) }
-                        }
-                } catch (ignored: Exception) {}
-            }
-
-            // Optional column update: persist consultation_duration_seconds if column exists in DB
-            if (durationSeconds != null) {
-                try {
-                    supabaseClient.postgrest["queue_entries"]
-                        .update({
-                            set("consultation_duration_seconds", durationSeconds)
-                        }) {
-                            filter {
-                                eq("id", id)
+            } else {
+                // Primary update: only guaranteed schema columns so missing optional columns never fail the status transition
+                supabaseClient.postgrest["queue_entries"]
+                    .update({
+                        set("status", status)
+                        when (status) {
+                            "inside" -> set("called_at", now)
+                            "done", "processing", "no_show", "sample_collected", "report_prepared" -> {
+                                set("completed_at", now)
                             }
                         }
-                } catch (ignored: Exception) {}
+                    }) {
+                        filter {
+                            or {
+                                eq("id", targetEntryId)
+                                eq("appointment_id", id)
+                            }
+                        }
+                    }
+
+                if (status == "inside") {
+                    try {
+                        supabaseClient.postgrest["queue_entries"]
+                            .update({ set("inside_at", now) }) {
+                                filter {
+                                    or {
+                                        eq("id", targetEntryId)
+                                        eq("appointment_id", id)
+                                    }
+                                }
+                            }
+                    } catch (ignored: Exception) {}
+                }
+
+                // Optional column update: persist consultation_duration_seconds if column exists in DB
+                if (durationSeconds != null) {
+                    try {
+                        supabaseClient.postgrest["queue_entries"]
+                            .update({
+                                set("consultation_duration_seconds", durationSeconds)
+                            }) {
+                                filter {
+                                    or {
+                                        eq("id", targetEntryId)
+                                        eq("appointment_id", id)
+                                    }
+                                }
+                            }
+                    } catch (ignored: Exception) {}
+                }
             }
 
             if (status in listOf("inside", "done", "processing", "no_show", "sample_collected", "report_prepared")) {
-                val apptId = existingEntry?.appointmentId
-                if (!apptId.isNullOrBlank()) {
+                val apptId = existingEntry?.appointmentId ?: id
+                if (apptId.isNotBlank()) {
                     try {
                         val newCheckin = when (status) {
                             "inside" -> "inside"
