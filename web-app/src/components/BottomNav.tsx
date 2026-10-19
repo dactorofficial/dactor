@@ -23,7 +23,19 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   authRole,
 }) => {
   // Completely hide mobile bottom navigation bar when inside any specific portal
-  if (['portal', 'doctor-portal', 'patient-portal', 'records', 'account'].includes(activeTab)) {
+  if (
+    [
+      'portal',
+      'clinic-portal',
+      'admin-portal',
+      'doctor-portal',
+      'patient-portal',
+      'my-health',
+      'records',
+      'account',
+      'book',
+    ].includes(activeTab)
+  ) {
     return null
   }
 

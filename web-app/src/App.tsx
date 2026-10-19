@@ -603,10 +603,10 @@ export const App: React.FC = () => {
       <Footer onNavigate={handleNavigate} />
 
       {/* Mobile Bottom Navigation Bar (Visible on mobile/tablet when not inside a portal) */}
-      {!['portal', 'doctor-portal', 'patient-portal', 'records', 'account'].includes(activeTab) && (
+      {!['portal', 'clinic-portal', 'admin-portal', 'doctor-portal', 'patient-portal', 'my-health', 'records', 'account', 'book'].includes(activeTab) && (
         <BottomNav
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={(tab) => handleNavigate(tab)}
           onOpenTrackerModal={() => setTrackerModalOpen(true)}
           authRole={authRole}
         />

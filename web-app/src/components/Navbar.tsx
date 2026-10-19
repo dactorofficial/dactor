@@ -49,20 +49,28 @@ export const Navbar: React.FC<NavbarProps> = ({
   // Determine if user is actively in any specific portal workspace
   const isInsidePortal =
     activeTab === 'portal' ||
+    activeTab === 'clinic-portal' ||
+    activeTab === 'admin-portal' ||
     activeTab === 'doctor-portal' ||
     activeTab === 'patient-portal' ||
+    activeTab === 'my-health' ||
     activeTab === 'records' ||
-    activeTab === 'account'
+    activeTab === 'account' ||
+    activeTab === 'book'
 
   // Role association logic:
   // If actively in a portal tab, strictly associate with that portal
   // Otherwise fallback to logged-in authRole
   const activePortalRole: 'clinic_manager' | 'doctor' | 'patient' | null =
-    activeTab === 'portal'
+    activeTab === 'portal' || activeTab === 'clinic-portal' || activeTab === 'admin-portal'
       ? 'clinic_manager'
       : activeTab === 'doctor-portal'
       ? 'doctor'
-      : activeTab === 'patient-portal' || activeTab === 'records' || activeTab === 'account'
+      : activeTab === 'patient-portal' ||
+        activeTab === 'my-health' ||
+        activeTab === 'records' ||
+        activeTab === 'account' ||
+        activeTab === 'book'
       ? 'patient'
       : isLoggedIn
       ? authRole || null
@@ -120,6 +128,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center space-x-2 sm:space-x-3 cursor-pointer group select-none shrink-0"
             onClick={() => {
               setActiveTab('home')
+              setMobileMenuOpen(false)
               window.scrollTo({ top: 0, behavior: 'smooth' })
             }}
           >
@@ -138,7 +147,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
                 {portalBadge && (
                   <span
-                    className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border shadow-xs backdrop-blur-xs transition-all ${portalBadge.className}`}
+                    className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold border shadow-xs backdrop-blur-xs transition-all shrink-0 ${portalBadge.className}`}
                   >
                     <portalBadge.icon className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                     <span>{portalBadge.label}</span>
@@ -211,7 +220,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="flex items-center space-x-2">
                 {currentUserEmail && (
                   <span
-                    className="hidden xl:inline-flex items-center px-2.5 py-1 text-[11px] font-bold bg-slate-100 text-slate-700 rounded-xl border border-slate-200 truncate max-w-[170px]"
+                    className="hidden md:inline-flex items-center px-2.5 py-1 text-[11px] font-bold bg-slate-100 text-slate-700 rounded-xl border border-slate-200 truncate max-w-[170px]"
                     title={currentUserEmail}
                   >
                     {currentUserEmail}
@@ -232,13 +241,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   onClick={() => {
                     setActiveTab('home')
+                    setMobileMenuOpen(false)
                     window.scrollTo({ top: 0, behavior: 'smooth' })
                   }}
                   className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white/60 hover:bg-white/90 border border-white/60 rounded-xl shadow-glass-sm transition-all cursor-pointer backdrop-blur-md"
                   title="Return to Main Website"
                 >
                   <Home className="w-3.5 h-3.5 text-slate-500" />
-                  <span className="hidden xl:inline">Main Site</span>
+                  <span className="inline">Main Site</span>
                 </button>
               </div>
             ) : activePortalRole === 'clinic_manager' ? (
