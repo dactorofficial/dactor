@@ -667,6 +667,11 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       resolvedUserId = null
     }
 
+    const isPayAtDesk = appt.paymentMode === 'PAY_AT_DESK'
+    const fee = Number(appt.feeAmount) || 0
+    const serviceCharge = isPayAtDesk ? Number((fee * 0.05).toFixed(2)) : 0
+    const totalAmt = isPayAtDesk ? fee + serviceCharge : fee
+
     const dbPayload: any = {
       id: apptId,
       tracking_code_10_digit: code10,
@@ -680,9 +685,14 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       patient_email: cleanEmail,
       appointment_date: apptDate,
       appointment_time: apptTime,
-      checkin_status: 'checked_in',
-      payment_status: normalizePaymentStatus(appt.paymentStatus),
-      fee_amount: Number(appt.feeAmount) || 0,
+      checkin_status: isPayAtDesk ? 'not_checked_in' : 'checked_in',
+      payment_status: isPayAtDesk ? 'pending' : normalizePaymentStatus(appt.paymentStatus),
+      payment_mode: isPayAtDesk ? 'PAY_AT_DESK' : 'ONLINE',
+      status: isPayAtDesk ? 'WAITING_FOR_APPROVAL' : 'APPROVED',
+      attempt_number: 1,
+      service_charge_amount: serviceCharge,
+      total_amount: totalAmt,
+      fee_amount: fee,
       is_walkin: isWalkin,
       slot_id: appt.slotId || null,
     }
@@ -694,6 +704,11 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       .single()
 
     if (error) throw error
+
+    // Pay at Desk appointments MUST NOT be enrolled into live queue or count towards slot capacity until approved
+    if (isPayAtDesk) {
+      return mapAppointment(data)
+    }
 
     // Enroll into live queue_entries with slot-aware ordering:
     // Place walk-in / appointment at the LAST position of their time slot, and shift later appointments (+1)
@@ -2244,7 +2259,10 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
       deletion_scheduled_at: updates.deletionScheduledAt !== undefined ? updates.deletionScheduledAt : (currentMeta.deletion_scheduled_at ?? current?.deletion_scheduled_at),
       payment_gateway_provider: updates.paymentGatewayProvider !== undefined ? updates.paymentGatewayProvider : (currentMeta.payment_gateway_provider ?? current?.payment_gateway_provider),
       payment_api_key: updates.paymentApiKey !== undefined ? updates.paymentApiKey : (currentMeta.payment_api_key ?? current?.payment_api_key),
-      payment_secret_key: updates.paymentSecretKey !== undefined ? updates.paymentSecretKey : (currentMeta.payment_secret_key ?? current?.payment_secret_key),
+      // eSewa secrets are strictly stored server-side in clinic_payment_credentials, never in public description JSON
+      payment_secret_key: (updates.paymentGatewayProvider === 'esewa' || currentMeta.payment_gateway_provider === 'esewa' || current?.payment_gateway_provider === 'esewa')
+        ? undefined
+        : (updates.paymentSecretKey !== undefined ? updates.paymentSecretKey : (currentMeta.payment_secret_key ?? current?.payment_secret_key)),
       merchant_id: updates.merchantId !== undefined ? updates.merchantId : (currentMeta.merchant_id ?? current?.merchant_id),
       is_direct_payment_enabled: updates.isDirectPaymentEnabled !== undefined ? updates.isDirectPaymentEnabled : (currentMeta.is_direct_payment_enabled ?? current?.is_direct_payment_enabled),
     }
@@ -2283,7 +2301,8 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
     if (updates.deletionScheduledAt !== undefined) payload.deletion_scheduled_at = updates.deletionScheduledAt
     if (updates.paymentGatewayProvider !== undefined) payload.payment_gateway_provider = updates.paymentGatewayProvider
     if (updates.paymentApiKey !== undefined) payload.payment_api_key = updates.paymentApiKey
-    if (updates.paymentSecretKey !== undefined) payload.payment_secret_key = updates.paymentSecretKey
+    const isEsewaProviderUpdate = updates.paymentGatewayProvider === 'esewa' || currentMeta.payment_gateway_provider === 'esewa' || current?.payment_gateway_provider === 'esewa'
+    if (updates.paymentSecretKey !== undefined && !isEsewaProviderUpdate) payload.payment_secret_key = updates.paymentSecretKey
     if (updates.merchantId !== undefined) payload.merchant_id = updates.merchantId
     if (updates.isDirectPaymentEnabled !== undefined) payload.is_direct_payment_enabled = updates.isDirectPaymentEnabled
 
@@ -2952,6 +2971,14 @@ function mapAppointment(a: any): Appointment {
     updatedAt: qe?.updated_at || a.updated_at,
     selectedTests: parsedTests,
     selectedLabTests: a.selected_lab_tests,
+    paymentMode: a.payment_mode || 'ONLINE',
+    status: a.status || 'APPROVED',
+    attemptNumber: a.attempt_number || 1,
+    serviceChargeAmount: Number(a.service_charge_amount || 0),
+    totalAmount: Number(a.total_amount || a.fee_amount || 0),
+    expiresAt: a.expires_at || null,
+    approvedAt: a.approved_at || null,
+    rejectedAt: a.rejected_at || null,
     clinic: a.clinic ? mapClinic(a.clinic) : undefined,
     doctor: a.doctor ? mapDoctor(a.doctor) : undefined,
   }
@@ -3921,6 +3948,76 @@ export async function getClinicPaymentConfig(clinicId: string): Promise<PaymentG
   }
 }
 
+export async function getAppointmentById(id: string): Promise<Appointment | null> {
+  try {
+    const cleanId = id.trim()
+    if (!cleanId) return null
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+      .eq('id', cleanId)
+      .maybeSingle()
+    if (error || !data) return null
+    return mapAppointment(data)
+  } catch {
+    return null
+  }
+}
+
+export async function startEsewaPayment(
+  appointmentId: string,
+  returnUrl?: string
+): Promise<{ attemptId: string; checkoutUrl: string; transactionUuid: string }> {
+  const { data, error } = await supabase.functions.invoke('appointment-payment', {
+    body: {
+      action: 'initiate',
+      appointmentId,
+      returnUrl,
+    },
+  })
+  if (error || !data?.checkoutUrl) {
+    const errMsg = data?.error || error?.message || 'Failed to initiate eSewa payment'
+    throw new Error(errMsg)
+  }
+  return data
+}
+
+export async function refreshEsewaPayment(
+  appointmentId: string
+): Promise<{ status: 'complete' | 'pending' | 'failed' | 'not_started'; reference: string | null }> {
+  const { data, error } = await supabase.functions.invoke('appointment-payment', {
+    body: {
+      action: 'refresh',
+      appointmentId,
+    },
+  })
+  if (error) {
+    throw new Error(error.message || 'Failed to refresh eSewa payment status')
+  }
+  return data || { status: 'pending', reference: null }
+}
+
+export async function saveClinicEsewaCredentials(params: {
+  clinicId: string
+  productCode: string
+  secretKey?: string
+  environment?: 'test' | 'live'
+}): Promise<boolean> {
+  const { data, error } = await supabase.functions.invoke('appointment-payment', {
+    body: {
+      action: 'save_esewa_credentials',
+      clinicId: params.clinicId,
+      productCode: params.productCode,
+      secretKey: params.secretKey,
+      environment: params.environment || 'test',
+    },
+  })
+  if (error || data?.error) {
+    throw new Error(data?.error || error?.message || 'Could not save eSewa credentials')
+  }
+  return true
+}
+
 export async function recordPaymentTransaction(record: {
   appointmentId: string
   trackingCode: string
@@ -4868,3 +4965,142 @@ export async function getSupportTicketByCodeOrContact(query: string): Promise<Su
   return null
 }
 
+
+
+// ==========================================
+// PAY AT DESK CLINIC RPC & HELPER FUNCTIONS
+// ==========================================
+
+export async function getPendingPayAtDeskRequests(clinicId: string): Promise<Appointment[]> {
+  try {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('list_pending_pay_at_desk_requests', {
+      p_clinic_id: clinicId,
+    })
+
+    if (!rpcError && Array.isArray(rpcData)) {
+      return rpcData.map((row: any) => ({
+        id: row.id,
+        trackingCode10Digit: row.tracking_code_10_digit,
+        userId: row.user_id,
+        clinicId: row.clinic_id,
+        doctorId: row.doctor_id,
+        slotId: row.slot_id,
+        patientName: row.patient_name,
+        patientAge: row.patient_age,
+        patientGender: row.patient_gender,
+        patientMobile: row.patient_mobile,
+        patientEmail: row.patient_email,
+        appointmentDate: row.appointment_date,
+        appointmentTime: row.appointment_time,
+        checkinStatus: 'not_checked_in',
+        paymentStatus: 'unpaid',
+        feeAmount: Number(row.fee_amount || 0),
+        serviceChargeAmount: Number(row.service_charge_amount || 0),
+        totalAmount: Number(row.total_amount || 0),
+        paymentMode: 'PAY_AT_DESK',
+        status: row.status || 'WAITING_FOR_APPROVAL',
+        attemptNumber: row.attempt_number || 1,
+        expiresAt: row.expires_at,
+        createdAt: row.created_at,
+        notes: row.notes,
+        doctor: row.doctor_name
+          ? ({
+              id: row.doctor_id || '',
+              fullName: row.doctor_name,
+              email: '',
+              specialty: row.doctor_specialty || '',
+              clinicId: row.clinic_id,
+              consultationFee: Number(row.fee_amount || 0),
+              kycStatus: 'approved',
+              isInClinic: true,
+            } as Doctor)
+          : undefined,
+      }))
+    }
+
+    // Direct table fallback
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*, doctor:doctors(*), clinic:clinics(*)')
+      .eq('clinic_id', clinicId)
+      .eq('payment_mode', 'PAY_AT_DESK')
+      .eq('status', 'WAITING_FOR_APPROVAL')
+      .order('created_at', { ascending: true })
+
+    if (error) throw error
+    return (data || []).map(mapAppointment)
+  } catch (err) {
+    console.error('Error fetching pending pay at desk requests:', err)
+    return []
+  }
+}
+
+export async function getPendingPayAtDeskCount(clinicId: string): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from('appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('clinic_id', clinicId)
+      .eq('payment_mode', 'PAY_AT_DESK')
+      .eq('status', 'WAITING_FOR_APPROVAL')
+
+    if (error) throw error
+    return count || 0
+  } catch (err) {
+    console.error('Error getting pending pay at desk count:', err)
+    return 0
+  }
+}
+
+export async function approvePayAtDeskAppointment(appointmentId: string, clinicId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('approve_pay_at_desk_appointment', {
+      p_appointment_id: appointmentId,
+      p_clinic_id: clinicId,
+    })
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+    return { success: true }
+  } catch (err: any) {
+    console.error('Error approving pay at desk appointment:', err)
+    return { success: false, error: err.message || 'Failed to approve request' }
+  }
+}
+
+export async function rejectPayAtDeskAppointment(appointmentId: string, clinicId: string, reason?: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('reject_pay_at_desk_appointment', {
+      p_appointment_id: appointmentId,
+      p_clinic_id: clinicId,
+      p_reason: reason || null,
+    })
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+    return { success: true }
+  } catch (err: any) {
+    console.error('Error rejecting pay at desk appointment:', err)
+    return { success: false, error: err.message || 'Failed to reject request' }
+  }
+}
+
+
+export async function retryPayAtDeskAppointment(appointmentId: string, patientMobile?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('retry_pay_at_desk_appointment', {
+      p_appointment_id: appointmentId,
+      p_patient_mobile: patientMobile || null,
+    })
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+    return { success: true, data }
+  } catch (err: any) {
+    console.error('Error retrying pay at desk appointment:', err)
+    return { success: false, error: err.message || 'Failed to retry appointment request' }
+  }
+}

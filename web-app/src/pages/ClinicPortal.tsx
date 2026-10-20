@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Send,
   Eye,
+  EyeOff,
   RefreshCw,
   Phone,
   UserCheck,
@@ -138,6 +139,11 @@ import {
   addCityLocation,
   deleteCityLocation,
   updateCityLocation,
+  saveClinicEsewaCredentials,
+  getPendingPayAtDeskRequests,
+  getPendingPayAtDeskCount,
+  approvePayAtDeskAppointment,
+  rejectPayAtDeskAppointment,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { playClinicChime } from '../utils/audioChime'
@@ -513,6 +519,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   // Operational desk tabs matching DashboardScreen.kt
   const [deskTab, setDeskTab] = useState<
     | 'queue'
+    | 'pay_at_desk_requests'
     | 'walkin'
     | 'slots'
     | 'future_appts'
@@ -528,6 +535,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     | 'broadcast'
     | 'settings'
   >('queue')
+
+  // Pay at Desk requests state
+  const [payAtDeskRequests, setPayAtDeskRequests] = useState<Appointment[]>([])
+  const [payAtDeskCount, setPayAtDeskCount] = useState<number>(0)
+  const [isLoadingPayAtDesk, setIsLoadingPayAtDesk] = useState<boolean>(false)
+  const [payAtDeskActionLoading, setPayAtDeskActionLoading] = useState<boolean>(false)
+  const [payAtDeskDetailModal, setPayAtDeskDetailModal] = useState<Appointment | null>(null)
+  const [confirmPayAtDeskAction, setConfirmPayAtDeskAction] = useState<{ action: 'approve' | 'reject'; appt: Appointment } | null>(null)
 
 
   useEffect(() => {
@@ -865,6 +880,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [settingSpecialties, setSettingSpecialties] = useState<string[]>([])
   const [settingDesc, setSettingDesc] = useState('')
   const [settingGatewayProvider, setSettingGatewayProvider] = useState('esewa')
+  const [settingPaymentEnvironment, setSettingPaymentEnvironment] = useState<'test' | 'live'>('test')
+  const [showPaymentSecretKey, setShowPaymentSecretKey] = useState(false)
   const [settingMerchantId, setSettingMerchantId] = useState('')
   const [settingPaymentApiKey, setSettingPaymentApiKey] = useState('')
   const [settingPaymentSecretKey, setSettingPaymentSecretKey] = useState('')
@@ -990,6 +1007,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setSettingSpecialties(clinicObj.specialties || [])
     setSettingDesc(clinicObj.description || '')
     setSettingGatewayProvider(clinicObj.paymentGatewayProvider || 'esewa')
+    let clinicEnv: 'test' | 'live' = 'test'
+    try {
+      if (clinicObj.description && clinicObj.description.trim().startsWith('{')) {
+        const meta = JSON.parse(clinicObj.description)
+        if (meta.payment_environment === 'live' || meta.esewa_environment === 'live') clinicEnv = 'live'
+        else if (meta.payment_gateways_json) {
+          const g = typeof meta.payment_gateways_json === 'string' ? JSON.parse(meta.payment_gateways_json) : meta.payment_gateways_json
+          if (g?.esewa?.environment === 'live') clinicEnv = 'live'
+        }
+      }
+    } catch {}
+    setSettingPaymentEnvironment(clinicEnv)
     setSettingMerchantId(clinicObj.merchantId || '')
     setSettingPaymentApiKey(clinicObj.paymentApiKey || '')
     setSettingPaymentSecretKey(clinicObj.paymentSecretKey || '')
@@ -1080,6 +1109,97 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
     loadClinicDetails()
   }, [selectedClinic, refreshKey])
+
+  // Pay at Desk requests loader & real-time sync
+  const fetchPayAtDesk = async (clinicId?: string) => {
+    const cid = clinicId || selectedClinic?.id
+    if (!cid) return
+    setIsLoadingPayAtDesk(true)
+    try {
+      const list = await getPendingPayAtDeskRequests(cid)
+      setPayAtDeskRequests(list)
+      setPayAtDeskCount(list.length)
+    } catch (e) {
+      console.error('Error fetching pay at desk requests:', e)
+    } finally {
+      setIsLoadingPayAtDesk(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedClinic?.id) return
+    fetchPayAtDesk(selectedClinic.id)
+
+    const sub = supabase
+      .channel(`pay_at_desk_${selectedClinic.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `clinic_id=eq.${selectedClinic.id}`,
+        },
+        () => {
+          fetchPayAtDesk(selectedClinic.id)
+        }
+      )
+      .subscribe()
+
+    const interval = setInterval(() => {
+      fetchPayAtDesk(selectedClinic.id)
+    }, 10000)
+
+    return () => {
+      supabase.removeChannel(sub)
+      clearInterval(interval)
+    }
+  }, [selectedClinic?.id])
+
+  const handleApprovePayAtDesk = async (appt: Appointment) => {
+    if (!selectedClinic?.id || payAtDeskActionLoading) return
+    setPayAtDeskActionLoading(true)
+    try {
+      const res = await approvePayAtDeskAppointment(appt.id, selectedClinic.id)
+      if (res.success) {
+        setConfirmPayAtDeskAction(null)
+        setPayAtDeskDetailModal(null)
+        await fetchPayAtDesk()
+        const [appts, liveSlots] = await Promise.all([
+          getAppointmentsByClinic(selectedClinic.id),
+          getSlotsByDoctorAndDate(appt.doctorId || '', appt.appointmentDate),
+        ])
+        setAppointments(appts)
+        setPublishedSlots(liveSlots)
+        playClinicChime()
+      } else {
+        alert(res.error || 'Failed to approve request')
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error approving request')
+    } finally {
+      setPayAtDeskActionLoading(false)
+    }
+  }
+
+  const handleRejectPayAtDesk = async (appt: Appointment) => {
+    if (!selectedClinic?.id || payAtDeskActionLoading) return
+    setPayAtDeskActionLoading(true)
+    try {
+      const res = await rejectPayAtDeskAppointment(appt.id, selectedClinic.id)
+      if (res.success) {
+        setConfirmPayAtDeskAction(null)
+        setPayAtDeskDetailModal(null)
+        await fetchPayAtDesk()
+      } else {
+        alert(res.error || 'Failed to reject request')
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error rejecting request')
+    } finally {
+      setPayAtDeskActionLoading(false)
+    }
+  }
 
   // Load published slots for selected doctor & date
   useEffect(() => {
@@ -1300,6 +1420,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     const cleanMgr = regManagerPhone.replace(/\D/g, '')
     if (cleanMgr.length !== 10 || !cleanMgr.startsWith('9')) errors.managerPhone = 'Manager phone must be 10 digits starting with 9.'
     if (!regClinicTermsAccepted) errors.terms = 'You must accept the Regulatory Terms & Conditions to register.'
+    if (regClinicPictures.length > 4) errors.pictures = 'Maximum 4 clinic pictures allowed.'
 
     if (Object.keys(errors).length > 0) {
       setRegClinicErrors(errors)
@@ -2502,6 +2623,25 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     if (!selectedClinic) return
     setSavingSettings(true)
     try {
+      if (settingGatewayProvider === 'esewa') {
+        const productCode = settingMerchantId.trim() || settingPaymentApiKey.trim() || 'EPAYTEST'
+        if (settingPaymentSecretKey.trim() || settingMerchantId.trim()) {
+          try {
+            await saveClinicEsewaCredentials({
+              clinicId: selectedClinic.id,
+              productCode,
+              secretKey: settingPaymentSecretKey.trim() || undefined,
+              environment: settingPaymentEnvironment,
+            })
+          } catch (secErr: any) {
+            console.error('Error saving eSewa credentials:', secErr)
+            alert(`Could not save eSewa credentials: ${secErr.message || secErr}`)
+            setSavingSettings(false)
+            return
+          }
+        }
+      }
+
       const updates: Partial<Clinic> = {
         name: settingName.trim(),
         type: settingType as any,
@@ -2518,7 +2658,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         paymentGatewayProvider: settingGatewayProvider,
         merchantId: settingMerchantId.trim(),
         paymentApiKey: settingPaymentApiKey.trim(),
-        paymentSecretKey: settingPaymentSecretKey.trim(),
+        // eSewa secrets are stored strictly server-side in clinic_payment_credentials, never in public description
+        paymentSecretKey: settingGatewayProvider === 'esewa' ? undefined : settingPaymentSecretKey.trim(),
         isDirectPaymentEnabled: settingDirectPaymentEnabled,
       }
       const ok = await updateClinic(selectedClinic.id, updates)
@@ -2755,7 +2896,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   // Queue Counts (filtered by selected queue date from DateScroller)
   const todayDateStr = new Date().toISOString().split('T')[0]
   const todayAppointments = useMemo(() => {
-    const list = appointments.filter((a) => a.appointmentDate === selectedQueueDate)
+    const list = appointments.filter((a) => {
+      if (a.appointmentDate !== selectedQueueDate) return false
+      // Pay at Desk appointments waiting for clinic approval must not be in live queue
+      if (a.paymentMode === 'PAY_AT_DESK' && a.status === 'WAITING_FOR_APPROVAL') return false
+      return true
+    })
     return [...list].sort((a, b) => {
       const aInside = a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside' ? 0 : 1
       const bInside = b.checkinStatus === 'in_consultation' || b.checkinStatus === 'inside' ? 0 : 1
@@ -2785,7 +2931,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
   // Appointments for the selected future date
   const futureDateAppointments = useMemo(
-    () => appointments.filter((a) => a.appointmentDate === futureSelectedDate),
+    () =>
+      appointments.filter(
+        (a) =>
+          a.appointmentDate === futureSelectedDate &&
+          !(a.paymentMode === 'PAY_AT_DESK' && a.status === 'WAITING_FOR_APPROVAL')
+      ),
     [appointments, futureSelectedDate]
   )
 
@@ -3186,26 +3337,69 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
 
                 <div className="p-4 rounded-2xl border border-dashed border-white/60 dark:border-white/20 liquid-glass-subtle space-y-2">
-                  <div className="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200">
-                    <Camera className="w-4 h-4 text-brand-600 dark:text-brand-400" />
-                    <span>Clinic Exterior / Reception Photos</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200">
+                      <Camera className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+                      <span>Clinic Exterior / Reception Photos</span>
+                    </div>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-700 dark:text-brand-300">
+                      {regClinicPictures.length}/4
+                    </span>
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Displayed to patients in the Dactor app to help identify your building.
+                    {regClinicPictures.length === 0
+                      ? 'Add up to 4 photos. Displayed to patients in Dactor to help identify your building.'
+                      : regClinicPictures.length >= 4
+                      ? 'Maximum 4 photos added.'
+                      : `${regClinicPictures.length}/4 photos added (${4 - regClinicPictures.length} remaining)`}
                   </p>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) =>
-                      setRegClinicPictures(e.target.files ? Array.from(e.target.files) : [])
-                    }
-                    className="text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-500/15 file:text-brand-700 dark:file:text-brand-300 hover:file:bg-brand-500/25"
-                  />
+                  {regClinicPictures.length < 4 && (
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => {
+                        if (!e.target.files) return
+                        const incoming = Array.from(e.target.files)
+                        const remaining = 4 - regClinicPictures.length
+                        if (remaining <= 0) return
+                        if (incoming.length > remaining) {
+                          alert(`You can only add up to ${remaining} more picture(s). A maximum of 4 photos is allowed.`)
+                        }
+                        const toAdd = incoming.slice(0, remaining)
+                        setRegClinicPictures((prev) => [...prev, ...toAdd].slice(0, 4))
+                        e.target.value = ''
+                      }}
+                      className="text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-500/15 file:text-brand-700 dark:file:text-brand-300 hover:file:bg-brand-500/25"
+                    />
+                  )}
                   {regClinicPictures.length > 0 && (
-                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold">
-                      {regClinicPictures.length} photo(s) ready for compression & upload
-                    </p>
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex flex-wrap gap-2">
+                        {regClinicPictures.map((pic, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center space-x-1.5 px-2.5 py-1 bg-white/60 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px]"
+                          >
+                            <span className="font-bold text-slate-500">#{idx + 1}</span>
+                            <span className="max-w-[120px] truncate font-medium text-slate-700 dark:text-slate-300">
+                              {pic.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setRegClinicPictures((prev) => prev.filter((_, i) => i !== idx))}
+                              className="text-slate-400 hover:text-red-500 font-bold ml-1 text-xs"
+                              title="Remove photo"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold">
+                        {regClinicPictures.length} of 4 photos ready for compression & upload
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>
@@ -3662,6 +3856,23 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         >
           <Activity className="w-4 h-4" />
           <span>Live OPD Queue ({queueWaitingCount})</span>
+        </button>
+
+        <button
+          onClick={() => setDeskTab('pay_at_desk_requests')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            deskTab === 'pay_at_desk_requests'
+              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md border border-white/25'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'
+          }`}
+        >
+          <CreditCard className="w-4 h-4" />
+          <span>View Requests</span>
+          {payAtDeskCount > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-900 animate-pulse">
+              {payAtDeskCount}
+            </span>
+          )}
         </button>
 
         <button
@@ -4504,6 +4715,337 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       })}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* DESK TAB: PAY AT DESK REQUESTS */}
+      {/* ========================================================= */}
+      {deskTab === 'pay_at_desk_requests' && (
+        <div className="space-y-6">
+          {/* Header Card */}
+          <GlassCard variant="elevated" padding="lg" radius="xl" specular className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  <CreditCard className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    Pay at Desk Requests
+                    {payAtDeskCount > 0 && (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-500 text-white">
+                        {payAtDeskCount} Pending
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                    Review and approve patient appointments booked with Pay at Desk
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => fetchPayAtDesk()}
+                disabled={isLoadingPayAtDesk}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-white/70 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100 cursor-pointer transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingPayAtDesk ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
+          </GlassCard>
+
+          {/* Overload Rule Notice Banner */}
+          <div className="flex items-start space-x-3 p-3.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 text-amber-900 dark:text-amber-200 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="font-bold">Pay at Desk Overload Policy</p>
+              <p className="text-amber-800 dark:text-amber-300">
+                Approving an appointment always adds the patient to the requested slot even if full (e.g. 12/12 becomes 13). Approved requests immediately enter the live OPD queue.
+              </p>
+            </div>
+          </div>
+
+          {/* Requests Content */}
+          {isLoadingPayAtDesk && payAtDeskRequests.length === 0 ? (
+            <div className="py-20 flex flex-col items-center justify-center space-y-3">
+              <RefreshCw className="w-8 h-8 text-brand-600 animate-spin" />
+              <p className="text-sm font-bold text-slate-500">Loading pending requests...</p>
+            </div>
+          ) : payAtDeskRequests.length === 0 ? (
+            <GlassCard variant="subtle" padding="lg" radius="xl" className="py-16 text-center space-y-3">
+              <div className="w-14 h-14 mx-auto rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600">
+                <Receipt className="w-7 h-7" />
+              </div>
+              <h3 className="text-base font-black text-slate-800 dark:text-white">No Pending Requests</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                There are no Pay at Desk appointment requests waiting for approval at this time.
+              </p>
+            </GlassCard>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {payAtDeskRequests.map((req) => (
+                <GlassCard
+                  key={req.id}
+                  variant="elevated"
+                  padding="md"
+                  radius="xl"
+                  specular
+                  className="space-y-3 border border-slate-200/80 dark:border-white/10 hover:shadow-lg transition-all"
+                >
+                  {/* Top Bar: 10-Digit ID + Attempt Badge */}
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <span className="font-mono text-xs font-black tracking-wider text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
+                      #{req.trackingCode10Digit}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-300/40">
+                      Attempt {req.attemptNumber || 1} of 3
+                    </span>
+                  </div>
+
+                  {/* Patient Info */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h4 className="text-base font-black text-slate-900 dark:text-white">
+                        {req.patientName}
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {req.patientAge ? `${req.patientAge} yrs` : '—'} • {req.patientGender || 'Other'}
+                      </p>
+                    </div>
+                    {req.patientMobile && (
+                      <a
+                        href={`tel:${req.patientMobile}`}
+                        className="p-2 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                        title="Call patient"
+                      >
+                        <Phone className="w-4 h-4" />
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Doctor & Slot */}
+                  <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                    <div className="flex items-center space-x-1.5 font-semibold text-slate-800 dark:text-slate-200">
+                      <Stethoscope className="w-3.5 h-3.5 text-brand-600" />
+                      <span>{req.doctor?.fullName || 'Assigned Doctor'}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{req.appointmentDate} • {req.appointmentTime}</span>
+                    </div>
+                  </div>
+
+                  {/* Fee Breakdown */}
+                  <div className="p-2.5 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 text-xs space-y-1">
+                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                      <span>Consultation Fee:</span>
+                      <span className="font-semibold">NPR {req.feeAmount}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                      <span>5% Service Charge:</span>
+                      <span className="font-semibold">NPR {req.serviceChargeAmount || 0}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-black text-slate-900 dark:text-white pt-1 border-t border-amber-200/40">
+                      <span>Total Due at Desk:</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">NPR {req.totalAmount || req.feeAmount}</span>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center space-x-2 pt-1">
+                    <button
+                      onClick={() => setConfirmPayAtDeskAction({ action: 'reject', appt: req })}
+                      disabled={payAtDeskActionLoading}
+                      className="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 border border-rose-200/60 dark:border-rose-900/40 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Cancel / Reject
+                    </button>
+                    <button
+                      onClick={() => setConfirmPayAtDeskAction({ action: 'approve', appt: req })}
+                      disabled={payAtDeskActionLoading}
+                      className="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-md transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Approve
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setPayAtDeskDetailModal(req)}
+                    className="w-full text-center text-[11px] font-semibold text-slate-500 hover:text-brand-600 cursor-pointer pt-1"
+                  >
+                    View Full Details
+                  </button>
+                </GlassCard>
+              ))}
+            </div>
+          )}
+
+          {/* Action Confirmation Modal */}
+          {confirmPayAtDeskAction && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+              <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+                <div className="flex items-center space-x-3">
+                  <div className={`p-3 rounded-full ${
+                    confirmPayAtDeskAction.action === 'approve'
+                      ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600'
+                      : 'bg-rose-100 dark:bg-rose-950/50 text-rose-600'
+                  }`}>
+                    {confirmPayAtDeskAction.action === 'approve' ? (
+                      <CheckCircle2 className="w-6 h-6" />
+                    ) : (
+                      <AlertTriangle className="w-6 h-6" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                      {confirmPayAtDeskAction.action === 'approve' ? 'Approve Appointment?' : 'Unapprove Request?'}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Patient: {confirmPayAtDeskAction.appt.patientName} (ID: #{confirmPayAtDeskAction.appt.trackingCode10Digit})
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 text-xs space-y-1.5 text-slate-600 dark:text-slate-300">
+                  <p><strong>Date & Slot:</strong> {confirmPayAtDeskAction.appt.appointmentDate} at {confirmPayAtDeskAction.appt.appointmentTime}</p>
+                  <p><strong>Total at Desk:</strong> NPR {confirmPayAtDeskAction.appt.totalAmount}</p>
+                  <p><strong>Attempt:</strong> {confirmPayAtDeskAction.appt.attemptNumber || 1} of 3</p>
+                </div>
+
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {confirmPayAtDeskAction.action === 'approve'
+                    ? 'Approving adds the patient directly to the live OPD queue. If the slot is full, the slot is safely overloaded.'
+                    : 'The request will be marked UNAPPROVED. The patient will be notified and can retry if attempts remain.'}
+                </p>
+
+                <div className="flex items-center space-x-3 pt-2">
+                  <button
+                    onClick={() => setConfirmPayAtDeskAction(null)}
+                    disabled={payAtDeskActionLoading}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 cursor-pointer disabled:opacity-50"
+                  >
+                    Go Back
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirmPayAtDeskAction.action === 'approve') {
+                        handleApprovePayAtDesk(confirmPayAtDeskAction.appt)
+                      } else {
+                        handleRejectPayAtDesk(confirmPayAtDeskAction.appt)
+                      }
+                    }}
+                    disabled={payAtDeskActionLoading}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-md cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-1.5 ${
+                      confirmPayAtDeskAction.action === 'approve'
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'bg-rose-600 hover:bg-rose-700'
+                    }`}
+                  >
+                    {payAtDeskActionLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{confirmPayAtDeskAction.action === 'approve' ? 'Confirm Approval' : 'Confirm Unapprove'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Full Detail Modal */}
+          {payAtDeskDetailModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+              <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white">Request Details</h3>
+                    <p className="font-mono text-xs font-bold text-brand-600">#{payAtDeskDetailModal.trackingCode10Digit}</p>
+                  </div>
+                  <button
+                    onClick={() => setPayAtDeskDetailModal(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                      <p className="text-slate-400">Patient</p>
+                      <p className="font-bold text-slate-900 dark:text-white mt-0.5">{payAtDeskDetailModal.patientName}</p>
+                      <p className="text-slate-500">{payAtDeskDetailModal.patientAge ? `${payAtDeskDetailModal.patientAge} yrs` : '—'} • {payAtDeskDetailModal.patientGender || 'Other'}</p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                      <p className="text-slate-400">Contact</p>
+                      <p className="font-bold text-slate-900 dark:text-white mt-0.5">{payAtDeskDetailModal.patientMobile || '—'}</p>
+                      <p className="text-slate-500">{payAtDeskDetailModal.patientEmail || 'No email'}</p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Doctor:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{payAtDeskDetailModal.doctor?.fullName || 'Assigned Doctor'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Slot Date & Time:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{payAtDeskDetailModal.appointmentDate} • {payAtDeskDetailModal.appointmentTime}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Attempt Count:</span>
+                      <span className="font-bold text-amber-600">Attempt {payAtDeskDetailModal.attemptNumber || 1} of 3</span>
+                    </div>
+                    {payAtDeskDetailModal.notes && (
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+                        <span className="text-slate-400">Clinical Notes / Tests:</span>
+                        <p className="font-medium text-slate-700 dark:text-slate-300 mt-0.5">{payAtDeskDetailModal.notes}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 space-y-1.5">
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                      <span>Consultation Fee:</span>
+                      <span className="font-bold">NPR {payAtDeskDetailModal.feeAmount}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                      <span>5% Service Charge:</span>
+                      <span className="font-bold">NPR {payAtDeskDetailModal.serviceChargeAmount || 0}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-black text-slate-900 dark:text-white pt-2 border-t border-amber-200/60 dark:border-amber-900/60">
+                      <span>Total Payable at Desk:</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">NPR {payAtDeskDetailModal.totalAmount || payAtDeskDetailModal.feeAmount}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-3 pt-2">
+                  <button
+                    onClick={() => {
+                      const m = payAtDeskDetailModal
+                      setPayAtDeskDetailModal(null)
+                      setConfirmPayAtDeskAction({ action: 'reject', appt: m })
+                    }}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 cursor-pointer"
+                  >
+                    Cancel / Reject
+                  </button>
+                  <button
+                    onClick={() => {
+                      const m = payAtDeskDetailModal
+                      setPayAtDeskDetailModal(null)
+                      setConfirmPayAtDeskAction({ action: 'approve', appt: m })
+                    }}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md cursor-pointer"
+                  >
+                    Approve Request
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -7739,7 +8281,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       onChange={(e) => setSettingGatewayProvider(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-bold"
                     >
-                      <option value="esewa">eSewa Merchant (Nepal)</option>
+                      <option value="esewa">eSewa Merchant (Nepal - ePay v2)</option>
                       <option value="khalti">Khalti Digital Wallet (Nepal)</option>
                       <option value="connectips">ConnectIPS / Fonepay</option>
                       <option value="stripe">Stripe International</option>
@@ -7747,44 +8289,150 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </div>
                   <div>
                     <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                      Merchant ID / Service Code
+                      Gateway Environment
                     </label>
-                    <input
-                      type="text"
-                      value={settingMerchantId}
-                      onChange={(e) => setSettingMerchantId(e.target.value)}
-                      placeholder="e.g. EPAYTEST or Merchant ID"
-                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
-                    />
+                    <select
+                      value={settingPaymentEnvironment}
+                      onChange={(e) => setSettingPaymentEnvironment(e.target.value as any)}
+                      className={`w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-bold ${
+                        settingPaymentEnvironment === 'live' ? 'text-emerald-700 font-black' : 'text-amber-700'
+                      }`}
+                    >
+                      <option value="test">TEST / Sandbox Environment (rc-epay)</option>
+                      <option value="live">LIVE Production Environment (epay)</option>
+                    </select>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                      Public / Live API Key
-                    </label>
-                    <input
-                      type="text"
-                      value={settingPaymentApiKey}
-                      onChange={(e) => setSettingPaymentApiKey(e.target.value)}
-                      placeholder="live_public_key_..."
-                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
-                    />
+                {settingGatewayProvider === 'esewa' ? (
+                  <div className="space-y-3 pt-1">
+                    {/* Environment Notice Banner */}
+                    <div className={`p-3 rounded-xl border text-[11px] flex items-start justify-between gap-3 ${
+                      settingPaymentEnvironment === 'live'
+                        ? 'bg-emerald-50/70 border-emerald-300 text-emerald-900'
+                        : 'bg-amber-50/70 border-amber-300 text-amber-900'
+                    }`}>
+                      <div>
+                        <span className="font-bold block">
+                          {settingPaymentEnvironment === 'live'
+                            ? '● LIVE PRODUCTION MODE ACTIVE'
+                            : '● TEST / SANDBOX MODE ACTIVE'}
+                        </span>
+                        <span>
+                          {settingPaymentEnvironment === 'live'
+                            ? 'Patient payments are processed through live eSewa (epay.esewa.com.np) and settled directly into your clinic merchant bank account.'
+                            : 'Test payments use eSewa Sandbox (rc-epay.esewa.com.np). No real money is charged. Use default credentials to simulate transactions.'}
+                        </span>
+                      </div>
+                      {settingPaymentEnvironment === 'test' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSettingMerchantId('EPAYTEST')
+                            setSettingPaymentSecretKey('8gBm/:&EnhH.1/q')
+                          }}
+                          className="shrink-0 px-2.5 py-1 bg-amber-200/80 hover:bg-amber-300 text-amber-900 font-bold rounded-lg text-[10px] transition cursor-pointer"
+                        >
+                          Fill Sandbox Defaults
+                        </button>
+                      )}
+                    </div>
+
+                    {/* eSewa Credentials Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                          eSewa Product Code (Merchant Code) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={settingMerchantId}
+                          onChange={(e) => setSettingMerchantId(e.target.value)}
+                          placeholder="e.g. EPAYTEST or your eSewa Product Code"
+                          className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono font-bold"
+                        />
+                        <span className="text-[10px] text-slate-500 mt-1 block">
+                          This code routes customer payments directly to your eSewa merchant wallet.
+                        </span>
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            eSewa Secret Key (HMAC-SHA256) <span className="text-rose-500">*</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setShowPaymentSecretKey(!showPaymentSecretKey)}
+                            className="text-[10px] text-slate-500 hover:text-slate-800 flex items-center gap-1 font-semibold cursor-pointer"
+                          >
+                            {showPaymentSecretKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            <span>{showPaymentSecretKey ? 'Hide' : 'Show'}</span>
+                          </button>
+                        </div>
+                        <input
+                          type={showPaymentSecretKey ? 'text' : 'password'}
+                          value={settingPaymentSecretKey}
+                          onChange={(e) => setSettingPaymentSecretKey(e.target.value)}
+                          placeholder={settingPaymentEnvironment === 'test' ? '8gBm/:&EnhH.1/q' : '••••••••••••••••'}
+                          className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
+                        />
+                        <span className="text-[10px] text-slate-500 mt-1 block">
+                          Kept strictly server-side with RLS to cryptographically verify eSewa payments.
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* eSewa Redirection & Settlement Explainer */}
+                    <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/80 text-[11px] text-slate-600 space-y-1">
+                      <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-brand-600" />
+                        <span>How Payment Redirection to Your Account Works:</span>
+                      </div>
+                      <p className="text-[10.5px] leading-relaxed text-slate-600">
+                        1. Patient books an OPD/Lab appointment and chooses eSewa → 2. Browser redirects to secure eSewa portal using your <strong>Product Code</strong> → 3. Patient approves payment → 4. eSewa redirects back to Dactor server, which independently verifies transaction amount and status using your <strong>Secret Key</strong> → 5. Live queue position and billing invoice are issued automatically.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                      Merchant Secret Key
-                    </label>
-                    <input
-                      type="password"
-                      value={settingPaymentSecretKey}
-                      onChange={(e) => setSettingPaymentSecretKey(e.target.value)}
-                      placeholder="••••••••••••••••"
-                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
-                    />
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        Merchant ID / Client Code
+                      </label>
+                      <input
+                        type="text"
+                        value={settingMerchantId}
+                        onChange={(e) => setSettingMerchantId(e.target.value)}
+                        placeholder="Merchant ID"
+                        className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        Public / Live API Key
+                      </label>
+                      <input
+                        type="text"
+                        value={settingPaymentApiKey}
+                        onChange={(e) => setSettingPaymentApiKey(e.target.value)}
+                        placeholder="live_public_key_..."
+                        className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                        Secret Key
+                      </label>
+                      <input
+                        type="password"
+                        value={settingPaymentSecretKey}
+                        onChange={(e) => setSettingPaymentSecretKey(e.target.value)}
+                        placeholder="••••••••••••••••"
+                        className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-mono"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               <GlassButton
