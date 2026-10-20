@@ -2262,6 +2262,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         localStorage.setItem('dactor_patient_email', profile.email)
         localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
         localStorage.setItem('dactor_patient_logged_in', 'true')
+        localStorage.setItem('dactor_last_active_role', 'patient')
+        localStorage.setItem('dactor_last_active_portal', 'patient-portal')
         try {
           sessionStorage.removeItem('dactor_explicit_home')
           sessionStorage.removeItem('dactor_allow_home')
@@ -2631,6 +2633,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     localStorage.removeItem('dactor_patient_email')
     localStorage.removeItem('dactor_patient_session')
     localStorage.removeItem('dactor_patient_logged_in')
+    localStorage.removeItem('dactor_last_active_role')
+    localStorage.removeItem('dactor_last_active_portal')
     setPatientUser(null)
     setMyAppointments([])
     setTransactions([])
@@ -3777,234 +3781,56 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     )}
                   </div>
 
-                  <div>
-                    <h3 className="text-xl font-black text-slate-900">{selectedClinic.name}</h3>
-                    <div className="mt-1 flex flex-wrap items-center gap-y-1 gap-x-3 text-xs text-slate-500">
-                      <div className="flex items-center space-x-1">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>{selectedClinic.addressText || 'Nepal'}</span>
-                      </div>
-                      <a
-                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                          `${selectedClinic.name} ${selectedClinic.addressText || ''}`
-                        )}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center space-x-1 text-brand-600 hover:underline font-bold"
-                      >
-                        <span>Google Maps</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                      {selectedClinic.contactPhone && (
-                        <div className="flex items-center space-x-1">
-                          <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{selectedClinic.contactPhone}</span>
-                        </div>
-                      )}
-                      {selectedClinic.managerPhone && (
-                        <div className="flex items-center space-x-1">
-                          <span className="text-slate-400 font-bold">• Reception:</span>
-                          <span>{selectedClinic.managerPhone}</span>
-                        </div>
+                  <div className="flex items-start space-x-4">
+                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-teal-500 text-white flex items-center justify-center font-black text-xl sm:text-2xl shadow-xs shrink-0 overflow-hidden border border-slate-200">
+                      {selectedClinic.logoUrl || selectedClinic.photoUrl || (selectedClinic.pictures && selectedClinic.pictures.length > 0) ? (
+                        <img
+                          src={selectedClinic.logoUrl || selectedClinic.photoUrl || selectedClinic.pictures![0]}
+                          alt={selectedClinic.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            ;(e.target as HTMLElement).style.display = 'none'
+                          }}
+                        />
+                      ) : isLabClinic ? (
+                        <FlaskConical className="w-7 h-7 text-white" />
+                      ) : (
+                        <span>{selectedClinic.name.charAt(0)}</span>
                       )}
                     </div>
-                  </div>
-                </div>
-
-                {/* Always-Visible 7-Column Month Calendar Grid (Front & Center on Date & Slot Page) */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                      <Calendar className="w-4 h-4 text-brand-600" />
-                      <span>{isLabClinic ? 'Select Sample Collection Date (Month View) *' : 'Select Appointment Date (Month View) *'}</span>
-                    </label>
-                    {monthSlotsLoading && (
-                      <span className="text-[10px] text-brand-600 font-semibold animate-pulse flex items-center gap-1">
-                        <RefreshCw className="w-3 h-3 animate-spin" />
-                        <span>Updating slots...</span>
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-2.5">
-                    {/* Month Navigator Header */}
-                    <div className="flex items-center justify-between px-1">
-                      <button
-                        type="button"
-                        disabled={viewedYearMonth.year === currentYearMonth.year && viewedYearMonth.month === currentYearMonth.month}
-                        onClick={() => {
-                          setViewedYearMonth((prev) => {
-                            const m = prev.month === 0 ? 11 : prev.month - 1
-                            const y = prev.month === 0 ? prev.year - 1 : prev.year
-                            return { year: y, month: m }
-                          })
-                        }}
-                        className="p-1.5 rounded-xl hover:bg-slate-100 disabled:opacity-25 disabled:cursor-not-allowed text-slate-700 cursor-pointer transition"
-                        title="Previous Month"
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                      </button>
-
-                      <span className="text-xs font-black text-slate-900 tracking-wide">
-                        {new Date(viewedYearMonth.year, viewedYearMonth.month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setViewedYearMonth((prev) => {
-                            const m = prev.month === 11 ? 0 : prev.month + 1
-                            const y = prev.month === 11 ? prev.year + 1 : prev.year
-                            return { year: y, month: m }
-                          })
-                        }}
-                        className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer transition"
-                        title="Next Month"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Day of Week Headers */}
-                    <div className="grid grid-cols-7 gap-1 text-center">
-                      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-                        <span key={d} className="text-[10px] font-bold text-slate-400 uppercase">{d}</span>
-                      ))}
-                    </div>
-
-                    {/* 7-Column Day Grid with 4 States and Status Dots */}
-                    <div className="grid grid-cols-7 gap-1 text-center">
-                      {Array.from({ length: new Date(viewedYearMonth.year, viewedYearMonth.month, 1).getDay() }).map((_, i) => (
-                        <div key={`empty-${i}`} className="h-8" />
-                      ))}
-                      {Array.from({ length: new Date(viewedYearMonth.year, viewedYearMonth.month + 1, 0).getDate() }).map((_, i) => {
-                        const dayNum = i + 1
-                        const dateStr = `${viewedYearMonth.year}-${String(viewedYearMonth.month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
-                        const dateState = computeCalendarDateState(dateStr)
-                        const isSelectable = dateState === 'available'
-                        const isSelected = bookingDate === dateStr
-
-                        return (
-                          <button
-                            key={dateStr}
-                            type="button"
-                            disabled={!isSelectable}
-                            onClick={() => setBookingDate(dateStr)}
-                            className={`h-8 sm:h-9 rounded-xl flex flex-col items-center justify-center relative transition-all ${
-                              isSelected
-                                ? 'bg-brand-600 text-white font-black shadow-sm ring-2 ring-brand-500/30'
-                                : isSelectable
-                                ? 'hover:bg-brand-50 text-slate-800 font-bold cursor-pointer active:scale-95'
-                                : dateState === 'past'
-                                ? 'text-slate-300 cursor-not-allowed'
-                                : dateState === 'fully_booked'
-                                ? 'text-slate-600 bg-amber-50/50 cursor-not-allowed'
-                                : 'text-slate-400 bg-slate-100/50 cursor-not-allowed'
-                            }`}
-                          >
-                            <span className="text-[11px] leading-none">{dayNum}</span>
-                            {dateState !== 'past' && (
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
-                                  isSelected
-                                    ? 'bg-white'
-                                    : dateState === 'available'
-                                    ? 'bg-emerald-500'
-                                    : dateState === 'fully_booked'
-                                    ? 'bg-amber-500'
-                                    : 'bg-slate-400'
-                                }`}
-                              />
-                            )}
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {/* Legend */}
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-around text-[10px] text-slate-500 font-semibold">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                        <span>Available</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-amber-500" />
-                        <span>Fully Booked</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-slate-400" />
-                        <span>Closed / Holiday</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Quick Jump Banner */}
-                  {nextAvailableDate && nextAvailableDate !== bookingDate && (
-                    <div className="p-2.5 rounded-xl bg-brand-50/80 border border-brand-200/80 flex items-center justify-between text-xs text-brand-900 font-semibold">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <Calendar className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-                        <span className="truncate">Next Open: {new Date(nextAvailableDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const targetD = new Date(nextAvailableDate + 'T00:00:00')
-                          setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
-                          setBookingDate(nextAvailableDate)
-                        }}
-                        className="text-[11px] font-bold text-brand-700 underline hover:text-brand-900 cursor-pointer shrink-0 ml-2"
-                      >
-                        Book this date
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Common Slots Grid */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      {isLabClinic ? 'Available Sample Collection Slots *' : 'Available Time Slots *'}
-                    </label>
-                    <span className="text-[11px] text-slate-400">
-                      (Past slots ending before now are hidden)
-                    </span>
-                  </div>
-
-                  {isLoadingSlots ? (
-                    <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200">
-                      <RefreshCw className="w-5 h-5 animate-spin mx-auto text-brand-600 mb-2" />
-                      <span className="text-xs text-slate-500">Checking slot availability...</span>
-                    </div>
-                  ) : availableSlots.length === 0 ? (
-                    <div className="p-6 text-center bg-amber-50/60 rounded-2xl border border-amber-200 text-amber-900 space-y-1">
-                      <Clock className="w-5 h-5 mx-auto text-amber-600 mb-1" />
-                      <p className="text-xs font-bold">No Slots Published for {bookingDate}</p>
-                      <p className="text-[11px] text-amber-700">
-                        This center has not published time slots for this date. Please pick another date or contact clinic reception directly.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {availableSlots.map((slot) => (
-                        <button
-                          key={slot.id}
-                          type="button"
-                          onClick={() => setSelectedSlot(slot)}
-                          className={`p-3 rounded-xl border text-center transition cursor-pointer ${
-                            selectedSlot?.id === slot.id
-                              ? 'border-brand-600 bg-brand-600 text-white shadow-md shadow-brand-600/20 font-bold'
-                              : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700 font-semibold'
-                          }`}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-xl font-black text-slate-900 truncate">{selectedClinic.name}</h3>
+                      <div className="mt-1 flex flex-wrap items-center gap-y-1 gap-x-3 text-xs text-slate-500">
+                        <div className="flex items-center space-x-1">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{selectedClinic.addressText || 'Nepal'}</span>
+                        </div>
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            `${selectedClinic.name} ${selectedClinic.addressText || ''}`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center space-x-1 text-brand-600 hover:underline font-bold"
                         >
-                          <div className="text-xs">{slot.startTime} - {slot.endTime}</div>
-                          <div className={`text-[10px] mt-0.5 ${selectedSlot?.id === slot.id ? 'text-brand-100' : 'text-slate-400'}`}>
-                            {slot.maxCapacity - slot.bookedCount} spots left
+                          <span>Google Maps</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        {selectedClinic.contactPhone && (
+                          <div className="flex items-center space-x-1">
+                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{selectedClinic.contactPhone}</span>
                           </div>
-                        </button>
-                      ))}
+                        )}
+                        {selectedClinic.managerPhone && (
+                          <div className="flex items-center space-x-1">
+                            <span className="text-slate-400 font-bold">• Reception:</span>
+                            <span>{selectedClinic.managerPhone}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 {/* ============================================================== */}
@@ -4315,9 +4141,20 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                   : 'border-slate-200 bg-white hover:border-slate-300'
                               }`}
                             >
-                              <div className="font-bold text-sm text-slate-900">{doc.fullName}</div>
-                              <div className="text-xs text-brand-600 font-medium">{doc.specialty}</div>
-                              <div className="text-xs text-slate-400 mt-1 flex items-center justify-between">
+                              <div className="flex items-start space-x-3">
+                                <div className="w-10 h-10 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden">
+                                  {doc.profilePictureUrl ? (
+                                    <img src={doc.profilePictureUrl} alt={doc.fullName} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <User className="w-5 h-5" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-bold text-sm text-slate-900 truncate">{doc.fullName}</div>
+                                  <div className="text-xs text-brand-600 font-medium truncate">{doc.specialty}</div>
+                                </div>
+                              </div>
+                              <div className="text-xs text-slate-400 mt-2 flex items-center justify-between pt-1 border-t border-slate-100">
                                 <span>{doc.education || 'MBBS, MD'}</span>
                                 <strong className="text-slate-800">
                                   {isReturningPatient && retainedAppointment ? 'Free Follow-Up' : `NPR ${doc.consultationFee || 500}`}
@@ -4330,6 +4167,202 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     )}
                   </div>
                 )}
+
+                {/* Always-Visible 7-Column Month Calendar Grid (Front & Center on Date & Slot Page) */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4 text-brand-600" />
+                      <span>{isLabClinic ? 'Select Sample Collection Date (Month View) *' : 'Select Appointment Date (Month View) *'}</span>
+                    </label>
+                    {monthSlotsLoading && (
+                      <span className="text-[10px] text-brand-600 font-semibold animate-pulse flex items-center gap-1">
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        <span>Updating slots...</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-2.5">
+                    {/* Month Navigator Header */}
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        disabled={viewedYearMonth.year === currentYearMonth.year && viewedYearMonth.month === currentYearMonth.month}
+                        onClick={() => {
+                          setViewedYearMonth((prev) => {
+                            const m = prev.month === 0 ? 11 : prev.month - 1
+                            const y = prev.month === 0 ? prev.year - 1 : prev.year
+                            return { year: y, month: m }
+                          })
+                        }}
+                        className="p-1.5 rounded-xl hover:bg-slate-100 disabled:opacity-25 disabled:cursor-not-allowed text-slate-700 cursor-pointer transition"
+                        title="Previous Month"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+
+                      <span className="text-xs font-black text-slate-900 tracking-wide">
+                        {new Date(viewedYearMonth.year, viewedYearMonth.month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setViewedYearMonth((prev) => {
+                            const m = prev.month === 11 ? 0 : prev.month + 1
+                            const y = prev.month === 11 ? prev.year + 1 : prev.year
+                            return { year: y, month: m }
+                          })
+                        }}
+                        className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer transition"
+                        title="Next Month"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Day of Week Headers */}
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                        <span key={d} className="text-[10px] font-bold text-slate-400 uppercase">{d}</span>
+                      ))}
+                    </div>
+
+                    {/* 7-Column Day Grid with 4 States and Status Dots */}
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {Array.from({ length: new Date(viewedYearMonth.year, viewedYearMonth.month, 1).getDay() }).map((_, i) => (
+                        <div key={`empty-${i}`} className="h-8" />
+                      ))}
+                      {Array.from({ length: new Date(viewedYearMonth.year, viewedYearMonth.month + 1, 0).getDate() }).map((_, i) => {
+                        const dayNum = i + 1
+                        const dateStr = `${viewedYearMonth.year}-${String(viewedYearMonth.month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
+                        const dateState = computeCalendarDateState(dateStr)
+                        const isSelectable = dateState === 'available'
+                        const isSelected = bookingDate === dateStr
+
+                        return (
+                          <button
+                            key={dateStr}
+                            type="button"
+                            disabled={!isSelectable}
+                            onClick={() => setBookingDate(dateStr)}
+                            className={`h-8 sm:h-9 rounded-xl flex flex-col items-center justify-center relative transition-all ${
+                              isSelected
+                                ? 'bg-brand-600 text-white font-black shadow-sm ring-2 ring-brand-500/30'
+                                : isSelectable
+                                ? 'hover:bg-brand-50 text-slate-800 font-bold cursor-pointer active:scale-95'
+                                : dateState === 'past'
+                                ? 'text-slate-300 cursor-not-allowed'
+                                : dateState === 'fully_booked'
+                                ? 'text-slate-600 bg-amber-50/50 cursor-not-allowed'
+                                : 'text-slate-400 bg-slate-100/50 cursor-not-allowed'
+                            }`}
+                          >
+                            <span className="text-[11px] leading-none">{dayNum}</span>
+                            {dateState !== 'past' && (
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
+                                  isSelected
+                                    ? 'bg-white'
+                                    : dateState === 'available'
+                                    ? 'bg-emerald-500'
+                                    : dateState === 'fully_booked'
+                                    ? 'bg-amber-500'
+                                    : 'bg-slate-400'
+                                }`}
+                              />
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Legend */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-around text-[10px] text-slate-500 font-semibold">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <span>Available</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        <span>Fully Booked</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-slate-400" />
+                        <span>Closed / Holiday</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Jump Banner */}
+                  {nextAvailableDate && nextAvailableDate !== bookingDate && (
+                    <div className="p-2.5 rounded-xl bg-brand-50/80 border border-brand-200/80 flex items-center justify-between text-xs text-brand-900 font-semibold">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Calendar className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+                        <span className="truncate">Next Open: {new Date(nextAvailableDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetD = new Date(nextAvailableDate + 'T00:00:00')
+                          setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
+                          setBookingDate(nextAvailableDate)
+                        }}
+                        className="text-[11px] font-bold text-brand-700 underline hover:text-brand-900 cursor-pointer shrink-0 ml-2"
+                      >
+                        Book this date
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Common Slots Grid */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      {isLabClinic ? 'Available Sample Collection Slots *' : 'Available Time Slots *'}
+                    </label>
+                    <span className="text-[11px] text-slate-400">
+                      (Past slots ending before now are hidden)
+                    </span>
+                  </div>
+
+                  {isLoadingSlots ? (
+                    <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200">
+                      <RefreshCw className="w-5 h-5 animate-spin mx-auto text-brand-600 mb-2" />
+                      <span className="text-xs text-slate-500">Checking slot availability...</span>
+                    </div>
+                  ) : availableSlots.length === 0 ? (
+                    <div className="p-6 text-center bg-amber-50/60 rounded-2xl border border-amber-200 text-amber-900 space-y-1">
+                      <Clock className="w-5 h-5 mx-auto text-amber-600 mb-1" />
+                      <p className="text-xs font-bold">No Slots Published for {bookingDate}</p>
+                      <p className="text-[11px] text-amber-700">
+                        This center has not published time slots for this date. Please pick another date or contact clinic reception directly.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {availableSlots.map((slot) => (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          onClick={() => setSelectedSlot(slot)}
+                          className={`p-3 rounded-xl border text-center transition cursor-pointer ${
+                            selectedSlot?.id === slot.id
+                              ? 'border-brand-600 bg-brand-600 text-white shadow-md shadow-brand-600/20 font-bold'
+                              : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700 font-semibold'
+                          }`}
+                        >
+                          <div className="text-xs">{slot.startTime} - {slot.endTime}</div>
+                          <div className={`text-[10px] mt-0.5 ${selectedSlot?.id === slot.id ? 'text-brand-100' : 'text-slate-400'}`}>
+                            {slot.maxCapacity - slot.bookedCount} spots left
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {/* Continue Action / 1-Click Follow-Up Action */}
                 <div className="space-y-2 pt-2">

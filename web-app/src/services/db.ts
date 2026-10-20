@@ -3520,70 +3520,114 @@ export interface ActiveUserSession {
 export function getLoggedInUserSession(): ActiveUserSession | null {
   if (typeof window === 'undefined') return null
   try {
-    // 1. Clinic Manager / Clinic Staff session
-    const hasClinicPending = Boolean(localStorage.getItem('dactor_pending_verification'))
-    const isClinicAuth = localStorage.getItem('dactor_clinic_logged_in') === 'true' || hasClinicPending
-    if (isClinicAuth) {
-      let email = localStorage.getItem('dactor_clinic_email') || null
-      if (!email && hasClinicPending) {
-        try {
-          const parsed = JSON.parse(localStorage.getItem('dactor_pending_verification')!)
-          email = parsed?.email || null
-        } catch {}
+    const lastRole = localStorage.getItem('dactor_last_active_role')
+    const lastPortal = localStorage.getItem('dactor_last_active_portal')
+
+    // Helper: Resolve Patient session
+    const resolvePatientSession = (): ActiveUserSession | null => {
+      const isPatAuth =
+        localStorage.getItem('dactor_patient_logged_in') === 'true' ||
+        Boolean(localStorage.getItem('dactor_patient_session')) ||
+        Boolean(localStorage.getItem('dactor_patient_email'))
+      if (isPatAuth) {
+        let email = localStorage.getItem('dactor_patient_email') || null
+        if (!email && localStorage.getItem('dactor_patient_session')) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem('dactor_patient_session')!)
+            email = parsed?.email || null
+          } catch {}
+        }
+        return {
+          role: 'patient',
+          email,
+          portalTab: 'patient-portal',
+        }
       }
-      return {
-        role: 'clinic_manager',
-        email,
-        portalTab: 'portal',
-      }
+      return null
     }
 
-    // 2. Doctor session
-    const hasDocPending = Boolean(localStorage.getItem('dactor_doctor_pending_kyc'))
-    const isDocAuth =
-      (localStorage.getItem('dactor_doctor_logged_in') === 'true' &&
-        (Boolean(localStorage.getItem('dactor_doctor_session')) || Boolean(localStorage.getItem('dactor_doctor_email')))) ||
-      hasDocPending
-    if (isDocAuth) {
-      let email = localStorage.getItem('dactor_doctor_email') || null
-      if (!email && hasDocPending) {
-        try {
-          const parsed = JSON.parse(localStorage.getItem('dactor_doctor_pending_kyc')!)
-          email = parsed?.email || null
-        } catch {}
+    // Helper: Resolve Doctor session
+    const resolveDoctorSession = (): ActiveUserSession | null => {
+      const hasDocPending = Boolean(localStorage.getItem('dactor_doctor_pending_kyc'))
+      const isDocAuth =
+        (localStorage.getItem('dactor_doctor_logged_in') === 'true' &&
+          (Boolean(localStorage.getItem('dactor_doctor_session')) || Boolean(localStorage.getItem('dactor_doctor_email')))) ||
+        hasDocPending
+      if (isDocAuth) {
+        let email = localStorage.getItem('dactor_doctor_email') || null
+        if (!email && hasDocPending) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem('dactor_doctor_pending_kyc')!)
+            email = parsed?.email || null
+          } catch {}
+        }
+        if (!email && localStorage.getItem('dactor_doctor_session')) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem('dactor_doctor_session')!)
+            email = parsed?.email || null
+          } catch {}
+        }
+        return {
+          role: 'doctor',
+          email,
+          portalTab: 'doctor-portal',
+        }
       }
-      if (!email && localStorage.getItem('dactor_doctor_session')) {
-        try {
-          const parsed = JSON.parse(localStorage.getItem('dactor_doctor_session')!)
-          email = parsed?.email || null
-        } catch {}
-      }
-      return {
-        role: 'doctor',
-        email,
-        portalTab: 'doctor-portal',
-      }
+      return null
     }
 
-    // 3. Patient session
-    const isPatAuth =
-      localStorage.getItem('dactor_patient_logged_in') === 'true' ||
-      Boolean(localStorage.getItem('dactor_patient_session')) ||
-      Boolean(localStorage.getItem('dactor_patient_email'))
-    if (isPatAuth) {
-      let email = localStorage.getItem('dactor_patient_email') || null
-      if (!email && localStorage.getItem('dactor_patient_session')) {
-        try {
-          const parsed = JSON.parse(localStorage.getItem('dactor_patient_session')!)
-          email = parsed?.email || null
-        } catch {}
+    // Helper: Resolve Clinic session
+    const resolveClinicSession = (): ActiveUserSession | null => {
+      let hasClinicPending = false
+      try {
+        const raw = localStorage.getItem('dactor_pending_verification')
+        if (raw && raw !== 'null' && raw !== '{}') {
+          const parsed = JSON.parse(raw)
+          if (parsed && (parsed.clinicName || parsed.email)) {
+            hasClinicPending = true
+          }
+        }
+      } catch {}
+
+      const isClinicAuth = localStorage.getItem('dactor_clinic_logged_in') === 'true' || hasClinicPending
+      if (isClinicAuth) {
+        let email = localStorage.getItem('dactor_clinic_email') || null
+        if (!email && hasClinicPending) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem('dactor_pending_verification')!)
+            email = parsed?.email || null
+          } catch {}
+        }
+        return {
+          role: 'clinic_manager',
+          email,
+          portalTab: 'portal',
+        }
       }
-      return {
-        role: 'patient',
-        email,
-        portalTab: 'patient-portal',
-      }
+      return null
     }
+
+    // 1. Honor explicit last-active role if set
+    if (lastRole === 'patient' || lastPortal === 'patient-portal') {
+      const pat = resolvePatientSession()
+      if (pat) return pat
+    } else if (lastRole === 'doctor' || lastPortal === 'doctor-portal') {
+      const doc = resolveDoctorSession()
+      if (doc) return doc
+    } else if (lastRole === 'clinic_manager' || lastPortal === 'portal') {
+      const clinic = resolveClinicSession()
+      if (clinic) return clinic
+    }
+
+    // 2. Default prioritization: Patient > Doctor > Clinic
+    const patientSession = resolvePatientSession()
+    if (patientSession) return patientSession
+
+    const doctorSession = resolveDoctorSession()
+    if (doctorSession) return doctorSession
+
+    const clinicSession = resolveClinicSession()
+    if (clinicSession) return clinicSession
   } catch {
     return null
   }

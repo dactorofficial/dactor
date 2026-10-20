@@ -248,6 +248,33 @@
         }
       }(window.location));
     </script>
+    <!-- Instant Pre-Mount Redirect for Logged-In Patients on Landing -->
+    <script type="text/javascript">
+      (function() {
+        try {
+          var l = window.location;
+          var isPatient = localStorage.getItem('dactor_patient_logged_in') === 'true' || 
+                          Boolean(localStorage.getItem('dactor_patient_session')) ||
+                          Boolean(localStorage.getItem('dactor_patient_email'));
+          var isHomeExplicit = l.search.indexOf('view=home') !== -1 || 
+                               l.hash.indexOf('view=home') !== -1 ||
+                               l.search.indexOf('stay=home') !== -1;
+          var hasOtherHash = l.hash && l.hash !== '#/' && l.hash !== '#home' && l.hash !== '';
+          var hasSpecificQuery = l.search.indexOf('clinic=') !== -1 || 
+                                 l.search.indexOf('doctor=') !== -1 || 
+                                 l.search.indexOf('code=') !== -1 || 
+                                 l.search.indexOf('tab=') !== -1 || 
+                                 l.search.indexOf('page=') !== -1;
+
+          if (isPatient && !isHomeExplicit && !hasOtherHash && !hasSpecificQuery) {
+            if (!l.hash || l.hash === '#/' || l.hash === '#home' || l.hash === '') {
+              l.hash = '#patient-portal';
+            }
+          }
+        } catch(e) {}
+      })();
+    </script>
+
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-500 selection:text-white font-sans">
     <noscript>

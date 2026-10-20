@@ -23,7 +23,7 @@ import { LiquidAuroraBackground } from './components/glass'
 
 // Helper to normalize tab aliases to canonical router views
 export const normalizeTab = (tab: string): string => {
-  const clean = (tab || '').toLowerCase().trim()
+  const clean = (tab || '').toLowerCase().trim().split('?')[0]
   if (
     clean === 'portal' ||
     clean === 'clinic-portal' ||
@@ -174,14 +174,16 @@ export const getInitialTab = (): string => {
     return normalizeTab(tab)
   }
 
-  // Check if user explicitly requested to view the landing page in this tab session
+  // Check if user explicitly requested to view the landing page (e.g. ?view=home or #home?view=home)
   try {
-    const params = new URLSearchParams(window.location.search)
+    const searchParams = new URLSearchParams(window.location.search)
+    const hashPart = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : ''
+    const hashParams = new URLSearchParams(hashPart)
     if (
-      params.get('stay') === 'home' ||
-      params.get('view') === 'home' ||
-      sessionStorage.getItem('dactor_explicit_home') === 'true' ||
-      sessionStorage.getItem('dactor_allow_home') === 'true'
+      searchParams.get('stay') === 'home' ||
+      searchParams.get('view') === 'home' ||
+      hashParams.get('view') === 'home' ||
+      hashParams.get('stay') === 'home'
     ) {
       return 'home'
     }
@@ -386,6 +388,7 @@ export const App: React.FC = () => {
           const url = new URL(window.location.href)
           url.searchParams.delete('tab')
           url.searchParams.delete('page')
+          url.searchParams.delete('view')
           window.history.replaceState({}, '', url.toString())
         } catch {}
         window.location.hash = `#${activeTab}`
@@ -398,11 +401,20 @@ export const App: React.FC = () => {
     const handleHashChange = () => {
       const rawTab = getTabFromUrl()
       if (rawTab === 'home') {
-        const allowHome =
-          sessionStorage.getItem('dactor_explicit_home') === 'true' ||
-          sessionStorage.getItem('dactor_allow_home') === 'true'
+        let isExplicitHome = false
+        try {
+          const searchParams = new URLSearchParams(window.location.search)
+          const hashPart = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : ''
+          const hashParams = new URLSearchParams(hashPart)
+          isExplicitHome =
+            searchParams.get('view') === 'home' ||
+            searchParams.get('stay') === 'home' ||
+            hashParams.get('view') === 'home' ||
+            hashParams.get('stay') === 'home'
+        } catch {}
+
         const session = getLoggedInUserSession()
-        if (session && !allowHome) {
+        if (session && !isExplicitHome) {
           handleNavigate(session.portalTab)
           return
         }
@@ -418,13 +430,21 @@ export const App: React.FC = () => {
     const syncAuth = () => {
       try {
         const currentTab = getTabFromUrl()
-        const allowHome =
-          sessionStorage.getItem('dactor_explicit_home') === 'true' ||
-          sessionStorage.getItem('dactor_allow_home') === 'true'
+        let isExplicitHome = false
+        try {
+          const searchParams = new URLSearchParams(window.location.search)
+          const hashPart = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : ''
+          const hashParams = new URLSearchParams(hashPart)
+          isExplicitHome =
+            searchParams.get('view') === 'home' ||
+            searchParams.get('stay') === 'home' ||
+            hashParams.get('view') === 'home' ||
+            hashParams.get('stay') === 'home'
+        } catch {}
         const session = getLoggedInUserSession()
 
         // Auto-redirect to respective portal if on landing page without explicit override
-        if (session && currentTab === 'home' && !allowHome) {
+        if (session && currentTab === 'home' && !isExplicitHome) {
           handleNavigate(session.portalTab)
           return
         }
@@ -476,12 +496,24 @@ export const App: React.FC = () => {
     const targetTab = normalizeTab(tab)
 
     if (targetTab === 'home') {
-      if (params?.intentionalHome) {
-        try {
-          sessionStorage.setItem('dactor_explicit_home', 'true')
-          sessionStorage.setItem('dactor_allow_home', 'true')
-        } catch {}
-      }
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('clinic')
+        url.searchParams.delete('doctor')
+        url.searchParams.delete('action')
+        url.searchParams.delete('tab')
+        url.searchParams.delete('page')
+        url.searchParams.set('view', 'home')
+        window.history.pushState({}, '', url.toString())
+      } catch {}
+      window.location.hash = '#home?view=home'
+      setActiveTab('home')
+      const nextAuth = getTabAuthState('home')
+      setIsLoggedIn(nextAuth.isLoggedIn)
+      setCurrentUserEmail(nextAuth.currentUserEmail)
+      setAuthRole(nextAuth.authRole)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
     } else {
       try {
         sessionStorage.removeItem('dactor_explicit_home')
