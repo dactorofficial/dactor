@@ -28,7 +28,6 @@ import {
   GraduationCap,
   Award,
   Info,
-  Zap,
 } from 'lucide-react'
 import { Clinic, Doctor, DoctorHomeItem } from '../types'
 import {
@@ -97,9 +96,6 @@ export const Home: React.FC<HomeProps> = ({
   const [selectedDoctorForModal, setSelectedDoctorForModal] = useState<DoctorHomeItem | null>(null)
   const [selectedDoctorForClinicPicker, setSelectedDoctorForClinicPicker] = useState<DoctorHomeItem | null>(null)
 
-  // Interactive Live Queue Simulator State
-  const [simCurrentToken, setSimCurrentToken] = useState(14)
-  const simUserToken = 18
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null)
 
   // Date strip state (7 consecutive days starting from today)
@@ -454,7 +450,7 @@ export const Home: React.FC<HomeProps> = ({
       </section>
 
       {/* ========================================================= */}
-      {/* HERO SECTION WITH INTERACTIVE QUEUE SIMULATOR & TRACKER */}
+      {/* HERO SECTION WITH INSTANT 10-DIGIT QUEUE TRACKER */}
       {/* ========================================================= */}
       <section className="relative overflow-hidden pt-2 sm:pt-4 pb-6 sm:pb-10 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="liquid-glass-elevated border border-white/80 rounded-3xl p-5 sm:p-10 shadow-glass-lg relative overflow-hidden">
@@ -466,215 +462,115 @@ export const Home: React.FC<HomeProps> = ({
             <img src={dactorLogo} alt="" className="w-full h-full object-contain" />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center relative z-10">
-            {/* Left Column: Headline, Value Prop & Instant 10-Digit Tracker */}
-            <div className="lg:col-span-7 space-y-5 text-left">
-              <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full liquid-glass-subtle border border-brand-200/60 text-brand-900 text-xs font-bold tracking-wide shadow-glass-sm">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                <img src={dactorLogo} alt="Dactor" className="w-4 h-4 object-contain rounded-full" />
-                <span>Nepal's Realtime OPD Queue & Diagnostic Network</span>
-              </div>
+          <div className="max-w-3xl mx-auto space-y-6 text-center relative z-10">
+            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full liquid-glass-subtle border border-brand-200/60 text-brand-900 text-xs font-bold tracking-wide shadow-glass-sm mx-auto">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <img src={dactorLogo} alt="Dactor" className="w-4 h-4 object-contain rounded-full" />
+              <span>Nepal's Realtime OPD Queue & Diagnostic Network</span>
+            </div>
 
-              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-slate-950 tracking-tight leading-[1.12]">
-                Skip the waiting room. <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 via-sky-500 to-cyan-500">
-                  Track your doctor's turn live from home.
+            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-slate-950 tracking-tight leading-[1.12]">
+              Skip the waiting room. <br />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 via-sky-500 to-cyan-500">
+                Track your doctor's turn live from home.
+              </span>
+            </h1>
+
+            <p className="text-sm sm:text-base text-slate-600 font-medium leading-relaxed max-w-2xl mx-auto">
+              Know the exact moment your specialist steps into the clinic. Track your live queue position with a 10-digit code, receive turn alerts, and walk in right as your turn arrives.
+            </p>
+
+            {/* Instant 10-Digit Universal Token Tracker Card */}
+            <div className="liquid-glass-base p-4 sm:p-5 rounded-2xl border border-white/90 shadow-glass-md max-w-xl mx-auto space-y-3 text-left">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-brand-600" />
+                  Instant Token Queue Lookup
                 </span>
-              </h1>
+                <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" /> Real-Time Sync
+                </span>
+              </div>
 
-              <p className="text-sm sm:text-base text-slate-600 font-medium leading-relaxed max-w-2xl">
-                Know the exact moment your specialist steps into the clinic. Track your live queue position with a 10-digit code, receive turn alerts, and walk in right as your turn arrives.
-              </p>
-
-              {/* Instant 10-Digit Universal Token Tracker Card */}
-              <div className="liquid-glass-base p-4 sm:p-5 rounded-2xl border border-white/90 shadow-glass-md max-w-xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-brand-600" />
-                    Instant Token Queue Lookup
-                  </span>
-                  <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" /> Real-Time Sync
-                  </span>
+              <form onSubmit={handleTrackSubmit} className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <span className="absolute left-3.5 top-3 text-slate-400 font-black text-sm">#</span>
+                  <input
+                    type="text"
+                    value={trackingCode}
+                    onChange={(e) => setTrackingCode(e.target.value)}
+                    placeholder="Enter 10-digit token (e.g. 6316821683)"
+                    maxLength={10}
+                    className="w-full pl-8 pr-3 py-2.5 text-sm font-bold text-slate-900 bg-white/90 rounded-xl border border-slate-200/80 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-inner"
+                  />
                 </div>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white font-black rounded-xl text-xs sm:text-sm transition-all shadow-glass-brand shrink-0 cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+                >
+                  <span>Track Live Queue</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
 
-                <form onSubmit={handleTrackSubmit} className="flex flex-col sm:flex-row gap-2">
-                  <div className="relative flex-1">
-                    <span className="absolute left-3.5 top-3 text-slate-400 font-black text-sm">#</span>
-                    <input
-                      type="text"
-                      value={trackingCode}
-                      onChange={(e) => setTrackingCode(e.target.value)}
-                      placeholder="Enter 10-digit token (e.g. 6316821683)"
-                      maxLength={10}
-                      className="w-full pl-8 pr-3 py-2.5 text-sm font-bold text-slate-900 bg-white/90 rounded-xl border border-slate-200/80 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-inner"
-                    />
-                  </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                <span>
+                  Try test code:{' '}
                   <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white font-black rounded-xl text-xs sm:text-sm transition-all shadow-glass-brand shrink-0 cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+                    type="button"
+                    onClick={() => setTrackingCode('6316821683')}
+                    className="font-bold text-brand-600 underline hover:text-brand-800"
                   >
-                    <span>Track Live Queue</span>
-                    <ArrowRight className="w-4 h-4" />
+                    #6316821683
                   </button>
-                </form>
-
-                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                  <span>
-                    Try test code:{' '}
-                    <button
-                      type="button"
-                      onClick={() => setTrackingCode('6316821683')}
-                      className="font-bold text-brand-600 underline hover:text-brand-800"
-                    >
-                      #6316821683
-                    </button>
-                  </span>
-                  <span className="flex items-center gap-1 font-semibold text-emerald-700">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> No login needed
-                  </span>
-                </div>
-              </div>
-
-              {/* Portal Links & CTAs */}
-              <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2.5 sm:gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => onNavigate('patient-portal')}
-                  className="px-5 py-2.5 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-glass-brand border border-white/30 flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
-                >
-                  <User className="w-4 h-4" />
-                  <span>Patient Portal & My Bookings</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNavigate('lab-reports')}
-                  className="px-4 py-2.5 liquid-glass-subtle hover:bg-white/90 text-slate-800 border border-white/80 font-bold rounded-2xl text-xs sm:text-sm shadow-glass-sm flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
-                >
-                  <FlaskConical className="w-4 h-4 text-emerald-600" />
-                  <span>3-Stage Lab Reports</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNavigate('portal')}
-                  className="px-4 py-2.5 liquid-glass-subtle hover:bg-white/90 text-indigo-700 border border-indigo-200 font-bold rounded-2xl text-xs sm:text-sm shadow-glass-sm flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
-                >
-                  <Building2 className="w-4 h-4 text-indigo-600" />
-                  <span>For Clinics & Hospitals</span>
-                </button>
-              </div>
-
-              {/* Trust Metrics */}
-              <div className="pt-2 flex flex-wrap items-center gap-5 text-xs font-semibold text-slate-600">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold">14k+</div>
-                  <span>Tokens Served</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold">~42m</div>
-                  <span>Avg Waiting Saved</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center text-sky-700 font-bold">100%</div>
-                  <span>Verified Doctors</span>
-                </div>
+                </span>
+                <span className="flex items-center gap-1 font-semibold text-emerald-700">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> No login needed
+                </span>
               </div>
             </div>
 
-            {/* Right Column: Interactive Live Queue Simulator */}
-            <div className="lg:col-span-5">
-              <div className="relative mx-auto max-w-md">
-                <div className="liquid-glass-elevated rounded-3xl p-5 sm:p-6 border border-white/90 shadow-glass-lg space-y-4 text-left">
-                  {/* Simulator Device Header */}
-                  <div className="flex items-start justify-between pb-3 border-b border-slate-200/60">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-[11px] font-extrabold uppercase tracking-wide text-emerald-600">Live Consultation in Progress</span>
-                      </div>
-                      <h3 className="text-base font-extrabold text-slate-900 mt-0.5">Patan Polyclinic & Diagnostic</h3>
-                      <p className="text-xs text-slate-500">Kumaripati, Lalitpur • OPD Room 104</p>
-                    </div>
-                    <span className="px-2.5 py-1 bg-brand-50 text-brand-700 text-xs font-black rounded-lg border border-brand-200">
-                      Live Demo
-                    </span>
-                  </div>
+            {/* Portal Links & CTAs */}
+            <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-2.5 sm:gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => onNavigate('patient-portal')}
+                className="px-5 py-2.5 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-glass-brand border border-white/30 flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
+              >
+                <User className="w-4 h-4" />
+                <span>Patient Portal & My Bookings</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('lab-reports')}
+                className="px-4 py-2.5 liquid-glass-subtle hover:bg-white/90 text-slate-800 border border-white/80 font-bold rounded-2xl text-xs sm:text-sm shadow-glass-sm flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
+              >
+                <FlaskConical className="w-4 h-4 text-emerald-600" />
+                <span>3-Stage Lab Reports</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('portal')}
+                className="px-4 py-2.5 liquid-glass-subtle hover:bg-white/90 text-indigo-700 border border-indigo-200 font-bold rounded-2xl text-xs sm:text-sm shadow-glass-sm flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.98]"
+              >
+                <Building2 className="w-4 h-4 text-indigo-600" />
+                <span>For Clinics & Hospitals</span>
+              </button>
+            </div>
 
-                  {/* Doctor Physical Presence Banner */}
-                  <div className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-2xl p-3.5 shadow-md flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
-                        <div className="w-11 h-11 rounded-xl bg-brand-600/50 border border-brand-400 flex items-center justify-center font-black text-white text-base">
-                          AJ
-                        </div>
-                        <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-extrabold text-white">Dr. Anubhav Jha</h4>
-                        <p className="text-xs text-cyan-300 font-medium">Cardiology Specialist • MD</p>
-                        <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-emerald-400 font-semibold">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> In Clinic (Arrived 09:12 AM)
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Big Token Counters */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3 text-center">
-                      <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block">Serving Now</span>
-                      <span className="text-3xl font-black text-emerald-600 leading-tight">#{simCurrentToken}</span>
-                      <span className="text-[10px] font-semibold text-emerald-800 block mt-0.5">Inside Consultation</span>
-                    </div>
-                    <div className="bg-brand-50/80 border border-brand-200 rounded-2xl p-3 text-center">
-                      <span className="text-[11px] font-bold text-brand-700 uppercase tracking-wider block">Your Token</span>
-                      <span className="text-3xl font-black text-brand-600 leading-tight">#{simUserToken}</span>
-                      <span className={`text-[10px] font-bold block mt-0.5 ${simUserToken - simCurrentToken <= 1 ? 'text-rose-700 animate-pulse' : 'text-brand-800'}`}>
-                        {simUserToken - simCurrentToken > 0 ? `${simUserToken - simCurrentToken} patients ahead` : 'YOUR TURN NOW!'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Dynamic Timing & Advice */}
-                  <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900 text-xs space-y-1">
-                    <div className="flex items-center justify-between font-bold">
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="w-4 h-4 text-amber-600" />
-                        Expected Turn Time
-                      </span>
-                      <span className="text-amber-800 font-black">
-                        {simUserToken - simCurrentToken > 0
-                          ? `10:${Math.max(10, 35 - (4 - (simUserToken - simCurrentToken)) * 8)} AM (±15 min)`
-                          : 'NOW - Proceed to Room 104'}
-                      </span>
-                    </div>
-                    <p className={`text-[11px] font-medium ${simUserToken - simCurrentToken <= 1 ? 'text-rose-700 font-bold' : 'text-amber-700'}`}>
-                      {simUserToken - simCurrentToken === 1
-                        ? '🔥 YOU ARE NEXT! Please enter the clinic waiting area now.'
-                        : simUserToken - simCurrentToken > 1
-                        ? 'Recommendation: Relax at home. Leave around 10:10 AM for a 20-min commute.'
-                        : '✓ Doctor is ready for you. Please proceed to consultation room.'}
-                    </p>
-                  </div>
-
-                  {/* Simulator Interactive Button */}
-                  <div className="pt-2 border-t border-slate-200/60">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (simCurrentToken < simUserToken) {
-                          setSimCurrentToken((prev) => prev + 1)
-                        } else {
-                          setSimCurrentToken(14)
-                        }
-                      }}
-                      className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer shadow-md"
-                    >
-                      <Zap className="w-4 h-4 text-cyan-400" />
-                      <span>{simCurrentToken < simUserToken ? 'Simulate Doctor Calling Next Patient' : 'Reset Live Simulator'}</span>
-                    </button>
-                  </div>
-                </div>
+            {/* Trust Metrics */}
+            <div className="pt-2 flex flex-wrap items-center justify-center gap-5 sm:gap-8 text-xs font-semibold text-slate-600">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold">14k+</div>
+                <span>Tokens Served</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold">~42m</div>
+                <span>Avg Waiting Saved</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center text-sky-700 font-bold">100%</div>
+                <span>Verified Doctors</span>
               </div>
             </div>
           </div>
