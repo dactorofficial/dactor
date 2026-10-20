@@ -102,8 +102,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const [selectedSlotId, setSelectedSlotId] = useState<string | undefined>(undefined)
 
   // Follow-Up (Multi-Visit Polyclinic) & Reschedule
-  const [isReturningPatient, setIsReturningPatient] = useState(() => Boolean(initialTrackingCode))
-  const [followupCodeInput, setFollowupCodeInput] = useState(() => initialTrackingCode || '')
+  const [isReturningPatient, setIsReturningPatient] = useState(() => Boolean(isReschedule && initialTrackingCode))
+  const [followupCodeInput, setFollowupCodeInput] = useState(() => (isReschedule && initialTrackingCode ? initialTrackingCode : ''))
   const [retainedAppointment, setRetainedAppointment] = useState<Appointment | null>(null)
   const [isLookingUpCode, setIsLookingUpCode] = useState(false)
   const [followupLookupError, setFollowupLookupError] = useState<string | null>(null)
@@ -387,13 +387,13 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     return Boolean((isReturningPatient && retainedAppointment) || (isReschedule && retainedAppointment))
   }, [isReturningPatient, retainedAppointment, isReschedule])
 
-  // Sync initialTrackingCode prop changes
+  // Sync initialTrackingCode prop changes - only auto-activate if explicitly in reschedule mode
   useEffect(() => {
-    if (initialTrackingCode) {
+    if (initialTrackingCode && isReschedule) {
       setIsReturningPatient(true)
       setFollowupCodeInput(initialTrackingCode)
     }
-  }, [initialTrackingCode])
+  }, [initialTrackingCode, isReschedule])
 
   // Lookup 10-digit Appointment ID or UUID for Follow-up or Reschedule
   useEffect(() => {
@@ -1255,7 +1255,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       )}
 
       {/* Free Follow-Up Banner */}
-      {!isReschedule && initialTrackingCode && (
+      {!isReschedule && isReturningPatient && retainedAppointment && (
         <div className="p-4 sm:p-5 rounded-3xl bg-emerald-500/10 border border-emerald-500/25 shadow-glass-sm backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center shrink-0 border border-emerald-500/30">

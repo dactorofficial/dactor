@@ -534,12 +534,12 @@ export const App: React.FC = () => {
       }
       if (params?.trackingCode || params?.followupCode) {
         setRescheduleTrackingCode(params.trackingCode || params.followupCode)
-      } else if (params?.resetTrackingCode) {
+      } else if (params?.resetTrackingCode || !params?.isReschedule) {
         setRescheduleTrackingCode('')
       }
       if (params?.isReschedule !== undefined) {
         setIsRescheduleMode(Boolean(params.isReschedule))
-      } else if (params?.resetTrackingCode) {
+      } else if (params?.resetTrackingCode || !params?.isReschedule) {
         setIsRescheduleMode(false)
       }
       setActiveTab('clinic-detail')
@@ -552,9 +552,14 @@ export const App: React.FC = () => {
         else url.searchParams.delete('action')
         if (params?.trackingCode) {
           url.searchParams.set(params.isReschedule ? 'rescheduleCode' : 'followupCode', params.trackingCode)
+        } else {
+          url.searchParams.delete('rescheduleCode')
+          url.searchParams.delete('followupCode')
         }
         if (params?.isReschedule !== undefined) {
           url.searchParams.set('reschedule', String(params.isReschedule))
+        } else {
+          url.searchParams.delete('reschedule')
         }
         url.searchParams.delete('tab')
         url.searchParams.delete('page')
