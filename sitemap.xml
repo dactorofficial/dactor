@@ -223,42 +223,42 @@
     <changefreq>daily</changefreq>
     <priority>0.85</priority>
   </url>
-  <!-- Clinic Booking: patan -->
+  <!-- Clinic Booking: Anubhav ke clinic  -->
   <url>
-    <loc>https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&amp;action=book</loc>
-    <lastmod>2026-10-16</lastmod>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=4ea7f77d-590f-4b74-99cb-feebf576d78a&amp;action=book</loc>
+    <lastmod>2026-10-20</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
-    <loc>https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27</loc>
-    <lastmod>2026-10-16</lastmod>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=4ea7f77d-590f-4b74-99cb-feebf576d78a</loc>
+    <lastmod>2026-10-20</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.85</priority>
   </url>
-  <!-- Doctor Appointment Booking: anubhav jha -->
+  <!-- Doctor Appointment Booking: Dr. DACTOR -->
   <url>
-    <loc>https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&amp;doctor=388db125-526a-433e-83ec-95c881507e66&amp;action=book</loc>
-    <lastmod>2026-10-14</lastmod>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=4ea7f77d-590f-4b74-99cb-feebf576d78a&amp;doctor=5f92dc89-6d9e-4b75-9c2e-a8591a12598c&amp;action=book</loc>
+    <lastmod>2026-10-20</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
-    <loc>https://dactorofficial.github.io/dactor/?doctor=388db125-526a-433e-83ec-95c881507e66&amp;action=book</loc>
-    <lastmod>2026-10-14</lastmod>
+    <loc>https://dactorofficial.github.io/dactor/?doctor=5f92dc89-6d9e-4b75-9c2e-a8591a12598c&amp;action=book</loc>
+    <lastmod>2026-10-20</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
-  <!-- Doctor Appointment Booking: kshitiz -->
+  <!-- Doctor Appointment Booking: abhipsa  jha -->
   <url>
-    <loc>https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&amp;doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&amp;action=book</loc>
-    <lastmod>2026-10-13</lastmod>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=4ea7f77d-590f-4b74-99cb-feebf576d78a&amp;doctor=4be41a5c-efb7-4fc9-a40c-6b0a3f8a37d4&amp;action=book</loc>
+    <lastmod>2026-10-20</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
-    <loc>https://dactorofficial.github.io/dactor/?doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&amp;action=book</loc>
-    <lastmod>2026-10-13</lastmod>
+    <loc>https://dactorofficial.github.io/dactor/?doctor=4be41a5c-efb7-4fc9-a40c-6b0a3f8a37d4&amp;action=book</loc>
+    <lastmod>2026-10-20</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
