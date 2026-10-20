@@ -633,7 +633,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [bookPatientNotes, setBookPatientNotes] = useState('')
 
   // Wizard Step (1: Clinic & Doctor, 2: Slot & Date, 3: Details, 4: Payment, 5: Confirmed)
-  const [bookingStep, setBookingStep] = useState<number>(2)
+  const [bookingStep, setBookingStep] = useState<number>(1)
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false)
   const [confirmedBooking, setConfirmedBooking] = useState<Appointment | null>(null)
 
@@ -1324,32 +1324,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
   }
 
-  // Open booking calendar immediately (matching ClinicDetail.tsx calendar-first booking experience)
+  // Open booking flow (directs to Select Clinic unless specific clinic passed)
   const handleOpenBookingCalendar = (clinic?: Clinic) => {
     setActiveTab('book')
-    const lastClinicId = myAppointments[0]?.clinicId || myAppointments[0]?.clinic?.id
-    const target =
-      clinic ||
-      selectedClinic ||
-      (lastClinicId && clinics.find((c) => c.id === lastClinicId)) ||
-      clinics[0]
-    if (target) {
-      handleSelectClinic(target)
+    if (clinic) {
+      handleSelectClinic(clinic)
     } else {
-      setBookingStep(2)
+      setSelectedClinic(null)
+      setSelectedDoctor(null)
+      setBookingStep(1)
     }
   }
-
-  // Auto-load Date & Slot calendar when on 'book' tab
-  useEffect(() => {
-    if (activeTab === 'book' && clinics.length > 0 && !selectedClinic) {
-      const lastClinicId = myAppointments[0]?.clinicId || myAppointments[0]?.clinic?.id
-      const defaultClinic = (lastClinicId && clinics.find((c) => c.id === lastClinicId)) || clinics[0]
-      if (defaultClinic) {
-        handleSelectClinic(defaultClinic)
-      }
-    }
-  }, [activeTab, clinics, selectedClinic, myAppointments])
 
   // Select Doctor Booking Algorithm (1:1 Android App Parity)
   const handleSelectDoctorFromCard = (doc: Doctor) => {
