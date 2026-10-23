@@ -36,6 +36,8 @@ import {
   LifeBuoy,
   Receipt,
   CreditCard,
+  Plus,
+  FlaskConical,
 } from 'lucide-react'
 import {
   Doctor,
@@ -195,19 +197,18 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const [respondingInviteId, setRespondingInviteId] = useState<string | null>(null)
 
   // ==========================================
-  // REGISTRATION & KYC FORM FIELDS
+  // REGISTRATION & KYC FORM FIELDS (Parity with ClinicLoginScreen.kt)
   // ==========================================
+  const [regPractitionerRole, setRegPractitionerRole] = useState<'doctor' | 'lab_technician'>('doctor')
   const [regName, setRegName] = useState('')
   const [regGender, setRegGender] = useState('Male')
   const [regAge, setRegAge] = useState('')
-  const [regStartingYear, setRegStartingYear] = useState<number>(2020)
+  const [regStartingYear, setRegStartingYear] = useState<number>(() => new Date().getFullYear())
   const [regSpecialty, setRegSpecialty] = useState('General Physician')
-  const [regEducation, setRegEducation] = useState('MBBS, MD')
+  const [regEducations, setRegEducations] = useState<string[]>(['MBBS'])
   const [regNmc, setRegNmc] = useState('')
   const [regPersonalPhone, setRegPersonalPhone] = useState('')
   const [regPublicPhone, setRegPublicPhone] = useState('')
-  const [regClinicId, setRegClinicId] = useState('')
-  const [regFee, setRegFee] = useState(500)
   const [regDesc, setRegDesc] = useState('')
   const [regPhotoFile, setRegPhotoFile] = useState<File | null>(null)
   const [regLicenseFile, setRegLicenseFile] = useState<File | null>(null)
@@ -217,52 +218,77 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const [submittingReg, setSubmittingReg] = useState(false)
   const [regStatusMsg, setRegStatusMsg] = useState<string | null>(null)
 
+  // Lab technician taxonomy fallbacks (Parity with ClinicLoginScreen.kt)
+  const labSpecializations = useMemo(
+    () => [
+      'MRI Specialist & Radiographer',
+      'CT Scan Specialist & Technologist',
+      'Digital X-Ray Technologist',
+      'Ultrasound (USG) Sonographer',
+      'Medical Lab Technician (MLT)',
+      'Histopathology & Cytology Technician',
+      'Clinical Biochemistry & Hematology',
+      'Microbiology & Immunology Lab Tech',
+    ],
+    []
+  )
+
+  const labTechnicianEducations = useMemo(
+    () => [
+      'CMLT (Certificate in Medical Lab Technology)',
+      'DMLT (Diploma in Medical Lab Technology)',
+      'BMLT / B.Sc. MLT (Bachelor in Medical Lab Technology)',
+      'M.Sc. MLT / Clinical Biochemistry',
+      'M.Sc. Medical Microbiology',
+      'Certified Phlebotomy & Lab Technician',
+    ],
+    []
+  )
+
+  const doctorDefaultEducations = useMemo(
+    () => [
+      'MBBS',
+      'MBBS, MD',
+      'MBBS, MS',
+      'MD - Internal Medicine',
+      'MS - General Surgery',
+      'MD - Pediatrics',
+      'MS - Orthopedics',
+      'MD - Dermatology',
+      'MD - Obstetrics & Gynecology',
+      'BDS',
+      'BDS, MDS',
+      'BAMS',
+      'BHMS',
+      'BPT / MPT (Physiotherapy)',
+    ],
+    []
+  )
+
+  // Practicing years list from current year down to 1960 (Parity with ClinicLoginScreen.kt)
+  const practicingYears = useMemo(() => {
+    const curr = new Date().getFullYear()
+    const list: number[] = []
+    for (let y = curr; y >= 1960; y--) {
+      list.push(y)
+    }
+    return list
+  }, [])
+
   // Taxonomies
   const [specialtiesList, setSpecialtiesList] = useState<MedicalSpecialty[]>([])
   const [qualificationsList, setQualificationsList] = useState<MedicalQualification[]>([])
-  const [allClinics, setAllClinics] = useState<Clinic[]>([])
-  const [regClinicTypeFilter, setRegClinicTypeFilter] = useState<
-    'all' | 'single_visit' | 'multi_visit' | 'diagnostic_lab'
-  >('all')
-
-  const displayedClinics = useMemo(() => {
-    if (regClinicTypeFilter === 'all') return allClinics
-    if (regClinicTypeFilter === 'diagnostic_lab') {
-      return allClinics.filter(
-        (c) =>
-          c.type === 'diagnostic_lab' ||
-          c.type?.includes('lab') ||
-          c.name?.toLowerCase().includes('lab') ||
-          c.name?.toLowerCase().includes('imaging') ||
-          c.name?.toLowerCase().includes('mri') ||
-          c.name?.toLowerCase().includes('scan') ||
-          c.specialties?.some(
-            (s) =>
-              s.toLowerCase().includes('lab') ||
-              s.toLowerCase().includes('patholog') ||
-              s.toLowerCase().includes('mri') ||
-              s.toLowerCase().includes('scan')
-          )
-      )
-    }
-    if (regClinicTypeFilter === 'single_visit') {
-      return allClinics.filter((c) => c.type === 'single_visit' || c.type === 'single_doctor')
-    }
-    return allClinics.filter((c) => c.type === 'multi_visit' || c.type === 'polyclinic')
-  }, [allClinics, regClinicTypeFilter])
 
   // Load initial taxonomies and existing session
   useEffect(() => {
     async function init() {
       try {
-        const [specs, quals, cls] = await Promise.all([
+        const [specs, quals] = await Promise.all([
           getMedicalSpecialties(),
           getMedicalQualifications(),
-          getClinics(),
         ])
         setSpecialtiesList(specs)
         setQualificationsList(quals)
-        setAllClinics(cls)
 
         // If saved doctor session exists, reload fresh doctor record
         const savedDocRaw = localStorage.getItem('dactor_doctor_session')
@@ -305,12 +331,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const loadDoctorClinicsAndAppointments = async (doctor: Doctor) => {
     setLoadingAppts(true)
     try {
-      const clinics = await getAffiliatedClinicsForDoctor(doctor.id)
+      const clinics = await getAffiliatedClinicsForDoctor(doctor.id, doctor.email)
       setAffiliatedClinics(clinics)
       const primaryClinic =
         clinics.find((c) => c.id === (doctor.activeClinicId || doctor.clinicId)) ||
-        clinics[0] ||
-        null
+        (clinics.length > 0 ? clinics[0] : null)
       setSelectedClinic(primaryClinic)
 
       const todayStr = new Date().toISOString().split('T')[0]
@@ -481,21 +506,36 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     }
   }
 
-  // Submit Doctor Registration Form
+  // Submit Doctor / Practitioner Registration Form (Parity with ClinicLoginScreen.kt)
   const handleSubmitRegistration = async (e: React.FormEvent) => {
     e.preventDefault()
     const errors: { [key: string]: string } = {}
 
-    if (regName.trim().length < 3) errors.name = 'Full name must be at least 3 characters.'
+    if (regName.trim().length < 2) errors.name = 'Full name must be at least 2 characters.'
     const parsedAge = parseInt(regAge, 10)
     if (isNaN(parsedAge) || parsedAge < 20 || parsedAge > 100) errors.age = 'Age must be between 20 and 100.'
-    if (regNmc.trim().length < 3) errors.nmc = 'Nepal Medical Council (NMC) license number is required.'
+    if (regNmc.trim().length < 3) {
+      errors.nmc =
+        regPractitionerRole === 'lab_technician'
+          ? 'NHPC / Lab Council license ID is required (at least 3 characters).'
+          : 'Nepal Medical Council (NMC) license number is required.'
+    }
+    if (regEducations.length === 0) {
+      errors.education = 'Please select at least one qualification / degree.'
+    }
     const cleanPersonal = regPersonalPhone.replace(/\D/g, '')
     if (cleanPersonal.length !== 10 || !cleanPersonal.startsWith('9')) {
       errors.personalPhone = 'Personal mobile must be a valid 10-digit number starting with 9.'
     }
+    const cleanPublic = regPublicPhone.replace(/\D/g, '')
+    if (cleanPublic && (cleanPublic.length !== 10 || !cleanPublic.startsWith('9'))) {
+      errors.publicPhone = 'Public mobile must be a valid 10-digit number starting with 9.'
+    }
     if (!regTermsAccepted) {
-      errors.terms = 'You must accept the NMC Code of Ethics & Telehealth terms.'
+      errors.terms =
+        regPractitionerRole === 'lab_technician'
+          ? 'You must accept the NHPC Code of Ethics & Privacy standards.'
+          : 'You must accept the NMC Code of Ethics & Telehealth terms.'
     }
 
     if (Object.keys(errors).length > 0) {
@@ -531,24 +571,31 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           undefined
       }
 
-      const cleanPublic = regPublicPhone.replace(/\D/g, '')
+      const formattedName =
+        regPractitionerRole === 'doctor'
+          ? regName.trim().startsWith('Dr.')
+            ? regName.trim()
+            : `Dr. ${regName.trim()}`
+          : regName.trim()
 
       const payload: Partial<Doctor> = {
-        fullName: regName.trim().startsWith('Dr.') ? regName.trim() : `Dr. ${regName.trim()}`,
+        fullName: formattedName,
         email: verifiedEmail.trim(),
         gender: regGender,
         age: parsedAge,
         startingPracticingYear: regStartingYear,
         specialty: regSpecialty,
         specialties: [regSpecialty],
-        education: regEducation,
+        education: regEducations.join(', '),
         nmcLicenseNumber: regNmc.trim(),
         personalMobileNumber: cleanPersonal,
         publicMobileNumber: cleanPublic || undefined,
-        clinicId: regClinicId || undefined,
-        activeClinicId: regClinicId || undefined,
-        consultationFee: regFee || 500,
+        clinicId: undefined, // Strictly null: independent practitioner registration
+        activeClinicId: undefined,
+        consultationFee: 500,
         description: regDesc.trim() || undefined,
+        practitionerRole: regPractitionerRole,
+        isLabTechnician: regPractitionerRole === 'lab_technician',
         profilePictureUrl: photoUrl,
         licenseDocUrl,
         certificatesDocUrl,
@@ -709,10 +756,18 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     try {
       const ok = await respondToDoctorInvitation(invite.id, accept, currentDoctor.id, invite.clinicId)
       if (ok) {
+        if (accept) {
+          alert('✓ Clinic affiliation invitation accepted! You can now publish OPD slots and consult patients for this clinic.')
+        } else {
+          alert('Invitation declined.')
+        }
         await loadDoctorClinicsAndAppointments(currentDoctor)
+      } else {
+        alert('Could not update invitation. Please try again.')
       }
     } catch (err) {
       console.error('Error responding to invitation:', err)
+      alert('Error updating invitation.')
     } finally {
       setRespondingInviteId(null)
     }
@@ -1167,10 +1222,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               Step 2 of 2: Medical Accreditation
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-              Doctor Registration & NMC KYC Form
+              {regPractitionerRole === 'lab_technician'
+                ? 'Lab Technician / Pathologist Registration & KYC'
+                : 'Doctor Registration & NMC KYC Form'}
             </h2>
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Submit your medical qualifications and NMC registration number. Verified doctors receive full desk access and high trust rating on patient discovery cards.
+              Submit your medical qualifications and licensing credentials. All practitioners register independently without clinic affiliations; partner clinics can invite you via your verified email.
             </p>
           </div>
 
@@ -1195,54 +1252,130 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           )}
 
           <form onSubmit={handleSubmitRegistration} className="space-y-6 text-left">
+            {/* Practitioner Role Switcher (Parity with ClinicLoginScreen.kt) */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                Select Practitioner Role *
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRegPractitionerRole('doctor')
+                    if (
+                      regEducations.length === 0 ||
+                      regEducations.some((e) => e.includes('MLT') || e.includes('CMLT'))
+                    ) {
+                      setRegEducations(['MBBS'])
+                    }
+                    if (labSpecializations.includes(regSpecialty)) {
+                      setRegSpecialty(specialtiesList[0]?.name || 'General Physician')
+                    }
+                  }}
+                  className={`py-3 px-4 rounded-2xl text-xs font-black border transition-all cursor-pointer flex items-center justify-center space-x-2 ${
+                    regPractitionerRole === 'doctor'
+                      ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 shadow-md shadow-teal-500/25'
+                      : 'liquid-glass-card text-slate-700 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-800/80 border-white/40 dark:border-white/10'
+                  }`}
+                >
+                  <Stethoscope className="w-4 h-4" />
+                  <span>Medical Doctor</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRegPractitionerRole('lab_technician')
+                    if (regEducations.length === 0 || regEducations.includes('MBBS')) {
+                      setRegEducations(['BMLT / B.Sc. MLT (Bachelor in Medical Lab Technology)'])
+                    }
+                    if (!labSpecializations.includes(regSpecialty)) {
+                      setRegSpecialty('Medical Lab Technician (MLT)')
+                    }
+                  }}
+                  className={`py-3 px-4 rounded-2xl text-xs font-black border transition-all cursor-pointer flex items-center justify-center space-x-2 ${
+                    regPractitionerRole === 'lab_technician'
+                      ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white border-teal-400 shadow-md shadow-teal-500/25'
+                      : 'liquid-glass-card text-slate-700 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-800/80 border-white/40 dark:border-white/10'
+                  }`}
+                >
+                  <FlaskConical className="w-4 h-4" />
+                  <span>Lab Technician / Pathologist</span>
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Doctor Full Name (with Dr. prefix) *
+                  {regPractitionerRole === 'doctor'
+                    ? 'Doctor Full Name (with Dr. prefix) *'
+                    : 'Practitioner Full Name *'}
                 </label>
                 <input
                   type="text"
                   value={regName}
                   onChange={(e) => setRegName(e.target.value)}
-                  placeholder="e.g. Dr. Anubhav Sharma"
+                  placeholder={
+                    regPractitionerRole === 'doctor'
+                      ? 'e.g. Dr. Anubhav Sharma'
+                      : 'e.g. Bikram Shrestha'
+                  }
                   className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
                 />
-                {regErrors.name && <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.name}</p>}
+                {regErrors.name && (
+                  <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.name}</p>
+                )}
               </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  NMC License Registration Number *
+                  {regPractitionerRole === 'lab_technician'
+                    ? 'NHPC / Lab Council License ID *'
+                    : 'NMC License Registration Number *'}
                 </label>
                 <input
                   type="text"
                   value={regNmc}
                   onChange={(e) => setRegNmc(e.target.value)}
-                  placeholder="e.g. 18452-MED"
+                  placeholder={
+                    regPractitionerRole === 'lab_technician' ? 'e.g. NHPC-A-4520' : 'e.g. 18452-MED'
+                  }
                   className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white font-mono"
                 />
-                {regErrors.nmc && <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.nmc}</p>}
+                {regErrors.nmc && (
+                  <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.nmc}</p>
+                )}
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Medical Specialty *</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  {regPractitionerRole === 'lab_technician' ? 'Lab Specialization *' : 'Medical Specialty *'}
+                </label>
                 <select
                   value={regSpecialty}
                   onChange={(e) => setRegSpecialty(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
                 >
-                  {specialtiesList.map((s) => (
-                    <option key={s.id} value={s.name} className="dark:bg-slate-900 text-slate-900 dark:text-white">
-                      {s.name}
-                    </option>
-                  ))}
-                  {specialtiesList.length === 0 && (
+                  {regPractitionerRole === 'lab_technician' ? (
+                    labSpecializations.map((spec) => (
+                      <option key={spec} value={spec} className="dark:bg-slate-900 text-slate-900 dark:text-white">
+                        {spec}
+                      </option>
+                    ))
+                  ) : specialtiesList.length > 0 ? (
+                    specialtiesList.map((s) => (
+                      <option key={s.id} value={s.name} className="dark:bg-slate-900 text-slate-900 dark:text-white">
+                        {s.name}
+                      </option>
+                    ))
+                  ) : (
                     <>
                       <option value="General Physician" className="text-slate-900">General Physician & Internal Medicine</option>
                       <option value="Cardiology (Heart Care)" className="text-slate-900">Cardiology (Heart Specialist)</option>
-                      <option value="Dermatology & Skin Care" className="text-slate-900">Dermatology & Venereology (Skin, Hair & Cosmetology)</option>
+                      <option value="Dermatology & Skin Care" className="text-slate-900">Dermatology & Venereology (Skin & Hair)</option>
                       <option value="Pediatrics & Child Health" className="text-slate-900">Pediatrics & Neonatology (Child Specialist)</option>
                       <option value="Orthopedics & Joint Care" className="text-slate-900">Orthopedics & Joint Replacement (Bone & Spine)</option>
                       <option value="Gynecology & Obstetrics" className="text-slate-900">Gynecology & Obstetrics (Women's Health)</option>
@@ -1250,58 +1383,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                       <option value="ENT (Ear, Nose & Throat)" className="text-slate-900">ENT (Ear, Nose & Throat Specialist)</option>
                       <option value="Dental Surgery & Orthodontics" className="text-slate-900">Dental Surgery & Oral Health</option>
                       <option value="Neurology & Neurosurgery" className="text-slate-900">Neurology & Neurosurgery (Brain & Nerve)</option>
-                      <option value="Gastroenterology & Hepatology" className="text-slate-900">Gastroenterology (Stomach, Liver & Digestion)</option>
+                      <option value="Gastroenterology & Hepatology" className="text-slate-900">Gastroenterology (Stomach & Liver)</option>
                       <option value="Pulmonology (Chest & Lungs)" className="text-slate-900">Pulmonology & Respiratory Medicine</option>
-                      <option value="Nephrology & Urology" className="text-slate-900">Nephrology & Urology (Kidney & Urinary)</option>
                       <option value="Psychiatry & Behavioral Health" className="text-slate-900">Psychiatry & Mental Health</option>
-                      <option value="Diagnostic Radiology (MRI, CT, USG, X-Ray)" className="text-slate-900">Diagnostic Radiology (MRI, CT Scan, Ultrasound, X-Ray)</option>
-                      <option value="Clinical Pathology & Lab Medicine" className="text-slate-900">Clinical Pathology & Diagnostic Laboratory Medicine</option>
-                      <option value="Endocrinology & Diabetology" className="text-slate-900">Endocrinology & Diabetes Specialist</option>
-                      <option value="General & Laparoscopic Surgery" className="text-slate-900">General & Laparoscopic Surgery</option>
-                      <option value="Physiotherapy & Rehabilitation" className="text-slate-900">Physiotherapy & Physical Rehabilitation</option>
-                      <option value="Oncology (Cancer Care)" className="text-slate-900">Oncology (Cancer Specialist)</option>
                     </>
                   )}
                 </select>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Qualification / Degree *</label>
-                <select
-                  value={regEducation}
-                  onChange={(e) => setRegEducation(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
-                >
-                  {qualificationsList.map((q) => (
-                    <option key={q.id} value={q.degreeName} className="dark:bg-slate-900 text-slate-900 dark:text-white">
-                      {q.degreeName} ({q.fullTitle})
-                    </option>
-                  ))}
-                  {qualificationsList.length === 0 && (
-                    <>
-                      <option value="MBBS" className="dark:bg-slate-900 text-slate-900 dark:text-white">MBBS</option>
-                      <option value="MBBS, MD" className="dark:bg-slate-900 text-slate-900 dark:text-white">MBBS, MD</option>
-                      <option value="MS - General Surgery" className="dark:bg-slate-900 text-slate-900 dark:text-white">MS - General Surgery</option>
-                      <option value="BDS" className="dark:bg-slate-900 text-slate-900 dark:text-white">BDS</option>
-                    </>
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Practicing Since Year</label>
-                <input
-                  type="number"
-                  min="1970"
-                  max={new Date().getFullYear()}
-                  value={regStartingYear}
-                  onChange={(e) => setRegStartingYear(parseInt(e.target.value, 10))}
-                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Gender *</label>
                 <select
@@ -1319,6 +1408,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Age *</label>
                 <input
                   type="number"
+                  min="20"
+                  max="100"
                   value={regAge}
                   onChange={(e) => setRegAge(e.target.value)}
                   placeholder="e.g. 36"
@@ -1326,16 +1417,111 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 />
                 {regErrors.age && <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.age}</p>}
               </div>
+            </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Standard OPD Fee (NPR)</label>
-                <input
-                  type="number"
-                  value={regFee}
-                  onChange={(e) => setRegFee(parseInt(e.target.value, 10) || 500)}
-                  placeholder="500"
-                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
-                />
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Practicing Since Year *
+                </label>
+                <select
+                  value={regStartingYear}
+                  onChange={(e) => setRegStartingYear(parseInt(e.target.value, 10))}
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
+                >
+                  {practicingYears.map((yr) => {
+                    const exp = new Date().getFullYear() - yr
+                    return (
+                      <option key={yr} value={yr} className="dark:bg-slate-900 text-slate-900 dark:text-white">
+                        {yr} {exp > 0 ? `(${exp} Yrs Experience)` : '(Starting Practice)'}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+
+              {/* COUNT OF QUALIFICATION / DEGREE SECTION */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    {regPractitionerRole === 'lab_technician'
+                      ? 'Qualifications & Degrees'
+                      : 'Medical Degrees & Qualifications *'}
+                  </label>
+                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-teal-500/15 text-teal-800 dark:text-teal-300 border border-teal-500/30">
+                    {regEducations.length} Selected
+                  </span>
+                </div>
+
+                {/* Selected Qualifications Badges */}
+                {regEducations.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 py-1">
+                    {regEducations.map((deg) => (
+                      <span
+                        key={deg}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-900 dark:text-teal-200 text-[11px] font-bold"
+                      >
+                        <span>{deg}</span>
+                        {regEducations.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setRegEducations(regEducations.filter((d) => d !== deg))}
+                            className="hover:text-rose-500 cursor-pointer ml-1"
+                            title="Remove degree"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Dropdown to add more degrees with count indicator */}
+                <div className="flex items-center space-x-2">
+                  <select
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (val && !regEducations.includes(val)) {
+                        setRegEducations([...regEducations, val])
+                      }
+                      e.target.value = ''
+                    }}
+                    defaultValue=""
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
+                  >
+                    <option value="" disabled>
+                      + Add Degree / Qualification ({regPractitionerRole === 'lab_technician' ? labTechnicianEducations.length : (qualificationsList.length || doctorDefaultEducations.length)} Available)
+                    </option>
+                    {regPractitionerRole === 'lab_technician'
+                      ? labTechnicianEducations.map((qual) => (
+                          <option
+                            key={qual}
+                            value={qual}
+                            disabled={regEducations.includes(qual)}
+                            className="dark:bg-slate-900 text-slate-900 dark:text-white"
+                          >
+                            {regEducations.includes(qual) ? `✓ ${qual}` : qual}
+                          </option>
+                        ))
+                      : (qualificationsList.length > 0
+                          ? qualificationsList.map((q) => q.degreeName)
+                          : doctorDefaultEducations
+                        ).map((deg) => (
+                          <option
+                            key={deg}
+                            value={deg}
+                            disabled={regEducations.includes(deg)}
+                            className="dark:bg-slate-900 text-slate-900 dark:text-white"
+                          >
+                            {regEducations.includes(deg) ? `✓ ${deg}` : deg}
+                          </option>
+                        ))}
+                  </select>
+                </div>
+                {regErrors.education && (
+                  <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.education}</p>
+                )}
               </div>
             </div>
 
@@ -1357,34 +1543,33 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                    Clinic Affiliation (Optional)
-                  </label>
-                  <select
-                    value={regClinicTypeFilter}
-                    onChange={(e) => setRegClinicTypeFilter(e.target.value as any)}
-                    className="text-[10px] font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 border border-teal-500/20 rounded-lg px-2 py-0.5 cursor-pointer"
-                  >
-                    <option value="all">All Center Types</option>
-                    <option value="single_visit">Single-Doctor OPD</option>
-                    <option value="multi_visit">Multi-Specialty Polyclinic</option>
-                    <option value="diagnostic_lab">Diagnostic Lab & Imaging (MRI/CT)</option>
-                  </select>
-                </div>
-                <select
-                  value={regClinicId}
-                  onChange={(e) => setRegClinicId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white bg-white/70 dark:bg-slate-900/80"
-                >
-                  <option value="" className="dark:bg-slate-900 text-slate-900 dark:text-white">Independent / Multi-Clinic Practice</option>
-                  {displayedClinics.map((c) => (
-                    <option key={c.id} value={c.id} className="dark:bg-slate-900 text-slate-900 dark:text-white">
-                      {c.name} • {c.type === 'diagnostic_lab' ? 'Diagnostic Lab (MRI/CT)' : c.type === 'single_visit' ? 'Single-Doctor' : 'Polyclinic'} ({c.addressText || 'Nepal'})
-                    </option>
-                  ))}
-                </select>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Public Mobile Number (For Patients)
+                </label>
+                <input
+                  type="tel"
+                  value={regPublicPhone}
+                  onChange={(e) => setRegPublicPhone(e.target.value)}
+                  placeholder="98XXXXXXXX (10 digits, optional)"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white"
+                />
+                {regErrors.publicPhone && (
+                  <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.publicPhone}</p>
+                )}
               </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                Practitioner Bio & Clinical Experience (Optional)
+              </label>
+              <textarea
+                rows={2}
+                value={regDesc}
+                onChange={(e) => setRegDesc(e.target.value)}
+                placeholder="Years of clinical practice, hospital attachments, special procedures..."
+                className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-900 dark:text-white resize-none"
+              />
             </div>
 
             {/* Document Uploads */}
@@ -1392,7 +1577,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/40 dark:border-white/10 space-y-2">
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
                   <Camera className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-                  <span>Doctor Profile Picture (Optional)</span>
+                  <span>Profile Photo (Optional)</span>
                 </label>
                 <input
                   type="file"
@@ -1405,7 +1590,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/40 dark:border-white/10 space-y-2">
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
                   <Award className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-                  <span>NMC Certificate / Photo *</span>
+                  <span>
+                    {regPractitionerRole === 'lab_technician'
+                      ? 'NHPC Certificate / Photo *'
+                      : 'NMC Certificate / Photo *'}
+                  </span>
                 </label>
                 <input
                   type="file"
@@ -1418,7 +1607,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               <div className="p-4 rounded-2xl liquid-glass-subtle border border-white/40 dark:border-white/10 space-y-2">
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
                   <FileText className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-                  <span>Degree Certificate (MBBS/MD)</span>
+                  <span>
+                    {regPractitionerRole === 'lab_technician'
+                      ? 'Lab Degree / Diploma Certificate'
+                      : 'Degree Certificate (MBBS / MD / MS)'}
+                  </span>
                 </label>
                 <input
                   type="file"
@@ -1439,10 +1632,24 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                   className="mt-0.5 rounded text-teal-600 focus:ring-teal-500"
                 />
                 <span>
-                  I declare under penalty of law that I am an actively registered medical practitioner with the Nepal Medical Council (NMC) and agree to Dactor's ethical code and live OPD privacy standards.
+                  {regPractitionerRole === 'lab_technician'
+                    ? "I declare under penalty of law that I am an actively registered laboratory practitioner with the Nepal Health Professional Council (NHPC) and agree to Dactor's ethical code and live diagnostic standards."
+                    : "I declare under penalty of law that I am an actively registered medical practitioner with the Nepal Medical Council (NMC) and agree to Dactor's ethical code and live OPD privacy standards."}
                 </span>
               </label>
-              {regErrors.terms && <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.terms}</p>}
+              <div className="pl-6 pt-1">
+                <a
+                  href="./privacy-clinic.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-teal-600 dark:text-teal-400 font-semibold hover:underline text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Read Official Clinic &amp; Medical Provider Privacy Policy &rarr;</span>
+                </a>
+              </div>
+              {regErrors.terms && (
+                <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1">{regErrors.terms}</p>
+              )}
             </div>
 
             {regStatusMsg && (
@@ -1538,12 +1745,20 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               <span>{currentDoctor?.education || 'MBBS, MD'}</span>
               <span>•</span>
               <span className="truncate max-w-[200px] sm:max-w-none">Logged in: <strong className="text-slate-700 dark:text-slate-300">{currentDoctor?.email}</strong></span>
-              {selectedClinic && (
+              {selectedClinic ? (
                 <>
                   <span>•</span>
                   <span className="font-bold text-teal-700 dark:text-teal-400 flex items-center space-x-1 truncate max-w-[180px] sm:max-w-none">
                     <Building2 className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate">{selectedClinic.name}</span>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span>•</span>
+                  <span className="font-semibold text-slate-500 dark:text-slate-400 flex items-center space-x-1 truncate">
+                    <Building2 className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                    <span>Independent Practice</span>
                   </span>
                 </>
               )}
@@ -1647,7 +1862,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                     type="button"
                     disabled={isResponding}
                     onClick={() => handleRespondInvitation(inv, true)}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:brightness-110 text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>{isResponding ? 'Accepting...' : 'Accept Invite'}</span>
@@ -1854,7 +2069,15 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               </span>
             </div>
 
-            {waitingPatients.length === 0 ? (
+            {affiliatedClinics.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <Building2 className="w-12 h-12 text-teal-500/70 mx-auto" />
+                <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">Independent Practitioner Desk</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                  You are registered as an independent doctor and not currently affiliated with any clinic OPD rosters. Partner clinics can invite you to their facility using your email, and invitations will appear above for you to accept.
+                </p>
+              </div>
+            ) : waitingPatients.length === 0 ? (
               <div className="p-12 text-center space-y-3">
                 <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
                 <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">No Waiting Patients in Lobby</h4>

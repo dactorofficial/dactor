@@ -304,6 +304,12 @@ Book diagnostic scans and certified laboratory tests online in Nepal with home c
 3. **No-Wait Diagnostic Reports**: Track laboratory testing in 3 clear stages (Sample Collected -> Processing in Lab -> Report Ready) and download verified PDFs securely.
 4. **Android App Available**: Dactor Patient App with push notifications when your turn approaches.
 
+## Official Privacy Policies & Regulatory Compliance
+- **Patient & Guardian Privacy Policy**: ${BASE_URL}/privacy-patient.html
+  - Comprehensive privacy governance for OPD appointments, 10-digit tracking codes, queue tokens, and 3-stage certified lab report downloads. Compliant with Nepal Individual Privacy Act 2075 & Google Play Store Health Apps Policies. Absolute zero data selling guarantee.
+- **Clinic & Healthcare Provider Privacy Policy**: ${BASE_URL}/privacy-clinic.html
+  - Institutional privacy terms for hospitals, polyclinics, diagnostic labs, and NMC-licensed attending doctors. Covers PAN/tax compliance, multi-device prefix binding, doctor KYC licensure, and 30-day reversible account archive safeguards.
+
 ## Contact & Support
 - **Support Portal**: ${BASE_URL}/?page=support
 - **Operating Hours**: 24/7 Digital Booking & Live Queue Status

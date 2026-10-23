@@ -682,7 +682,16 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
                     >
                       Terms of Service
                     </button>{' '}
-                    and Privacy Policy of Dactor Nepal.
+                    and{' '}
+                    <a
+                      href="./privacy-patient.html"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-bold text-teal-700 dark:text-teal-400 hover:underline inline cursor-pointer"
+                    >
+                      Patient Privacy Policy
+                    </a>{' '}
+                    of Dactor Nepal.
                   </span>
                 </label>
                 {validationErrors.terms && (
@@ -741,6 +750,16 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
               <p>
                 <strong>3. Data Privacy &amp; Encryption:</strong> Your medical notes, diagnostic reports, and payment logs are encrypted and strictly accessible only to authorized attending physicians and clinic staff.
               </p>
+              <div className="pt-2 border-t border-white/20">
+                <a
+                  href="./privacy-patient.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-teal-700 dark:text-teal-300 font-bold hover:underline inline-flex items-center gap-1 text-[11px]"
+                >
+                  <span>Read Full Patient Privacy Policy (Live on GitHub) &rarr;</span>
+                </a>
+              </div>
             </div>
             <button
               type="button"

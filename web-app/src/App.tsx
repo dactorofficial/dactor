@@ -53,6 +53,12 @@ export const normalizeTab = (tab: string): string => {
 }
 
 // Helper to determine initial tab from URL hash, path, or query
+const getPrivacyRedirectUrl = (fileName: string): string => {
+  if (typeof window === 'undefined') return `./${fileName}`
+  const isSubpath = window.location.pathname.toLowerCase().startsWith('/dactor')
+  return isSubpath ? `/dactor/${fileName}` : `/${fileName}`
+}
+
 const getTabFromUrl = (): string => {
   if (typeof window === 'undefined') return 'home'
 
@@ -69,11 +75,11 @@ const getTabFromUrl = (): string => {
     if (tabParam) {
       const cleanParam = tabParam.toLowerCase().trim()
       if (cleanParam === 'privacy-clinic' || cleanParam === 'clinic-privacy') {
-        window.location.href = './privacy-clinic.html'
+        window.location.href = getPrivacyRedirectUrl('privacy-clinic.html')
         return 'home'
       }
       if (cleanParam === 'privacy-patient' || cleanParam === 'patient-privacy' || cleanParam === 'privacy') {
-        window.location.href = './privacy-patient.html'
+        window.location.href = getPrivacyRedirectUrl('privacy-patient.html')
         return 'home'
       }
       if (cleanParam === 'login' || cleanParam === 'signin' || cleanParam === 'auth') return 'login'
@@ -99,11 +105,11 @@ const getTabFromUrl = (): string => {
     const hash = rawHash.replace(/^#\/?/, '').replace(/\/$/, '').split('?')[0]
     if (hash === '' || hash === 'home') return 'home'
     if (hash === 'privacy-clinic' || hash === 'clinic-privacy') {
-      window.location.href = './privacy-clinic.html'
+      window.location.href = getPrivacyRedirectUrl('privacy-clinic.html')
       return 'home'
     }
     if (hash === 'privacy-patient' || hash === 'patient-privacy' || hash === 'privacy') {
-      window.location.href = './privacy-patient.html'
+      window.location.href = getPrivacyRedirectUrl('privacy-patient.html')
       return 'home'
     }
     if (hash === 'login' || hash === 'signin' || hash === 'auth') return 'login'
@@ -154,11 +160,11 @@ const getTabFromUrl = (): string => {
   if (!path || path === '' || path === '/' || path === '/index.html' || path === '/index') return 'home'
 
   if (path.includes('privacy-clinic') || path.includes('privacy/clinic')) {
-    window.location.href = './privacy-clinic.html'
+    window.location.href = getPrivacyRedirectUrl('privacy-clinic.html')
     return 'home'
   }
   if (path.includes('privacy-patient') || path.includes('privacy/patient')) {
-    window.location.href = './privacy-patient.html'
+    window.location.href = getPrivacyRedirectUrl('privacy-patient.html')
     return 'home'
   }
 

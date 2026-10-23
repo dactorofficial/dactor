@@ -56,10 +56,34 @@ import {
   Mail,
   LifeBuoy,
   ChevronDown,
+  UserPlus,
+  CalendarPlus,
 } from 'lucide-react'
 import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
 import { GlassCard, GlassButton, GlassBadge } from '../components/glass'
 import { DateScroller } from '../components/DateScroller'
+import { generateTrackingCode } from '../utils/trackingCode'
+import {
+  putRecord,
+  putRecords,
+  getRecord,
+  getStore,
+  queueMutation,
+} from '../services/clinicOfflineDb'
+import {
+  initSyncManager,
+  stopSyncManager,
+  triggerSync,
+  subscribeSyncState,
+  SyncStatus,
+} from '../services/clinicSyncManager'
+import {
+  syncBackupToGoogleDrive,
+  downloadLocalBackup,
+  restoreClinicBackup,
+  DriveUploadResult,
+  RestoreResult,
+} from '../services/clinicBackupService'
 import {
   Clinic,
   ClinicInvitation,
@@ -118,6 +142,7 @@ import {
   getClinicPatientDirectory,
   getSupportUrl,
   createSlot,
+  createSlotsBatch,
   getSlotsByDoctorAndDate,
   updateSlot,
   deleteSlot,
@@ -144,6 +169,7 @@ import {
   getPendingPayAtDeskCount,
   approvePayAtDeskAppointment,
   rejectPayAtDeskAppointment,
+  requestAuthorizedDocumentUrl,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { playClinicChime } from '../utils/audioChime'
@@ -544,6 +570,81 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [payAtDeskDetailModal, setPayAtDeskDetailModal] = useState<Appointment | null>(null)
   const [confirmPayAtDeskAction, setConfirmPayAtDeskAction] = useState<{ action: 'approve' | 'reject'; appt: Appointment } | null>(null)
 
+  // Offline Connectivity & Sync Manager State
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => ({
+    state: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'online',
+    pendingCount: 0,
+  }))
+
+  // Google Drive & Backup / Disaster Recovery States
+  const [isSyncingGoogleDrive, setIsSyncingGoogleDrive] = useState(false)
+  const [driveSyncResult, setDriveSyncResult] = useState<DriveUploadResult | null>(null)
+  const [driveSyncError, setDriveSyncError] = useState<string | null>(null)
+  const [isDownloadingBackup, setIsDownloadingBackup] = useState(false)
+  const [downloadBackupResult, setDownloadBackupResult] = useState<{ filename: string; sha256?: string } | null>(null)
+  const [showRestoreModal, setShowRestoreModal] = useState(false)
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false)
+  const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+
+  const handleTriggerManualSync = async () => {
+    try {
+      await triggerSync()
+    } catch (err) {
+      console.error('Manual sync error:', err)
+    }
+  }
+
+  const handleSyncToGoogleDrive = async () => {
+    if (!selectedClinic?.id) return
+    setIsSyncingGoogleDrive(true)
+    setDriveSyncError(null)
+    setDriveSyncResult(null)
+    try {
+      const res = await syncBackupToGoogleDrive(selectedClinic.id)
+      setDriveSyncResult(res)
+    } catch (err: any) {
+      console.error('Google Drive sync error:', err)
+      setDriveSyncError(err?.message || 'Failed to sync backup to Google Drive')
+    } finally {
+      setIsSyncingGoogleDrive(false)
+    }
+  }
+
+  const handleDownloadLocalBackup = async () => {
+    if (!selectedClinic?.id) return
+    setIsDownloadingBackup(true)
+    try {
+      await downloadLocalBackup(selectedClinic.id)
+      setDownloadBackupResult({ filename: `dactor-clinic-${selectedClinic.id}.json` })
+    } catch (err: any) {
+      console.error('Download local backup error:', err)
+      alert(err?.message || 'Failed to download local backup')
+    } finally {
+      setIsDownloadingBackup(false)
+    }
+  }
+
+  const handleRestoreFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedClinic?.id) return
+    setIsRestoringBackup(true)
+    setRestoreError(null)
+    setRestoreResult(null)
+    try {
+      const content = await file.text()
+      const res = await restoreClinicBackup(content, selectedClinic.id)
+      setRestoreResult(res)
+      setRefreshKey((k) => k + 1)
+    } catch (err: any) {
+      console.error('Restore backup error:', err)
+      setRestoreError(err?.message || 'Failed to restore clinic backup')
+    } finally {
+      setIsRestoringBackup(false)
+      e.target.value = ''
+    }
+  }
+
 
   useEffect(() => {
     // Keep desk tab clean
@@ -742,6 +843,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [searchingPatients, setSearchingPatients] = useState(false)
   const [patientDirectory, setPatientDirectory] = useState<any[]>([])
   const [loadingDirectory, setLoadingDirectory] = useState(false)
+
+  // Direct Add Patient Dialog (Patient Directory Parity)
+  const [registerPatientModalOpen, setRegisterPatientModalOpen] = useState(false)
+  const [newPatientName, setNewPatientName] = useState('')
+  const [newPatientPhone, setNewPatientPhone] = useState('')
+  const [newPatientAge, setNewPatientAge] = useState('')
+  const [newPatientGender, setNewPatientGender] = useState('Male')
+  const [newPatientEmail, setNewPatientEmail] = useState('')
+  const [newPatientNotes, setNewPatientNotes] = useState('')
+  const [isRegisteringPatient, setIsRegisteringPatient] = useState(false)
+
+  // Schedule Next Visit Dialog (Patient Directory Parity)
+  const [scheduleNextModalOpen, setScheduleNextModalOpen] = useState(false)
+  const [scheduleNextPatient, setScheduleNextPatient] = useState<any | null>(null)
+  const [scheduleNextDoctorId, setScheduleNextDoctorId] = useState('')
+  const [scheduleNextDate, setScheduleNextDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split('T')[0]
+  })
+  const [scheduleNextTime, setScheduleNextTime] = useState('10:00 AM')
+  const [scheduleNextRemarks, setScheduleNextRemarks] = useState('Follow-up consultation')
+  const [isSchedulingNextVisit, setIsSchedulingNextVisit] = useState(false)
 
   // Onboarding Form State (when adding a new doctor/staff)
   const [showDoctorOnboarding, setShowDoctorOnboarding] = useState(false)
@@ -1130,8 +1254,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     if (!selectedClinic?.id) return
     fetchPayAtDesk(selectedClinic.id)
 
+    // Realtime bidirectional sync for live queue, doctor cabin, and appointments
     const sub = supabase
-      .channel(`pay_at_desk_${selectedClinic.id}`)
+      .channel(`clinic_live_ops_${selectedClinic.id}`)
       .on(
         'postgres_changes',
         {
@@ -1140,8 +1265,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           table: 'appointments',
           filter: `clinic_id=eq.${selectedClinic.id}`,
         },
-        () => {
+        async () => {
           fetchPayAtDesk(selectedClinic.id)
+          try {
+            const freshAppts = await getAppointmentsByClinic(selectedClinic.id)
+            if (freshAppts) setAppointments(freshAppts)
+          } catch (e) {
+            console.error('Error auto-syncing appointments:', e)
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'queue_entries',
+        },
+        async () => {
+          try {
+            const freshAppts = await getAppointmentsByClinic(selectedClinic.id)
+            if (freshAppts) setAppointments(freshAppts)
+          } catch (e) {
+            console.error('Error auto-syncing queue entries:', e)
+          }
         }
       )
       .subscribe()
@@ -1153,6 +1300,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     return () => {
       supabase.removeChannel(sub)
       clearInterval(interval)
+    }
+  }, [selectedClinic?.id])
+
+  // Initialize and synchronize offline IndexedDB sync manager
+  useEffect(() => {
+    if (!selectedClinic?.id) return
+
+    initSyncManager(selectedClinic.id)
+    const unsub = subscribeSyncState((status) => {
+      setSyncStatus(status)
+    })
+
+    return () => {
+      unsub()
+      stopSyncManager()
     }
   }, [selectedClinic?.id])
 
@@ -1719,11 +1881,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       specialty: doc.specialty,
     })
     if (created) {
-      setClinicInvitations((prev) => [created, ...prev])
-      if (!clinicDoctors.some((cd) => cd.id === doc.id)) {
-        setClinicDoctors((prev) => [...prev, { ...doc, clinicId: selectedClinic.id }])
-      }
-      alert(`Invitation sent to ${doc.fullName} and linked to ${selectedClinic.name}!`)
+      setClinicInvitations((prev) => [created, ...prev.filter((i) => i.id !== created.id)])
+      alert(`✓ Invitation sent directly to ${doc.fullName}'s account!`)
+    } else {
+      alert('Failed to send invitation. Please try again.')
     }
   }
 
@@ -1738,7 +1899,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const handleSettingsGPS = handleBrowserGPS
 
   // Lab Report Privacy Verification Gate Handler (LabWorkflowScreen.kt)
-  const handleVerifyAndOpenLabReport = (e: React.FormEvent) => {
+  const handleVerifyAndOpenLabReport = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!labVerifyTargetReport) return
     const q = labVerifyInput.trim().toLowerCase()
@@ -1755,7 +1916,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       return
     }
 
-    const url = labVerifyTargetReport.report.reportFileUrl
+    const rawUrl = labVerifyTargetReport.report.reportFileUrl
+    let url = rawUrl
+    if (url && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes('/storage/v1/object/public/')) {
+      // already a full url or signed url
+    } else if (rawUrl || labVerifyTargetReport.report.id) {
+      const signed = await requestAuthorizedDocumentUrl(
+        'lab_report',
+        labVerifyTargetReport.report.id,
+        rawUrl || ''
+      )
+      if (signed) {
+        url = signed
+      }
+    }
+
     if (url) {
       window.open(url, '_blank', 'noopener,noreferrer')
     } else {
@@ -1992,7 +2167,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
-  // Walk-in booking submit
+  // Walk-in booking submit (Offline-First with Collision-Proof Tracking Code)
   const handleWalkinSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const errors: { [key: string]: string } = {}
@@ -2009,7 +2184,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     if (Object.keys(errors).length > 0 || !selectedClinic) return
 
     try {
-      const code10 = generate10DigitTrackingCode()
+      const code10 = generateTrackingCode()
 
       const labFee = walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)
       const assignedDoc = clinicDoctors.find((d) => d.id === walkinDoctorId) || clinicDoctors[0]
@@ -2024,17 +2199,31 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         : 'Walk-In Reception Registration'
 
       const rawTime = walkinSlotTime.trim() || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+      const apptDate = new Date().toISOString().split('T')[0]
+      const apptId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : 'appt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9)
+      const queueId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : 'q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9)
 
-      const created = await createAppointment({
+      // Calculate queue position
+      const todayWaitingAppts = appointments.filter((a) => a.appointmentDate === apptDate && a.checkinStatus === 'waiting')
+      const queuePos = todayWaitingAppts.length + 1
+
+      const localAppt: Appointment = {
+        id: apptId,
         clinicId: selectedClinic.id,
         doctorId: isLabClinic ? undefined : (walkinDoctorId || clinicDoctors[0]?.id || undefined),
+        doctor: assignedDoc,
+        clinic: selectedClinic,
         trackingCode10Digit: code10,
         patientName: walkinName.trim(),
         patientAge: Number(walkinAge) || 25,
         patientGender: walkinGender || 'Other',
         patientMobile: walkinMobile.trim() || '9800000000',
         patientEmail: walkinEmail.trim() || undefined,
-        appointmentDate: new Date().toISOString().split('T')[0],
+        appointmentDate: apptDate,
         appointmentTime: rawTime,
         slotId: walkinSlotId || undefined,
         checkinStatus: 'waiting',
@@ -2042,41 +2231,214 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         feeAmount: finalFee,
         notes: walkinNotes,
         selectedTests: isLabClinic ? walkinSelectedTests.map((t) => t.serviceName) : [],
-      })
+        queuePosition: queuePos,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
 
-      if (created) {
-        setWalkinSuccessCode(code10)
-        setPrintSlipAppt(created)
-        setWalkinName('')
-        setWalkinAge('')
-        setWalkinMobile('')
-        setWalkinEmail('')
-        setWalkinSlotTime('')
-        setWalkinSlotId('')
-        setWalkinUseCustomSlot(false)
-        setWalkinSelectedTests([])
-        setWalkinIsFollowup(false)
-        setWalkinFollowupCode('')
-        setWalkinRetainedAppt(null)
-        setRefreshKey((k) => k + 1)
+      const localQueueEntry = {
+        id: queueId,
+        appointment_id: apptId,
+        clinic_id: selectedClinic.id,
+        doctor_id: localAppt.doctorId || null,
+        status: 'waiting',
+        token_number: code10,
+        queue_position: queuePos,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
+      // 1. Instant local IndexedDB persistence
+      try {
+        await putRecord('appointments', {
+          id: apptId,
+          clinic_id: selectedClinic.id,
+          doctor_id: localAppt.doctorId,
+          date: apptDate,
+          appointment_date: apptDate,
+          checkin_status: 'waiting',
+          tracking_code: code10,
+          tracking_code_10_digit: code10,
+          patient_name: localAppt.patientName,
+          patient_phone: localAppt.patientMobile,
+          patient_mobile: localAppt.patientMobile,
+          patient_age: localAppt.patientAge,
+          patient_gender: localAppt.patientGender,
+          appointment_time: rawTime,
+          fee_amount: finalFee,
+          payment_status: 'paid',
+          notes: walkinNotes,
+          queue_position: queuePos,
+          created_at: localAppt.createdAt,
+          updated_at: localAppt.updatedAt,
+        })
+        await putRecord('opd_queue', localQueueEntry)
+        await queueMutation({
+          id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'mut_' + Date.now(),
+          table: 'appointments',
+          action: 'UPSERT',
+          clinicId: selectedClinic.id,
+          entityId: apptId,
+          payload: {
+            id: apptId,
+            clinic_id: selectedClinic.id,
+            doctor_id: localAppt.doctorId,
+            tracking_code_10_digit: code10,
+            patient_name: localAppt.patientName,
+            patient_age: localAppt.patientAge,
+            patient_gender: localAppt.patientGender,
+            patient_mobile: localAppt.patientMobile,
+            patient_email: localAppt.patientEmail,
+            appointment_date: apptDate,
+            appointment_time: rawTime,
+            slot_id: walkinSlotId || null,
+            checkin_status: 'waiting',
+            payment_status: 'paid',
+            fee_amount: finalFee,
+            notes: walkinNotes,
+            selected_tests: localAppt.selectedTests,
+          },
+          timestamp: Date.now(),
+          retryCount: 0,
+          status: 'pending',
+        })
+        await queueMutation({
+          id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'mut_q_' + Date.now(),
+          table: 'queue_entries',
+          action: 'UPSERT',
+          clinicId: selectedClinic.id,
+          entityId: queueId,
+          payload: localQueueEntry,
+          timestamp: Date.now(),
+          retryCount: 0,
+          status: 'pending',
+        })
+      } catch (idbErr) {
+        console.warn('Local IndexedDB walk-in save error:', idbErr)
+      }
+
+      // 2. Optimistic UI State Update (Zero Delay)
+      setAppointments((prev) => [localAppt, ...prev])
+      setWalkinSuccessCode(code10)
+      setPrintSlipAppt(localAppt)
+      setWalkinName('')
+      setWalkinAge('')
+      setWalkinMobile('')
+      setWalkinEmail('')
+      setWalkinSlotTime('')
+      setWalkinSlotId('')
+      setWalkinUseCustomSlot(false)
+      setWalkinSelectedTests([])
+      setWalkinIsFollowup(false)
+      setWalkinFollowupCode('')
+      setWalkinRetainedAppt(null)
+
+      // 3. Background cloud sync if online
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        createAppointment({
+          clinicId: selectedClinic.id,
+          doctorId: isLabClinic ? undefined : (walkinDoctorId || clinicDoctors[0]?.id || undefined),
+          trackingCode10Digit: code10,
+          patientName: localAppt.patientName,
+          patientAge: localAppt.patientAge,
+          patientGender: localAppt.patientGender,
+          patientMobile: localAppt.patientMobile,
+          patientEmail: localAppt.patientEmail,
+          appointmentDate: apptDate,
+          appointmentTime: rawTime,
+          slotId: walkinSlotId || undefined,
+          checkinStatus: 'waiting',
+          paymentStatus: 'paid',
+          feeAmount: finalFee,
+          notes: walkinNotes,
+          selectedTests: isLabClinic ? walkinSelectedTests.map((t) => t.serviceName) : [],
+        }).then((created) => {
+          if (created) {
+            setPrintSlipAppt(created)
+          }
+        }).catch((err) => {
+          console.warn('Background Supabase appointment create failed, queued offline:', err)
+        })
+        triggerSync().catch(() => {})
       }
     } catch (err) {
       console.error('Error creating walkin:', err)
     }
   }
 
-  // Update Queue Status
+  // Update Queue Status (Offline-First with Instant Persistence and Chime)
   const handleStatusChange = async (appointmentId: string, newStatus: string) => {
+    // Play chime immediately on cabin call
+    if (newStatus === 'in_consultation') {
+      try {
+        playClinicChime()
+      } catch {}
+    }
+
+    // Optimistic UI state update
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === appointmentId
+          ? { ...a, checkinStatus: newStatus as any, updatedAt: new Date().toISOString() }
+          : a
+      )
+    )
+
+    // Local IndexedDB update & Outbox queuing
+    try {
+      const existing = await getRecord<any>('appointments', appointmentId)
+      if (existing) {
+        await putRecord('appointments', {
+          ...existing,
+          checkin_status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+      }
+      const qEntries = await getStore<any>('opd_queue')
+      const matchedQ = qEntries.find(
+        (q: any) => q.appointment_id === appointmentId || q.id === appointmentId
+      )
+      if (matchedQ) {
+        const qStatus =
+          newStatus === 'in_consultation'
+            ? 'inside'
+            : newStatus === 'completed'
+            ? 'done'
+            : newStatus
+        await putRecord('opd_queue', {
+          ...matchedQ,
+          status: qStatus,
+          updated_at: new Date().toISOString(),
+        })
+      }
+      await queueMutation({
+        id: (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : 'mut_status_' + Date.now(),
+        table: 'appointments',
+        action: 'UPDATE',
+        clinicId: selectedClinic?.id,
+        entityId: appointmentId,
+        payload: { id: appointmentId, checkin_status: newStatus, updated_at: new Date().toISOString() },
+        timestamp: Date.now(),
+        retryCount: 0,
+        status: 'pending',
+      })
+    } catch (idbErr) {
+      console.warn('Local IndexedDB queue status update error:', idbErr)
+    }
+
+    // Cloud update if online
     try {
       const ok = await updateAppointmentStatus(appointmentId, newStatus)
       if (ok) {
         if (selectedClinic && (newStatus === 'in_consultation' || newStatus === 'completed')) {
-          checkAndNotifyApproachingPatients(selectedClinic.id, settingThreshold || 2)
+          checkAndNotifyApproachingPatients(selectedClinic.id, settingThreshold || 2).catch(() => {})
         }
-        setRefreshKey((k) => k + 1)
       }
+      triggerSync().catch(() => {})
     } catch (err) {
-      console.error('Error updating queue status:', err)
+      console.warn('Cloud queue status update deferred to sync manager:', err)
     }
   }
 
@@ -2191,7 +2553,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
     setPublishingSlot(true)
     try {
-      let createdCount = 0
+      const slotsToCreate: Partial<Slot>[] = []
       for (let h = startH; h < endH; h++) {
         for (let m = 0; m < 60; m += intervalMinutes) {
           const sH12 = h > 12 ? h - 12 : (h === 0 ? 12 : h)
@@ -2208,7 +2570,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           const eAmpm = nextH >= 12 ? 'PM' : 'AM'
           const eTime = `${String(eH12).padStart(2, '0')}:${String(nextM).padStart(2, '0')} ${eAmpm}`
 
-          await createSlot({
+          slotsToCreate.push({
             clinicId: selectedClinic.id,
             doctorId: slotDoctorId,
             slotDate: slotDate,
@@ -2218,11 +2580,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             bookedCount: 0,
             isPublished: true,
           })
-          createdCount++
         }
       }
+      const created = await createSlotsBatch(slotsToCreate)
       setRefreshKey((k) => k + 1)
-      alert(`Published ${createdCount} slots for ${slotDate}!`)
+      alert(`Published ${created.length || slotsToCreate.length} slots for ${slotDate}!`)
     } catch (err) {
       console.error('Error generating bulk slots:', err)
     } finally {
@@ -2377,8 +2739,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     try {
       let receiptUrl: string | undefined = undefined
       if (billReceiptFile) {
-        const uploaded = await uploadReceiptFile(billReceiptFile.name, billReceiptFile)
-        if (uploaded) receiptUrl = uploaded
+        try {
+          const uploaded = await uploadReceiptFile(billReceiptFile.name, billReceiptFile)
+          if (uploaded) receiptUrl = uploaded
+        } catch (uploadErr) {
+          console.warn('Receipt upload deferred offline:', uploadErr)
+        }
       }
 
       const itemsTotal = billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0)
@@ -2399,7 +2765,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       } else if (inputTotal > itemsTotal) {
         const diff = inputTotal - itemsTotal
         itemsToPersist.push({
-          id: crypto.randomUUID(),
+          id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'item_' + Date.now(),
           name: 'Additional Clinical Procedures & Services',
           price: diff,
           quantity: 1,
@@ -2412,7 +2778,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         const payDate = billNewPaymentDate || new Date().toISOString().split('T')[0]
         const payTime = billNewPaymentTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         updatedPayments.push({
-          id: crypto.randomUUID(),
+          id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'pay_' + Date.now(),
           amount: newPaymentAmt,
           dateTime: `${payDate} ${payTime}`,
           note: billNewPaymentNote.trim() || 'Payment Received',
@@ -2422,41 +2788,92 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         ? updatedPayments.reduce((acc, p) => acc + p.amount, 0)
         : (Number(billPaidAmount) || 0)
 
-      const savedInvoice = await saveOrUpdateInvoicePayment({
+      const derivedApptStatus = finalPaidAmount >= finalTotalAmount && finalTotalAmount > 0 ? 'paid' : (finalPaidAmount > 0 ? 'partial' : 'unpaid')
+      const invoiceId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'inv_' + Date.now()
+      const encodedRemarks = `[PAYMENT_LOGS]${JSON.stringify(updatedPayments)}[/PAYMENT_LOGS] ${billRemarks.trim()}`
+
+      const localInvoice: BillingInvoice = {
+        id: invoiceId,
         appointmentId: billTargetAppt.id,
         clinicId: billTargetAppt.clinicId || selectedClinic.id,
         totalAmount: finalTotalAmount,
         paidAmount: finalPaidAmount,
+        balanceDue: Math.max(0, finalTotalAmount - finalPaidAmount),
+        paymentStatus: derivedApptStatus as any,
         remarks: billRemarks.trim() || undefined,
         receiptUrl,
-        items: itemsToPersist.map((it) => ({
-          itemName: it.name,
-          name: it.name,
-          quantity: it.quantity,
-          price: it.price,
-          total: it.price * it.quantity,
-        })),
-        paymentRecords: updatedPayments,
-      })
-
-      if (!savedInvoice) {
-        alert('Failed to save bill. Please check your connection and try again.')
-        return
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }
 
-      // Update local invoice list so UI updates immediately
+      // 1. Instant local IndexedDB persistence (invoices, billing_items, outbox)
+      try {
+        await putRecord('invoices', {
+          id: localInvoice.id,
+          appointment_id: billTargetAppt.id,
+          clinic_id: localInvoice.clinicId,
+          total_amount: finalTotalAmount,
+          paid_amount: finalPaidAmount,
+          balance_due: Math.max(0, finalTotalAmount - finalPaidAmount),
+          payment_status: derivedApptStatus,
+          remarks: encodedRemarks,
+          receipt_url: receiptUrl,
+          created_at: localInvoice.createdAt,
+          updated_at: localInvoice.updatedAt,
+        })
+
+        if (itemsToPersist.length > 0) {
+          const dbBillingItems = itemsToPersist.map((it, idx) => ({
+            id: it.id || `${localInvoice.id}_item_${idx}`,
+            invoice_id: localInvoice.id,
+            name: it.name,
+            item_name: it.name,
+            price: it.price,
+            quantity: it.quantity,
+            total: it.price * it.quantity,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }))
+          await putRecords('billing_items', dbBillingItems)
+        }
+
+        await queueMutation({
+          id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'mut_inv_' + Date.now(),
+          table: 'billing_invoices',
+          action: 'UPSERT',
+          clinicId: localInvoice.clinicId,
+          entityId: localInvoice.id,
+          payload: {
+            id: localInvoice.id,
+            appointment_id: billTargetAppt.id,
+            clinic_id: localInvoice.clinicId,
+            total_amount: finalTotalAmount,
+            paid_amount: finalPaidAmount,
+            balance_due: Math.max(0, finalTotalAmount - finalPaidAmount),
+            payment_status: derivedApptStatus,
+            remarks: encodedRemarks,
+            items: itemsToPersist,
+            payment_records: updatedPayments,
+          },
+          timestamp: Date.now(),
+          retryCount: 0,
+          status: 'pending',
+        })
+      } catch (idbErr) {
+        console.warn('Local IndexedDB invoice save error:', idbErr)
+      }
+
+      // 2. Optimistic UI state updates (zero delay, zero freeze)
       setInvoices((prev) => {
         const idx = prev.findIndex((i) => i.appointmentId === billTargetAppt.id)
         if (idx >= 0) {
           const updated = [...prev]
-          updated[idx] = savedInvoice
+          updated[idx] = { ...prev[idx], ...localInvoice }
           return updated
         }
-        return [savedInvoice, ...prev]
+        return [localInvoice, ...prev]
       })
 
-      // Update local appointments list with new fee and payment status
-      const derivedApptStatus = finalPaidAmount >= finalTotalAmount && finalTotalAmount > 0 ? 'paid' : (finalPaidAmount > 0 ? 'partial' : 'unpaid')
       setAppointments((prev) =>
         prev.map((a) =>
           a.id === billTargetAppt.id
@@ -2467,10 +2884,43 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
       setBillModalOpen(false)
       setRefreshKey((k) => k + 1)
-      alert(`Combined bill saved (Total: Rs. ${finalTotalAmount}, Paid: Rs. ${finalPaidAmount}, Due: Rs. ${Math.max(0, finalTotalAmount - finalPaidAmount)})`)
+
+      // 3. Background cloud sync if online (network failure alerts strictly suppressed)
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        saveOrUpdateInvoicePayment({
+          appointmentId: billTargetAppt.id,
+          clinicId: billTargetAppt.clinicId || selectedClinic.id,
+          totalAmount: finalTotalAmount,
+          paidAmount: finalPaidAmount,
+          remarks: billRemarks.trim() || undefined,
+          receiptUrl,
+          items: itemsToPersist.map((it) => ({
+            itemName: it.name,
+            name: it.name,
+            quantity: it.quantity,
+            price: it.price,
+            total: it.price * it.quantity,
+          })),
+          paymentRecords: updatedPayments,
+        }).then((savedInvoice) => {
+          if (savedInvoice) {
+            setInvoices((prev) => {
+              const idx = prev.findIndex((i) => i.appointmentId === billTargetAppt.id)
+              if (idx >= 0) {
+                const updated = [...prev]
+                updated[idx] = savedInvoice
+                return updated
+              }
+              return [savedInvoice, ...prev]
+            })
+          }
+        }).catch((syncErr) => {
+          console.warn('Background Supabase bill save failed, queued in offline outbox:', syncErr)
+        })
+        triggerSync().catch(() => {})
+      }
     } catch (err) {
-      console.error('Error saving invoice bill:', err)
-      alert('Error saving bill. Please check your network and try again.')
+      console.warn('Error during bill processing, saved locally:', err)
     } finally {
       setSavingBill(false)
     }
@@ -2489,6 +2939,114 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       console.error('Error searching patients:', err)
     } finally {
       setSearchingPatients(false)
+    }
+  }
+
+  // Direct Patient Directory Registration
+  const handleDirectRegisterPatient = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedClinic || !newPatientName.trim() || !newPatientPhone.trim()) {
+      alert('Please enter patient name and mobile phone.')
+      return
+    }
+    setIsRegisteringPatient(true)
+    try {
+      const code10 = generate10DigitTrackingCode()
+      const doc = clinicDoctors[0] || selectedDoctor
+      const today = new Date().toISOString().split('T')[0]
+      const created = await createAppointment({
+        clinicId: selectedClinic.id,
+        doctorId: doc?.id || '',
+        patientName: newPatientName.trim(),
+        patientMobile: newPatientPhone.trim(),
+        patientGender: newPatientGender,
+        patientAge: Number(newPatientAge) || 30,
+        patientEmail: newPatientEmail.trim() || undefined,
+        appointmentDate: today,
+        appointmentTime: '10:00 AM',
+        feeAmount: doc?.consultationFee || 500,
+        paymentStatus: 'unpaid',
+        paymentMode: 'PAY_AT_DESK',
+        checkinStatus: 'waiting',
+        status: 'APPROVED',
+        notes: newPatientNotes.trim() || 'Direct Reception Walk-In Registration',
+        trackingCode10Digit: code10,
+        isWalkin: true,
+      })
+
+      if (created) {
+        setRegisterPatientModalOpen(false)
+        setNewPatientName('')
+        setNewPatientPhone('')
+        setNewPatientAge('')
+        setNewPatientNotes('')
+        setNewPatientEmail('')
+        setRefreshKey((k) => k + 1)
+        alert(`Patient registered successfully with Token #${code10}!`)
+      } else {
+        alert('Failed to register patient.')
+      }
+    } catch (err) {
+      console.error('Error registering patient directly:', err)
+      alert('Failed to register patient.')
+    } finally {
+      setIsRegisteringPatient(false)
+    }
+  }
+
+  // Schedule Next Follow-Up Visit
+  const handleOpenScheduleNextVisit = (pat: any) => {
+    setScheduleNextPatient(pat)
+    setScheduleNextDoctorId(clinicDoctors[0]?.id || selectedDoctor?.id || '')
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    setScheduleNextDate(d.toISOString().split('T')[0])
+    setScheduleNextTime('10:00 AM')
+    setScheduleNextRemarks('Follow-up consultation')
+    setScheduleNextModalOpen(true)
+  }
+
+  const handleScheduleNextVisitSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedClinic || !scheduleNextPatient || !scheduleNextDoctorId || !scheduleNextDate) {
+      alert('Please fill all required fields.')
+      return
+    }
+    setIsSchedulingNextVisit(true)
+    try {
+      const code10 = generate10DigitTrackingCode()
+      const created = await createAppointment({
+        clinicId: selectedClinic.id,
+        doctorId: scheduleNextDoctorId,
+        patientName: scheduleNextPatient.fullName,
+        patientMobile: scheduleNextPatient.phone !== 'N/A' ? scheduleNextPatient.phone : '',
+        patientGender: scheduleNextPatient.gender || 'Male',
+        patientAge: scheduleNextPatient.age || 30,
+        patientEmail: scheduleNextPatient.email || undefined,
+        appointmentDate: scheduleNextDate,
+        appointmentTime: scheduleNextTime,
+        feeAmount: 0, // Free follow-up consultation
+        paymentStatus: 'paid',
+        paymentMode: 'PAY_AT_DESK',
+        checkinStatus: 'waiting',
+        status: 'APPROVED',
+        notes: scheduleNextRemarks.trim() || 'Follow-up consultation',
+        trackingCode10Digit: code10,
+        isWalkin: true,
+      })
+
+      if (created) {
+        setScheduleNextModalOpen(false)
+        setRefreshKey((k) => k + 1)
+        alert(`Follow-up visit for ${scheduleNextPatient.fullName} scheduled for ${scheduleNextDate} (${scheduleNextTime}) with Token #${code10}!`)
+      } else {
+        alert('Failed to schedule follow-up visit.')
+      }
+    } catch (err) {
+      console.error('Error scheduling follow-up visit:', err)
+      alert('Failed to schedule follow-up visit.')
+    } finally {
+      setIsSchedulingNextVisit(false)
     }
   }
 
@@ -3614,7 +4172,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <strong>4. 30-Day Reversible Account Archive Policy:</strong> When a clinic schedules account deletion, all public listings are hidden immediately, while historical patient records remain safely archived for 30 days in case the clinic administrator chooses to restore the account.
                 </p>
               </div>
-              <div className="pt-2 border-t border-white/40 dark:border-white/10 flex justify-end">
+              <div className="pt-2 border-t border-white/40 dark:border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <a
+                  href="./privacy-clinic.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-teal-600 dark:text-teal-400 font-bold hover:underline text-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Read Official Clinic &amp; Provider Privacy Policy &rarr;</span>
+                </a>
                 <button
                   type="button"
                   onClick={() => setShowTermsModal(false)}
@@ -3739,6 +4305,52 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
         {/* Action Controls in Header */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 w-full md:w-auto justify-between md:justify-end pt-2 md:pt-0 border-t md:border-t-0 border-white/40 dark:border-white/10">
+          {/* Connectivity Status Pill (R3 Parity) */}
+          <button
+            type="button"
+            onClick={handleTriggerManualSync}
+            className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-glass-sm active:scale-[0.98] ${
+              syncStatus.state === 'syncing'
+                ? 'bg-blue-500/15 border-blue-400/40 text-blue-800 dark:text-blue-200 animate-pulse'
+                : syncStatus.state === 'error'
+                ? 'bg-rose-500/20 border-rose-400/50 text-rose-900 dark:text-rose-200 hover:bg-rose-500/30'
+                : syncStatus.state === 'offline'
+                ? 'bg-amber-500/20 border-amber-400/50 text-amber-900 dark:text-amber-200 hover:bg-amber-500/30'
+                : 'bg-emerald-500/15 border-emerald-400/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/25'
+            }`}
+            title={
+              syncStatus.state === 'syncing'
+                ? `Synchronizing ${syncStatus.pendingCount} pending offline changes to cloud...`
+                : syncStatus.state === 'error'
+                ? `Sync error: ${syncStatus.error || 'Failed to sync with cloud'}. Tap to retry.`
+                : syncStatus.state === 'offline'
+                ? `Offline Mode: Reception is fully functional. ${syncStatus.pendingCount} changes queued locally for sync.`
+                : 'Cloud Connected: All clinic data synchronized in real-time. Tap to check updates.'
+            }
+          >
+            {syncStatus.state === 'syncing' ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
+                <span>Syncing ({syncStatus.pendingCount})...</span>
+              </>
+            ) : syncStatus.state === 'error' ? (
+              <>
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50" />
+                <span className="font-black">Sync Error</span>
+              </>
+            ) : syncStatus.state === 'offline' ? (
+              <>
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50" />
+                <span className="font-black">Offline Mode ({syncStatus.pendingCount} queued)</span>
+              </>
+            ) : (
+              <>
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500/50" />
+                <span className="font-black">Cloud Connected</span>
+              </>
+            )}
+          </button>
+
           {/* Notification Bell Drawer Trigger */}
           <button
             type="button"
@@ -3791,11 +4403,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           </button>
 
           <button
-            onClick={() => setShowDoctorOnboarding(true)}
+            onClick={() => setDeskTab('invitations')}
             className="flex items-center space-x-1 px-2.5 sm:px-3 py-2 bg-brand-500/15 hover:bg-brand-500/25 text-brand-800 dark:text-brand-300 border border-brand-400/40 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            title="Invite doctors & lab technicians to clinic roster"
           >
-            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>Add Doctor</span>
+            <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span>Add / Invite Doctor</span>
           </button>
 
           <button
@@ -3847,7 +4460,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       {/* Navigation Desk Tabs (All 15 Modules) */}
       <div className="flex items-center space-x-2 p-1.5 rounded-2xl liquid-glass-base overflow-x-auto scrollbar-none">
         <button
-          onClick={() => setDeskTab('queue')}
+          onClick={() => {
+            const d = new Date()
+            const todayLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+            setSelectedQueueDate(todayLocal)
+            setDeskTab('queue')
+          }}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             deskTab === 'queue'
               ? 'bg-gradient-to-r from-brand-600 to-teal-500 text-white shadow-glass-brand border border-white/25'
@@ -4132,6 +4750,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   )
                 })}
               </div>
+            </div>
+          )}
+
+          {clinicDoctors.length === 0 && (
+            <div className="liquid-glass-card p-6 rounded-3xl border border-blue-200/60 dark:border-blue-900/30 bg-blue-50/40 dark:bg-blue-950/20 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
+                <UserPlus className="w-6 h-6" />
+              </div>
+              <h4 className="text-sm font-black text-slate-900 dark:text-white">No Doctors Enlisted</h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400 max-w-md mx-auto">
+                No medical specialists are currently connected with this clinic. Invite doctors to manage queues and publish OPD slots.
+              </p>
+              <button
+                type="button"
+                onClick={() => setDeskTab('invitations')}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add / Invite Doctor</span>
+              </button>
             </div>
           )}
 
@@ -6408,12 +7046,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     )
                   })
                   .map((doc) => {
-                    const alreadyEnlisted = clinicDoctors.some((cd) => cd.id === doc.id)
-                    const alreadyInvited = clinicInvitations.some(
-                      (inv) =>
-                        inv.status === 'pending' &&
-                        inv.invitedEmail.toLowerCase() === (doc.email || '').toLowerCase()
+                    const cleanEmail = (doc.email || '').toLowerCase()
+                    const existingInvite = clinicInvitations.find(
+                      (inv) => (inv.invitedEmail || inv.email || '').toLowerCase() === cleanEmail
                     )
+                    const alreadyEnlisted =
+                      clinicDoctors.some((cd) => cd.id === doc.id) || existingInvite?.status === 'accepted'
+                    const isPending = !alreadyEnlisted && existingInvite?.status === 'pending'
+                    const isRejected = !alreadyEnlisted && existingInvite?.status === 'rejected'
                     return (
                       <GlassCard
                         key={doc.id}
@@ -6455,19 +7095,27 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           </button>
                           {alreadyEnlisted ? (
                             <span className="px-3 py-2 rounded-xl bg-emerald-50/85 text-emerald-800 text-xs font-black">
-                              ✓ Enlisted
+                              ✓ Affiliated
                             </span>
-                          ) : alreadyInvited ? (
+                          ) : isPending ? (
                             <span className="px-3 py-2 rounded-xl bg-amber-50/85 text-amber-800 text-xs font-black">
-                              Pending Invite
+                              ⏳ Pending Invite
                             </span>
+                          ) : isRejected ? (
+                            <button
+                              type="button"
+                              onClick={() => handleSendDoctorInvitation(doc)}
+                              className="flex-1 py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs cursor-pointer border border-rose-300 transition"
+                            >
+                              Re-Invite
+                            </button>
                           ) : (
                             <button
                               type="button"
                               onClick={() => handleSendDoctorInvitation(doc)}
                               className="flex-1 py-2 px-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs cursor-pointer shadow-glass-sm transition"
                             >
-                              Invite to Clinic
+                              + Invite to Clinic
                             </button>
                           )}
                         </div>
@@ -6495,37 +7143,68 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200/50 font-medium">
-                      {clinicInvitations.map((inv) => (
-                        <tr key={inv.id} className="hover:bg-white/45 transition-colors">
-                          <td className="py-3.5 px-4 font-bold text-slate-900">{inv.invitedName}</td>
-                          <td className="py-3.5 px-4 text-slate-600">{inv.invitedEmail}</td>
-                          <td className="py-3.5 px-4 capitalize">{inv.role}</td>
-                          <td className="py-3.5 px-4">
-                            <span
-                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                                inv.status === 'accepted'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : inv.status === 'rejected'
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {inv.status}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            {inv.status === 'pending' && (
-                              <button
-                                type="button"
-                                onClick={() => handleCancelStaffInvitation(inv.id)}
-                                className="px-3 py-1 bg-rose-50/85 hover:bg-rose-100 text-rose-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                      {clinicInvitations.map((inv) => {
+                        const matchedDoc = allSystemDoctors.find(
+                          (d) => (d.email || '').toLowerCase() === (inv.invitedEmail || inv.email || '').toLowerCase()
+                        )
+                        const displayName = matchedDoc?.fullName || inv.invitedName || inv.invitedEmail || inv.email
+                        return (
+                          <tr key={inv.id} className="hover:bg-white/45 transition-colors">
+                            <td className="py-3.5 px-4 font-bold text-slate-900">{displayName}</td>
+                            <td className="py-3.5 px-4 text-slate-600">{inv.invitedEmail || inv.email}</td>
+                            <td className="py-3.5 px-4 capitalize">{inv.role === 'lab_technician' ? 'Lab Technician' : 'Doctor'}</td>
+                            <td className="py-3.5 px-4">
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                  inv.status === 'accepted'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : inv.status === 'rejected'
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
                               >
-                                Cancel / Revoke
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                                {inv.status === 'accepted' ? '✓ Affiliated' : inv.status === 'rejected' ? '✕ Declined' : '⏳ Pending'}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 text-right space-x-2">
+                              {inv.status === 'pending' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelStaffInvitation(inv.id)}
+                                  className="px-3 py-1 bg-rose-50/85 hover:bg-rose-100 text-rose-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                                >
+                                  Cancel / Revoke
+                                </button>
+                              )}
+                              {inv.status === 'rejected' && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (matchedDoc) {
+                                      handleSendDoctorInvitation(matchedDoc)
+                                    } else {
+                                      const res = await sendClinicInvitation({
+                                        clinicId: selectedClinic.id,
+                                        clinicName: selectedClinic.name,
+                                        invitedEmail: inv.invitedEmail || inv.email || '',
+                                        invitedName: displayName,
+                                        role: inv.role,
+                                      })
+                                      if (res) {
+                                        setClinicInvitations((prev) => [res, ...prev.filter((i) => i.id !== res.id)])
+                                        alert(`✓ Invitation re-sent to ${displayName}!`)
+                                      }
+                                    }
+                                  }}
+                                  className="px-3 py-1 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                                >
+                                  Re-Invite
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -6731,10 +7410,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <GlassButton
               variant="primary"
               size="sm"
-              leftIcon={<Plus className="w-4 h-4" />}
-              onClick={() => setShowDoctorOnboarding(true)}
+              leftIcon={<UserPlus className="w-4 h-4" />}
+              onClick={() => setDeskTab('invitations')}
             >
-              Add New Doctor
+              Add / Invite Doctor
             </GlassButton>
           </div>
 
@@ -7167,19 +7846,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <h3 className="font-bold text-xs text-slate-700">
                 Registered Patients Directory ({patientDirectory.length} Total Patients)
               </h3>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (selectedClinic) {
-                    const refreshed = await getClinicPatientDirectory(selectedClinic.id)
-                    setPatientDirectory(refreshed)
-                  }
-                }}
-                className="flex items-center space-x-1 text-[11px] font-bold text-brand-700 hover:text-brand-800 cursor-pointer"
-              >
-                <RefreshCw className="w-3 h-3" />
-                <span>Refresh Directory</span>
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setRegisterPatientModalOpen(true)}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-teal-600 to-brand-600 hover:from-teal-500 hover:to-brand-500 text-white font-bold text-xs rounded-xl shadow-sm transition active:scale-[0.98] cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Register Patient</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (selectedClinic) {
+                      const refreshed = await getClinicPatientDirectory(selectedClinic.id)
+                      setPatientDirectory(refreshed)
+                    }
+                  }}
+                  className="flex items-center space-x-1 text-[11px] font-bold text-brand-700 hover:text-brand-800 cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Refresh Directory</span>
+                </button>
+              </div>
             </div>
             {patientDirectory.length === 0 ? (
               <div className="p-10 text-center text-slate-500 text-xs">
@@ -7308,6 +7997,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 >
                                   <Calendar className="w-3 h-3" />
                                   <span>Shift Date</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenScheduleNextVisit(pat)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
+                                  title="Schedule Next Follow-Up Visit"
+                                >
+                                  <CalendarPlus className="w-3 h-3" />
+                                  <span>Next Visit</span>
                                 </button>
                                 <button
                                   type="button"
@@ -8032,6 +8730,115 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
               </div>
             )}
+          </GlassCard>
+
+          {/* 1B. DATA BACKUP, CLOUD DISASTER RECOVERY & OFFLINE SNAPSHOTS */}
+          <GlassCard variant="base" padding="lg" radius="xl" className="space-y-5 border border-sky-500/30 bg-gradient-to-br from-white via-sky-50/20 to-blue-50/20 dark:from-slate-900 dark:via-sky-950/20 dark:to-slate-900 shadow-glass-base">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center text-white shadow-glass-sm shrink-0">
+                  <UploadCloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-sky-600 dark:text-sky-400 block">
+                    Disaster Recovery &amp; Redundancy
+                  </span>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Clinic Data Backup &amp; Google Drive Sync
+                  </h3>
+                </div>
+              </div>
+              <GlassBadge variant="brand" size="md">
+                Encrypted Local &amp; Cloud Archive
+              </GlassBadge>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Export complete clinic records (doctors, appointments, queue history, itemized billing invoices, patient directory, and operational settings) directly to your Google Drive or local storage for audit compliance and disaster recovery.
+            </p>
+
+            {driveSyncResult && (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
+                <span>Backup synced to Google Drive successfully! ({driveSyncResult.filename})</span>
+                {driveSyncResult.webViewLink && (
+                  <a
+                    href={driveSyncResult.webViewLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-bold underline text-emerald-900 dark:text-emerald-200 inline-flex items-center space-x-1"
+                  >
+                    <span>Open in Drive</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+            )}
+
+            {driveSyncError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-300 dark:border-rose-700 rounded-xl text-xs text-rose-800 dark:text-rose-300">
+                Failed to sync backup to Google Drive: {driveSyncError}
+              </div>
+            )}
+
+            {downloadBackupResult && (
+              <div className="p-3 bg-sky-50 dark:bg-sky-950/30 border border-sky-300 dark:border-sky-700 rounded-xl text-xs text-sky-800 dark:text-sky-300">
+                Local backup downloaded: <strong>{downloadBackupResult.filename}</strong> (SHA-256 integrity sealed)
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              {/* 1. Google Drive Sync Button */}
+              <button
+                type="button"
+                onClick={handleSyncToGoogleDrive}
+                disabled={isSyncingGoogleDrive}
+                className="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-sky-400/40 hover:border-sky-500 text-left transition space-y-2 cursor-pointer shadow-glass-sm hover:shadow-md disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between">
+                  <UploadCloud className={`w-5 h-5 text-sky-600 ${isSyncingGoogleDrive ? 'animate-bounce' : ''}`} />
+                  <span className="text-[10px] font-bold text-sky-700 bg-sky-100 dark:bg-sky-950 px-2 py-0.5 rounded-full">
+                    {isSyncingGoogleDrive ? 'Syncing...' : '1-Click Cloud'}
+                  </span>
+                </div>
+                <div className="text-xs font-black text-slate-900 dark:text-white">Sync to Google Drive</div>
+                <div className="text-[10px] text-slate-500">Exports timestamped snapshot to Google Drive &quot;Dactor Clinic Backups&quot; folder.</div>
+              </button>
+
+              {/* 2. Download Local Backup Button */}
+              <button
+                type="button"
+                onClick={handleDownloadLocalBackup}
+                disabled={isDownloadingBackup}
+                className="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 hover:border-brand-500 text-left transition space-y-2 cursor-pointer shadow-glass-sm hover:shadow-md disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between">
+                  <Download className={`w-5 h-5 text-brand-600 ${isDownloadingBackup ? 'animate-bounce' : ''}`} />
+                  <span className="text-[10px] font-bold text-brand-700 bg-brand-100 dark:bg-brand-950 px-2 py-0.5 rounded-full">
+                    {isDownloadingBackup ? 'Exporting...' : 'Direct JSON'}
+                  </span>
+                </div>
+                <div className="text-xs font-black text-slate-900 dark:text-white">Download Local Backup</div>
+                <div className="text-[10px] text-slate-500">Instantly saves complete structured JSON archive to your local hard drive.</div>
+              </button>
+
+              {/* 3. Restore Backup Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setRestoreError(null)
+                  setRestoreResult(null)
+                  setShowRestoreModal(true)
+                }}
+                className="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 hover:border-emerald-500 text-left transition space-y-2 cursor-pointer shadow-glass-sm hover:shadow-md"
+              >
+                <div className="flex items-center justify-between">
+                  <RefreshCw className="w-5 h-5 text-emerald-600" />
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 rounded-full">Restore Archive</span>
+                </div>
+                <div className="text-xs font-black text-slate-900 dark:text-white">Restore Backup File</div>
+                <div className="text-[10px] text-slate-500">Restores clinic records from a previously exported backup snapshot file.</div>
+              </button>
+            </div>
           </GlassCard>
 
           {/* 2. CLINIC PROFILE, OPERATIONAL TYPE, GPS & PAYMENT GATEWAY FORM */}
@@ -9639,6 +10446,242 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )}
 
       {/* ========================================================= */}
+      {/* MODAL: DIRECT REGISTER PATIENT TO DIRECTORY */}
+      {/* ========================================================= */}
+      {registerPatientModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-teal-500/15 text-teal-700 flex items-center justify-center font-bold">
+                  <UserPlus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Add Patient to Directory</h3>
+                  <p className="text-[11px] text-slate-500">Register new patient profile for walk-in or records</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRegisterPatientModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDirectRegisterPatient} className="space-y-3.5">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Full Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newPatientName}
+                  onChange={(e) => setNewPatientName(e.target.value)}
+                  placeholder="e.g. Suman Shrestha"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Mobile Number <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  value={newPatientPhone}
+                  onChange={(e) => setNewPatientPhone(e.target.value)}
+                  placeholder="e.g. 9841234567"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Age</label>
+                  <input
+                    type="number"
+                    value={newPatientAge}
+                    onChange={(e) => setNewPatientAge(e.target.value)}
+                    placeholder="35"
+                    min="1"
+                    max="120"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Gender</label>
+                  <select
+                    value={newPatientGender}
+                    onChange={(e) => setNewPatientGender(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Email (Optional)</label>
+                <input
+                  type="email"
+                  value={newPatientEmail}
+                  onChange={(e) => setNewPatientEmail(e.target.value)}
+                  placeholder="patient@gmail.com"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Notes / Complaint</label>
+                <input
+                  type="text"
+                  value={newPatientNotes}
+                  onChange={(e) => setNewPatientNotes(e.target.value)}
+                  placeholder="e.g. Fever & cough for 2 days"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div className="flex items-center space-x-3 pt-2">
+                <GlassButton
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
+                  onClick={() => setRegisterPatientModalOpen(false)}
+                >
+                  Cancel
+                </GlassButton>
+                <button
+                  type="submit"
+                  disabled={isRegisteringPatient}
+                  className="flex-1 py-3 bg-gradient-to-r from-teal-600 to-brand-600 hover:from-teal-500 hover:to-brand-500 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-teal-600/20 cursor-pointer"
+                >
+                  {isRegisteringPatient ? 'Registering...' : 'Register Patient'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: SCHEDULE NEXT FOLLOW-UP VISIT */}
+      {/* ========================================================= */}
+      {scheduleNextModalOpen && scheduleNextPatient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-cyan-500/15 text-cyan-700 flex items-center justify-center font-bold">
+                  <CalendarPlus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Schedule Next Visit</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Patient: <strong className="text-slate-900">{scheduleNextPatient.fullName}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScheduleNextModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleScheduleNextVisitSubmit} className="space-y-3.5">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Attending Doctor <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={scheduleNextDoctorId}
+                  onChange={(e) => setScheduleNextDoctorId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  required
+                >
+                  {clinicDoctors.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.fullName} ({d.specialty || 'General'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Visit Date <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={scheduleNextDate}
+                    onChange={(e) => setScheduleNextDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Time Slot</label>
+                  <input
+                    type="text"
+                    value={scheduleNextTime}
+                    onChange={(e) => setScheduleNextTime(e.target.value)}
+                    placeholder="10:00 AM"
+                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Doctor Remarks / Instructions</label>
+                <input
+                  type="text"
+                  value={scheduleNextRemarks}
+                  onChange={(e) => setScheduleNextRemarks(e.target.value)}
+                  placeholder="e.g. Follow-up after blood test results"
+                  className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-medium focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
+
+              <div className="p-3 bg-teal-50/80 rounded-xl border border-teal-200 text-teal-800 text-xs">
+                ✨ Follow-up consultation is scheduled at <strong>Rs. 0 (Free Visit)</strong> by default and will appear in the Future Appointments list.
+              </div>
+
+              <div className="flex items-center space-x-3 pt-2">
+                <GlassButton
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
+                  onClick={() => setScheduleNextModalOpen(false)}
+                >
+                  Cancel
+                </GlassButton>
+                <button
+                  type="submit"
+                  disabled={isSchedulingNextVisit}
+                  className="flex-1 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-teal-600/20 cursor-pointer"
+                >
+                  {isSchedulingNextVisit ? 'Booking...' : 'Schedule Visit'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
       {/* MODAL: PRINTABLE RECEPTION TOKEN SLIP */}
       {/* ========================================================= */}
       {showPrintTokenSlip && printSlipAppt && (
@@ -10614,7 +11657,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </p>
             </div>
 
-            <div className="pt-2 border-t border-white/60 flex justify-end">
+            <div className="pt-2 border-t border-white/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <a
+                href="./privacy-clinic.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-brand-600 dark:text-brand-400 font-bold hover:underline text-xs flex items-center gap-1 cursor-pointer"
+              >
+                <span>Read Official Clinic &amp; Provider Privacy Policy &rarr;</span>
+              </a>
               <GlassButton
                 type="button"
                 variant="primary"
@@ -10691,6 +11742,94 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               >
                 <Trash2 className="w-3.5 h-3.5 text-red-600" />
                 <span>{isDeletingPermanently ? 'Purging Clinic...' : 'Admin: Permanent Purge (Immediate)'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 9: RESTORE CLINIC BACKUP & DISASTER RECOVERY        */}
+      {/* ========================================================= */}
+      {showRestoreModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60 dark:border-white/10">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-sky-600">
+                  Disaster Recovery
+                </span>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  Restore Clinic Backup
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRestoreModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-white/80 dark:hover:bg-slate-800 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-400/30 text-amber-900 dark:text-amber-200 text-xs space-y-1">
+              <div className="font-bold flex items-center space-x-1.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Important Safety Notice</span>
+              </div>
+              <p>
+                Restoring a backup will verify cryptographic SHA-256 integrity and re-hydrate clinic records (doctors, appointments, queue, invoices) into your browser&apos;s local offline database.
+              </p>
+            </div>
+
+            {restoreResult && (
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-700 rounded-2xl text-xs text-emerald-800 dark:text-emerald-300 space-y-2">
+                <div className="font-bold flex items-center space-x-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Backup Restored Successfully!</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-[11px] font-medium pt-1">
+                  {Object.entries(restoreResult.restoredStores).map(([store, count]) => (
+                    <div key={store} className="capitalize">
+                      {store.replace(/_/g, ' ')}: <strong>{count}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {restoreError && (
+              <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-300 dark:border-rose-700 rounded-2xl text-xs text-rose-800 dark:text-rose-300">
+                {restoreError}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                Select Backup JSON Snapshot File
+              </label>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleRestoreFileSelected}
+                disabled={isRestoringBackup}
+                className="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100 cursor-pointer border border-slate-200 dark:border-white/10 rounded-xl p-2 bg-white/50 dark:bg-slate-900/50"
+              />
+              {isRestoringBackup && (
+                <div className="flex items-center space-x-2 text-xs text-sky-600 font-bold animate-pulse pt-1">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Validating SHA-256 seal and restoring clinic stores...</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRestoreModal(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>

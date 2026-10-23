@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,10 +19,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 
 @Composable
 fun TermsAndConditionsDialog(
@@ -29,6 +34,7 @@ fun TermsAndConditionsDialog(
     onAccept: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     var isAgreed by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -145,7 +151,19 @@ fun TermsAndConditionsDialog(
                     // Section 8: Live Patient Privacy Policy URL
                     SectionCard(
                         title = "8. Official Live Patient Privacy Policy (GitHub Pages)",
-                        body = "Full statutory disclosure is hosted live at https://dactorofficial.github.io/privacy-patient.html pursuant to Nepal Individual Privacy Act 2075 and Google Play Health Apps Policies."
+                        body = "Full statutory disclosure is hosted live at https://dactorofficial.github.io/privacy-patient.html pursuant to Nepal Individual Privacy Act 2075 and Google Play Health Apps Policies.",
+                        actionLabel = "Open Live Policy in Browser",
+                        onActionClick = {
+                            try {
+                                val intent = Intent(
+                                    Intent.ACTION_VIEW,
+                                    Uri.parse("https://dactorofficial.github.io/privacy-patient.html")
+                                )
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Opening Patient Privacy Policy...", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     )
                 }
 
@@ -218,7 +236,12 @@ fun TermsAndConditionsDialog(
 }
 
 @Composable
-private fun SectionCard(title: String, body: String) {
+private fun SectionCard(
+    title: String,
+    body: String,
+    actionLabel: String? = null,
+    onActionClick: (() -> Unit)? = null
+) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
@@ -228,6 +251,30 @@ private fun SectionCard(title: String, body: String) {
         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
             Text(body, fontSize = 11.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (actionLabel != null && onActionClick != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onActionClick() }
+                        .padding(vertical = 4.dp, horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        Icons.Default.OpenInBrowser,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = actionLabel,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         }
     }
 }
