@@ -141,6 +141,12 @@ fun TermsAndConditionsDialog(
                         title = "7. Nepal Medical Council (NMC) & Doctor-Patient Relationship",
                         body = "All medical examinations, prescriptions, and advice are provided independently by practitioners registered with the Nepal Medical Council (NMC) under the NMC Act 2020. Dactor acts solely as a scheduling and queue management technology intermediary."
                     )
+
+                    // Section 8: Live Patient Privacy Policy URL
+                    SectionCard(
+                        title = "8. Official Live Patient Privacy Policy (GitHub Pages)",
+                        body = "Full statutory disclosure is hosted live at https://dactorofficial.github.io/privacy-patient.html pursuant to Nepal Individual Privacy Act 2075 and Google Play Health Apps Policies."
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))

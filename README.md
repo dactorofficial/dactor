@@ -164,6 +164,17 @@ For complete technical specifications, recent fixes, database schema migrations,
 
 ---
 
+## 🔒 Official Privacy Policies & Regulatory Compliance
+
+In accordance with Nepal's Individual Privacy Act 2075 (2018), Privacy Rules 2077, Electronic Transactions Act 2063, and Google Play Store Health Apps Policies, Dactor maintains separate, comprehensive privacy policies:
+
+| Audience | Documentation (Markdown) | Official Live Web Page (GitHub Pages) |
+| :--- | :--- | :--- |
+| **Healthcare Facilities & Attending Doctors** | [`docs/privacy-clinic.md`](docs/privacy-clinic.md) | **[https://dactorofficial.github.io/privacy-clinic.html](https://dactorofficial.github.io/privacy-clinic.html)** |
+| **Patients, Families & Guardians** | [`docs/privacy-patient.md`](docs/privacy-patient.md) | **[https://dactorofficial.github.io/privacy-patient.html](https://dactorofficial.github.io/privacy-patient.html)** |
+
+---
+
 ## 🇳🇵 Currency & Localization
 - All pricing and invoice amounts are formatted in Nepalese Rupees (`Rs. / NPR`) with thousands commas (e.g. `Rs. 1,500`) via `CurrencyFormatter.kt`.
 - Coordinates centered around Kathmandu Valley (e.g. Bagbazar `27.7052° N, 85.3193° E`, Patan `27.6710° N, 85.3260° E`).

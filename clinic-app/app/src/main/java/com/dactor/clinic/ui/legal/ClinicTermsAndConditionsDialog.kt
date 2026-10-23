@@ -177,6 +177,10 @@ fun ClinicTermsAndConditionsDialog(
                                 title = "4. Right to Erasure & User Account Deletion",
                                 body = "Both healthcare providers and patients have access to an in-app Account Deletion mechanism as required by Google Play Policies, featuring a 30-day freeze period."
                             )
+                            ClinicSectionCard(
+                                title = "5. Official Live Clinic Privacy Policy (GitHub Pages)",
+                                body = "Full statutory disclosure is hosted live at https://dactorofficial.github.io/privacy-clinic.html pursuant to Nepal Individual Privacy Act 2075 and Google Play Health Apps Policies."
+                            )
                         }
                     }
                 }

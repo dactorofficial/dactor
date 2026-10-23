@@ -99,16 +99,13 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                 </button>
               </li>
               <li>
-                <button
-                  onClick={() => {
-                    window.location.hash = '#support?view=track'
-                    onNavigate('support')
-                  }}
-                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 cursor-pointer text-left text-cyan-300 font-medium"
+                <a
+                  href="./privacy-patient.html"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 text-left text-slate-300 hover:underline"
                 >
-                  <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Check Help Request Status</span>
-                </button>
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
+                  <span>Patient Privacy Policy</span>
+                </a>
               </li>
             </ul>
           </div>
@@ -152,6 +149,15 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Reception Walk-In Tokens</span>
                 </button>
+              </li>
+              <li>
+                <a
+                  href="./privacy-clinic.html"
+                  className="hover:text-cyan-400 transition-colors flex items-center space-x-1 text-left text-slate-300 hover:underline"
+                >
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-500" />
+                  <span>Clinic Privacy Policy</span>
+                </a>
               </li>
             </ul>
           </div>
@@ -220,6 +226,15 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 mx-0.5" />
             <span>for better care.</span>
           </div>
+        </div>
+
+        {/* Legal & Regulatory Policies Bar */}
+        <div className="pt-4 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-400 border-t border-white/5 mt-4">
+          <a href="./privacy-patient.html" className="hover:text-cyan-400 transition">Patient Privacy Policy</a>
+          <span>•</span>
+          <a href="./privacy-clinic.html" className="hover:text-cyan-400 transition">Clinic &amp; Provider Privacy Policy</a>
+          <span>•</span>
+          <a href="https://dactorofficial.github.io/support" className="hover:text-cyan-400 transition">Healthcare Helpdesk</a>
         </div>
       </div>
     </footer>

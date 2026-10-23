@@ -8,12 +8,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import com.dactor.clinic.ui.auth.PickMultipleClinicImagesContract
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
@@ -138,11 +140,39 @@ fun ClinicSettingsScreen(
         }
     }
 
+    val remainingClinicSlots = (4 - clinicPictures.size).coerceAtLeast(0)
     val pictureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null && clinicPictures.size < 4) {
-            clinicPictures = clinicPictures + uri.toString()
+        contract = PickMultipleClinicImagesContract()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            val remaining = (4 - clinicPictures.size).coerceAtLeast(0)
+            if (remaining > 0) {
+                val currentSet = clinicPictures.toSet()
+                val uniqueUris = uris.filter { it.toString() !in currentSet }
+                val toAdd = uniqueUris.take(remaining).map { it.toString() }
+                if (toAdd.isNotEmpty()) {
+                    clinicPictures = (clinicPictures + toAdd).take(4)
+                }
+                if (uris.size > remaining) {
+                    Toast.makeText(
+                        context,
+                        "Added ${toAdd.size} photo(s). Maximum 4 photos allowed.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else if (uniqueUris.size < uris.size) {
+                    Toast.makeText(
+                        context,
+                        "Duplicate photos were ignored.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } else {
+                Toast.makeText(
+                    context,
+                    "Maximum 4 photos already selected.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
@@ -1041,34 +1071,73 @@ fun ClinicSettingsScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column {
-                                        Text("Pictures of Clinic (1-4) *", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text("Pictures of Clinic (1-4) *", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                            Surface(
+                                                color = if (clinicPictures.size == 4) Color(0xFF047857).copy(alpha = 0.15f)
+                                                        else if (clinicPictures.isNotEmpty()) MaterialTheme.colorScheme.primaryContainer
+                                                        else MaterialTheme.colorScheme.surfaceVariant,
+                                                shape = RoundedCornerShape(6.dp),
+                                                border = BorderStroke(
+                                                    0.5.dp,
+                                                    if (clinicPictures.size == 4) Color(0xFF047857)
+                                                    else if (clinicPictures.isNotEmpty()) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.outlineVariant
+                                                )
+                                            ) {
+                                                Text(
+                                                    text = "${clinicPictures.size}/4",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (clinicPictures.size == 4) Color(0xFF047857)
+                                                            else if (clinicPictures.isNotEmpty()) MaterialTheme.colorScheme.primary
+                                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(Modifier.height(2.dp))
                                         Text(
-                                            text = if (clinicPictures.isEmpty()) "Add photos one by one (1 to 4)" else "${clinicPictures.size}/4 photos added" + if (clinicPictures.size >= 1) " ✓" else "",
+                                            text = when (clinicPictures.size) {
+                                                0 -> "0/4 photos added • You can select up to 4 pictures"
+                                                4 -> "4/4 photos added • Maximum reached ✓"
+                                                else -> "${clinicPictures.size}/4 photos added • Can select up to $remainingClinicSlots more"
+                                            },
                                             fontSize = 11.sp,
                                             color = if (clinicPictures.isNotEmpty()) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontWeight = if (clinicPictures.isNotEmpty()) FontWeight.Bold else FontWeight.Normal
                                         )
                                     }
 
-                                    if (clinicPictures.size < 4) {
+                                    if (remainingClinicSlots > 0) {
                                         OutlinedButton(
-                                            onClick = { pictureLauncher.launch("image/*") },
+                                            onClick = { pictureLauncher.launch(remainingClinicSlots) },
                                             shape = RoundedCornerShape(8.dp),
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                             modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                                         ) {
                                             Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(14.dp))
                                             Spacer(Modifier.width(4.dp))
-                                            Text(if (clinicPictures.isEmpty()) "+ Add Photo" else "+ Add Another", fontSize = 12.sp)
+                                            Text(
+                                                text = if (clinicPictures.isEmpty()) "+ Add Photos (up to 4)" else "+ Add (${remainingClinicSlots} left)",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     }
                                 }
 
                                 // Compact Previews Row
                                 if (clinicPictures.isNotEmpty()) {
+                                    val previewScrollState = rememberScrollState()
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(previewScrollState),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -1086,6 +1155,20 @@ fun ClinicSettingsScreen(
                                                     contentScale = ContentScale.Crop,
                                                     modifier = Modifier.fillMaxSize()
                                                 )
+                                                // Photo number badge on bottom-start
+                                                Surface(
+                                                    shape = RoundedCornerShape(topEnd = 6.dp),
+                                                    color = Color.Black.copy(alpha = 0.65f),
+                                                    modifier = Modifier.align(Alignment.BottomStart)
+                                                ) {
+                                                    Text(
+                                                        text = "${idx + 1}/4",
+                                                        color = Color.White,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
                                                 // Remove badge on top-right
                                                 Surface(
                                                     onClick = {
@@ -1109,9 +1192,9 @@ fun ClinicSettingsScreen(
                                         }
 
                                         // Direct "+ Add" box if less than 4
-                                        if (clinicPictures.size < 4) {
+                                        if (remainingClinicSlots > 0) {
                                             Surface(
-                                                onClick = { pictureLauncher.launch("image/*") },
+                                                onClick = { pictureLauncher.launch(remainingClinicSlots) },
                                                 shape = RoundedCornerShape(10.dp),
                                                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
                                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
@@ -1129,7 +1212,7 @@ fun ClinicSettingsScreen(
                                                         modifier = Modifier.size(20.dp)
                                                     )
                                                     Text(
-                                                        text = "Add",
+                                                        text = "+ ($remainingClinicSlots)",
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = MaterialTheme.colorScheme.primary
@@ -1435,14 +1518,16 @@ fun ClinicSettingsScreen(
                                             val targetId = loadedClinicId ?: effectiveClinicId
                                             val curr = paymentGatewaysConfig.getGateway(selectedGatewayProvider)
                                             val updatedConfig = paymentGatewaysConfig.copy(primaryGateway = selectedGatewayProvider)
-                                            clinicRepository?.updatePaymentGatewayKeys(
+                                            val credentialSave = clinicRepository?.updatePaymentGatewayKeys(
                                                 clinicId = targetId,
                                                 gatewayProvider = selectedGatewayProvider,
                                                 apiKey = curr.publicKey,
                                                 secretKey = curr.secretKey,
                                                 merchantId = curr.merchantId,
-                                                isDirectPaymentEnabled = isDirectPaymentEnabled
+                                                isDirectPaymentEnabled = isDirectPaymentEnabled,
+                                                environment = curr.environment
                                             )
+                                            if (credentialSave?.isFailure == true) throw credentialSave.exceptionOrNull() ?: Exception("Could not save gateway credentials")
                                             val currentClinic = clinicRepository?.getClinicById(targetId)
                                             if (currentClinic != null) {
                                                 clinicRepository?.updateClinic(
@@ -1451,7 +1536,7 @@ fun ClinicSettingsScreen(
                                                         isDirectPaymentEnabled = isDirectPaymentEnabled,
                                                         paymentGatewayProvider = selectedGatewayProvider,
                                                         paymentApiKey = curr.publicKey.ifBlank { null },
-                                                        paymentSecretKey = curr.secretKey.ifBlank { null },
+                                                        paymentSecretKey = null,
                                                         merchantId = curr.merchantId.ifBlank { null },
                                                         paymentGatewaysJson = updatedConfig.toJson()
                                                     )
@@ -1663,6 +1748,38 @@ fun ClinicSettingsScreen(
                                     Text("Terms of Service & Regulatory Policy", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                                 }
                                 Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            onClick = {
+                                try {
+                                    val intent = android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        Uri.parse("https://dactorofficial.github.io/privacy-clinic.html")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Opening Clinic Privacy Policy...", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                    Column {
+                                        Text("Clinic Privacy Policy", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("Official policy hosted on GitHub Pages", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                             }
                         }
                     }

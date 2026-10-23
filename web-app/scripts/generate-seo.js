@@ -120,6 +120,18 @@ async function generateSEOArtifacts() {
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
+  <url>
+    <loc>${BASE_URL}/privacy-patient.html</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>${BASE_URL}/privacy-clinic.html</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
 `
 
   // High-Intent Medical Specialties & Search Queries (Nepal)

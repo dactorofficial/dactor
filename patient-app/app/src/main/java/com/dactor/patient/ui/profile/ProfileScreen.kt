@@ -1168,6 +1168,41 @@ fun ProfileScreen(
 
                                 HorizontalDivider()
 
+                                // PATIENT PRIVACY POLICY (OFFICIAL GITHUB PAGES URL)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            try {
+                                                val intent = android.content.Intent(
+                                                    android.content.Intent.ACTION_VIEW,
+                                                    android.net.Uri.parse("https://dactorofficial.github.io/privacy-patient.html")
+                                                )
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                android.widget.Toast.makeText(context, "Opening Patient Privacy Policy...", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        .padding(vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Surface(shape = CircleShape, color = Color(0xFFECFDF5), modifier = Modifier.size(36.dp)) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                        Column {
+                                            Text("Patient Privacy Policy", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                            Text("Official online policy hosted on GitHub Pages", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                    Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
+                                }
+
+                                HorizontalDivider()
+
                                 // CONTACT US & OFFICIAL HELPDESK
                                 Row(
                                     modifier = Modifier

@@ -63,10 +63,19 @@ const getTabFromUrl = (): string => {
     if (params.get('doctor') || params.get('doctorId')) return 'clinic-detail'
     if (params.get('code') || params.get('track')) return 'live-queue'
     if (params.get('q') || params.get('search') || params.get('specialty')) return 'clinics'
+    if (!params.get('clinic') && (params.get('payment_result') || params.get('appointmentId') || params.get('appointment_id'))) return 'patient-portal'
 
     const tabParam = params.get('tab') || params.get('page')
     if (tabParam) {
       const cleanParam = tabParam.toLowerCase().trim()
+      if (cleanParam === 'privacy-clinic' || cleanParam === 'clinic-privacy') {
+        window.location.href = './privacy-clinic.html'
+        return 'home'
+      }
+      if (cleanParam === 'privacy-patient' || cleanParam === 'patient-privacy' || cleanParam === 'privacy') {
+        window.location.href = './privacy-patient.html'
+        return 'home'
+      }
       if (cleanParam === 'login' || cleanParam === 'signin' || cleanParam === 'auth') return 'login'
       if (cleanParam === 'support' || cleanParam === 'contact' || cleanParam === 'helpdesk') return 'support'
       if (cleanParam === 'patient' || cleanParam === 'patient-portal' || cleanParam === 'my-health') return 'patient-portal'
@@ -89,6 +98,14 @@ const getTabFromUrl = (): string => {
   if (rawHash) {
     const hash = rawHash.replace(/^#\/?/, '').replace(/\/$/, '').split('?')[0]
     if (hash === '' || hash === 'home') return 'home'
+    if (hash === 'privacy-clinic' || hash === 'clinic-privacy') {
+      window.location.href = './privacy-clinic.html'
+      return 'home'
+    }
+    if (hash === 'privacy-patient' || hash === 'patient-privacy' || hash === 'privacy') {
+      window.location.href = './privacy-patient.html'
+      return 'home'
+    }
     if (hash === 'login' || hash === 'signin' || hash === 'auth') return 'login'
     if (hash === 'support' || hash === 'contact' || hash === 'helpdesk') return 'support'
     if (
@@ -135,6 +152,15 @@ const getTabFromUrl = (): string => {
   }
 
   if (!path || path === '' || path === '/' || path === '/index.html' || path === '/index') return 'home'
+
+  if (path.includes('privacy-clinic') || path.includes('privacy/clinic')) {
+    window.location.href = './privacy-clinic.html'
+    return 'home'
+  }
+  if (path.includes('privacy-patient') || path.includes('privacy/patient')) {
+    window.location.href = './privacy-patient.html'
+    return 'home'
+  }
 
   if (path.includes('login') || path.includes('signin') || path.includes('auth')) return 'login'
   if (path.includes('support') || path.includes('contact') || path.includes('helpdesk')) return 'support'
