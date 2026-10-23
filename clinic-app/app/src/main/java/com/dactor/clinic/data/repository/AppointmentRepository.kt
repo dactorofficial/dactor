@@ -1,10 +1,14 @@
 package com.dactor.clinic.data.repository
 
+import com.dactor.clinic.data.local.DevicePrefixManager
+import com.dactor.clinic.data.local.dao.AppointmentDao
+import com.dactor.clinic.data.local.entity.AppointmentEntity
 import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.model.QueueEntry
 import com.dactor.clinic.domain.util.TrackingCodeGenerator
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -58,9 +62,24 @@ data class ProfileInsertDto(
     @SerialName("age") val age: Int? = null
 )
 
+@Serializable
+data class ApproveRpcParams(
+    @SerialName("p_appointment_id") val appointmentId: String,
+    @SerialName("p_clinic_id") val clinicId: String
+)
+
+@Serializable
+data class RejectRpcParams(
+    @SerialName("p_appointment_id") val appointmentId: String,
+    @SerialName("p_clinic_id") val clinicId: String,
+    @SerialName("p_reason") val reason: String? = null
+)
+
 @Singleton
 class AppointmentRepository @Inject constructor(
-    private val supabaseClient: SupabaseClient
+    private val supabaseClient: SupabaseClient,
+    private val appointmentDao: AppointmentDao? = null,
+    private val devicePrefixManager: DevicePrefixManager? = null
 ) {
     private suspend fun attachQueueStatus(
         appointments: List<Appointment>,
@@ -148,9 +167,19 @@ class AppointmentRepository @Inject constructor(
                         eq("appointment_date", date)
                     }
                 }.decodeList<Appointment>()
-            attachQueueStatus(appts, clinicId = clinicId)
+            val attached = attachQueueStatus(appts, clinicId = clinicId)
+            try {
+                appointmentDao?.upsertAll(attached.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+            } catch (_: Exception) {}
+            attached
         } catch (e: Exception) {
             e.printStackTrace()
+            val cached = try {
+                appointmentDao?.getAppointmentsForDateList(clinicId, date)
+            } catch (_: Exception) { null }
+            if (!cached.isNullOrEmpty()) {
+                return@withContext cached.map { it.toDomainModel() }
+            }
             emptyList()
         }
     }
@@ -245,7 +274,7 @@ class AppointmentRepository @Inject constructor(
     ): Appointment? = withContext(Dispatchers.IO) {
         try {
             val trackingCode = if (appointment.trackingCode10Digit.isBlank()) {
-                TrackingCodeGenerator.generate()
+                devicePrefixManager?.generateTrackingCode() ?: TrackingCodeGenerator.generate()
             } else {
                 appointment.trackingCode10Digit
             }
@@ -564,6 +593,10 @@ class AppointmentRepository @Inject constructor(
                 qEx.printStackTrace()
             }
 
+            try {
+                appointmentDao?.upsert(AppointmentEntity.fromDomainModel(created, syncStatus = "synced"))
+            } catch (_: Exception) {}
+
             created
         } catch (e: Exception) {
             e.printStackTrace()
@@ -864,6 +897,67 @@ class AppointmentRepository @Inject constructor(
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    suspend fun getPendingPayAtDeskRequests(clinicId: String): List<Appointment> = withContext(Dispatchers.IO) {
+        try {
+            supabaseClient.postgrest["appointments"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                        eq("payment_mode", "PAY_AT_DESK")
+                        eq("status", "WAITING_FOR_APPROVAL")
+                    }
+                }
+                .decodeList<Appointment>()
+                .sortedBy { it.appointmentDate + " " + it.appointmentTime }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun getPendingPayAtDeskCount(clinicId: String): Int = withContext(Dispatchers.IO) {
+        try {
+            val list = supabaseClient.postgrest["appointments"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                        eq("payment_mode", "PAY_AT_DESK")
+                        eq("status", "WAITING_FOR_APPROVAL")
+                    }
+                }
+                .decodeList<Appointment>()
+            list.size
+        } catch (e: Exception) {
+            0
+        }
+    }
+
+    suspend fun approvePayAtDeskAppointment(appointmentId: String, clinicId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            supabaseClient.postgrest.rpc(
+                "approve_pay_at_desk_appointment",
+                ApproveRpcParams(appointmentId, clinicId)
+            )
+            Result.success(true)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    suspend fun rejectPayAtDeskAppointment(appointmentId: String, clinicId: String, reason: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            supabaseClient.postgrest.rpc(
+                "reject_pay_at_desk_appointment",
+                RejectRpcParams(appointmentId, clinicId, reason)
+            )
+            Result.success(true)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
         }
     }
 

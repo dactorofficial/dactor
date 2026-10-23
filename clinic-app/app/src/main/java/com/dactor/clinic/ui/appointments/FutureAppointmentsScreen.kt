@@ -193,7 +193,7 @@ fun FutureAppointmentsScreen(
             } else if (effectiveClinicId.isNotBlank()) {
                 appointmentRepository.getAppointmentsByClinic(effectiveClinicId)
             } else emptyList()
-            appointments = appts
+            appointments = appts.filter { !(it.paymentMode == "PAY_AT_DESK" && it.status == "WAITING_FOR_APPROVAL") }
 
             if (billingRepository != null && appts.isNotEmpty()) {
                 val apptIds = appts.map { it.id }

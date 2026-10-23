@@ -5,7 +5,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -86,6 +85,7 @@ fun DoctorDashboardScreen(
     // Settings & Profile Dialog state
     var showSettingsDialog by remember { mutableStateOf(false) }
     var editPractitionerRole by remember { mutableStateOf("doctor") }
+    var editSpecialtyDropdownExpanded by remember { mutableStateOf(false) }
     var editEducationDropdownExpanded by remember { mutableStateOf(false) }
     var editStartingYearDropdownExpanded by remember { mutableStateOf(false) }
     val practicingYears = remember { (2026 downTo 1960).map { it.toString() } }
@@ -183,7 +183,7 @@ fun DoctorDashboardScreen(
                 editAge = targetDoc.age?.toString() ?: ""
                 editStartingYear = targetDoc.startingPracticingYear?.toString() ?: ""
                 editPictureName = targetDoc.profilePictureUrl?.substringAfterLast('/')
-                editSpecialty = targetDoc.specialty ?: if (targetDoc.isLabTechnician) "Medical Lab Technician" else "General Physician"
+                editSpecialty = targetDoc.specialty?.ifBlank { null } ?: if (targetDoc.isLabTechnician) "Medical Lab Technician (MLT)" else "General Medicine & Physician"
                 editEducation = targetDoc.education ?: ""
                 editNmc = targetDoc.nmcLicenseNumber ?: ""
                 editPersonalPhone = targetDoc.personalMobileNumber ?: ""
@@ -240,8 +240,8 @@ fun DoctorDashboardScreen(
 
     val displayName = doctor?.fullName ?: "Practicing Physician"
     val displaySpecialty = doctor?.specialty ?: "Specialist OPD"
-    val displayNmc = doctor?.nmcLicenseNumber ?: "NMC Verified"
-    val kycStatus = doctor?.kycStatus ?: "approved"
+    val displayNmc = doctor?.nmcLicenseNumber ?: "Pending Verification"
+    val kycStatus = doctor?.kycStatus ?: "pending"
     val activeAppointment = appointmentsQueue.firstOrNull { it.checkinStatus == "inside" || it.checkinStatus == "in_consultation" || it.checkinStatus == "inside_opd" }
     val nextWaitingAppt = appointmentsQueue.firstOrNull { it.id != activeAppointment?.id && it.checkinStatus != "completed" && it.checkinStatus != "cancelled" }
     val isAffiliated = doctor?.clinicId != null && clinic != null
@@ -1208,8 +1208,20 @@ fun DoctorDashboardScreen(
         }
     }
 
-    // DOCTOR / LAB TECHNICIAN PROFILE & SETTINGS DIALOG
     if (showSettingsDialog) {
+        val labSpecializations = listOf(
+            "MRI Specialist & Radiographer",
+            "CT Scan Specialist & Technologist",
+            "Digital X-Ray Technologist",
+            "Ultrasound (USG) Sonographer",
+            "Medical Lab Technician (MLT)",
+            "Pathology & Hematology Specialist",
+            "Clinical Biochemistry Technician",
+            "Microbiology Lab Technician",
+            "ECG & Echo Technician",
+            "Phlebotomist & Sample Collector",
+            "Histopathology & Cytology Technician"
+        )
         val labTechQualifications = listOf(
             "CMLT (Certificate in Medical Lab Technology)",
             "DMLT (Diploma in Medical Lab Technology)",
@@ -1294,8 +1306,14 @@ fun DoctorDashboardScreen(
                                 selected = editPractitionerRole == "doctor",
                                 onClick = {
                                     editPractitionerRole = "doctor"
-                                    if (editSpecialty.contains("Lab", ignoreCase = true) || editSpecialty.contains("Pathology", ignoreCase = true)) {
-                                        editSpecialty = "General Physician"
+                                    if (editSpecialty.isBlank() || editSpecialty in labSpecializations || editSpecialty.contains("Technician", ignoreCase = true) || editSpecialty.contains("MLT", ignoreCase = true)) {
+                                        editSpecialty = if (masterSpecialtiesList.isNotEmpty()) {
+                                            masterSpecialtiesList.firstOrNull { it.category != "system_config" && it.name.startsWith("General", ignoreCase = true) }?.name
+                                                ?: masterSpecialtiesList.firstOrNull { it.category != "system_config" }?.name
+                                                ?: "General Medicine & Physician"
+                                        } else {
+                                            "General Medicine & Physician"
+                                        }
                                     }
                                     if (editEducation in labTechQualifications || editEducation.isBlank()) {
                                         editEducation = doctorQualifications.firstOrNull() ?: "MBBS"
@@ -1311,8 +1329,8 @@ fun DoctorDashboardScreen(
                                 selected = editPractitionerRole == "lab_technician",
                                 onClick = {
                                     editPractitionerRole = "lab_technician"
-                                    if (editSpecialty == "General Physician" || editSpecialty.isBlank()) {
-                                        editSpecialty = "Medical Lab Technician"
+                                    if (editSpecialty.isBlank() || editSpecialty !in labSpecializations) {
+                                        editSpecialty = "Medical Lab Technician (MLT)"
                                     }
                                     if (editEducation !in labTechQualifications) {
                                         editEducation = labTechQualifications.first()
@@ -1469,25 +1487,16 @@ fun DoctorDashboardScreen(
                     // 5. Specialization
                     Text("Specialization *", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
 
-                    val isLabContext = editPractitionerRole == "lab_technician" || clinic?.type == "diagnostic_lab"
+                    val isLabContext = editPractitionerRole == "lab_technician"
                     val specOptions = if (isLabContext) {
-                        listOf(
-                            "MRI Specialist & Radiographer",
-                            "CT Scan Specialist & Technologist",
-                            "Digital X-Ray Technologist",
-                            "Ultrasound (USG) Sonographer",
-                            "Medical Lab Technician (MLT)",
-                            "Pathology & Hematology Specialist",
-                            "Clinical Biochemistry Technician",
-                            "Microbiology Lab Technician",
-                            "ECG & Echo Technician",
-                            "Phlebotomist & Sample Collector",
-                            "Histopathology & Cytology Technician"
-                        )
+                        labSpecializations
                     } else if (masterSpecialtiesList.isNotEmpty()) {
-                        masterSpecialtiesList.map { it.name }
+                        masterSpecialtiesList
+                            .filter { it.category != "system_config" && !it.name.startsWith("system_config") }
+                            .map { it.name }
                     } else {
                         listOf(
+                            "General Medicine & Physician",
                             "General Physician & Medicine",
                             "Dermatologist (Skin & Hair)",
                             "Cardiologist (Heart Care)",
@@ -1505,33 +1514,78 @@ fun DoctorDashboardScreen(
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ExposedDropdownMenuBox(
+                        expanded = editSpecialtyDropdownExpanded,
+                        onExpandedChange = { editSpecialtyDropdownExpanded = !editSpecialtyDropdownExpanded },
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        specOptions.forEach { spec ->
-                            FilterChip(
-                                selected = editSpecialty == spec,
-                                onClick = { editSpecialty = spec },
-                                label = { Text(spec, fontSize = 11.sp) }
-                            )
+                        OutlinedTextField(
+                            value = editSpecialty,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = {
+                                Text(
+                                    if (isLabContext) "Lab Specialization"
+                                    else "Medical Specialty"
+                                )
+                            },
+                            placeholder = {
+                                Text(
+                                    if (isLabContext) "Select lab specialization"
+                                    else "Select medical specialty"
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (isLabContext) Icons.Default.Biotech else Icons.Default.MedicalServices,
+                                    contentDescription = null
+                                )
+                            },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = editSpecialtyDropdownExpanded)
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = editSpecialtyDropdownExpanded,
+                            onDismissRequest = { editSpecialtyDropdownExpanded = false }
+                        ) {
+                            specOptions.forEach { spec ->
+                                val isSelected = editSpecialty == spec ||
+                                    (editSpecialty.isNotBlank() && (
+                                        spec.equals(editSpecialty, ignoreCase = true) ||
+                                        (editSpecialty.startsWith("General", ignoreCase = true) && spec.startsWith("General", ignoreCase = true)) ||
+                                        (editSpecialty.contains("Lab Technician", ignoreCase = true) && spec.contains("Lab Technician", ignoreCase = true))
+                                    ))
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = spec,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        editSpecialty = spec
+                                        editSpecialtyDropdownExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (isLabContext) Icons.Default.Biotech else Icons.Default.MedicalServices,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp),
+                                            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
-
-                    OutlinedTextField(
-                        value = editSpecialty,
-                        onValueChange = { editSpecialty = it },
-                        label = { Text("Specialty") },
-                        placeholder = {
-                            Text(
-                                if (isLabContext) "e.g. MRI Specialist, Medical Lab Technician, Pathology"
-                                else "e.g. Cardiologist, Dermatologist, Pediatrics"
-                            )
-                        },
-                        leadingIcon = { Icon(Icons.Default.MedicalServices, contentDescription = null) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
 
                     // 6. Education / Qualifications (Dropdown / Dropbox instead of scroll buttons)
                     Text("Education / Qualifications *", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
@@ -1703,6 +1757,10 @@ fun DoctorDashboardScreen(
                                     targetDoc.profilePictureUrl
                                 }
 
+                                val resolvedSpecialty = editSpecialty.trim().ifBlank {
+                                    if (editPractitionerRole == "lab_technician") "Medical Lab Technician (MLT)" else "General Medicine & Physician"
+                                }
+
                                 doctorRepository.updateDoctorFullProfile(
                                     id = targetDoc.id,
                                     fullName = editName.trim(),
@@ -1710,7 +1768,7 @@ fun DoctorDashboardScreen(
                                     age = ageInt,
                                     startingYear = yearInt,
                                     pictureUrl = picUrl,
-                                    specialty = editSpecialty.trim(),
+                                    specialty = resolvedSpecialty,
                                     education = editEducation.trim().ifBlank { null },
                                     nmcLicenseNumber = editNmc.trim().ifBlank { null },
                                     personalMobile = editPersonalPhone.trim().ifBlank { null },
@@ -1726,8 +1784,8 @@ fun DoctorDashboardScreen(
                                     age = ageInt,
                                     startingPracticingYear = yearInt,
                                     profilePictureUrl = picUrl,
-                                    specialty = editSpecialty.trim(),
-                                    specialties = listOf(editSpecialty.trim()),
+                                    specialty = resolvedSpecialty,
+                                    specialties = listOf(resolvedSpecialty),
                                     education = editEducation.trim().ifBlank { null },
                                     nmcLicenseNumber = editNmc.trim().ifBlank { null },
                                     personalMobileNumber = editPersonalPhone.trim().ifBlank { null },

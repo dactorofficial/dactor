@@ -831,6 +831,7 @@ class DoctorRepository @Inject constructor(
                     }
                 }
                 .decodeList<MedicalSpecialty>()
+                .filter { it.category != "system_config" && !it.name.startsWith("system_config") }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()

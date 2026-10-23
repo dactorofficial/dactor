@@ -14,6 +14,7 @@ data class Clinic(
     @SerialName("address_text") val addressText: String? = null,
     @SerialName("latitude") val latitude: Double? = null,
     @SerialName("longitude") val longitude: Double? = null,
+    @SerialName("geohash") val geohash: String? = null,
     @SerialName("auto_notify_threshold") val autoNotifyThreshold: Int? = null,
     @SerialName("description") val description: String? = null,
     @SerialName("logo_url") val logoUrl: String? = null,

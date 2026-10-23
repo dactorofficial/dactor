@@ -1,6 +1,7 @@
 package com.dactor.clinic.data.repository
 
 import com.dactor.clinic.data.model.Profile
+import com.dactor.clinic.data.security.AuthDeepLinkValidator
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.gotrue.auth
 import io.github.jan.supabase.gotrue.providers.builtin.Email
@@ -90,25 +91,38 @@ class AuthRepository @Inject constructor(
      * Handles incoming deep links (dactor://auth/callback) from Gmail confirmation clicks.
      */
     suspend fun handleAuthCallback(uri: android.net.Uri): Boolean = withContext(Dispatchers.IO) {
+        handleAuthCallback(uri.toString())
+    }
+
+    suspend fun handleAuthCallback(uriString: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            val fragment = uri.fragment
-            val code = uri.getQueryParameter("code")
-            if (!code.isNullOrBlank()) {
-                supabaseClient.auth.exchangeCodeForSession(code = code, saveSession = true)
-                return@withContext true
-            } else if (!fragment.isNullOrBlank()) {
-                val params = fragment.split("&").associate {
-                    val parts = it.split("=")
-                    if (parts.size == 2) parts[0] to parts[1] else parts[0] to ""
+            val validation = AuthDeepLinkValidator.validate(uriString)
+            when (validation) {
+                is AuthDeepLinkValidator.ValidationResult.Valid -> {
+                    if (!validation.code.isNullOrBlank()) {
+                        supabaseClient.auth.exchangeCodeForSession(code = validation.code, saveSession = true)
+                    } else if (!validation.accessToken.isNullOrBlank() && !validation.refreshToken.isNullOrBlank()) {
+                        supabaseClient.auth.importAuthToken(
+                            accessToken = validation.accessToken,
+                            refreshToken = validation.refreshToken,
+                            autoRefresh = true
+                        )
+                    } else {
+                        return@withContext false
+                    }
+
+                    // Verify live authenticated user session
+                    val currentUser = supabaseClient.auth.currentUserOrNull()
+                    return@withContext (currentUser != null && !currentUser.id.isNullOrBlank())
                 }
-                val accessToken = params["access_token"]
-                val refreshToken = params["refresh_token"]
-                if (!accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank()) {
-                    supabaseClient.auth.importAuthToken(accessToken = accessToken, refreshToken = refreshToken, autoRefresh = true)
-                    return@withContext true
+                is AuthDeepLinkValidator.ValidationResult.AuthError -> {
+                    println("AuthRepository: Deep link auth error: ${validation.error} (${validation.errorCode}): ${validation.errorDescription}")
+                    false
+                }
+                is AuthDeepLinkValidator.ValidationResult.InvalidUri -> {
+                    false
                 }
             }
-            false
         } catch (e: Exception) {
             e.printStackTrace()
             false
@@ -267,6 +281,10 @@ class AuthRepository @Inject constructor(
         return supabaseClient.auth.currentUserOrNull()?.id
     }
 
+    fun getCurrentUserId(): String? {
+        return getCurrentUser()
+    }
+
     fun getCurrentUserEmail(): String? {
         return supabaseClient.auth.currentUserOrNull()?.email
     }
@@ -307,6 +325,7 @@ class AuthRepository @Inject constructor(
                 supabaseClient.postgrest["profiles"].update({
                     set("role", role)
                     if (fullName.isNotBlank()) set("full_name", fullName.trim())
+                    if (authUid.isNotBlank()) set("auth_uid", authUid)
                 }) {
                     filter {
                         eq("id", existing.id)
@@ -314,14 +333,16 @@ class AuthRepository @Inject constructor(
                 }
             } else {
                 val newId = java.util.UUID.randomUUID().toString()
-                supabaseClient.postgrest["profiles"].insert(
-                    mapOf(
-                        "id" to newId,
-                        "email" to trimmedEmail,
-                        "full_name" to fullName.trim(),
-                        "role" to role
-                    )
+                val payload = mutableMapOf<String, Any>(
+                    "id" to newId,
+                    "email" to trimmedEmail,
+                    "full_name" to fullName.trim(),
+                    "role" to role
                 )
+                if (authUid.isNotBlank()) {
+                    payload["auth_uid"] = authUid
+                }
+                supabaseClient.postgrest["profiles"].insert(payload)
             }
             Result.success(true)
         } catch (e: Exception) {

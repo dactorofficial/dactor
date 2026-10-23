@@ -168,9 +168,6 @@ object BillPdfDownloader {
             val hasConsultation = cleanItems.any { it.itemName.contains("Consultation", ignoreCase = true) || it.itemName.contains("OPD", ignoreCase = true) }
 
             val items: List<InvoiceItem> = when {
-                cleanItems.isNotEmpty() && !hasConsultation && opdFee > 0.0 -> {
-                    listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee)) + cleanItems
-                }
                 cleanItems.isNotEmpty() -> cleanItems
                 opdFee > 0.0 -> listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee))
                 invoice != null && invoice.items.isNotEmpty() -> invoice.items
@@ -189,10 +186,12 @@ object BillPdfDownloader {
             val balanceLeft = (finalTotal - effectivePaid).coerceAtLeast(0.0)
 
             for (item in items) {
+                val rowTotal = if (item.total > 0) item.total else (item.price * item.quantity)
+                val unitRate = if (item.price > 0) item.price else if (rowTotal > 0 && item.quantity > 0) rowTotal / item.quantity else 0.0
                 canvas.drawText(item.itemName.take(48), 46f, y, regularPaint)
                 canvas.drawText(item.quantity.toString(), 365f, y, regularPaint)
-                canvas.drawText("Rs. ${item.price.toInt()}", 415f, y, regularPaint)
-                canvas.drawText("Rs. ${item.total.toInt()}", 490f, y, valuePaint)
+                canvas.drawText("Rs. ${unitRate.toInt()}", 415f, y, regularPaint)
+                canvas.drawText("Rs. ${rowTotal.toInt()}", 490f, y, valuePaint)
                 y += 16f
                 canvas.drawLine(36f, y - 8f, 559f, y - 8f, linePaint)
             }

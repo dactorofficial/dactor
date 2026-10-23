@@ -23,5 +23,13 @@ data class Appointment(
     @SerialName("fee_amount") val feeAmount: Double = 0.0,
     @SerialName("is_walkin") val isWalkin: Boolean = false,
     @SerialName("opt_in_early_call") val optInEarlyCall: Boolean = false,
-    @SerialName("selected_lab_tests") val selectedLabTests: String? = null
+    @SerialName("selected_lab_tests") val selectedLabTests: String? = null,
+    @SerialName("payment_mode") val paymentMode: String = "ONLINE",
+    @SerialName("status") val status: String = "APPROVED",
+    @SerialName("attempt_number") val attemptNumber: Int = 1,
+    @SerialName("service_charge_amount") val serviceChargeAmount: Double = 0.0,
+    @SerialName("total_amount") val totalAmount: Double = 0.0,
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("approved_at") val approvedAt: String? = null,
+    @SerialName("rejected_at") val rejectedAt: String? = null
 )

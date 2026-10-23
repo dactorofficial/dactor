@@ -46,10 +46,17 @@ object PaymentLedgerHelper {
 
     fun extractCleanClinicalRemarks(rawRemarks: String?): String {
         if (rawRemarks.isNullOrBlank()) return ""
-        if (!rawRemarks.contains(START_TAG)) return rawRemarks.trim()
-        val before = rawRemarks.substringBefore(START_TAG).trim()
-        val after = if (rawRemarks.contains(END_TAG)) rawRemarks.substringAfter(END_TAG).trim() else ""
-        return listOf(before, after).filter { it.isNotBlank() }.joinToString("\n").trim()
+        var text = rawRemarks
+        // 1. Remove PAYMENT_LOG block case-insensitively
+        text = text.replace(Regex("(?i)<!--PAYMENT_LOG_START-->[\\s\\S]*?<!--PAYMENT_LOG_END-->"), "")
+        // 2. Remove any other HTML comments
+        text = text.replace(Regex("<!--[\\s\\S]*?-->"), "")
+        // 3. Remove standalone json lines containing payment record fields if tags were malformed
+        text = text.lines().filterNot { line ->
+            val l = line.trim()
+            l.startsWith("[{\"id\":") || l.startsWith("{\"id\":") || (l.contains("\"amount\":") && l.contains("\"date_time\":"))
+        }.joinToString("\n")
+        return text.trim()
     }
 
     fun buildCombinedRemarks(cleanRemarks: String, paymentRecords: List<PaymentRecord>): String {

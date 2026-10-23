@@ -128,7 +128,7 @@ fun ClinicTermsAndConditionsDialog(
                             )
                             ClinicSectionCard(
                                 title = "2. What We Do With Clinic & Patient Data",
-                                body = "• Data Collected: Clinic registration information, PAN/tax details, staff emails, doctor schedules, patient appointment tokens, diagnostic lab test catalogs, and uploaded lab report documents.\n" +
+                                body = "• Data Collected: Clinic registration information, PAN/tax details, staff emails, optional Google Sign-In profile (name, email, avatar), doctor schedules, patient appointment tokens, diagnostic lab test catalogs, and uploaded lab report documents.\n" +
                                         "• Use of Data: Used strictly for clinic operations, real-time queue synchronization, verified lab report delivery, invoicing, and high-priority patient push notifications.\n" +
                                         "• Zero Third-Party Selling: Dactor never sells, rents, or monetizes clinic or patient records to third-party marketing companies."
                             )

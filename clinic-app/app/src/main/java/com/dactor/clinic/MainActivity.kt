@@ -14,6 +14,7 @@ import com.dactor.clinic.data.local.RegistrationDraftManager
 import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.repository.*
+import com.dactor.clinic.data.security.AuthDeepLinkValidator
 import com.dactor.clinic.ui.navigation.DactorClinicNavHost
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
@@ -136,45 +137,78 @@ class MainActivity : ComponentActivity() {
 
     private fun handleDeepLink(intent: Intent?) {
         val uri = intent?.data ?: return
+
+        // R1: Pre-validate URI strictly against dactor://auth/callback
+        val validation = AuthDeepLinkValidator.validate(uri.toString())
+        if (validation !is AuthDeepLinkValidator.ValidationResult.Valid) {
+            return
+        }
+
         lifecycleScope.launch(Dispatchers.IO) {
             try {
+                // R1 & R3: Execute deep link auth callback and verify live session
                 val handled = authRepository.handleAuthCallback(uri)
-                if (handled || uri.scheme.equals("dactor", ignoreCase = true)) {
-                    // Deep link confirmed! If drafts are saved, sync directly to server
-                    val clinicDraft = draftManager.getClinicDraft()
-                    if (clinicDraft != null) {
-                        val clinic = Clinic(
-                            id = UUID.randomUUID().toString(),
-                            name = clinicDraft.name.trim(),
-                            type = clinicDraft.type,
-                            verificationStatus = "approved",
-                            contactPhone = clinicDraft.phone.trim(),
-                            contactEmail = clinicDraft.email.trim().lowercase(),
-                            addressText = clinicDraft.address.trim(),
-                            latitude = clinicDraft.latitude,
-                            longitude = clinicDraft.longitude,
-                            autoNotifyThreshold = 2,
-                            description = clinicDraft.description?.trim()?.ifBlank { null }
-                        )
-                        clinicRepository.createClinic(clinic)
-                        draftManager.clearClinicDraft()
-                    }
+                if (!handled) {
+                    return@launch
+                }
 
-                    val doctorDraft = draftManager.getDoctorDraft()
-                    if (doctorDraft != null) {
-                        val doctor = Doctor(
-                            id = UUID.randomUUID().toString(),
-                            fullName = doctorDraft.fullName.trim(),
-                            email = doctorDraft.email.trim().lowercase(),
-                            specialty = doctorDraft.specialty.trim(),
-                            nmcLicenseNumber = "NMC-VERIFIED",
-                            kycStatus = "approved",
-                            isInClinic = true,
-                            consultationFee = doctorDraft.fee
-                        )
-                        doctorRepository.createDoctor(doctor)
-                        draftManager.clearDoctorDraft()
-                    }
+                // R3: Strictly verify active authenticated user session
+                val currentUserId = authRepository.getCurrentUserId() ?: authRepository.getCurrentUser()
+                if (currentUserId.isNullOrBlank()) {
+                    return@launch
+                }
+                val currentUserEmail = authRepository.getCurrentUserEmail()?.lowercase() ?: ""
+
+                // R2 & R3: Sync Clinic Draft (strictly pending_verification, bound to verified user)
+                val clinicDraft = draftManager.getClinicDraft()
+                if (clinicDraft != null) {
+                    val clinicEmail = if (currentUserEmail.isNotBlank()) currentUserEmail else clinicDraft.email.trim().lowercase()
+                    val clinic = Clinic(
+                        id = UUID.randomUUID().toString(),
+                        name = clinicDraft.name.trim(),
+                        type = clinicDraft.type,
+                        verificationStatus = "pending_verification",
+                        contactPhone = clinicDraft.phone.trim(),
+                        contactEmail = clinicEmail,
+                        addressText = clinicDraft.address.trim(),
+                        latitude = clinicDraft.latitude,
+                        longitude = clinicDraft.longitude,
+                        autoNotifyThreshold = 2,
+                        description = clinicDraft.description?.trim()?.ifBlank { null }
+                    )
+                    clinicRepository.createClinic(clinic)
+                    authRepository.syncProfile(
+                        authUid = currentUserId,
+                        email = clinicEmail,
+                        fullName = clinicDraft.name.trim(),
+                        role = "clinic_admin"
+                    )
+                    draftManager.clearClinicDraft()
+                }
+
+                // R2 & R3: Sync Doctor Draft (strictly pending, never NMC-VERIFIED, bound to verified user)
+                val doctorDraft = draftManager.getDoctorDraft()
+                if (doctorDraft != null) {
+                    val doctorEmail = if (currentUserEmail.isNotBlank()) currentUserEmail else doctorDraft.email.trim().lowercase()
+                    val doctor = Doctor(
+                        id = UUID.randomUUID().toString(),
+                        userId = currentUserId,
+                        fullName = doctorDraft.fullName.trim(),
+                        email = doctorEmail,
+                        specialty = doctorDraft.specialty.trim(),
+                        nmcLicenseNumber = "PENDING",
+                        kycStatus = "pending",
+                        isInClinic = false,
+                        consultationFee = doctorDraft.fee
+                    )
+                    doctorRepository.createDoctor(doctor)
+                    authRepository.syncProfile(
+                        authUid = currentUserId,
+                        email = doctorEmail,
+                        fullName = doctorDraft.fullName.trim(),
+                        role = "doctor"
+                    )
+                    draftManager.clearDoctorDraft()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

@@ -168,8 +168,8 @@ fun OpenStreetMapPicker(
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val provider = when {
-                    locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
                     locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                    locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
                     else -> LocationManager.PASSIVE_PROVIDER
                 }
                 locManager.getCurrentLocation(provider, null, context.mainExecutor) { liveLoc ->
@@ -198,10 +198,10 @@ fun OpenStreetMapPicker(
                     override fun onProviderEnabled(p: String) {}
                     override fun onProviderDisabled(p: String) {}
                 }
-                if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                    locManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, listener, Looper.getMainLooper())
-                } else if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                     locManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, listener, Looper.getMainLooper())
+                } else if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, listener, Looper.getMainLooper())
                 }
             }
         } catch (e: Exception) {
@@ -396,7 +396,7 @@ fun OpenStreetMapPicker(
                     }
                 }
 
-                // Map Container (100% Self-Contained Slippy Tile Map Engine — zero external JS dependencies)
+                // Map Container (Leaflet Engine with CARTO Voyager raster tiles)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -441,341 +441,157 @@ fun OpenStreetMapPicker(
                                     <head>
                                       <meta charset="utf-8" />
                                       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                                      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';" />
                                       <style>
-                                        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
-                                        html, body {
-                                          margin: 0; padding: 0; width: 100%; height: 100%;
-                                          overflow: hidden; background: #e8f0f8;
-                                          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                                          touch-action: none;
-                                        }
-                                        #mapViewport {
-                                          position: relative; width: 100%; height: 100%;
-                                          overflow: hidden; cursor: grab;
-                                          background: linear-gradient(180deg, #e2eef8 0%, #d8e8f4 100%);
-                                        }
-                                        #gridCanvas {
-                                          position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-                                          pointer-events: none; z-index: 1;
-                                        }
-                                        #tileLayer {
-                                          position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-                                          z-index: 2; pointer-events: none;
-                                        }
-                                        .map-tile {
-                                          position: absolute; width: 256px; height: 256px;
-                                          border: none; pointer-events: none;
-                                          transition: opacity 0.15s ease;
-                                        }
-                                        #pinOverlay {
-                                          position: absolute; z-index: 10; pointer-events: none;
+                                        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+                                        html, body, #map { width: 100%; height: 100%; overflow: hidden; background: #e2e8f0; }
+                                        .center-pin-container {
+                                          position: absolute;
+                                          top: 50%;
+                                          left: 50%;
                                           transform: translate(-50%, -100%);
+                                          z-index: 1000;
+                                          pointer-events: none;
                                           filter: drop-shadow(0 4px 6px rgba(0,0,0,0.35));
+                                          transition: transform 0.15s ease-out;
                                         }
-                                        .zoom-controls {
-                                          position: absolute; right: 12px; bottom: 16px; z-index: 20;
-                                          display: flex; flex-direction: column; gap: 6px;
+                                        .pin-shadow {
+                                          position: absolute;
+                                          top: 50%;
+                                          left: 50%;
+                                          transform: translate(-50%, -50%);
+                                          width: 14px;
+                                          height: 6px;
+                                          background: rgba(15, 23, 42, 0.35);
+                                          border-radius: 50%;
+                                          z-index: 999;
+                                          pointer-events: none;
                                         }
-                                        .zoom-btn {
-                                          width: 38px; height: 38px; border-radius: 10px;
-                                          background: rgba(255,255,255,0.95); border: 1px solid #cbd5e1;
+                                        .leaflet-control-attribution, .leaflet-control-zoom { display: none !important; }
+                                        .custom-controls {
+                                          position: absolute;
+                                          right: 12px;
+                                          bottom: 16px;
+                                          z-index: 1001;
+                                          display: flex;
+                                          flex-direction: column;
+                                          gap: 6px;
+                                        }
+                                        .ctrl-btn {
+                                          width: 38px;
+                                          height: 38px;
+                                          border-radius: 10px;
+                                          background: rgba(255,255,255,0.95);
+                                          border: 1px solid #cbd5e1;
                                           box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-                                          font-size: 20px; font-weight: bold; color: #0f172a;
-                                          display: flex; align-items: center; justify-content: center;
+                                          font-size: 20px;
+                                          font-weight: bold;
+                                          color: #0f172a;
+                                          display: flex;
+                                          align-items: center;
+                                          justify-content: center;
                                           cursor: pointer;
                                         }
-                                        .zoom-btn:active { background: #e2e8f0; }
+                                        .ctrl-btn:active { background: #e2e8f0; }
                                       </style>
+                                      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';document.head.appendChild(s);"></script>
                                     </head>
                                     <body>
-                                      <div id="mapViewport">
-                                        <canvas id="gridCanvas"></canvas>
-                                        <div id="tileLayer"></div>
-                                        <div id="pinOverlay">
-                                          <svg width="38" height="48" viewBox="0 0 34 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M17 0C7.61 0 0 7.61 0 17c0 13.5 17 27 17 27s17-13.5 17-27C34 7.61 26.39 0 17 0z" fill="#0284C7"/>
-                                            <circle cx="17" cy="17" r="7.5" fill="#FFFFFF"/>
-                                            <circle cx="17" cy="17" r="3.5" fill="#0284C7"/>
-                                          </svg>
-                                        </div>
-                                        <div class="zoom-controls">
-                                          <button class="zoom-btn" id="btnZoomIn">+</button>
-                                          <button class="zoom-btn" id="btnZoomOut">−</button>
-                                        </div>
+                                      <div id="map"></div>
+                                      <div class="pin-shadow"></div>
+                                      <div class="center-pin-container" id="centerPin">
+                                        <svg width="40" height="50" viewBox="0 0 34 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                          <path d="M17 0C7.61 0 0 7.61 0 17c0 13.5 17 27 17 27s17-13.5 17-27C34 7.61 26.39 0 17 0z" fill="#0284C7"/>
+                                          <circle cx="17" cy="17" r="7.5" fill="#FFFFFF"/>
+                                          <circle cx="17" cy="17" r="3.5" fill="#0284C7"/>
+                                        </svg>
+                                      </div>
+                                      <div class="custom-controls">
+                                        <button class="ctrl-btn" id="btnZoomIn">+</button>
+                                        <button class="ctrl-btn" id="btnZoomOut">−</button>
                                       </div>
                                       <script>
                                         (function() {
-                                          var viewport = document.getElementById('mapViewport');
-                                          var tileLayer = document.getElementById('tileLayer');
-                                          var pinOverlay = document.getElementById('pinOverlay');
-                                          var gridCanvas = document.getElementById('gridCanvas');
-                                          var ctx = gridCanvas.getContext('2d');
+                                          var initLat = $currentLat;
+                                          var initLng = $currentLng;
+                                          var map = null;
 
-                                          var zoom = 15;
-                                          var centerLat = $currentLat;
-                                          var centerLng = $currentLng;
-                                          var pinLat = $currentLat;
-                                          var pinLng = $currentLng;
-
-                                          var tileCache = {};
-
-                                          function lng2tileX(lng, z) {
-                                            return ((lng + 180) / 360) * Math.pow(2, z);
-                                          }
-                                          function lat2tileY(lat, z) {
-                                            var rad = lat * Math.PI / 180;
-                                            return (1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * Math.pow(2, z);
-                                          }
-                                          function tileX2lng(x, z) {
-                                            return x / Math.pow(2, z) * 360 - 180;
-                                          }
-                                          function tileY2lat(y, z) {
-                                            var n = Math.PI - 2 * Math.PI * y / Math.pow(2, z);
-                                            return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-                                          }
-
-                                          function getTileUrls(z, x, y) {
-                                            var maxTile = Math.pow(2, z);
-                                            var wrappedX = ((x % maxTile) + maxTile) % maxTile;
-                                            var sub = ['a', 'b', 'c'][Math.abs(wrappedX + y) % 3];
-                                            return [
-                                              'https://tile.openstreetmap.org/' + z + '/' + wrappedX + '/' + y + '.png',
-                                              'https://' + sub + '.basemaps.cartocdn.com/rastertiles/voyager/' + z + '/' + wrappedX + '/' + y + '.png',
-                                              'https://tile.openstreetmap.fr/hot/' + z + '/' + wrappedX + '/' + y + '.png'
-                                            ];
-                                          }
-
-                                          function drawFallbackGrid(w, h, cx, cy) {
-                                            if (gridCanvas.width !== w || gridCanvas.height !== h) {
-                                              gridCanvas.width = w;
-                                              gridCanvas.height = h;
+                                          function initMap() {
+                                            if (typeof L === 'undefined') {
+                                              setTimeout(initMap, 100);
+                                              return;
                                             }
-                                            ctx.clearRect(0, 0, w, h);
-                                            ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
-                                            ctx.lineWidth = 1;
-                                            var step = 64;
-                                            var offX = (-(cx * 256) % step + step) % step;
-                                            var offY = (-(cy * 256) % step + step) % step;
-                                            for (var x = offX; x < w; x += step) {
-                                              ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-                                            }
-                                            for (var y = offY; y < h; y += step) {
-                                              ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-                                            }
-                                          }
+                                            try {
+                                              map = L.map('map', {
+                                                center: [initLat, initLng],
+                                                zoom: 15,
+                                                zoomControl: false,
+                                                attributionControl: false
+                                              });
 
-                                          function render() {
-                                            var w = viewport.clientWidth || window.innerWidth || 320;
-                                            var h = viewport.clientHeight || window.innerHeight || 320;
-                                            var cx = lng2tileX(centerLng, zoom);
-                                            var cy = lat2tileY(centerLat, zoom);
+                                              L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                                                subdomains: 'abcd',
+                                                maxZoom: 19,
+                                                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+                                              }).addTo(map);
 
-                                            drawFallbackGrid(w, h, cx, cy);
+                                              setTimeout(function() { map.invalidateSize(); }, 150);
+                                              setTimeout(function() { map.invalidateSize(); }, 400);
 
-                                            var startX = Math.floor(cx - (w / 2) / 256) - 1;
-                                            var endX = Math.ceil(cx + (w / 2) / 256) + 1;
-                                            var startY = Math.floor(cy - (h / 2) / 256) - 1;
-                                            var endY = Math.ceil(cy + (h / 2) / 256) + 1;
-                                            var maxTile = Math.pow(2, zoom);
-
-                                            var activeKeys = {};
-                                            for (var tx = startX; tx <= endX; tx++) {
-                                              for (var ty = startY; ty <= endY; ty++) {
-                                                if (ty < 0 || ty >= maxTile) continue;
-                                                var key = zoom + '_' + tx + '_' + ty;
-                                                activeKeys[key] = true;
-                                                var img = tileCache[key];
-                                                if (!img) {
-                                                  img = document.createElement('img');
-                                                  img.className = 'map-tile';
-                                                  img.alt = '';
-                                                  var urls = getTileUrls(zoom, tx, ty);
-                                                  var urlIdx = 0;
-                                                  img.onerror = function() {
-                                                    urlIdx++;
-                                                    if (urlIdx < urls.length) {
-                                                      this.src = urls[urlIdx];
-                                                    } else {
-                                                      this.style.opacity = '0';
-                                                    }
-                                                  };
-                                                  img.onload = function() {
-                                                    this.style.opacity = '1';
-                                                  };
-                                                  img.src = urls[0];
-                                                  tileLayer.appendChild(img);
-                                                  tileCache[key] = img;
+                                              var debounceTimer;
+                                              function emitLocation() {
+                                                if (!map) return;
+                                                var c = map.getCenter();
+                                                if (window.AndroidInterface && window.AndroidInterface.onMarkerMoved) {
+                                                  window.AndroidInterface.onMarkerMoved(c.lat, c.lng);
                                                 }
-                                                var px = Math.round((w / 2) + (tx - cx) * 256);
-                                                var py = Math.round((h / 2) + (ty - cy) * 256);
-                                                img.style.left = px + 'px';
-                                                img.style.top = py + 'px';
                                               }
-                                            }
 
-                                            for (var k in tileCache) {
-                                              if (!activeKeys[k]) {
-                                                var oldImg = tileCache[k];
-                                                if (oldImg && oldImg.parentNode) {
-                                                  oldImg.parentNode.removeChild(oldImg);
-                                                }
-                                                delete tileCache[k];
-                                              }
-                                            }
+                                              map.on('movestart', function() {
+                                                var pin = document.getElementById('centerPin');
+                                                if (pin) pin.style.transform = 'translate(-50%, -115%) scale(1.05)';
+                                              });
 
-                                            // Position marker pin
-                                            var pinTileX = lng2tileX(pinLng, zoom);
-                                            var pinTileY = lat2tileY(pinLat, zoom);
-                                            var pinPx = (w / 2) + (pinTileX - cx) * 256;
-                                            var pinPy = (h / 2) + (pinTileY - cy) * 256;
-                                            pinOverlay.style.left = pinPx + 'px';
-                                            pinOverlay.style.top = pinPy + 'px';
-                                          }
+                                              map.on('moveend', function() {
+                                                var pin = document.getElementById('centerPin');
+                                                if (pin) pin.style.transform = 'translate(-50%, -100%) scale(1)';
+                                                clearTimeout(debounceTimer);
+                                                debounceTimer = setTimeout(emitLocation, 60);
+                                              });
 
-                                          function notifyAndroid(lat, lng) {
-                                            if (window.AndroidInterface && window.AndroidInterface.onMarkerMoved) {
-                                              window.AndroidInterface.onMarkerMoved(lat, lng);
-                                            }
-                                          }
+                                              map.on('click', function(e) {
+                                                map.flyTo(e.latlng, map.getZoom(), { duration: 1.0 });
+                                              });
 
-                                          // Pointer / Touch Drag & Tap Handling
-                                          var isDragging = false;
-                                          var startX = 0, startY = 0;
-                                          var lastX = 0, lastY = 0;
-                                          var movedDist = 0;
-
-                                          function onStart(clientX, clientY) {
-                                            isDragging = true;
-                                            startX = lastX = clientX;
-                                            startY = lastY = clientY;
-                                            movedDist = 0;
-                                          }
-
-                                          function onMove(clientX, clientY) {
-                                            if (!isDragging) return;
-                                            var dx = clientX - lastX;
-                                            var dy = clientY - lastY;
-                                            lastX = clientX;
-                                            lastY = clientY;
-                                            movedDist += Math.abs(dx) + Math.abs(dy);
-
-                                            var cx = lng2tileX(centerLng, zoom) - (dx / 256);
-                                            var cy = lat2tileY(centerLat, zoom) - (dy / 256);
-                                            centerLng = tileX2lng(cx, zoom);
-                                            centerLat = Math.max(-85, Math.min(85, tileY2lat(cy, zoom)));
-                                            render();
-                                          }
-
-                                          function onEnd(clientX, clientY) {
-                                            if (!isDragging) return;
-                                            isDragging = false;
-                                            if (movedDist < 10) {
-                                              var rect = viewport.getBoundingClientRect();
-                                              var clickX = clientX - rect.left;
-                                              var clickY = clientY - rect.top;
-                                              var w = viewport.clientWidth || 320;
-                                              var h = viewport.clientHeight || 320;
-                                              var cx = lng2tileX(centerLng, zoom);
-                                              var cy = lat2tileY(centerLat, zoom);
-                                              var targetTileX = cx + (clickX - w / 2) / 256;
-                                              var targetTileY = cy + (clickY - h / 2) / 256;
-                                              pinLng = tileX2lng(targetTileX, zoom);
-                                              pinLat = Math.max(-85, Math.min(85, tileY2lat(targetTileY, zoom)));
-                                              render();
-                                              notifyAndroid(pinLat, pinLng);
+                                              document.getElementById('btnZoomIn').onclick = function() {
+                                                if (map) map.zoomIn();
+                                              };
+                                              document.getElementById('btnZoomOut').onclick = function() {
+                                                if (map) map.zoomOut();
+                                              };
+                                            } catch (e) {
+                                              console.error(e);
                                             }
                                           }
-
-                                          viewport.addEventListener('mousedown', function(e) {
-                                            if (e.target.tagName === 'BUTTON') return;
-                                            onStart(e.clientX, e.clientY);
-                                          });
-                                          window.addEventListener('mousemove', function(e) {
-                                            onMove(e.clientX, e.clientY);
-                                          });
-                                          window.addEventListener('mouseup', function(e) {
-                                            onEnd(e.clientX, e.clientY);
-                                          });
-
-                                          var pinchDist = 0;
-                                          var lastTap = 0;
-                                          viewport.addEventListener('touchstart', function(e) {
-                                            if (e.target.tagName === 'BUTTON') return;
-                                            if (e.touches.length === 1) {
-                                              pinchDist = 0;
-                                              onStart(e.touches[0].clientX, e.touches[0].clientY);
-                                            } else if (e.touches.length === 2) {
-                                              isDragging = false;
-                                              var dx = e.touches[0].clientX - e.touches[1].clientX;
-                                              var dy = e.touches[0].clientY - e.touches[1].clientY;
-                                              pinchDist = Math.sqrt(dx * dx + dy * dy);
-                                            }
-                                          }, { passive: true });
-                                          viewport.addEventListener('touchmove', function(e) {
-                                            if (e.touches.length === 1 && !pinchDist) {
-                                              onMove(e.touches[0].clientX, e.touches[0].clientY);
-                                            } else if (e.touches.length === 2) {
-                                              var dx = e.touches[0].clientX - e.touches[1].clientX;
-                                              var dy = e.touches[0].clientY - e.touches[1].clientY;
-                                              var d = Math.sqrt(dx * dx + dy * dy);
-                                              if (pinchDist > 0) {
-                                                if (d - pinchDist > 40 && zoom < 19) {
-                                                  zoom++;
-                                                  pinchDist = d;
-                                                  render();
-                                                } else if (pinchDist - d > 40 && zoom > 4) {
-                                                  zoom--;
-                                                  pinchDist = d;
-                                                  render();
-                                                }
-                                              } else {
-                                                pinchDist = d;
-                                              }
-                                            }
-                                          }, { passive: true });
-                                          viewport.addEventListener('touchend', function(e) {
-                                            pinchDist = 0;
-                                            var now = Date.now();
-                                            if (now - lastTap < 300 && zoom < 19) {
-                                              zoom++;
-                                              render();
-                                            }
-                                            lastTap = now;
-                                            var t = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : { clientX: lastX, clientY: lastY };
-                                            onEnd(t.clientX, t.clientY);
-                                          }, { passive: true });
-
-                                          document.getElementById('btnZoomIn').addEventListener('click', function(e) {
-                                            e.stopPropagation();
-                                            if (zoom < 19) { zoom++; render(); }
-                                          });
-                                          document.getElementById('btnZoomOut').addEventListener('click', function(e) {
-                                            e.stopPropagation();
-                                            if (zoom > 4) { zoom--; render(); }
-                                          });
 
                                           window.moveToCoords = function(lat, lng) {
-                                            centerLat = lat;
-                                            centerLng = lng;
-                                            pinLat = lat;
-                                            pinLng = lng;
-                                            render();
-                                            notifyAndroid(lat, lng);
+                                            if (map) {
+                                              map.flyTo([lat, lng], Math.max(map.getZoom(), 15), { duration: 1.2 });
+                                            }
                                           };
 
-                                          window.addEventListener('resize', render);
-                                          setTimeout(render, 50);
-                                          setTimeout(render, 250);
-                                          setTimeout(render, 600);
-                                          setTimeout(render, 1200);
-                                          render();
+                                          window.addEventListener('resize', function() {
+                                            if (map) map.invalidateSize();
+                                          });
+
+                                          initMap();
                                         })();
                                       </script>
                                     </body>
                                     </html>
                                 """.trimIndent()
 
-                                loadDataWithBaseURL("https://www.openstreetmap.org", html, "text/html", "UTF-8", null)
+                                loadDataWithBaseURL("https://basemaps.cartocdn.com", html, "text/html", "UTF-8", null)
                                 webViewRef = this
                             }
                         },

@@ -22,7 +22,7 @@ data class PaymentGatewaysConfig(
     @SerialName("esewa") val esewa: GatewayCredentialItem = GatewayCredentialItem(
         enabled = true,
         providerName = "eSewa Mobile Wallet",
-        environment = "live",
+        environment = "test",
         callbackUrl = "https://dactor.np/payment/esewa/callback"
     ),
     @SerialName("khalti") val khalti: GatewayCredentialItem = GatewayCredentialItem(
@@ -86,7 +86,7 @@ data class PaymentGatewaysConfig(
         return if (enabledList.isNotEmpty()) enabledList else listOf("esewa" to esewa)
     }
 
-    fun toJson(): String = encode(this)
+    fun toJson(): String = encode(this.copy(esewa = esewa.copy(secretKey = ""), khalti = khalti.copy(secretKey = ""), fonepay = fonepay.copy(secretKey = ""), connectips = connectips.copy(secretKey = ""), custom = custom.copy(secretKey = "")))
 
     companion object {
         private val json = Json {

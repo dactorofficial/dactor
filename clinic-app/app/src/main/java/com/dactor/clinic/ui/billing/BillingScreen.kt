@@ -10,8 +10,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -99,6 +101,7 @@ fun BillingScreen(
     var lineItems by remember { mutableStateOf<List<InvoiceLineItem>>(emptyList()) }
     var manualItemName by remember { mutableStateOf("") }
     var manualItemPrice by remember { mutableStateOf("") }
+    var customClinicServices by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
 
     // Follow-up Payment Input (New payment to record in this session)
     var newPaymentDate by remember { mutableStateOf(today) }
@@ -142,13 +145,17 @@ fun BillingScreen(
             if (existingInv != null) {
                 val cleanItems = existingInv.items.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) }
                 val mapped = cleanItems.map {
-                    InvoiceLineItem(name = it.itemName, unitPrice = it.price, quantity = it.quantity)
+                    val uPrice = if (it.price > 0.0) it.price else if (it.total > 0.0 && it.quantity > 0) it.total / it.quantity else 0.0
+                    InvoiceLineItem(name = it.itemName, unitPrice = uPrice, quantity = it.quantity)
                 }
-                val hasOpd = mapped.any { it.name.contains("Consultation", ignoreCase = true) || it.name.contains("OPD", ignoreCase = true) }
-                lineItems = if (!hasOpd && opdFee > 0.0) {
-                    listOf(InvoiceLineItem(name = "OPD Doctor Consultation", unitPrice = opdFee, quantity = 1)) + mapped
-                } else {
+                lineItems = if (mapped.isNotEmpty()) {
                     mapped
+                } else if (opdFee > 0.0) {
+                    listOf(InvoiceLineItem(name = "OPD Doctor Consultation", unitPrice = opdFee, quantity = 1))
+                } else if (existingInv.totalAmount > 0.0) {
+                    listOf(InvoiceLineItem(name = "OPD Consultation & Clinical Services", unitPrice = existingInv.totalAmount, quantity = 1))
+                } else {
+                    emptyList()
                 }
                 paymentRecords = PaymentLedgerHelper.parsePaymentRecords(
                     rawRemarks = existingInv.remarks,
@@ -196,13 +203,36 @@ fun BillingScreen(
                 doctorsMap = docs.associateBy { it.id }
             } catch (_: Exception) {}
         }
+        val combinedServicesList = mutableListOf<Pair<String, Double>>()
+        if (clinicRepository != null) {
+            try {
+                val srvs = clinicRepository.getClinicServices(effectiveClinicId)
+                combinedServicesList.addAll(srvs.map { Pair(it.serviceName, it.price) })
+            } catch (_: Exception) {}
+        }
+        if (billingRepository != null) {
+            try {
+                val cat = billingRepository.getCatalog(effectiveClinicId)
+                combinedServicesList.addAll(cat.map { Pair(it.itemName, it.price) })
+            } catch (_: Exception) {}
+        }
+        if (combinedServicesList.isNotEmpty()) {
+            customClinicServices = combinedServicesList.distinctBy { it.first.trim().lowercase() }
+        }
         if (appointmentRepository != null) {
             val appts = appointmentRepository.getAppointmentsByClinic(effectiveClinicId)
             clinicAppointments = appts
 
             if (billingRepository != null) {
                 val invList = billingRepository.getInvoicesForClinic(effectiveClinicId)
-                invoicesMap = invList.associateBy { it.appointmentId }
+                invoicesMap = invList.groupBy { it.appointmentId }
+                    .mapValues { (_, rows) ->
+                        rows.sortedWith(
+                            compareByDescending<BillingInvoice> { it.updatedAt ?: it.paidAt ?: it.createdAt ?: "" }
+                                .thenByDescending { it.items.isNotEmpty() }
+                                .thenByDescending { it.totalAmount }
+                        ).first()
+                    }
             }
 
             // Auto-select initial appointment if specified or default to first
@@ -257,20 +287,39 @@ fun BillingScreen(
     val totalPaid = loggedPaidSum + parsedNewPayment
     val totalAmount = if (lineItemsSum > 0.0) lineItemsSum else totalPaid
     val balanceDue = (totalAmount - totalPaid).coerceAtLeast(0.0)
+    val pendingManualPrice = manualItemPrice.trim().replace(",", "").toDoubleOrNull() ?: 0.0
+    val hasPendingManualItem = manualItemName.trim().isNotBlank() && pendingManualPrice > 0.0
 
     val currentInvoice = selectedAppointment?.let { invoicesMap[it.id] }
 
-    val quickCatalogItems = listOf(
-        Pair("12-Lead ECG Test", 1000.0),
-        Pair("CT Scan", 500.0),
-        Pair("General OPD Consultation", 500.0),
-        Pair("Complete Blood Count (CBC)", 650.0),
-        Pair("Ultrasonography (USG)", 1500.0),
-        Pair("MRI Scan", 5000.0),
-        Pair("Digital X-Ray", 800.0),
-        Pair("Wound Dressing & Care", 350.0),
-        Pair("Lipid Profile Test", 1200.0)
-    )
+    val quickCatalogItems = remember(customClinicServices) {
+        val defaultCatalog = listOf(
+            Pair("12-Lead ECG Test", 1000.0),
+            Pair("CT Scan", 500.0),
+            Pair("General OPD Consultation", 500.0),
+            Pair("Complete Blood Count (CBC)", 650.0),
+            Pair("Ultrasonography (USG)", 1500.0),
+            Pair("MRI Scan", 5000.0),
+            Pair("Digital X-Ray", 800.0),
+            Pair("Wound Dressing & Care", 350.0),
+            Pair("Lipid Profile Test", 1200.0)
+        )
+        val seen = mutableSetOf<String>()
+        val result = mutableListOf<Pair<String, Double>>()
+        for (item in customClinicServices) {
+            val k = item.first.trim().lowercase()
+            if (k.isNotBlank() && seen.add(k)) {
+                result.add(item)
+            }
+        }
+        for (item in defaultCatalog) {
+            val k = item.first.trim().lowercase()
+            if (seen.add(k)) {
+                result.add(item)
+            }
+        }
+        result
+    }
 
     Scaffold(
         topBar = {
@@ -424,22 +473,26 @@ fun BillingScreen(
                                 directoryFilteredAppointments.take(8).forEach { appt ->
                                     val isSelected = selectedAppointment?.id == appt.id
                                     val apptInvoice = invoicesMap[appt.id]
-                                    val totalBilled = when {
+                                    val totalBilled = if (isSelected && (totalAmount > 0.0 || lineItems.isNotEmpty())) {
+                                        totalAmount
+                                    } else when {
                                         apptInvoice != null && apptInvoice.totalAmount > 0.0 -> apptInvoice.totalAmount
                                         (appt.feeAmount ?: 0.0) > 0.0 -> appt.feeAmount ?: 0.0
                                         else -> 0.0
                                     }
-                                    val totalPaid = when {
-                                        apptInvoice != null && (apptInvoice.paidAmount != null || apptInvoice.totalAmount > 0.0) -> apptInvoice.effectivePaidAmount
+                                    val rowPaid = if (isSelected && (totalPaid > 0.0 || lineItems.isNotEmpty())) {
+                                        totalPaid
+                                    } else when {
+                                        apptInvoice != null && (apptInvoice.paidAmount > 0.0 || apptInvoice.totalAmount > 0.0) -> apptInvoice.effectivePaidAmount
                                         appt.paymentStatus.equals("paid", ignoreCase = true) -> totalBilled
                                         else -> 0.0
                                     }
-                                    val balanceLeft = (totalBilled - totalPaid).coerceAtLeast(0.0)
+                                    val balanceLeft = (totalBilled - rowPaid).coerceAtLeast(0.0)
 
                                     val statusBadge = when {
                                         totalBilled <= 0.0 -> "NO BILL"
                                         balanceLeft <= 0.0 -> "PAID"
-                                        totalPaid > 0.0 -> "PARTIAL"
+                                        rowPaid > 0.0 -> "PARTIAL"
                                         else -> "UNPAID"
                                     }
 
@@ -506,7 +559,7 @@ fun BillingScreen(
                                                 }
                                                 if (totalBilled > 0.0) {
                                                     Text(
-                                                        text = "Bill: Rs. ${totalBilled.toInt()} | Paid: Rs. ${totalPaid.toInt()}",
+                                                        text = "Bill: Rs. ${totalBilled.toInt()} | Paid: Rs. ${rowPaid.toInt()}",
                                                         fontSize = 10.sp,
                                                         color = Color(0xFF334155),
                                                         fontWeight = FontWeight.SemiBold
@@ -577,16 +630,26 @@ fun BillingScreen(
                                     val cAddr = loadedClinic?.addressText ?: "Nepal"
 
                                     val opdFee = (appt.feeAmount ?: 0.0).takeIf { it > 0.0 } ?: 0.0
-                                    val baseLiveItems = if (lineItems.isNotEmpty()) {
-                                        lineItems.map { InvoiceItem(itemName = it.name, quantity = it.quantity, price = it.unitPrice, total = it.total) }
+                                    val pendingCleanPrice = manualItemPrice.trim().replace(",", "")
+                                    val pendingPrice = pendingCleanPrice.toDoubleOrNull() ?: 0.0
+                                    val pendingName = manualItemName.trim()
+                                    val currentItems = if (pendingName.isNotBlank() && pendingPrice > 0.0) {
+                                        val flushed = lineItems + InvoiceLineItem(name = pendingName, unitPrice = pendingPrice, quantity = 1)
+                                        lineItems = flushed
+                                        manualItemName = ""
+                                        manualItemPrice = ""
+                                        flushed
+                                    } else {
+                                        lineItems
+                                    }
+
+                                    val baseLiveItems = if (currentItems.isNotEmpty()) {
+                                        currentItems.map { InvoiceItem(itemName = it.name, quantity = it.quantity, price = it.unitPrice, total = it.total) }
                                     } else {
                                         val clean = apptInvoice?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) }
                                         if (!clean.isNullOrEmpty()) clean else emptyList()
                                     }
-                                    val hasConsultation = baseLiveItems.any { it.itemName.contains("Consultation", ignoreCase = true) || it.itemName.contains("OPD", ignoreCase = true) }
-                                    val liveItems = if (!hasConsultation && opdFee > 0.0) {
-                                        listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appt.appointmentDate})", quantity = 1, price = opdFee, total = opdFee)) + baseLiveItems
-                                    } else if (baseLiveItems.isNotEmpty()) {
+                                    val liveItems = if (baseLiveItems.isNotEmpty()) {
                                         baseLiveItems
                                     } else if (opdFee > 0.0) {
                                         listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appt.appointmentDate})", quantity = 1, price = opdFee, total = opdFee))
@@ -663,6 +726,9 @@ fun BillingScreen(
                                 Column {
                                     Text("Combined Bill", fontSize = 10.sp, color = Color(0xFF64748B))
                                     Text("Rs. ${totalAmount.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF0F172A))
+                                    if (hasPendingManualItem) {
+                                        Text("(+ Rs. ${pendingManualPrice.toInt()} pending)", fontSize = 9.5.sp, color = Color(0xFFD97706), fontWeight = FontWeight.Bold)
+                                    }
                                 }
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text("Total Paid", fontSize = 10.sp, color = Color(0xFF64748B))
@@ -731,40 +797,80 @@ fun BillingScreen(
                             border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                modifier = Modifier.padding(8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                OutlinedTextField(
-                                    value = manualItemName,
-                                    onValueChange = { manualItemName = it },
-                                    placeholder = { Text("Service / Test Name (e.g. CT Scan, ECG)", fontSize = 12.sp) },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(2f),
-                                    shape = RoundedCornerShape(8.dp)
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    "Add Custom Service, Test, or Procedure",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF475569)
                                 )
-                                OutlinedTextField(
-                                    value = manualItemPrice,
-                                    onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) manualItemPrice = it },
-                                    placeholder = { Text("Price (Rs.)", fontSize = 12.sp) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1.2f),
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                IconButton(
-                                    onClick = {
-                                        val price = manualItemPrice.toDoubleOrNull() ?: 0.0
-                                        if (manualItemName.isNotBlank() && price > 0) {
-                                            lineItems = lineItems + InvoiceLineItem(name = manualItemName.trim(), unitPrice = price, quantity = 1)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val addManualServiceItem = {
+                                        val cleanPrice = manualItemPrice.trim().replace(",", "")
+                                        val price = cleanPrice.toDoubleOrNull() ?: 0.0
+                                        val name = manualItemName.trim()
+                                        if (name.isNotBlank() && price > 0.0) {
+                                            lineItems = lineItems + InvoiceLineItem(name = name, unitPrice = price, quantity = 1)
                                             manualItemName = ""
                                             manualItemPrice = ""
                                         }
-                                    },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(Icons.Default.AddCircle, contentDescription = "Add Item", tint = Color(0xFF00796B), modifier = Modifier.size(32.dp))
+                                    }
+
+                                    OutlinedTextField(
+                                        value = manualItemName,
+                                        onValueChange = { manualItemName = it },
+                                        placeholder = { Text("Service / Test Name (e.g. ECG, Dressing)", fontSize = 12.sp) },
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                        keyboardActions = KeyboardActions(
+                                            onNext = {
+                                                if (manualItemName.trim().isNotBlank() && manualItemPrice.trim().isNotBlank()) {
+                                                    addManualServiceItem()
+                                                }
+                                            },
+                                            onDone = { addManualServiceItem() }
+                                        ),
+                                        singleLine = true,
+                                        modifier = Modifier.weight(2f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    OutlinedTextField(
+                                        value = manualItemPrice,
+                                        onValueChange = { input ->
+                                            if (input.all { c -> c.isDigit() || c == '.' || c == ',' }) {
+                                                manualItemPrice = input
+                                            }
+                                        },
+                                        placeholder = { Text("Price (Rs.)", fontSize = 12.sp) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                                        keyboardActions = KeyboardActions(onDone = { addManualServiceItem() }),
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1.2f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    Button(
+                                        onClick = { addManualServiceItem() },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        modifier = Modifier.height(48.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = "Add Item", modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Add", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                if (hasPendingManualItem) {
+                                    Text(
+                                        "⚡ Tap '+ Add' or Save bill to include '${manualItemName.trim()}' (+ Rs. ${pendingManualPrice.toInt()}) in bill",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFFD97706),
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
                         }
@@ -1029,15 +1135,25 @@ fun BillingScreen(
                         coroutineScope.launch {
                             val finalAppt = selectedAppointment ?: return@launch
                             val opdFee = (finalAppt.feeAmount ?: 0.0).takeIf { it > 0.0 } ?: 0.0
-                            val baseItems = if (lineItems.isNotEmpty()) {
-                                lineItems.map { InvoiceItem(itemName = it.name, quantity = it.quantity, price = it.unitPrice, total = it.total) }
+                            val pendingCleanPrice = manualItemPrice.trim().replace(",", "")
+                            val pendingPrice = pendingCleanPrice.toDoubleOrNull() ?: 0.0
+                            val pendingName = manualItemName.trim()
+                            val currentItems = if (pendingName.isNotBlank() && pendingPrice > 0.0) {
+                                val flushed = lineItems + InvoiceLineItem(name = pendingName, unitPrice = pendingPrice, quantity = 1)
+                                lineItems = flushed
+                                manualItemName = ""
+                                manualItemPrice = ""
+                                flushed
+                            } else {
+                                lineItems
+                            }
+
+                            val baseItems = if (currentItems.isNotEmpty()) {
+                                currentItems.map { InvoiceItem(itemName = it.name, quantity = it.quantity, price = it.unitPrice, total = it.total) }
                             } else {
                                 emptyList()
                             }
-                            val hasConsultation = baseItems.any { it.itemName.contains("Consultation", ignoreCase = true) || it.itemName.contains("OPD", ignoreCase = true) }
-                            val itemsToSave = if (!hasConsultation && opdFee > 0.0) {
-                                listOf(InvoiceItem(itemName = "OPD Doctor Consultation", quantity = 1, price = opdFee, total = opdFee)) + baseItems
-                            } else if (baseItems.isNotEmpty()) {
+                            val itemsToSave = if (baseItems.isNotEmpty()) {
                                 baseItems
                             } else if (opdFee > 0.0) {
                                 listOf(InvoiceItem(itemName = "OPD Doctor Consultation", quantity = 1, price = opdFee, total = opdFee))
@@ -1095,10 +1211,22 @@ fun BillingScreen(
                                 showSuccessDialog = true
                                 newPaymentAmountInput = ""
                                 newPaymentNote = ""
+                                manualItemName = ""
+                                manualItemPrice = ""
                                 val updatedAppt = finalAppt.copy(feeAmount = totalBillCalc, paymentStatus = statusCalc)
                                 selectedAppointment = updatedAppt
-                                loadAppointmentsAndInvoices()
-                                selectAppointment(updatedAppt)
+                                invoicesMap = invoicesMap + (finalAppt.id to saved)
+                                clinicAppointments = clinicAppointments.map { if (it.id == finalAppt.id) updatedAppt else it }
+                                val cleanSavedItems = saved.items.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) }
+                                val mappedSaved = cleanSavedItems.map {
+                                    val uPrice = if (it.price > 0.0) it.price else if (it.total > 0.0 && it.quantity > 0) it.total / it.quantity else 0.0
+                                    InvoiceLineItem(name = it.itemName, unitPrice = uPrice, quantity = it.quantity)
+                                }
+                                if (mappedSaved.isNotEmpty()) {
+                                    lineItems = mappedSaved
+                                }
+                                paymentRecords = updatedPayments
+                                clinicalRemarks = PaymentLedgerHelper.extractCleanClinicalRemarks(saved.remarks)
                             } else {
                                 android.widget.Toast.makeText(context, "Failed to save bill to server. Please check connection and try again.", android.widget.Toast.LENGTH_LONG).show()
                             }
@@ -1116,10 +1244,12 @@ fun BillingScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("Saving Combined Bill...", fontWeight = FontWeight.Bold)
                     } else {
+                        val displayTotal = totalAmount + (if (hasPendingManualItem) pendingManualPrice else 0.0)
+                        val displayDue = (displayTotal - totalPaid).coerceAtLeast(0.0)
                         Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Save & Push Combined Bill (Total: Rs. ${totalAmount.toInt()} • Paid: Rs. ${totalPaid.toInt()} • Due: Rs. ${balanceDue.toInt()})",
+                            "Save & Push Combined Bill (Total: Rs. ${displayTotal.toInt()} • Paid: Rs. ${totalPaid.toInt()} • Due: Rs. ${displayDue.toInt()})",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )

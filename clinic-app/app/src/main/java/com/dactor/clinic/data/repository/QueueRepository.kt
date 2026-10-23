@@ -55,7 +55,9 @@ data class LiveQueueTimingEstimate(
 @Singleton
 class QueueRepository @Inject constructor(
     private val supabaseClient: SupabaseClient,
-    private val clinicRepository: ClinicRepository
+    private val clinicRepository: ClinicRepository,
+    private val queueDao: com.dactor.clinic.data.local.dao.QueueDao? = null,
+    private val devicePrefixManager: com.dactor.clinic.data.local.DevicePrefixManager? = null
 ) {
     suspend fun getQueueForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
         try {
@@ -130,10 +132,19 @@ class QueueRepository @Inject constructor(
                 }
             } catch (ignored: Exception) {}
 
-            currentEntries.sortedBy { it.queuePosition }
+            val sorted = currentEntries.sortedBy { it.queuePosition }
+            try {
+                queueDao?.upsertAll(
+                    sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
+                )
+            } catch (_: Exception) {}
+            sorted
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
+            val cached = try {
+                queueDao?.getQueueForClinicList(clinicId)?.map { it.toDomainModel() }
+            } catch (_: Exception) { null }
+            cached ?: emptyList()
         }
     }
 
@@ -197,10 +208,19 @@ class QueueRepository @Inject constructor(
                 }
             } catch (ignored: Exception) {}
 
-            currentEntries.sortedBy { it.queuePosition }
+            val sorted = currentEntries.sortedBy { it.queuePosition }
+            try {
+                queueDao?.upsertAll(
+                    sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
+                )
+            } catch (_: Exception) {}
+            sorted
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
+            val cached = try {
+                queueDao?.getQueueForDoctorOnlyList(doctorId)?.map { it.toDomainModel() }
+            } catch (_: Exception) { null }
+            cached ?: emptyList()
         }
     }
 

@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!-- Google Play device compatibility: location hardware optional -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
+
     <application
         android:name=".DactorClinicApp"
         android:allowBackup="false"
@@ -21,7 +25,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.DactorClinic"
-        tools:targetApi="35">
+        tools:targetApi="36">
         
         <activity
             android:name=".MainActivity"
@@ -34,23 +38,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep linking for Supabase email confirmation callback: dactor://auth/callback -->
-            <intent-filter android:autoVerify="true">
+            <!-- Strict deep linking for Supabase email confirmation callback: dactor://auth/callback -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="dactor"
                     android:host="auth"
-                    android:pathPrefix="/callback" />
-            </intent-filter>
-
-            <!-- Fallback general dactor scheme deep link -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="dactor" />
+                    android:path="/callback" />
             </intent-filter>
         </activity>
 

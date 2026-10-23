@@ -128,13 +128,36 @@ fun QueueBoardScreen(
 
     var queueItems by remember(effectiveClinicId) { mutableStateOf<List<QueueItemUi>>(emptyList()) }
     var selectedQueueTab by remember { mutableStateOf(0) } // 0: Live, 1: Completed
-    var selectedQueueDate by remember { mutableStateOf(LocalDate.now().toString()) }
-    var viewedYearMonth by remember { mutableStateOf(YearMonth.now()) }
-    val dateListState = rememberLazyListState()
+    val today = remember { LocalDate.now() }
+    var selectedQueueDate by remember { mutableStateOf(today.toString()) }
+    var viewedYearMonth by remember { mutableStateOf(YearMonth.from(today)) }
+    val initialDateIndex = remember { (today.dayOfMonth - 1 - 2).coerceAtLeast(0) }
+    val dateListState = rememberLazyListState(initialFirstVisibleItemIndex = initialDateIndex)
     val queueListState = rememberLazyListState()
 
     LaunchedEffect(selectedQueueTab) {
         queueListState.scrollToItem(0)
+    }
+
+    // Scroll to the current date on screen launch and when viewed month matches current month
+    LaunchedEffect(Unit) {
+        val curToday = LocalDate.now()
+        selectedQueueDate = curToday.toString()
+        viewedYearMonth = YearMonth.from(curToday)
+        kotlinx.coroutines.delay(150)
+        val targetIdx = (curToday.dayOfMonth - 1 - 2).coerceAtLeast(0)
+        dateListState.animateScrollToItem(targetIdx)
+    }
+
+    LaunchedEffect(viewedYearMonth) {
+        val curToday = LocalDate.now()
+        kotlinx.coroutines.delay(120)
+        val targetIdx = if (viewedYearMonth == YearMonth.from(curToday)) {
+            (curToday.dayOfMonth - 1 - 2).coerceAtLeast(0)
+        } else {
+            0
+        }
+        dateListState.animateScrollToItem(targetIdx)
     }
     var expandedItemId by remember { mutableStateOf<String?>(null) }
     var notificationSentMessage by remember { mutableStateOf<String?>(null) }
@@ -613,9 +636,18 @@ fun QueueBoardScreen(
                                 onClick = {
                                     val prev = viewedYearMonth.minusMonths(1)
                                     viewedYearMonth = prev
-                                    val newDate = prev.atDay(1)
-                                    selectedQueueDate = newDate.toString()
-                                    coroutineScope.launch { dateListState.scrollToItem(0) }
+                                    val curToday = LocalDate.now()
+                                    if (prev == YearMonth.from(curToday)) {
+                                        selectedQueueDate = curToday.toString()
+                                        coroutineScope.launch {
+                                            val targetIdx = (curToday.dayOfMonth - 1).coerceAtLeast(0)
+                                            dateListState.animateScrollToItem(targetIdx)
+                                        }
+                                    } else {
+                                        val newDate = prev.atDay(1)
+                                        selectedQueueDate = newDate.toString()
+                                        coroutineScope.launch { dateListState.scrollToItem(0) }
+                                    }
                                 },
                                 modifier = Modifier.size(30.dp)
                             ) {
@@ -636,9 +668,18 @@ fun QueueBoardScreen(
                                 onClick = {
                                     val next = viewedYearMonth.plusMonths(1)
                                     viewedYearMonth = next
-                                    val newDate = next.atDay(1)
-                                    selectedQueueDate = newDate.toString()
-                                    coroutineScope.launch { dateListState.scrollToItem(0) }
+                                    val curToday = LocalDate.now()
+                                    if (next == YearMonth.from(curToday)) {
+                                        selectedQueueDate = curToday.toString()
+                                        coroutineScope.launch {
+                                            val targetIdx = (curToday.dayOfMonth - 1).coerceAtLeast(0)
+                                            dateListState.animateScrollToItem(targetIdx)
+                                        }
+                                    } else {
+                                        val newDate = next.atDay(1)
+                                        selectedQueueDate = newDate.toString()
+                                        coroutineScope.launch { dateListState.scrollToItem(0) }
+                                    }
                                 },
                                 modifier = Modifier.size(30.dp)
                             ) {
@@ -652,17 +693,17 @@ fun QueueBoardScreen(
                         }
 
                         // "Today" Button
-                        val today = LocalDate.now()
-                        val isTodaySelected = selectedQueueDate == today.toString()
+                        val curToday = LocalDate.now()
+                        val isTodaySelected = selectedQueueDate == curToday.toString()
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = if (isTodaySelected) Color(0xFFE0F2FE) else Color(0xFFF1F5F9),
                             border = BorderStroke(1.dp, if (isTodaySelected) Color(0xFF0284C7) else Color(0xFFCBD5E1)),
                             modifier = Modifier.clickable {
-                                viewedYearMonth = YearMonth.from(today)
-                                selectedQueueDate = today.toString()
+                                viewedYearMonth = YearMonth.from(curToday)
+                                selectedQueueDate = curToday.toString()
                                 coroutineScope.launch {
-                                    val targetIdx = (today.dayOfMonth - 1).coerceAtLeast(0)
+                                    val targetIdx = (curToday.dayOfMonth - 1 - 2).coerceAtLeast(0)
                                     dateListState.animateScrollToItem(targetIdx)
                                 }
                             }
@@ -700,7 +741,13 @@ fun QueueBoardScreen(
                                 modifier = Modifier
                                     .width(46.dp)
                                     .defaultMinSize(minHeight = 56.dp)
-                                    .clickable { selectedQueueDate = date.toString() }
+                                    .clickable {
+                                        selectedQueueDate = date.toString()
+                                        coroutineScope.launch {
+                                            val targetIdx = (date.dayOfMonth - 1 - 2).coerceAtLeast(0)
+                                            dateListState.animateScrollToItem(targetIdx)
+                                        }
+                                    }
                             ) {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,

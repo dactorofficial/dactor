@@ -67,6 +67,9 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Looper
+import android.content.Intent
+import android.provider.MediaStore
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -74,6 +77,70 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.UUID
+
+/**
+ * ActivityResultContract that allows picking multiple images with a dynamic upper limit (1 to 4).
+ * On modern Android systems (Android 11+ with PhotoPicker or Android 13+), MediaStore.ACTION_PICK_IMAGES
+ * is used with MediaStore.EXTRA_PICK_IMAGES_MAX set to the remaining allowed count.
+ * If only 1 image slot remains, EXTRA_PICK_IMAGES_MAX is omitted so the system picker acts as single-select.
+ * On legacy systems without PhotoPicker, Intent.ACTION_GET_CONTENT is used as a fallback.
+ */
+class PickMultipleClinicImagesContract : ActivityResultContract<Int, List<Uri>>() {
+    override fun getSynchronousResult(context: Context, input: Int): SynchronousResult<List<Uri>>? {
+        if (input <= 0) {
+            return SynchronousResult(emptyList())
+        }
+        return null
+    }
+
+    override fun createIntent(context: Context, input: Int): Intent {
+        val maxItems = input.coerceIn(1, 4)
+        val isPhotoPickerAvailable = try {
+            ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(context) &&
+                Intent(MediaStore.ACTION_PICK_IMAGES).apply { type = "image/*" }.resolveActivity(context.packageManager) != null
+        } catch (_: Exception) {
+            false
+        }
+
+        return if (isPhotoPickerAvailable) {
+            val intent = Intent(MediaStore.ACTION_PICK_IMAGES).apply {
+                type = "image/*"
+            }
+            if (maxItems > 1) {
+                intent.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, maxItems)
+            }
+            intent
+        } else {
+            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = "image/*"
+                addCategory(Intent.CATEGORY_OPENABLE)
+            }
+            if (maxItems > 1) {
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }
+            if (intent.resolveActivity(context.packageManager) == null) {
+                intent.removeCategory(Intent.CATEGORY_OPENABLE)
+            }
+            intent
+        }
+    }
+
+    override fun parseResult(resultCode: Int, intent: Intent?): List<Uri> {
+        if (resultCode != Activity.RESULT_OK || intent == null) return emptyList()
+        val uris = LinkedHashSet<Uri>()
+        intent.data?.let { uris.add(it) }
+        val clipData = intent.clipData
+        if (clipData != null) {
+            for (i in 0 until clipData.itemCount) {
+                val itemUri = clipData.getItemAt(i).uri
+                if (itemUri != null) {
+                    uris.add(itemUri)
+                }
+            }
+        }
+        return uris.toList()
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -124,6 +191,7 @@ fun ClinicLoginScreen(
 
     // Doctor Registration Form Fields (never prefill name, gender, or age from Google account or demo defaults)
     var doctorPractitionerRole by remember { mutableStateOf("doctor") } // "doctor" or "lab_technician"
+    var doctorSpecialtyDropdownExpanded by remember { mutableStateOf(false) }
     var educationDropdownExpanded by remember { mutableStateOf(false) }
     var doctorStartingYearDropdownExpanded by remember { mutableStateOf(false) }
     val practicingYears = remember { (2026 downTo 1960).map { it.toString() } }
@@ -594,12 +662,38 @@ fun ClinicLoginScreen(
         }
     }
 
-    // Clinic Picture Picker Launcher (1-4 pictures, selected one by one)
+    // Clinic Picture Picker Launcher (supports up to 4 pictures with remaining slot limit)
     val clinicPictureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null && clinicPictures.size < 4) {
-            clinicPictures = clinicPictures + uri
+        contract = PickMultipleClinicImagesContract()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            val remaining = (4 - clinicPictures.size).coerceAtLeast(0)
+            if (remaining > 0) {
+                val uniqueUris = uris.filter { it !in clinicPictures }
+                val toAdd = uniqueUris.take(remaining)
+                if (toAdd.isNotEmpty()) {
+                    clinicPictures = (clinicPictures + toAdd).take(4)
+                }
+                if (uris.size > remaining) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Added ${toAdd.size} photo(s). Maximum 4 photos allowed.",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                } else if (uniqueUris.size < uris.size) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Duplicate photos were ignored.",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } else {
+                android.widget.Toast.makeText(
+                    context,
+                    "Maximum 4 photos already selected.",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
@@ -695,17 +789,22 @@ fun ClinicLoginScreen(
             applyLocation(bestLoc)
         }
 
-        // 2. Request active real live GPS fix
+        // 2. Request fast fix (prefer fast Network provider for indoor lock, refine with GPS)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val provider = when {
-                    locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                val fastProvider = when {
                     locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                    locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
                     else -> LocationManager.PASSIVE_PROVIDER
                 }
-                locManager.getCurrentLocation(provider, null, context.mainExecutor) { liveLoc ->
+                locManager.getCurrentLocation(fastProvider, null, context.mainExecutor) { liveLoc ->
                     if (liveLoc != null) {
                         applyLocation(liveLoc)
+                    } else if (fastProvider == LocationManager.NETWORK_PROVIDER && locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                        locManager.getCurrentLocation(LocationManager.GPS_PROVIDER, null, context.mainExecutor) { gpsLoc ->
+                            if (gpsLoc != null) applyLocation(gpsLoc)
+                            else if (bestLoc == null) coroutineScope.launch(Dispatchers.Main) { isFetchingLocation = false }
+                        }
                     } else if (bestLoc == null) {
                         coroutineScope.launch(Dispatchers.Main) { isFetchingLocation = false }
                     }
@@ -721,10 +820,10 @@ fun ClinicLoginScreen(
                     override fun onProviderEnabled(provider: String) {}
                     override fun onProviderDisabled(provider: String) {}
                 }
-                if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                    locManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, listener, Looper.getMainLooper())
-                } else if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                     locManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, listener, Looper.getMainLooper())
+                } else if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, listener, Looper.getMainLooper())
                 }
             }
         } catch (e: Exception) {
@@ -1090,7 +1189,7 @@ fun ClinicLoginScreen(
             return
         }
         if (doctorSpecialty.isBlank()) {
-            errorMessage = "Please specify practitioner specialization."
+            errorMessage = "Please select practitioner specialization."
             coroutineScope.launch {
                 scrollState.animateScrollTo((doctorSpecialtyFieldY - 200).coerceAtLeast(0))
             }
@@ -1928,7 +2027,8 @@ fun ClinicLoginScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // 7. Pictures of Clinic (1-4, one by one)
+                            // 7. Pictures of Clinic (1-4, up to 4 pictures total)
+                            val remainingClinicSlots = (4 - clinicPictures.size).coerceAtLeast(0)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isClinicPicturesError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -1943,34 +2043,73 @@ fun ClinicLoginScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Column {
-                                            Text("Pictures of Clinic (1-4) *", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text("Pictures of Clinic (1-4) *", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                                Surface(
+                                                    color = if (clinicPictures.size == 4) Color(0xFF047857).copy(alpha = 0.15f)
+                                                            else if (clinicPictures.isNotEmpty()) MaterialTheme.colorScheme.primaryContainer
+                                                            else MaterialTheme.colorScheme.surfaceVariant,
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    border = BorderStroke(
+                                                        0.5.dp,
+                                                        if (clinicPictures.size == 4) Color(0xFF047857)
+                                                        else if (clinicPictures.isNotEmpty()) MaterialTheme.colorScheme.primary
+                                                        else MaterialTheme.colorScheme.outlineVariant
+                                                    )
+                                                ) {
+                                                    Text(
+                                                        text = "${clinicPictures.size}/4",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (clinicPictures.size == 4) Color(0xFF047857)
+                                                                else if (clinicPictures.isNotEmpty()) MaterialTheme.colorScheme.primary
+                                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(Modifier.height(2.dp))
                                             Text(
-                                                text = if (clinicPictures.isEmpty()) "Add photos one by one (1 to 4)" else "${clinicPictures.size}/4 photos added" + if (clinicPictures.size >= 1) " ✓" else "",
+                                                text = when (clinicPictures.size) {
+                                                    0 -> "0/4 photos added • You can select up to 4 pictures"
+                                                    4 -> "4/4 photos added • Maximum reached ✓"
+                                                    else -> "${clinicPictures.size}/4 photos added • Can select up to $remainingClinicSlots more"
+                                                },
                                                 fontSize = 11.sp,
                                                 color = if (clinicPictures.isNotEmpty()) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontWeight = if (clinicPictures.isNotEmpty()) FontWeight.Bold else FontWeight.Normal
                                             )
                                         }
 
-                                        if (clinicPictures.size < 4) {
+                                        if (remainingClinicSlots > 0) {
                                             OutlinedButton(
-                                                onClick = { clinicPictureLauncher.launch("image/*") },
+                                                onClick = { clinicPictureLauncher.launch(remainingClinicSlots) },
                                                 shape = RoundedCornerShape(8.dp),
                                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                                 modifier = Modifier.defaultMinSize(minHeight = 36.dp)
                                             ) {
                                                 Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(15.dp))
                                                 Spacer(Modifier.width(4.dp))
-                                                Text(if (clinicPictures.isEmpty()) "+ Add Photo" else "+ Add Another", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    text = if (clinicPictures.isEmpty()) "+ Add Photos (up to 4)" else "+ Add (${remainingClinicSlots} left)",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
                                             }
                                         }
                                     }
 
                                     // Compact Previews Row
                                     if (clinicPictures.isNotEmpty()) {
+                                        val previewScrollState = rememberScrollState()
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(previewScrollState),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
@@ -1988,6 +2127,20 @@ fun ClinicLoginScreen(
                                                         contentScale = ContentScale.Crop,
                                                         modifier = Modifier.fillMaxSize()
                                                     )
+                                                    // Photo number badge on bottom-start
+                                                    Surface(
+                                                        shape = RoundedCornerShape(topEnd = 6.dp),
+                                                        color = Color.Black.copy(alpha = 0.65f),
+                                                        modifier = Modifier.align(Alignment.BottomStart)
+                                                    ) {
+                                                        Text(
+                                                            text = "${idx + 1}/4",
+                                                            color = Color.White,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        )
+                                                    }
                                                     // Remove badge on top-right
                                                     Surface(
                                                         onClick = {
@@ -2011,9 +2164,9 @@ fun ClinicLoginScreen(
                                             }
 
                                             // Direct "+ Add" box if less than 4
-                                            if (clinicPictures.size < 4) {
+                                            if (remainingClinicSlots > 0) {
                                                 Surface(
-                                                    onClick = { clinicPictureLauncher.launch("image/*") },
+                                                    onClick = { clinicPictureLauncher.launch(remainingClinicSlots) },
                                                     shape = RoundedCornerShape(10.dp),
                                                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
                                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
@@ -2031,7 +2184,7 @@ fun ClinicLoginScreen(
                                                             modifier = Modifier.size(20.dp)
                                                         )
                                                         Text(
-                                                            text = "Add",
+                                                            text = "+ ($remainingClinicSlots)",
                                                             fontSize = 10.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = MaterialTheme.colorScheme.primary
@@ -2255,6 +2408,19 @@ fun ClinicLoginScreen(
                     }
                 } else {
                     // DOCTOR / LAB TECHNICIAN FORM
+                    val labSpecializations = listOf(
+                        "MRI Specialist & Radiographer",
+                        "CT Scan Specialist & Technologist",
+                        "Digital X-Ray Technologist",
+                        "Ultrasound (USG) Sonographer",
+                        "Medical Lab Technician (MLT)",
+                        "Pathology & Hematology Specialist",
+                        "Clinical Biochemistry Technician",
+                        "Microbiology Lab Technician",
+                        "ECG & Echo Technician",
+                        "Phlebotomist & Sample Collector",
+                        "Histopathology & Cytology Technician"
+                    )
                     val labTechnicianEducations = listOf(
                         "CMLT (Certificate in Medical Lab Technology)",
                         "DMLT (Diploma in Medical Lab Technology)",
@@ -2312,8 +2478,14 @@ fun ClinicLoginScreen(
                                         selected = doctorPractitionerRole == "doctor",
                                         onClick = {
                                             doctorPractitionerRole = "doctor"
-                                            if (doctorSpecialty.contains("Lab", ignoreCase = true) || doctorSpecialty.contains("Pathology", ignoreCase = true)) {
-                                                doctorSpecialty = "General Physician"
+                                            if (doctorSpecialty.isBlank() || doctorSpecialty in labSpecializations || doctorSpecialty.contains("Technician", ignoreCase = true) || doctorSpecialty.contains("MLT", ignoreCase = true)) {
+                                                doctorSpecialty = if (availableSpecialtiesList.isNotEmpty()) {
+                                                    availableSpecialtiesList.firstOrNull { it.category != "system_config" && it.name.startsWith("General", ignoreCase = true) }?.name
+                                                        ?: availableSpecialtiesList.firstOrNull { it.category != "system_config" }?.name
+                                                        ?: "General Medicine & Physician"
+                                                } else {
+                                                    "General Medicine & Physician"
+                                                }
                                             }
                                             if (doctorEducation in labTechnicianEducations || doctorEducation.isBlank()) {
                                                 doctorEducation = doctorEducations.firstOrNull() ?: "MBBS"
@@ -2333,8 +2505,8 @@ fun ClinicLoginScreen(
                                         selected = doctorPractitionerRole == "lab_technician",
                                         onClick = {
                                             doctorPractitionerRole = "lab_technician"
-                                            if (doctorSpecialty == "General Physician" || doctorSpecialty.isBlank()) {
-                                                doctorSpecialty = "Medical Lab Technician"
+                                            if (doctorSpecialty.isBlank() || doctorSpecialty !in labSpecializations) {
+                                                doctorSpecialty = "Medical Lab Technician (MLT)"
                                             }
                                             if (doctorEducation !in labTechnicianEducations) {
                                                 doctorEducation = labTechnicianEducations.first()
@@ -2559,24 +2731,15 @@ fun ClinicLoginScreen(
                             }
 
                             // 5. Specialization
-                            val docSpecOptions = if (clinicType == "diagnostic_lab" || doctorPractitionerRole == "lab_technician") {
-                                listOf(
-                                    "MRI Specialist & Radiographer",
-                                    "CT Scan Specialist & Technologist",
-                                    "Digital X-Ray Technologist",
-                                    "Ultrasound (USG) Sonographer",
-                                    "Medical Lab Technician (MLT)",
-                                    "Pathology & Hematology Specialist",
-                                    "Clinical Biochemistry Technician",
-                                    "Microbiology Lab Technician",
-                                    "ECG & Echo Technician",
-                                    "Phlebotomist & Sample Collector",
-                                    "Histopathology & Cytology Technician"
-                                )
+                            val docSpecOptions = if (doctorPractitionerRole == "lab_technician") {
+                                labSpecializations
                             } else if (availableSpecialtiesList.isNotEmpty()) {
-                                availableSpecialtiesList.map { it.name }
+                                availableSpecialtiesList
+                                    .filter { it.category != "system_config" && !it.name.startsWith("system_config") }
+                                    .map { it.name }
                             } else {
                                 listOf(
+                                    "General Medicine & Physician",
                                     "General Physician & Medicine",
                                     "Dermatologist (Skin & Hair)",
                                     "Cardiologist (Heart Care)",
@@ -2593,43 +2756,85 @@ fun ClinicLoginScreen(
                                     "Urology & Kidney Care"
                                 )
                             }
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                docSpecOptions.forEach { spec ->
-                                    FilterChip(
-                                        selected = doctorSpecialty == spec,
-                                        onClick = { doctorSpecialty = spec },
-                                        label = { Text(spec, fontSize = 11.sp) }
-                                    )
-                                }
-                            }
-
-                            OutlinedTextField(
-                                value = doctorSpecialty,
-                                onValueChange = {
-                                    doctorSpecialty = it
-                                    if (errorMessage != null) errorMessage = null
-                                },
-                                label = { Text("Specialization *") },
-                                placeholder = {
-                                    Text(
-                                        if (clinicType == "diagnostic_lab" || doctorPractitionerRole == "lab_technician") "e.g. MRI Specialist, CT Scan Technician, Pathology"
-                                        else "e.g. Cardiologist, Dermatologist, Pediatrics, Orthopedics"
-                                    )
-                                },
-                                leadingIcon = { Icon(Icons.Default.MedicalServices, contentDescription = null) },
-                                isError = isDoctorSpecialtyError,
-                                supportingText = if (isDoctorSpecialtyError) {
-                                    { Text("Required: Please specify specialization", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
-                                } else null,
-                                singleLine = true,
+                            ExposedDropdownMenuBox(
+                                expanded = doctorSpecialtyDropdownExpanded,
+                                onExpandedChange = { doctorSpecialtyDropdownExpanded = !doctorSpecialtyDropdownExpanded },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .onGloballyPositioned { doctorSpecialtyFieldY = it.positionInRoot().y.toInt() },
-                                shape = RoundedCornerShape(12.dp)
-                            )
+                                    .onGloballyPositioned { doctorSpecialtyFieldY = it.positionInRoot().y.toInt() }
+                            ) {
+                                OutlinedTextField(
+                                    value = doctorSpecialty,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = {
+                                        Text(
+                                            if (doctorPractitionerRole == "lab_technician") "Lab Specialization *"
+                                            else "Medical Specialization *"
+                                        )
+                                    },
+                                    placeholder = {
+                                        Text(
+                                            if (doctorPractitionerRole == "lab_technician") "Select lab specialization"
+                                            else "Select medical specialty"
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (doctorPractitionerRole == "lab_technician") Icons.Default.Biotech else Icons.Default.MedicalServices,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = doctorSpecialtyDropdownExpanded)
+                                    },
+                                    isError = isDoctorSpecialtyError,
+                                    supportingText = if (isDoctorSpecialtyError) {
+                                        { Text("Required: Please select specialization", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                                    } else null,
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+
+                                ExposedDropdownMenu(
+                                    expanded = doctorSpecialtyDropdownExpanded,
+                                    onDismissRequest = { doctorSpecialtyDropdownExpanded = false }
+                                ) {
+                                    docSpecOptions.forEach { spec ->
+                                        val isSelected = doctorSpecialty == spec ||
+                                            (doctorSpecialty.isNotBlank() && (
+                                                spec.equals(doctorSpecialty, ignoreCase = true) ||
+                                                (doctorSpecialty.startsWith("General", ignoreCase = true) && spec.startsWith("General", ignoreCase = true)) ||
+                                                (doctorSpecialty.contains("Lab Technician", ignoreCase = true) && spec.contains("Lab Technician", ignoreCase = true))
+                                            ))
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = spec,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            },
+                                            onClick = {
+                                                doctorSpecialty = spec
+                                                doctorSpecialtyDropdownExpanded = false
+                                                if (errorMessage != null) errorMessage = null
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = if (doctorPractitionerRole == "lab_technician") Icons.Default.Biotech else Icons.Default.MedicalServices,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+                            }
 
                             // 6. Education (Dropdown / Dropbox instead of scroll buttons, options based on Doctor vs Lab Technician)
                             val docQualOptions = if (doctorPractitionerRole == "lab_technician") {

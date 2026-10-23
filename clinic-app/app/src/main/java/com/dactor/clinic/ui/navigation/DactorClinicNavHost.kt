@@ -8,6 +8,7 @@ import androidx.navigation.compose.rememberNavController
 import com.dactor.clinic.data.local.RegistrationDraftManager
 import com.dactor.clinic.data.repository.*
 import com.dactor.clinic.ui.appointments.FutureAppointmentsScreen
+import com.dactor.clinic.ui.appointments.PayAtDeskRequestsScreen
 import com.dactor.clinic.ui.auth.*
 import com.dactor.clinic.ui.billing.BillingScreen
 import com.dactor.clinic.ui.billing.CatalogManagerScreen
@@ -99,11 +100,11 @@ fun DactorClinicNavHost(
             DoctorKYCScreen(navController = navController, doctorId = docId, doctorRepository = doctorRepository)
         }
         composable(NavRoutes.Dashboard) {
-            DashboardScreen(navController = navController, doctorRepository = doctorRepository, clinicRepository = clinicRepository, authRepository = authRepository)
+            DashboardScreen(navController = navController, doctorRepository = doctorRepository, clinicRepository = clinicRepository, authRepository = authRepository, appointmentRepository = appointmentRepository)
         }
         composable("${NavRoutes.Dashboard}/{clinicId}") { backStackEntry ->
             val clinicId = backStackEntry.arguments?.getString("clinicId")
-            DashboardScreen(navController = navController, clinicId = clinicId, doctorRepository = doctorRepository, clinicRepository = clinicRepository, authRepository = authRepository)
+            DashboardScreen(navController = navController, clinicId = clinicId, doctorRepository = doctorRepository, clinicRepository = clinicRepository, authRepository = authRepository, appointmentRepository = appointmentRepository)
         }
         composable(NavRoutes.DoctorDashboard) {
             DoctorDashboardScreen(
@@ -359,6 +360,23 @@ fun DactorClinicNavHost(
                 queueRepository = queueRepository,
                 billingRepository = billingRepository,
                 clinicRepository = clinicRepository
+            )
+        }
+        composable(NavRoutes.PayAtDeskRequests) {
+            PayAtDeskRequestsScreen(
+                navController = navController,
+                clinicId = currentClinicId(),
+                appointmentRepository = appointmentRepository,
+                doctorRepository = doctorRepository
+            )
+        }
+        composable("${NavRoutes.PayAtDeskRequests}/{clinicId}") { backStackEntry ->
+            val cid = currentClinicId(backStackEntry.arguments?.getString("clinicId"))
+            PayAtDeskRequestsScreen(
+                navController = navController,
+                clinicId = cid,
+                appointmentRepository = appointmentRepository,
+                doctorRepository = doctorRepository
             )
         }
         composable(NavRoutes.WalkinBooking) {

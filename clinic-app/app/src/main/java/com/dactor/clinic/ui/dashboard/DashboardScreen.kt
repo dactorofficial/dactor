@@ -47,7 +47,8 @@ fun DashboardScreen(
     clinicId: String? = null,
     clinicRepository: ClinicRepository? = null,
     doctorRepository: DoctorRepository? = null,
-    authRepository: com.dactor.clinic.data.repository.AuthRepository? = null
+    authRepository: com.dactor.clinic.data.repository.AuthRepository? = null,
+    appointmentRepository: com.dactor.clinic.data.repository.AppointmentRepository? = null
 ) {
     val context = LocalContext.current
     val sessionManager = remember { UserSessionManager(context) }
@@ -67,6 +68,7 @@ fun DashboardScreen(
     }
     var isLoading by remember { mutableStateOf(clinic == null) }
     var isRestoringAccount by remember { mutableStateOf(false) }
+    var pendingPayAtDeskCount by remember { mutableIntStateOf(0) }
 
     // Activation & License Subscription state
     var showRenewalDialog by remember { mutableStateOf(false) }
@@ -191,6 +193,12 @@ fun DashboardScreen(
                                 liveDoc
                             }
                         }
+                    }
+
+                    if (appointmentRepository != null) {
+                        try {
+                            pendingPayAtDeskCount = appointmentRepository.getPendingPayAtDeskCount(currentCid)
+                        } catch (_: Exception) {}
                     }
                 } catch (e: Exception) {
                     // ignore polling errors
@@ -1146,6 +1154,89 @@ fun DashboardScreen(
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // PAY AT DESK REQUESTS QUICK ACCESS
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFBEB)),
+                    border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val activeCid = clinic?.id?.takeIf { it.isNotBlank() } ?: initialEffectiveClinicId
+                            navController.navigate(if (activeCid.isNotBlank()) "${NavRoutes.PayAtDeskRequests}/$activeCid" else NavRoutes.PayAtDeskRequests)
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFFEF3C7),
+                                modifier = Modifier.size(46.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.CreditCard,
+                                        contentDescription = null,
+                                        tint = Color(0xFFD97706),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        "View Requests",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                    if (pendingPayAtDeskCount > 0) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color(0xFFF59E0B)
+                                        ) {
+                                            Text(
+                                                "$pendingPayAtDeskCount Pending",
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    if (pendingPayAtDeskCount > 0) "$pendingPayAtDeskCount Pay at Desk booking(s) waiting for approval" else "Review & approve Pay at Desk appointments",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF92400E)
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFFEF3C7),
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.ArrowForward,
+                                    contentDescription = null,
+                                    tint = Color(0xFFD97706),
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                         }
                     }

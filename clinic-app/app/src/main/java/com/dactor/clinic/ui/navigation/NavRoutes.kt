@@ -25,5 +25,6 @@ object NavRoutes {
     const val AverageTime = "average_time"
     const val WorkingHoursBreak = "working_hours_break"
     const val Notifications = "notifications"
+    const val PayAtDeskRequests = "pay_at_desk_requests"
 }
 

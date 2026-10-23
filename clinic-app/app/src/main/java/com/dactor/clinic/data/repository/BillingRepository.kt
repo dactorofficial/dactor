@@ -12,9 +12,12 @@ import javax.inject.Singleton
 
 @Singleton
 class BillingRepository @Inject constructor(
-    private val supabaseClient: SupabaseClient
+    private val supabaseClient: SupabaseClient,
+    private val billingDao: com.dactor.clinic.data.local.dao.BillingDao? = null,
+    private val devicePrefixManager: com.dactor.clinic.data.local.DevicePrefixManager? = null
 ) {
     suspend fun getInvoiceByAppointment(appointmentId: String): BillingInvoice? = withContext(Dispatchers.IO) {
+        if (appointmentId.isBlank()) return@withContext null
         try {
             val list = supabaseClient.postgrest["billing_invoices"]
                 .select {
@@ -23,10 +26,22 @@ class BillingRepository @Inject constructor(
                     }
                 }.decodeList<BillingInvoice>()
             if (list.isEmpty()) return@withContext null
-            list.firstOrNull { it.totalAmount > 0.0 || it.items.isNotEmpty() } ?: list.last()
+            list.sortedWith(
+                compareByDescending<BillingInvoice> { it.updatedAt ?: it.paidAt ?: it.createdAt ?: "" }
+                    .thenByDescending { it.items.isNotEmpty() }
+                    .thenByDescending { it.totalAmount }
+            ).first().also { best ->
+                try {
+                    billingDao?.upsertInvoice(com.dactor.clinic.data.local.entity.BillingInvoiceEntity.fromDomainModel(best, syncStatus = "synced"))
+                } catch (_: Exception) {}
+            }
         } catch (e: Exception) {
             e.printStackTrace()
-            null
+            try {
+                billingDao?.getInvoiceByAppointmentId(appointmentId)?.toDomainModel()
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 
@@ -36,10 +51,13 @@ class BillingRepository @Inject constructor(
             // Sanitize payment status for DB: PostgreSQL payment_status_enum only accepts 'paid' or 'pending'
             val dbPaymentStatus = if (invoice.balanceDue <= 0.0 && invoice.totalAmount > 0.0) "paid" else "pending"
             val invoiceId = existing?.id?.takeIf { it.isNotBlank() } ?: invoice.id.takeIf { it.isNotBlank() } ?: java.util.UUID.randomUUID().toString()
+            val nowIso = java.time.Instant.now().toString()
             val invoiceToSave = invoice.copy(
                 id = invoiceId,
                 paymentStatus = dbPaymentStatus,
-                remarks = invoice.remarks?.takeIf { it.isNotBlank() } ?: existing?.remarks
+                remarks = invoice.remarks?.takeIf { it.isNotBlank() } ?: existing?.remarks,
+                createdAt = existing?.createdAt ?: invoice.createdAt ?: nowIso,
+                updatedAt = nowIso
             )
 
             val saved = try {
@@ -51,6 +69,7 @@ class BillingRepository @Inject constructor(
                             set("paid_amount", invoiceToSave.paidAmount)
                             set("balance_due", invoiceToSave.balanceDue)
                             set("payment_status", dbPaymentStatus)
+                            set("updated_at", nowIso)
                             if (invoiceToSave.paidAt != null) {
                                 set("paid_at", invoiceToSave.paidAt)
                             }
@@ -77,6 +96,7 @@ class BillingRepository @Inject constructor(
                                 set("paid_amount", invoiceToSave.paidAmount)
                                 set("balance_due", invoiceToSave.balanceDue)
                                 set("payment_status", dbPaymentStatus)
+                                set("updated_at", nowIso)
                                 if (invoiceToSave.paidAt != null) {
                                     set("paid_at", invoiceToSave.paidAt)
                                 }
@@ -99,6 +119,7 @@ class BillingRepository @Inject constructor(
                             set("paid_amount", invoiceToSave.paidAmount)
                             set("balance_due", invoiceToSave.balanceDue)
                             set("payment_status", dbPaymentStatus)
+                            set("updated_at", nowIso)
                             if (invoiceToSave.paidAt != null) {
                                 set("paid_at", invoiceToSave.paidAt)
                             }
@@ -120,6 +141,7 @@ class BillingRepository @Inject constructor(
                 supabaseClient.postgrest["appointments"].update({
                     set("fee_amount", invoiceToSave.totalAmount)
                     set("payment_status", dbPaymentStatus)
+                    set("updated_at", nowIso)
                 }) {
                     filter { eq("id", invoiceToSave.appointmentId) }
                 }
@@ -127,7 +149,20 @@ class BillingRepository @Inject constructor(
                 ignored.printStackTrace()
             }
 
-            saved
+            val effectiveInvoice = saved ?: invoiceToSave
+            try {
+                val billNumber = devicePrefixManager?.generateBillNumber() ?: ""
+                val syncStatus = if (saved != null) "synced" else "pending_insert"
+                billingDao?.upsertInvoice(
+                    com.dactor.clinic.data.local.entity.BillingInvoiceEntity.fromDomainModel(
+                        effectiveInvoice,
+                        billNumber = billNumber,
+                        syncStatus = syncStatus
+                    )
+                )
+            } catch (_: Exception) {}
+
+            effectiveInvoice
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -137,15 +172,36 @@ class BillingRepository @Inject constructor(
     suspend fun getInvoicesForClinic(clinicId: String): List<BillingInvoice> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         try {
-            supabaseClient.postgrest["billing_invoices"]
+            val list = supabaseClient.postgrest["billing_invoices"]
                 .select {
                     filter {
                         eq("clinic_id", clinicId)
                     }
                 }.decodeList<BillingInvoice>()
+            // Sort and prioritize the latest and most complete invoice per appointment
+            val deduplicated = list.groupBy { it.appointmentId }
+                .values
+                .map { rows ->
+                    rows.sortedWith(
+                        compareByDescending<BillingInvoice> { it.updatedAt ?: it.paidAt ?: it.createdAt ?: "" }
+                            .thenByDescending { it.items.isNotEmpty() }
+                            .thenByDescending { it.totalAmount }
+                    ).first()
+                }
+
+            try {
+                billingDao?.upsertInvoices(
+                    deduplicated.map { com.dactor.clinic.data.local.entity.BillingInvoiceEntity.fromDomainModel(it, syncStatus = "synced") }
+                )
+            } catch (_: Exception) {}
+
+            deduplicated
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
+            val cached = try {
+                billingDao?.getInvoicesForClinicList(clinicId)?.map { it.toDomainModel() }
+            } catch (_: Exception) { null }
+            cached ?: emptyList()
         }
     }
 
@@ -285,10 +341,12 @@ class BillingRepository @Inject constructor(
     suspend fun saveRemarkForAppointment(appointmentId: String, clinicId: String, remarks: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val existing = getInvoiceByAppointment(appointmentId)
+            val nowIso = java.time.Instant.now().toString()
             if (existing != null) {
                 supabaseClient.postgrest["billing_invoices"]
                     .update({
                         set("remarks", remarks)
+                        set("updated_at", nowIso)
                     }) {
                         filter { eq("id", existing.id) }
                     }
@@ -301,8 +359,10 @@ class BillingRepository @Inject constructor(
                     totalAmount = 0.0,
                     paidAmount = 0.0,
                     balanceDue = 0.0,
-                    paymentStatus = "paid",
-                    remarks = remarks
+                    paymentStatus = "pending",
+                    remarks = remarks,
+                    createdAt = nowIso,
+                    updatedAt = nowIso
                 )
                 try {
                     supabaseClient.postgrest["billing_invoices"].insert(newInvoice)
@@ -310,6 +370,7 @@ class BillingRepository @Inject constructor(
                     supabaseClient.postgrest["billing_invoices"]
                         .update({
                             set("remarks", remarks)
+                            set("updated_at", nowIso)
                         }) {
                             filter { eq("appointment_id", appointmentId) }
                         }

@@ -9,6 +9,10 @@ import com.dactor.clinic.data.model.NotificationTemplate
 import com.dactor.clinic.data.model.NotificationType
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.functions.functions
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import io.ktor.client.call.body
 import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -198,10 +202,10 @@ class ClinicRepository @Inject constructor(
             deletion_scheduled_at = clinic.deletionScheduledAt,
             payment_gateway_provider = clinic.paymentGatewayProvider,
             payment_api_key = clinic.paymentApiKey,
-            payment_secret_key = clinic.paymentSecretKey,
+            payment_secret_key = null,
             merchant_id = clinic.merchantId,
             is_direct_payment_enabled = clinic.isDirectPaymentEnabled,
-            payment_gateways_json = clinic.paymentGatewaysJson,
+            payment_gateways_json = clinic.paymentGatewaysJson?.let { com.dactor.clinic.data.model.PaymentGatewaysConfig.parse(it).toJson() },
             is_activated = clinic.isActivated,
             activation_expires_at = clinic.activationExpiresAt,
             activation_plan = clinic.activationPlan,
@@ -273,6 +277,15 @@ class ClinicRepository @Inject constructor(
         }
     }
 
+    private fun sanitizeVerificationStatus(status: String?): String {
+        return when (status?.trim()?.lowercase()) {
+            "approved" -> "approved"
+            "rejected" -> "rejected"
+            "pending", "pending_verification", null, "" -> "pending"
+            else -> "pending"
+        }
+    }
+
     suspend fun createClinic(clinic: Clinic): Clinic? = withContext(Dispatchers.IO) {
         try {
             val metaJson = packClinicMetadata(clinic)
@@ -280,7 +293,7 @@ class ClinicRepository @Inject constructor(
                 id = clinic.id,
                 name = clinic.name,
                 type = clinic.type,
-                verificationStatus = clinic.verificationStatus,
+                verificationStatus = sanitizeVerificationStatus(clinic.verificationStatus),
                 contactPhone = clinic.contactPhone,
                 contactEmail = clinic.contactEmail?.trim()?.lowercase(),
                 addressText = clinic.addressText,
@@ -311,7 +324,7 @@ class ClinicRepository @Inject constructor(
         val dto = ClinicUpdateDto(
             name = clinic.name,
             type = clinic.type ?: "multi_visit",
-            verificationStatus = clinic.verificationStatus ?: "pending",
+            verificationStatus = sanitizeVerificationStatus(clinic.verificationStatus),
             contactPhone = clinic.contactPhone,
             contactEmail = clinic.contactEmail?.trim()?.lowercase(),
             addressText = clinic.addressText,
@@ -329,7 +342,7 @@ class ClinicRepository @Inject constructor(
             deletionScheduledAt = clinic.deletionScheduledAt,
             paymentGatewayProvider = clinic.paymentGatewayProvider ?: "esewa",
             paymentApiKey = clinic.paymentApiKey,
-            paymentSecretKey = clinic.paymentSecretKey,
+            paymentSecretKey = null,
             merchantId = clinic.merchantId,
             isDirectPaymentEnabled = clinic.isDirectPaymentEnabled ?: false,
             isActivated = clinic.isActivated ?: true,
@@ -351,7 +364,7 @@ class ClinicRepository @Inject constructor(
                 val baseDto = ClinicBaseUpdateDto(
                     name = clinic.name,
                     type = clinic.type ?: "multi_visit",
-                    verificationStatus = clinic.verificationStatus ?: "pending",
+                    verificationStatus = sanitizeVerificationStatus(clinic.verificationStatus),
                     contactPhone = clinic.contactPhone,
                     contactEmail = clinic.contactEmail?.trim()?.lowercase(),
                     addressText = clinic.addressText,
@@ -647,8 +660,9 @@ class ClinicRepository @Inject constructor(
         apiKey: String,
         secretKey: String?,
         merchantId: String?,
-        isDirectPaymentEnabled: Boolean
-    ): Result<Boolean> = updatePaymentApiKeys(clinicId, gatewayProvider, apiKey, secretKey, merchantId, isDirectPaymentEnabled)
+        isDirectPaymentEnabled: Boolean,
+        environment: String = "test"
+    ): Result<Boolean> = updatePaymentApiKeys(clinicId, gatewayProvider, apiKey, secretKey, merchantId, isDirectPaymentEnabled, environment)
 
     suspend fun updatePaymentApiKeys(
         clinicId: String,
@@ -656,9 +670,23 @@ class ClinicRepository @Inject constructor(
         apiKey: String,
         secretKey: String?,
         merchantId: String?,
-        isDirectPaymentEnabled: Boolean
+        isDirectPaymentEnabled: Boolean,
+        environment: String = "test"
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
+            if (gatewayProvider.equals("esewa", ignoreCase = true)) {
+                val response = supabaseClient.functions.invoke("appointment-payment", body = buildJsonObject {
+                    put("action", "save_esewa_credentials")
+                    put("clinicId", clinicId)
+                    put("productCode", merchantId?.takeIf { it.isNotBlank() } ?: apiKey)
+                    put("secretKey", secretKey.orEmpty())
+                    put("environment", environment.lowercase())
+                })
+                response.body<kotlinx.serialization.json.JsonObject>()
+                val current = getClinicById(clinicId)
+                if (current != null) updateClinic(clinicId, current.copy(isDirectPaymentEnabled = isDirectPaymentEnabled, paymentGatewayProvider = gatewayProvider))
+                return@withContext Result.success(true)
+            }
             val current = getClinicById(clinicId)
             if (current != null) {
                 val updated = current.copy(
@@ -742,6 +770,7 @@ class ClinicRepository @Inject constructor(
                     }
                 }
                 .decodeList<MedicalSpecialty>()
+                .filter { it.category != "system_config" && !it.name.startsWith("system_config") }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
